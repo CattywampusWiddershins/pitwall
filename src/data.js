@@ -154,16 +154,22 @@ const PERSONALITIES = [
   { id: 'fiery', name: 'Fiery', blurb: 'Emotional, passionate, occasionally regrets it.' },
 ];
 
+// Season goals. scope: 'driver' goals belong to one driver (you, or one of your team's drivers in My Team), 'team'
+// goals to the team, 'any' to either.
 const GOAL_TYPES = [
-  { id: 'champ_pos', label: 'Finish championship in top', unit: 'position', needsTarget: true },
-  { id: 'beat_teammate', label: 'Beat teammate in the championship', needsTarget: false },
-  { id: 'wins', label: 'Race wins', unit: 'wins', needsTarget: true },
-  { id: 'podiums', label: 'Podiums', unit: 'podiums', needsTarget: true },
-  { id: 'poles', label: 'Pole positions', unit: 'poles', needsTarget: true },
-  { id: 'points', label: 'Championship points', unit: 'points', needsTarget: true },
-  { id: 'quali_h2h', label: 'Win qualifying head-to-head vs teammate', needsTarget: false },
-  { id: 'constructor_pos', label: 'Team finishes constructors’ championship in top', unit: 'position', needsTarget: true },
-  { id: 'custom', label: 'Custom goal', needsTarget: false },
+  { id: 'champ_pos', scope: 'driver', label: 'Finish championship in top', unit: 'position', needsTarget: true },
+  { id: 'beat_teammate', scope: 'driver', label: 'Beat teammate in the championship', needsTarget: false },
+  { id: 'wins', scope: 'driver', label: 'Race wins', unit: 'wins', needsTarget: true },
+  { id: 'podiums', scope: 'driver', label: 'Podiums', unit: 'podiums', needsTarget: true },
+  { id: 'poles', scope: 'driver', label: 'Pole positions', unit: 'poles', needsTarget: true },
+  { id: 'points', scope: 'driver', label: 'Championship points', unit: 'points', needsTarget: true },
+  { id: 'quali_h2h', scope: 'driver', label: 'Win qualifying head-to-head vs teammate', needsTarget: false },
+  { id: 'constructor_pos', scope: 'team', label: 'Finish constructors’ championship in top', unit: 'position', needsTarget: true },
+  { id: 'team_points', scope: 'team', label: 'Constructors’ points', unit: 'points', needsTarget: true },
+  { id: 'team_wins', scope: 'team', label: 'Team race wins', unit: 'wins', needsTarget: true },
+  { id: 'team_podiums', scope: 'team', label: 'Team podiums', unit: 'podiums', needsTarget: true },
+  { id: 'beat_team', scope: 'team', label: 'Finish ahead of', needsTarget: false, needsTeam: true },
+  { id: 'custom', scope: 'any', label: 'Custom goal', needsTarget: false },
 ];
 
 const OUTLETS = ['Grid Line Weekly', 'The Apex Report', 'Paddock Pass', 'Pit Lane Radio', 'Motorsport Daily', 'Chequered Times', 'Slipstream Magazine', 'The Paddock Club'];

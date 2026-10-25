@@ -1207,43 +1207,68 @@ function h2hCompare(seasons, a, b) {
 }
 
 /* ----------------------------------------------------------------- goals */
+/** A goal is the team's or one driver's (yours, or one of your drivers in My Team). Older goals had no scope. */
+const goalScope = (g) => g.scope || (D.GOAL_TYPES.find(x => x.id === g.type)?.scope === 'team' ? 'team' : 'driver');
 function evalGoal(g, s) {
-  const stats = seasonStats(s);
-  const me = stats[PLAYER] || emptyStat();
+  const stats = seasonStatsCache(s);
+  const d = g.driver && s.drivers[g.driver] ? g.driver : PLAYER;
+  const me = stats[d] || emptyStat();
   const ds = driverStandings(s, stats);
-  const myPos = ds.find(x => x.id === PLAYER)?.pos ?? null;
-  const mate = teammateOf(s);
+  const myPos = ds.find(x => x.id === d)?.pos ?? null;
+  const mate = teammateOf(s, d);
+  const cs = constructorStandings(s, stats);
+  const row = cs.find(x => x.team.id === s.playerTeamId) || { pts: 0, wins: 0, podiums: 0, pos: null };
   const t = +g.target || 0;
   const res = (value, ok, pct, text) => ({ value, ok, pct: Math.max(0, Math.min(100, pct)), text });
+  const upTo = (have, want, unit) => res(have, have >= want, want ? have / want * 100 : 100, `${have} / ${want} ${unit}`);
   switch (g.type) {
     case 'champ_pos': return res(myPos, myPos != null && myPos <= t, myPos ? (myPos <= t ? 100 : Math.max(5, 100 - (myPos - t) * 12)) : 0, `Currently ${ord(myPos)} · target top ${t}`);
     case 'beat_teammate': {
       const mp = stats[mate]?.pts || 0;
       return res(me.pts - mp, me.pts > mp, me.pts + mp === 0 ? 50 : (me.pts / (me.pts + mp)) * 100, `${me.pts} pts vs ${dAbbr(s, mate)} ${mp} pts`);
     }
-    case 'wins': return res(me.wins, me.wins >= t, t ? me.wins / t * 100 : 100, `${me.wins} / ${t} wins`);
-    case 'podiums': return res(me.podiums, me.podiums >= t, t ? me.podiums / t * 100 : 100, `${me.podiums} / ${t} podiums`);
-    case 'poles': return res(me.poles, me.poles >= t, t ? me.poles / t * 100 : 100, `${me.poles} / ${t} poles`);
-    case 'points': return res(me.pts, me.pts >= t, t ? me.pts / t * 100 : 100, `${me.pts} / ${t} points`);
+    case 'wins': return upTo(me.wins, t, 'wins');
+    case 'podiums': return upTo(me.podiums, t, 'podiums');
+    case 'poles': return upTo(me.poles, t, 'poles');
+    case 'points': return upTo(me.pts, t, 'points');
     case 'quali_h2h': {
-      const h = h2hCompare([s], PLAYER, mate);
+      const h = h2hCompare([s], d, mate);
       const tot = h.q[0] + h.q[1];
       return res(h.q[0], h.q[0] > h.q[1], tot ? h.q[0] / tot * 100 : 50, `${h.q[0]}–${h.q[1]} vs ${dAbbr(s, mate)}`);
     }
-    case 'constructor_pos': {
-      const cs = constructorStandings(s, stats);
-      const p = cs.find(x => x.team.id === s.playerTeamId)?.pos ?? null;
-      return res(p, p != null && p <= t, p ? (p <= t ? 100 : Math.max(5, 100 - (p - t) * 12)) : 0, `Team is ${ord(p)} · target top ${t}`);
+    case 'constructor_pos': { const p = row.pos; return res(p, p != null && p <= t, p ? (p <= t ? 100 : Math.max(5, 100 - (p - t) * 12)) : 0, `Team is ${ord(p)} · target top ${t}`); }
+    case 'team_points': return upTo(row.pts, t, 'points');
+    case 'team_wins': return upTo(row.wins, t, 'wins');
+    case 'team_podiums': return upTo(row.podiums, t, 'podiums');
+    case 'beat_team': {
+      const o = cs.find(x => x.team.id === g.team);
+      if (!o) return res(null, false, 0, 'That team is not on the grid');
+      return res(row.pts - o.pts, row.pos != null && row.pos < o.pos, row.pts + o.pts ? row.pts / (row.pts + o.pts) * 100 : 50, `${row.pts} pts vs ${o.team.name} ${o.pts} pts`);
     }
     default: return res(null, !!g.done, g.done ? 100 : 0, g.done ? 'Marked as achieved' : 'Tick when achieved');
   }
 }
-function goalTitle(g) {
+function goalTitle(g, s = curSeason()) {
   const gt = D.GOAL_TYPES.find(x => x.id === g.type);
-  if (g.type === 'custom') return g.text || 'Custom goal';
-  if (g.type === 'champ_pos' || g.type === 'constructor_pos') return `${gt.label} ${g.target}`;
-  if (gt?.needsTarget) return `${g.target} ${gt.unit === 'points' ? 'championship points' : gt.label.toLowerCase()}`;
-  return gt?.label || g.type;
+  let txt;
+  if (g.type === 'custom') txt = g.text || 'Custom goal';
+  else if (g.type === 'beat_team') txt = `Finish ahead of ${(s?.teams.find(x => x.id === g.team) || teamMeta(career(), g.team))?.name || 'a rival team'}`;
+  else if (g.type === 'champ_pos' || g.type === 'constructor_pos') txt = `${gt.label} ${g.target}`;
+  else if (gt?.needsTarget) txt = `${g.target} ${gt.unit === 'points' ? (goalScope(g) === 'team' ? 'constructors’ points' : 'championship points') : gt.label.toLowerCase()}`;
+  else txt = gt?.label || g.type;
+  return g.driver && g.driver !== PLAYER_ID && goalScope(g) === 'driver' && s ? `${lastName(dName(s, g.driver))}: ${txt}` : txt;
+}
+/** The season's goals on the dashboard: the team's, then the drivers'. */
+function goalsPanel(c, s) {
+  const done = roundsDone(s);
+  const row = (g) => { const e = evalGoal(g, s); return `<div class="goal">
+    <div><div style="font-weight:600">${esc(goalTitle(g, s))}</div><div class="muted" style="font-size:12px">${esc(e.text)}</div></div>
+    <div class="row">${g.type === 'custom' ? `<label class="check"><input type="checkbox" data-ch="goal-done" data-id="${g.id}" ${g.done ? 'checked' : ''}> Done</label>` : `<span class="status-dot ${e.ok ? 'ok' : done ? 'warn' : ''}"></span><span class="muted" style="font-size:12px">${e.ok ? 'On target' : done ? 'Behind' : 'Not started'}</span>`}</div>
+    <div class="bar-track"><div class="bar-fill ${e.ok ? 'ok' : ''}" style="width:${e.pct}%"></div></div></div>`; };
+  const team = s.goals.filter(g => goalScope(g) === 'team'), drv = s.goals.filter(g => goalScope(g) !== 'team');
+  return `<div class="panel"><div class="panel-h"><h2>${s.year} goals</h2><button class="btn sm" data-act="edit-goals">Edit goals</button></div>
+    ${s.goals.length ? `${team.length ? `<div class="panel-b"><span class="label">Team</span>${team.map(row).join('')}</div>` : ''}${drv.length ? `<div class="panel-b" ${team.length ? 'style="border-top:1px solid var(--line)"' : ''}><span class="label">${isPrincipal(c) ? 'Drivers' : 'You'}</span>${drv.map(row).join('')}</div>` : ''}`
+      : `<div class="empty">No goals set for ${s.year}.<button class="btn sm" data-act="edit-goals">Set goals</button></div>`}</div>`;
 }
 
 /* --------------------------------------------------------------- render */
@@ -1312,7 +1337,6 @@ const NAV = [
   ['drivers', 'Drivers', 'helmet'],
   ['teams', 'Teams', 'garage'],
   ['tracks', 'Circuits', 'track'],
-  ['myteam', 'My Team', 'shield'],
   ['hof', 'Hall of Fame', 'laurel'],
   ['records', 'Records', 'medal'],
   ['media', 'Media', 'mic'],
@@ -1368,7 +1392,7 @@ function renderView() {
     case 'transfers': return renderTransfers();
     case 'tracks': return renderTracks();
     case 'track': return renderTrack();
-    case 'myteam': return renderMyTeam();
+    case 'myteam': ui.view = 'dashboard'; return renderDashboard();
     case 'hof': return renderHof();
     case 'records': return renderRecords();
     case 'review': return renderReview();
@@ -1477,6 +1501,7 @@ function drawPhotoModal() {
 /* ------------------------------------------------------------- dashboard */
 function renderDashboard() {
   const c = career(); const s = curSeason();
+  if (c.type === 'myteam' && c.myTeam) return renderMyTeam();
   const stats = seasonStats(s);
   const ds = driverStandings(s, stats);
   const me = stats[PLAYER] || emptyStat();
@@ -1525,17 +1550,7 @@ function renderDashboard() {
 
     <div class="grid-main">
       <div class="stack">
-        <div class="panel">
-          <div class="panel-h"><h2>Season goals</h2><button class="btn sm" data-act="edit-goals">Edit goals</button></div>
-          <div class="panel-b">${s.goals.length ? s.goals.map(g => {
-            const e = evalGoal(g, s);
-            return `<div class="goal">
-              <div><div style="font-weight:600">${esc(goalTitle(g))}</div><div class="muted" style="font-size:12px">${esc(e.text)}</div></div>
-              <div class="row">${g.type === 'custom' ? `<label class="check"><input type="checkbox" data-ch="goal-done" data-id="${g.id}" ${g.done ? 'checked' : ''}> Done</label>` : `<span class="status-dot ${e.ok ? 'ok' : done ? 'warn' : ''}"></span><span class="muted" style="font-size:12px">${e.ok ? 'On target' : done ? 'Behind' : 'Not started'}</span>`}</div>
-              <div class="bar-track"><div class="bar-fill ${e.ok ? 'ok' : ''}" style="width:${e.pct}%"></div></div>
-            </div>`;
-          }).join('') : `<div class="empty">No goals set for ${s.year}.<button class="btn sm" data-act="edit-goals">Set goals</button></div>`}</div>
-        </div>
+        ${goalsPanel(c, s)}
 
         <div class="panel">
           <div class="panel-h"><h2>Recent results</h2><button class="btn sm ghost" data-act="nav" data-view="calendar">Full calendar</button></div>
@@ -1558,6 +1573,7 @@ function renderDashboard() {
           <div class="panel-h"><h2>Drivers' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
           <div class="panel-b tight"><table><tbody>${top.map(x => `<tr class="${x.id === PLAYER ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div>
         </div>
+        ${rivalryPanel(c, s)}
         <div class="panel">
           <div class="panel-h"><h2>Teammate battle</h2><button class="btn sm ghost" data-act="nav" data-view="h2h">Details</button></div>
           <div class="panel-b stack">
@@ -2594,7 +2610,7 @@ function renderTeam() {
         <span class="label">Constructors’ championships</span>
         <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${tot.conTitles.length}</div>
         <span class="muted" style="font-size:13px;max-width:260px">${tot.conTitles.length ? esc(tot.conTitles.join(', ')) : tot.bestCon ? `Best: P${tot.bestCon}` : 'No titles yet'}</span>
-        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="myteam">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}</div>
+        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}</div>
       </div>
     </section>
 
@@ -2966,19 +2982,34 @@ function renderMyTeam() {
       <div style="position:relative;z-index:1;min-width:0">
         <span class="label">My Team · est. ${m.founded || 2025}</span>
         <div class="name">${esc(m.name)}</div>
-        <div class="meta">${m.base ? `<span>${esc(m.base)}</span>` : ''}<span>${esc(m.engine)} power</span><span>Team principal: ${esc(m.principal || `${c.profile.first} ${c.profile.last}`)}</span></div>
+        <div class="meta">${m.base ? `<span>${esc(m.base)}</span>` : ''}<span>${esc(m.engine)} power</span><span>Team principal: ${esc(m.principal || `${c.profile.first} ${c.profile.last}`)}</span>${c.profile.rivalTeam ? `<span>Rival: ${esc((s.teams.find(x => x.id === c.profile.rivalTeam) || teamMeta(c, c.profile.rivalTeam)).name)}</span>` : ''}</div>
+        <div class="meta" style="margin-top:6px"><span><b>${cur.row && roundsDone(s) ? 'P' + cur.row.pos : '–'}</b> of ${cur.teams} in the constructors</span><span>${cur.row?.pts || 0} points</span><span>Budget ${fmtM(balance)}</span></div>
       </div>
-      <div class="next-card">
-        <span class="label">${s.year} constructors</span>
-        <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${cur.row && roundsDone(s) ? 'P' + cur.row.pos : '–'}<small class="muted" style="font-size:15px"> / ${cur.teams}</small></div>
-        <span class="muted" style="font-size:13px">${cur.row?.pts || 0} points · budget ${fmtM(balance)}</span>
-      </div>
+      <div class="next-card">${(() => { const nr = nextRound(s); const total = activeRounds(s).length; return nr
+        ? `<span class="label">Next up · Round ${activeRounds(s).indexOf(nr) + 1} of ${total}</span><div style="font-family:var(--font-display);font-size:20px;font-weight:600">${esc(nr.name)} ${nr.sprint ? '<span class="tag sprint">Sprint</span>' : ''}</div><span class="muted">${esc(nr.venue)} · ${weekendTxt(s, nr)}</span><button class="btn primary" data-act="open-round" data-round="${nr.id}">Log weekend</button>`
+        : `<span class="label">Season complete</span><div style="font-family:var(--font-display);font-size:20px;font-weight:600">All ${total} rounds logged</div><button class="btn" data-act="open-review" data-idx="${s.index}">Season review</button><button class="btn primary" data-act="next-season">Start ${s.year + 1} season</button>`; })()}</div>
     </section>
     <div class="row"><div class="seg">${tabs.map(([id, l]) => `<button data-act="mt-tab" data-tab="${id}" class="${tab === id ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     ${body}
   </div>`;
 }
 
+/** The season at a glance for a My Team dashboard: goals, the title fights and both championships. */
+function mtSeasonPanels(c, m, s) {
+  const st = seasonStatsCache(s); const ds = driverStandings(s, st); const cs = constructorStandings(s, st);
+  const mine = new Set(s.teams.find(t => t.id === MYTEAM)?.drivers.filter(Boolean) || []);
+  const top = ds.slice(0, 6); for (const id of mine) { const r = ds.find(x => x.id === id); if (r && !top.includes(r)) top.push(r); }
+  const lastArticle = [...c.media].reverse().find(x => x.article && x.seasonIdx === s.index);
+  return `<div class="grid-main">
+      <div class="stack">${goalsPanel(c, s)}${rivalryPanel(c, s)}</div>
+      <div class="stack">
+        <div class="panel"><div class="panel-h"><h2>Constructors</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
+          <div class="panel-b tight"><table><tbody>${cs.slice(0, 6).concat(cs.slice(6).filter(x => x.team.id === MYTEAM)).map(x => `<tr class="${x.team.id === MYTEAM ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td><div class="drv">${teamLogo(c, x.team, 20)}<b>${esc(x.team.name)}</b></div></td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div></div>
+        <div class="panel"><div class="panel-h"><h2>Drivers</h2></div>
+          <div class="panel-b tight"><table><tbody>${top.map(x => `<tr class="${mine.has(x.id) ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div></div>
+        ${lastArticle ? `<div class="panel"><div class="panel-h"><h2>Latest from the paddock</h2><button class="btn sm ghost" data-act="nav" data-view="media">Media</button></div><div class="article"><span class="outlet">${esc(lastArticle.article.outlet)}</span><div class="headline" style="font-size:18px">${esc(lastArticle.article.headline)}</div></div></div>` : ''}
+      </div></div>`;
+}
 function renderMtOverview(c, m, s, cur, balance) {
   const hist = playedSeasons(c).map(x => myTeamSeason(c, x));
   const all = hist.reduce((a, h) => ({ pts: a.pts + (h.row?.pts || 0), wins: a.wins + (h.row?.wins || 0), podiums: a.podiums + (h.row?.podiums || 0), poles: a.poles + h.poles }), { pts: 0, wins: 0, podiums: 0, poles: 0 });
@@ -2996,6 +3027,7 @@ function renderMtOverview(c, m, s, cur, balance) {
       <div class="tile"><span class="label">Constructors' titles</span><span class="v">${titles.length}</span></div>
       <div class="tile"><span class="label">Budget</span><span class="v" style="font-size:26px;color:${balance < 0 ? 'var(--red)' : 'inherit'}">${fmtM(balance)}</span></div>
     </div>
+    ${mtSeasonPanels(c, m, s)}
     <div class="grid-2">
       <div class="panel"><div class="panel-h"><h2>${s.year} line-up</h2></div><div class="panel-b tight"><table>
         <thead><tr><th>Driver</th><th class="num">Pts</th><th class="num">Wins</th><th class="num">Pod</th><th class="num">Best</th></tr></thead>
@@ -4286,6 +4318,344 @@ function renderRecords() {
   </div>`;
 }
 
+/* -------------------------------------------------------------- rivalries */
+// Title rivals: from the sixth race, anyone within 25 points of the championship leader (43 for constructors) is his
+// title rival. The rivalry cools as the gap grows and is over at 75 points (129 for constructors), or as soon as the
+// chaser can no longer win the title; it can flare up again. Rivalries aren't won, they just fade.
+// Archrivals: title rivals for 70% of a season's rounds. Each driver (and team) has at most one: a new pair takes over
+// only if they were closer, on average, than both of their current archrivalries. An archrivalry ends when one of the
+// two retires (or leaves the grid, for a team), and the retirement story looks back on it.
+// Manual rivalries: started from Stories after contact, a crash or hard racing. They run for the next five races.
+const RIVAL_BANDS = { driver: { on: 25, off: 75 }, team: { on: 43, off: 129 } };
+const ARCH_SHARE = 0.7, FEUD_RACES = 5;
+const pairKey = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
+/** A team's lasting identity (Audi carries Sauber's), so a renamed team keeps its rivalries. */
+const teamRoot = (id) => D.TEAM_BIO[id]?.lineage?.[0] || id;
+/** How heated a title rivalry is, 0 to 1: the closer the points, the hotter. */
+const rivalHeat = (kind, gap) => Math.max(0, Math.min(1, 1 - gap / RIVAL_BANDS[kind].off));
+const _rivCache = new WeakMap();
+function rivalries(c) {
+  let v = _rivCache.get(c);
+  if (!v || v.gen !== renderGen) { v = { gen: renderGen, r: buildRivalries(c) }; _rivCache.set(c, v); }
+  return v.r;
+}
+/**
+ * Replay every season round by round. Returns { at: { 'season:round' | 'season:end' → { active, arch } }, events,
+ * seasons }: the title rivalries live after each round (with how close they are) and who is whose archrival.
+ */
+const _rivBase = new WeakMap();
+function buildRivalries(c) {
+  // real and simulated seasons never change: replay them once per career, then only the seasons you play
+  const n = c.seasons.filter(isHist).length;
+  let base = _rivBase.get(c);
+  if (!base || base.n !== n) { base = { n, st: replayRivalries(c, c.seasons.slice(0, n), null) }; _rivBase.set(c, base); }
+  return replayRivalries(c, c.seasons.slice(n), base.st).out;
+}
+/** Replay these seasons, carrying on from a previous replay's state (or from nothing). */
+function replayRivalries(c, seasons, from) {
+  const copy = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, { ...v }]));
+  const arch = from ? { driver: copy(from.arch.driver), team: copy(from.arch.team) } : { driver: {}, team: {} };
+  const out = from ? { at: { ...from.out.at }, events: [...from.out.events], seasons: { ...from.out.seasons } } : { at: {}, events: [], seasons: {} };
+  // when each driver's retirement was announced (the season it goes on record in)
+  const retiredIn = {};
+  for (const s of c.seasons) for (const tr of s.transfers || []) for (const st of tr.steps) if (st.to === 'retire' && retiredIn[st.driver] == null) retiredIn[st.driver] = s.index;
+  const raced = from ? { ...from.raced } : {}; // driver -> last season index raced
+  const snap = () => ({ driver: { ...arch.driver }, team: { ...arch.team } });
+  for (const s of seasons) {
+    const rounds = activeRounds(s); const N = rounds.length; const need = Math.ceil(N * ARCH_SHARE); const si = s.index;
+    // archrivals who have gone: a retirement on record before this season, three seasons away, or a team off the grid
+    const grid = new Set(gridIds(s)); const roots = new Set(s.teams.map(t => teamRoot(t.id)));
+    for (const [id, a] of Object.entries(arch.driver)) {
+      const goneNow = !grid.has(id) && ((retiredIn[id] != null && retiredIn[id] < si) || (raced[id] != null && si - raced[id] > 3));
+      if (goneNow && arch.driver[id]) { out.events.push({ type: 'archGone', kind: 'driver', id, rival: a.rival, si, since: a }); delete arch.driver[a.rival]; delete arch.driver[id]; }
+    }
+    for (const [id, a] of Object.entries(arch.team)) if (!roots.has(id) && arch.team[id]) { delete arch.team[a.rival]; delete arch.team[id]; }
+    const st = { driver: {}, team: {} }; out.seasons[si] = st;
+    let last = null;
+    for (let i = 0; i < N; i++) {
+      if (!s.weekends[rounds[i].id]?.sessions?.R?.done) break;
+      const active = [];
+      if (i >= 4) for (const kind of ['driver', 'team']) {
+        const B = RIVAL_BANDS[kind]; const m = titleMath(s, kind, i + 1); const L = m.rows[0]; if (!L) continue;
+        const idOf = (x) => kind === 'team' ? teamRoot(x.id) : x.id;
+        const lead = idOf(L); const live = new Set();
+        for (const x of m.rows.slice(1)) {
+          const id = idOf(x); const key = pairKey(lead, id); const gap = L.pts - x.pts;
+          let p = st[kind][key];
+          if (!x.alive || m.decided || gap >= B.off) continue;
+          if (!p?.active && gap <= B.on) {
+            p = st[kind][key] ||= { kind, a: lead, b: id, rounds: 0, gaps: [], arch: false, stints: 0 };
+            p.active = true; p.stints++; p.band = null; p.a = lead; p.b = id;
+            out.events.push({ type: 'start', kind, a: lead, b: id, gap, si, ri: i, rematch: arch[kind][lead]?.rival === id ? { ...arch[kind][lead] } : null, again: p.stints > 1 });
+          }
+          if (!p?.active) continue;
+          live.add(key); p.rounds++; p.gaps.push(gap); p.a = lead; p.b = id;
+          active.push({ kind, a: lead, b: id, gap, heat: rivalHeat(kind, gap) });
+          // turning points: right on each other's tail, or drifting apart
+          const band = gap <= B.on * 0.4 ? 'hot' : gap >= B.off * 0.66 ? 'cool' : 'mid';
+          if (band !== p.band) { if (p.band && band !== 'mid') out.events.push({ type: band, kind, a: lead, b: id, gap, si, ri: i }); p.band = band; }
+        }
+        for (const p of Object.values(st[kind])) if (p.active && !live.has(pairKey(p.a, p.b))) {
+          p.active = false;
+          if (!m.decided) out.events.push({ type: 'end', kind, a: p.a, b: p.b, si, ri: i, gap: (m.rows.find(x => idOf(x) === p.a)?.pts ?? 0) - (m.rows.find(x => idOf(x) === p.b)?.pts ?? 0) });
+        }
+        // archrivals: rivals for 70% of the season; with several at once, the closest in the championship first
+        const pos = Object.fromEntries(m.rows.map(x => [idOf(x), x.pos]));
+        const ready = Object.values(st[kind]).filter(p => !p.arch && p.rounds >= need).sort((a, b) => Math.abs(pos[a.a] - pos[a.b]) - Math.abs(pos[b.a] - pos[b.b]) || avg(a.gaps) - avg(b.gaps));
+        for (const p of ready) {
+          p.arch = true; const g = avg(p.gaps);
+          const A = arch[kind][p.a], Bq = arch[kind][p.b];
+          if (A?.rival === p.b) { A.avg = Math.min(A.avg, g); Bq.avg = A.avg; continue; } // the same two again
+          if ((A && g >= A.avg) || (Bq && g >= Bq.avg)) continue; // an older archrivalry was closer
+          const replaced = [];
+          for (const [me, old] of [[p.a, A], [p.b, Bq]]) if (old) { replaced.push({ id: me, old: old.rival, year: old.year }); delete arch[kind][old.rival]; }
+          arch[kind][p.a] = { rival: p.b, si, year: s.year, avg: g, ri: i };
+          arch[kind][p.b] = { rival: p.a, si, year: s.year, avg: g, ri: i };
+          out.events.push({ type: 'arch', kind, a: p.a, b: p.b, si, ri: i, rounds: p.rounds, of: N, replaced });
+        }
+      }
+      for (const [d, o] of Object.entries(seasonStatsCache(s))) if (o.byRound[rounds[i].id]?.r != null) raced[d] = si;
+      last = out.at[`${si}:${i}`] = { active, arch: snap() };
+    }
+    out.at[`${si}:end`] = last || { active: [], arch: snap() };
+  }
+  return { arch, out, raced };
+}
+/** Rivalry state after round ri of season s (ri < 0: before the season). */
+function rivalsAt(c, s, ri) {
+  const R = rivalries(c);
+  for (let i = ri; i >= 0; i--) if (R.at[`${s.index}:${i}`]) return R.at[`${s.index}:${i}`];
+  const prev = c.seasons[s.index - 1];
+  return (prev && R.at[`${prev.index}:end`]) || { active: [], arch: { driver: {}, team: {} } };
+}
+/** The season two archrivals became archrivals: who finished ahead, and whether it decided the title. */
+function archSeason(c, kind, a, b, year) {
+  const s = c.seasons.find(x => x.year === year); if (!s) return null;
+  const st = seasonStatsCache(s);
+  const rows = kind === 'team' ? constructorStandings(s, st).map(x => ({ id: teamRoot(x.team.id), pts: x.pts, pos: x.pos })) : driverStandings(s, st).map(x => ({ id: x.id, pts: x.pts, pos: x.pos }));
+  const A = rows.find(x => x.id === a), B = rows.find(x => x.id === b); if (!A || !B) return null;
+  const [w, l] = A.pos < B.pos ? [A, B] : [B, A];
+  const complete = roundsDone(s) === activeRounds(s).length;
+  return { s, year, winner: w.id, loser: l.id, margin: w.pts - l.pts, title: complete && w.pos === 1, complete };
+}
+
+/* What the press and the paddock say about title rivals, by how close it is. */
+const RIVAL_QUOTES = {
+  lead: { low: ['We just have to keep doing our thing. The points are the points.', 'I don’t look at the gap. I look at the next race.'],
+    mid: ['They are quick, we know that. We can’t afford a weekend off.', 'It’s a proper fight now. Every point matters.'],
+    high: ['It’s going to go down to the wire, I can feel it.', 'Nobody gives you a title. We will have to take it.', 'There’s no room for mistakes now, from either of us.'] },
+  chase: { low: ['There are a lot of races left. We keep chipping away.', 'We are not out of it. Not even close.'],
+    mid: ['The gap is coming down and they know it.', 'We have the pace. Now we need the results.'],
+    high: ['The pressure is on them now, not us.', 'I didn’t come here to finish second.', 'Every weekend is a final from here.'] },
+  boss: { low: ['We focus on our own job. The championship looks after itself.', 'It’s early to talk about rivals.'],
+    mid: ['They are strong, but so are we. It will be close.', 'We have a plan for the rest of the season and we stick to it.'],
+    high: ['This is what we exist for. A fight like this, all the way to the end.', 'Whoever makes the fewest mistakes wins this. We intend to be that team.'] },
+};
+const heatTier = (h) => h >= 0.8 ? 'high' : h >= 0.55 ? 'mid' : 'low';
+/** Principal of a team for a quote: the real one where Pitwall knows them, yours for My Team. */
+const principalOf = (c, tid) => tid === MYTEAM ? c.myTeam?.principal || `${c.profile.first} ${c.profile.last}` : D.TEAM_BIO[tid]?.principal || null;
+
+/** The rivalry stories of season s: title rivals forming, heating up and fading, archrivals, and your feuds. */
+function rivalryStories(c, s) {
+  const out = []; const R = rivalries(c); const rounds = activeRounds(s);
+  const nm = (kind, id) => kind === 'team' ? (s.teams.find(t => teamRoot(t.id) === id) || teamMeta(c, id))?.name || id : dName(s, id);
+  const short = (kind, id) => kind === 'team' ? nm(kind, id) : id === PLAYER_ID ? c.profile.last : lastName(dName(s, id));
+  const team = (kind, id) => kind === 'team' ? s.teams.find(t => teamRoot(t.id) === id)?.id : null;
+  const quotes = (e, rnd) => {
+    const tier = heatTier(rivalHeat(e.kind, e.gap ?? 0));
+    if (e.kind === 'driver') return [e.a, e.b].filter(id => id !== PLAYER).map((id, k) => ({ id, text: choose(rnd, RIVAL_QUOTES[id === e.a ? 'lead' : 'chase'][tier]) })).slice(0, 2);
+    return [e.a, e.b].map(id => team('team', id)).filter(Boolean).map(tid => ({ team: tid, role: principalOf(c, tid) ? `Team principal ${principalOf(c, tid)}` : 'Team principal', text: choose(rnd, RIVAL_QUOTES.boss[tier]) }));
+  };
+  for (const e of R.events) {
+    if (e.si !== s.index || e.type === 'archGone') continue;
+    const r = rounds[e.ri]; const rnd = seeded(`riv-${s.index}-${e.ri}-${e.type}-${e.a}-${e.b}`);
+    const A = short(e.kind, e.a), B = short(e.kind, e.b), gp = r?.name || '';
+    const cup = e.kind === 'team' ? 'constructors’ title' : 'title';
+    const base = { id: `riv-${s.index}-${e.ri}-${e.type}-${e.kind}-${e.a}-${e.b}`, seq: e.ri * 10 + 5, kind: 'rivalry', i: e.ri, r, outlet: choose(rnd, D.OUTLETS), subject: e.kind === 'driver' ? e.b : null };
+    if (e.type === 'start') {
+      if (e.rematch) {
+        const o = archSeason(c, e.kind, e.a, e.b, e.rematch.year);
+        const lost = o ? short(e.kind, o.loser) : B, won = o ? short(e.kind, o.winner) : A;
+        out.push({ ...base, massive: true, kicker: 'Archrivals · The rematch',
+          headline: choose(rnd, [`The rematch: ${A} v ${B}, round two`, `${A} and ${B}: old enemies, a new ${cup} fight`, `Here we go again: ${A} and ${B} renew hostilities`]),
+          standfirst: `${e.gap ? `${plural(e.gap, 'point')} separate` : 'Nothing separates'} ${A} and ${B} after ${gp}, and the paddock has seen this before.`,
+          body: [o ? `${o.year} was theirs: ${won} came out on top${o.title ? ` and took the ${cup}` : ''}${o.margin ? `, ${plural(o.margin, 'point')} clear` : ' on countback'}. ${lost} has not forgotten, and wants payback.` : '',
+            `The stakes could not be higher. This time it is personal.`].filter(Boolean), quotes: quotes(e, rnd) });
+      } else if (e.again) {
+        out.push({ ...base, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals',
+          headline: choose(rnd, [`${B} is back in the hunt`, `${B} closes in on ${A} again`]),
+          standfirst: `${gp} cuts the gap to ${plural(e.gap, 'point')}: ${B} is a threat to ${A} once more.`, body: [], quotes: quotes(e, rnd) });
+      } else {
+        out.push({ ...base, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals',
+          headline: e.gap <= 10 ? choose(rnd, [`${A} v ${B}: ${e.gap ? plural(e.gap, 'point') : 'nothing'} in it`, `Title rivals: ${A} and ${B} locked together`]) : choose(rnd, [`Title rivals: ${A} and ${B}`, `${A} v ${B}: a ${cup} fight takes shape`]),
+          standfirst: `After ${gp}, ${B} is ${e.gap ? `${plural(e.gap, 'point')} behind` : 'level with'} ${A}${e.kind === 'team' ? ' in the constructors’ championship' : ''}, and this has the makings of a ${cup} fight.`,
+          body: [], quotes: quotes(e, rnd) });
+      }
+    } else if (e.type === 'hot') {
+      out.push({ ...base, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals',
+        headline: choose(rnd, [`${A} and ${B} now ${e.gap ? `just ${plural(e.gap, 'point')} apart` : 'level on points'}`, `The ${cup} fight boils over: ${A} v ${B}`, `Wheel to wheel for the ${cup}: ${A} and ${B}`]),
+        standfirst: `${gp} brings ${B} right up to ${A}. Neither can afford a slip now.`, body: [], quotes: quotes(e, rnd) });
+    } else if (e.type === 'cool') {
+      out.push({ ...base, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals',
+        headline: choose(rnd, [`${A} pulls clear of ${B}`, `The ${A}–${B} fight cools`]),
+        standfirst: `The gap is ${plural(e.gap, 'point')} after ${gp}. ${B} needs something to change, and soon.`, body: [], quotes: quotes(e, rnd).slice(0, 1) });
+    } else if (e.type === 'end') {
+      out.push({ ...base, kicker: 'Championship', headline: choose(rnd, [`${B}’s challenge fades`, `${A} shakes off ${B}`]),
+        standfirst: e.gap >= RIVAL_BANDS[e.kind].off ? `With ${plural(e.gap, 'point')} between them after ${gp}, ${B} is no longer a real threat to ${A}.` : `After ${gp}, ${B} can no longer catch ${A}.`, body: [] });
+    } else if (e.type === 'arch') {
+      const was = e.replaced.map(x => `${short(e.kind, x.id)}’s rivalry with ${short(e.kind, x.old)} from ${x.year}`);
+      out.push({ ...base, massive: true, kicker: 'Archrivals',
+        headline: choose(rnd, [`${A} and ${B}: archrivals`, `${A} v ${B}: a rivalry for the ages`, `${A} and ${B}, the rivalry that defines ${s.year}`]),
+        standfirst: `Title rivals for ${e.rounds} of the ${e.of} rounds so far, ${A} and ${B} are now each other’s archrival.`,
+        body: [was.length ? `It eclipses ${listJoin(was)}.` : '', 'Whatever happens from here, every time these two meet on track, it will mean that little bit more.'].filter(Boolean),
+        quotes: quotes({ ...e, gap: 0 }, rnd) });
+    }
+  }
+  // your feuds: the moment they start (later races mention them in the reports)
+  for (const fd of c.rivalries || []) if (fd.seasonIdx === s.index) out.push({ ...feudStory(c, s, fd), t: Date.parse(fd.createdAt) || 0 });
+  return out;
+}
+
+const FEUD_REASONS = [['contact', 'Contact on track'], ['crash', 'A crash'], ['hard', 'Hard racing'], ['points', 'Close in points']];
+/** How a feud started, in a few words, for the reports that come after it. */
+function feudCause(fd, gp, rnd) {
+  return choose(rnd, {
+    contact: [`their contact in ${gp}`, `that coming-together in ${gp}`, `the clash in ${gp}`],
+    crash: [`the crash in ${gp}`, `their shunt in ${gp}`, `what happened in ${gp}`],
+    hard: [`their wheel-to-wheel fight in ${gp}`, `the hard racing in ${gp}`, `their battle in ${gp}`],
+    points: ['their fight over the same points', 'the battle for every point between them', 'their tussle in the standings'],
+  }[fd.reason] || [`what happened in ${gp}`]);
+}
+function feudStory(c, s, fd) {
+  const rounds = activeRounds(s); const i = Math.max(0, fd.after - 1); const r = rounds[i]; const gp = r?.name || 'the last race';
+  const rnd = seeded(fd.id);
+  const L = (id) => id === PLAYER_ID ? c.profile.last : lastName(dName(s, id));
+  const A = L(fd.a), B = L(fd.b);
+  const head = {
+    contact: [`${A} and ${B} trade blame after contact in ${gp}`, `Sparks fly between ${A} and ${B} after ${gp} contact`],
+    crash: [`${A} and ${B} at odds after the crash in ${gp}`, `${gp} crash leaves ${A} and ${B} fuming`],
+    hard: [`${A} and ${B} go wheel to wheel, and words follow`, `${A} v ${B}: hard racing in ${gp} turns sour`],
+    points: [`${A} v ${B}: the battle for every point heats up`, `${A} and ${B}, and a fight over the same points`],
+  }[fd.reason] || [`${A} and ${B} fall out`];
+  const said = {
+    contact: ['He left me nowhere to go. I expected more.', 'That was not my fault, and he knows it.', 'We touched, it happens. But I won’t forget it.'],
+    crash: ['He just turned in on me. Completely unnecessary.', 'I’m not going to apologise for racing.', 'We’ll talk about it. Or maybe we won’t.'],
+    hard: ['It was hard, but was it fair? I’m not so sure.', 'If he wants to race like that, fine. I can race like that too.', 'That’s racing. He’ll get it back from me.'],
+    points: ['Every point he takes is one I don’t get. Simple as that.', 'We are fighting for the same thing, and neither of us will give an inch.'],
+  }[fd.reason] || ['No comment.'];
+  return { id: 'fd' + fd.id, seq: i * 10 + 8, kind: 'rivalry', i, r, subject: fd.a, outlet: choose(rnd, D.OUTLETS), kicker: 'Bad blood',
+    headline: choose(rnd, head), standfirst: `${dName(s, fd.a)} and ${dName(s, fd.b)} have a score to settle, and the next few races will be worth watching.`, body: [],
+    quotes: [fd.a, fd.b].filter(id => id !== PLAYER).map(id => ({ id, text: choose(rnd, said) })), feud: fd };
+}
+/** Feuds still running at round i: started after an earlier round and within five races of it. */
+const feudsAt = (c, s, i) => (c.rivalries || []).filter(fd => fd.seasonIdx === s.index && i >= fd.after && i < fd.after + FEUD_RACES);
+
+/** Lines for a qualifying report: archrivals or feuding drivers side by side on the grid. */
+function rivalryQualiLines(c, s, i, q, last, rnd) {
+  const lines = []; const pos = (id) => q.findIndex(x => x.d === id);
+  const arch = rivalsAt(c, s, i - 1).arch.driver; const seen = new Set();
+  for (const [a, x] of Object.entries(arch)) {
+    const b = x.rival; const k = pairKey(a, b); if (seen.has(k)) continue; seen.add(k);
+    const pa = pos(a), pb = pos(b); if (pa < 0 || pb < 0 || Math.abs(pa - pb) !== 1) continue;
+    const [f, sb] = pa < pb ? [a, b] : [b, a]; const front = Math.min(pa, pb) + 1;
+    lines.push(choose(rnd, front % 2 === 1
+      ? [`Archrivals ${last(f)} and ${last(sb)} will start side by side on row ${(front + 1) / 2}. The first corner should be interesting.`, `${last(f)} and ${last(sb)}, archrivals since ${x.year}, share row ${(front + 1) / 2}.`]
+      : [`${last(sb)} lines up right behind archrival ${last(f)}, ${ordWord(front + 1)} to ${ordWord(front)}.`, `Just one place splits archrivals ${last(f)} and ${last(sb)} on the grid.`]));
+  }
+  for (const fd of feudsAt(c, s, i)) {
+    const pa = pos(fd.a), pb = pos(fd.b); if (pa < 0 || pb < 0 || Math.abs(pa - pb) !== 1) continue;
+    const gp0 = activeRounds(s)[Math.max(0, fd.after - 1)]?.name || 'the last race';
+    lines.push(choose(rnd, [`${last(fd.a)} and ${last(fd.b)}, who came to blows after ${feudCause(fd, gp0, rnd)}, line up next to each other.`, `Fate puts ${last(fd.a)} and ${last(fd.b)} side by side, not long after ${feudCause(fd, gp0, rnd)}.`]));
+  }
+  return lines;
+}
+/** Lines for a race report: archrivals finishing nose to tail, feuds flaring again, how heated the title fight is. */
+function rivalryRaceLines(c, s, i, res, last, rnd) {
+  const lines = [];
+  const fin = res.filter(x => !OUT.includes(x.st));
+  const tm = (id) => { const k = fin.findIndex(x => x.d === id); if (k < 0) return null; if (k === 0) return 0; return +fin[k].laps > 0 ? null : parseGap(fin[k].gap); };
+  const pos = (id) => fin.findIndex(x => x.d === id);
+  const arch = rivalsAt(c, s, i - 1).arch.driver; const seen = new Set();
+  for (const [a, x] of Object.entries(arch)) {
+    const b = x.rival; const k = pairKey(a, b); if (seen.has(k)) continue; seen.add(k);
+    const pa = pos(a), pb = pos(b); if (pa < 0 || pb < 0 || Math.abs(pa - pb) !== 1) continue;
+    const [f, sb] = pa < pb ? [a, b] : [b, a]; const ta = tm(f), tb = tm(sb); const d = ta != null && tb != null ? tb - ta : null;
+    lines.push(d != null && d <= 3
+      ? choose(rnd, [`${last(f)} and ${last(sb)} had nothing to give each other: the archrivals crossed the line ${d.toFixed(3)} seconds apart, ${last(f)} ahead.`, `Archrivals to the end: ${last(f)} held off ${last(sb)} by ${d.toFixed(3)} seconds.`])
+      : choose(rnd, [`${last(f)} finished one place ahead of archrival ${last(sb)}.`, `Another round to ${last(f)} in the long-running duel with ${last(sb)}.`]));
+  }
+  for (const fd of feudsAt(c, s, i)) {
+    const ta = tm(fd.a), tb = tm(fd.b); if (ta == null || tb == null || Math.abs(ta - tb) > 5) continue;
+    const gp0 = activeRounds(s)[Math.max(0, fd.after - 1)]?.name || 'the last race';
+    const [f, sb] = ta <= tb ? [fd.a, fd.b] : [fd.b, fd.a]; const n = i - fd.after + 1;
+    lines.push(choose(rnd, [`${last(f)} and ${last(sb)} were at it again, ${Math.abs(ta - tb).toFixed(3)} seconds apart at the flag, ${n === 1 ? 'a race' : `${plural(n, 'race')}`} after ${feudCause(fd, gp0, rnd)}.`,
+      `No love lost: ${last(f)} finished just ahead of ${last(sb)}, with ${feudCause(fd, gp0, rnd)} still fresh.`, `${last(f)} came out on top this time, ${Math.abs(ta - tb).toFixed(3)} seconds clear of ${last(sb)}. Neither has forgotten ${feudCause(fd, gp0, rnd)}.`]));
+  }
+  // My Team: how you got on against the team you named as your rival
+  const rt = c.type === 'myteam' && !isHist(s) && c.profile.rivalTeam;
+  if (rt && s.teams.some(t => t.id === rt)) {
+    const best = (tid) => { const k = fin.findIndex(x => teamAt(s, x.d, i)?.id === tid); return k < 0 ? null : k + 1; };
+    const me = best(MYTEAM), them = best(rt); const tn = s.teams.find(t => t.id === rt).name, mn = s.teams.find(t => t.id === MYTEAM)?.name;
+    if (me && them) lines.push(me < them ? choose(rnd, [`${mn} got the better of rivals ${tn}: best car ${ordWord(me)} to their ${ordWord(them)}.`, `One up on ${tn}: ${mn}’s lead car came home ${ordWord(me)}, ahead of their best in ${ordWord(them)}.`])
+      : choose(rnd, [`Rivals ${tn} had the edge over ${mn} today, ${ordWord(them)} to ${ordWord(me)}.`, `${tn} came out ahead of ${mn} this time: ${ordWord(them)} against ${ordWord(me)}.`]));
+  }
+  const hot = rivalsAt(c, s, i).active.filter(x => x.kind === 'driver').sort((a, b) => b.heat - a.heat)[0];
+  if (hot) lines.push(hot.heat >= 0.85 ? choose(rnd, [`The title fight between ${last(hot.a)} and ${last(hot.b)} could hardly be closer.`, `${last(hot.a)} v ${last(hot.b)} is turning into a classic.`])
+    : hot.heat >= 0.6 ? choose(rnd, [`It is a straight fight between ${last(hot.a)} and ${last(hot.b)} now.`, `${last(hot.b)} keeps the pressure on ${last(hot.a)}.`])
+    : choose(rnd, [`${last(hot.b)} needs to start closing on ${last(hot.a)} soon.`, `${last(hot.a)} keeps ${last(hot.b)} at arm’s length, for now.`]));
+  return lines;
+}
+/** For a retirement story: the archrivalry that defined a driver's career, and how its season ended. */
+function archRetireLine(c, s, id, at) {
+  const a = rivalsAt(c, s, Math.min(at, activeRounds(s).length) - 1).arch.driver[id]; if (!a) return '';
+  const o = archSeason(c, 'driver', id, a.rival, a.year);
+  const L = (x) => x === PLAYER_ID ? c.profile.last : lastName(dName(o?.s || s, x));
+  return o ? `The rivalry with ${L(a.rival)} will be remembered as a defining part of ${L(id)}’s career. It burned brightest in ${o.year}, when ${L(o.winner)} came out on top${o.title ? ' and took the title' : ''}${o.margin ? ` by ${plural(o.margin, 'point')}` : ' on countback'}.`
+    : `The rivalry with ${L(a.rival)} was a defining part of ${L(id)}’s career.`;
+}
+/** Dashboard panel: the title fights right now, archrivals that matter to you, and your running feuds. */
+function rivalryPanel(c, s) {
+  const st = rivalsAt(c, s, roundsDone(s) - 1);
+  const nm = (kind, id) => kind === 'team' ? (s.teams.find(t => teamRoot(t.id) === id) || teamMeta(c, id))?.name || id : dName(s, id);
+  const mine = new Set([PLAYER, ...(s.teams.find(t => t.id === s.playerTeamId)?.drivers || [])]);
+  const myRoot = teamRoot(s.playerTeamId);
+  const live = st.active.slice().sort((a, b) => b.heat - a.heat);
+  const arch = [];
+  for (const id of mine) { const a = st.arch.driver[id]; if (id && a) arch.push(`${nm('driver', id)} v ${nm('driver', a.rival)} (since ${a.year})`); }
+  if (st.arch.team[myRoot]) arch.push(`${nm('team', myRoot)} v ${nm('team', st.arch.team[myRoot].rival)} (since ${st.arch.team[myRoot].year})`);
+  const feuds = feudsAt(c, s, roundsDone(s));
+  const rows = live.map(x => `<div class="goal"><div><div style="font-weight:600">${esc(nm(x.kind, x.a))} v ${esc(nm(x.kind, x.b))}</div><div class="muted" style="font-size:12px">${x.kind === 'team' ? 'Constructors' : 'Drivers'} · ${x.gap ? plural(x.gap, 'point') : 'level'}</div></div>
+    <span class="tag ${x.heat >= 0.8 ? 'dnf' : x.heat >= 0.55 ? 'sprint' : ''}">${x.heat >= 0.8 ? 'White hot' : x.heat >= 0.55 ? 'Heated' : 'Simmering'}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${Math.round(x.heat * 100)}%;background:var(--red)"></div></div></div>`).join('');
+  return `<div class="panel"><div class="panel-h"><h2>Rivalries</h2><button class="btn sm ghost" data-act="rv-new">Start a rivalry</button></div>
+    ${rows ? `<div class="panel-b"><span class="label">Title rivals</span>${rows}</div>` : `<div class="panel-b muted" style="font-size:13px">${roundsDone(s) < 5 ? 'Title rivalries form from the sixth race.' : 'Nobody is close enough to the leader to call it a fight.'}</div>`}
+    ${arch.length ? `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Archrivals</span><div style="display:grid;gap:4px;margin-top:6px">${arch.map(x => `<div>${esc(x)}</div>`).join('')}</div></div>` : ''}
+    ${feuds.length ? `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Bad blood</span><div style="display:grid;gap:4px;margin-top:6px">${feuds.map(fd => `<div>${esc(dName(s, fd.a))} v ${esc(dName(s, fd.b))} <span class="muted">· ${esc(FEUD_REASONS.find(x => x[0] === fd.reason)?.[1] || '')}, ${plural(fd.after + FEUD_RACES - roundsDone(s), 'race')} left</span></div>`).join('')}</div></div>` : ''}
+  </div>`;
+}
+function rivalryModal() {
+  const s = latestSeason(); const ids = gridIds(s);
+  ui.modal = { kind: 'rivalry', a: ids.includes(PLAYER) ? PLAYER : ids[0], b: ids.find(id => id !== PLAYER && id !== ids[0]) || ids[1], reason: 'contact' };
+  drawRivalryModal();
+}
+function drawRivalryModal() {
+  const c = career(); const s = latestSeason(); const m = ui.modal;
+  const opt = (k, v, l) => `<option value="${v}" ${m[k] === v ? 'selected' : ''}>${esc(l)}</option>`;
+  const drivers = (k) => s.teams.map(t => `<optgroup label="${esc(t.name)}">${t.drivers.filter(Boolean).map(d => opt(k, d, dName(s, d))).join('')}</optgroup>`).join('');
+  const preview = m.a !== m.b ? feudStory(c, s, { id: 'preview', seasonIdx: s.index, after: roundsDone(s), a: m.a, b: m.b, reason: m.reason }) : null;
+  modal(`<div class="modal-h"><h2>Start a rivalry</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+    <div class="modal-b">
+      <div class="form-grid">
+        <label class="field"><span>Driver</span><select data-ch="rv-field" data-k="a">${drivers('a')}</select></label>
+        <label class="field"><span>And</span><select data-ch="rv-field" data-k="b">${drivers('b')}</select></label>
+        <label class="field"><span>Why</span><select data-ch="rv-field" data-k="reason">${FEUD_REASONS.map(([v, l]) => opt('reason', v, l)).join('')}</select></label>
+      </div>
+      ${preview ? `<div class="callout" style="border-left-color:var(--team)"><span class="label">Preview headline</span><div style="color:var(--fg);font-family:var(--font-display);font-size:18px;margin-top:4px">${esc(preview.headline)}</div></div>` : '<div class="callout">Pick two different drivers.</div>'}
+      <p class="muted" style="font-size:13px">The story runs after round ${roundsDone(s) || 1}. For the next ${FEUD_RACES} races the press brings it up whenever the two qualify side by side or finish within five seconds of each other. Title rivals are tracked automatically.</p>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-act="modal-close">Cancel</button><button class="btn primary" data-act="rv-create" ${preview ? '' : 'disabled'}>Start the rivalry</button></div>`);
+}
+
 /* ---------------------------------------------------------------- stories */
 // Stories are rebuilt from the results every time, so editing a result rewrites its article.
 // A seeded picker keeps the wording stable between renders.
@@ -4553,6 +4923,7 @@ function buildStories(c, s) {
           standfirst: `${name(pole)} (${tName(pole)}) will start the ${gp} Grand Prix from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
           body: [`The top ten: ${q.slice(0, 10).map((x, k) => `${k + 1}. ${last(x.d)}`).join(', ')}.`,
             qualiMemory(mem, q, pole, last, rnd),
+            ...rivalryQualiLines(c, s, i, q, last, rnd),
             q.findIndex(x => x.d === PLAYER) >= 10 ? `${name(PLAYER)} qualified ${ordWord(q.findIndex(x => x.d === PLAYER) + 1)}.` : ''].filter(Boolean),
         });
       }
@@ -4608,6 +4979,7 @@ function buildStories(c, s) {
     body.push(notes.join(' '));
     const memLine = raceMemoryLine(mem, res, W, last, name, rnd);
     if (memLine) body.push(memLine);
+    const rivLines = rivalryRaceLines(c, s, i, res, last, rnd); if (rivLines.length) body.push(rivLines.join(' '));
     const dd = driverOfTheDay(s, i);
     if (dd) body.push(`Driver of the Day: ${name(dd.id)} (${dd.rating.toFixed(1)}/10)${dd.pub.length ? `, who ${listJoin(dd.pub)}` : ''}.`);
     // the player and their teammate
@@ -4627,7 +4999,7 @@ function buildStories(c, s) {
     if (i === 0) champ.push(`${name(A0.id)} leads the championship after the opening round${A1 ? `, ${dA.margin ? `${plural(dA.margin, 'point')} clear of ${name(A1.id)}` : `level with ${name(A1.id)}`}` : ''}.`);
     else if (A0.id !== B0.id) champ.push(`${name(A0.id)} takes the championship lead from ${name(B0.id)}${dA.margin ? ` and now leads by ${plural(dA.margin, 'point')}` : ', the two level on points'}.`);
     else if (dA.margin > dB.margin) champ.push(`${last(A0.id)} extends the championship lead to ${plural(dA.margin, 'point')} over ${name(A1.id)}${posB[A1.id] !== 2 ? `, who moves up to second` : ''}.`);
-    else if (dA.margin < dB.margin) champ.push(`${name(A1.id)} cuts ${last(A0.id)}’s championship lead to ${plural(dA.margin, 'point')}${posB[A1.id] !== 2 ? ` after moving up to second` : ''}.`);
+    else if (dA.margin < dB.margin) champ.push(dA.margin ? `${name(A1.id)} cuts ${last(A0.id)}’s championship lead to ${plural(dA.margin, 'point')}${posB[A1.id] !== 2 ? ` after moving up to second` : ''}.` : `${name(A1.id)} draws level with ${last(A0.id)} on points, ${last(A0.id)} staying ahead on countback.`);
     else champ.push(`${last(A0.id)}’s lead over ${name(A1.id)} stays at ${plural(dA.margin, 'point')}.`);
     if (i > 0) {
       const moves = dA.rows.slice(2, 6).filter(x => posB[x.id] && posB[x.id] !== x.pos).map(x => `${last(x.id)} ${posB[x.id] > x.pos ? 'moves up to' : 'drops to'} ${ordWord(x.pos)}`);
@@ -4752,6 +5124,7 @@ function buildStories(c, s) {
     out.push({ ...rumourStory(c, s, rm), t: Date.parse(rm.createdAt) || 0 });
     const f = rumourFollowUp(c, s, rm); if (f) out.push(f);
   }
+  out.push(...rivalryStories(c, s));
   for (const tr of s.transfers || []) out.push(transferStory(c, s, tr));
   return out.sort((a, b) => (b.seq - a.seq) || (b.t || 0) - (a.t || 0));
 }
@@ -4892,10 +5265,10 @@ function rumourFollowUp(c, s, rm) {
   return { id: 'rmf' + rm.id, seq: ri * 10 + 8, kind: 'rumour', i: ri, r: rounds[ri], outlet, kicker: 'Rumour update', headline, standfirst: choose(rnd, report), body: lines, quotes, subject: rm.driver, t: (Date.parse(rm.createdAt) || 0) + 1 };
 }
 
-const STORY_FILTERS = [['all', 'All', null], ['races', 'Race reports', ['race', 'sprint', 'quali', 'dotd', 'preview']], ['ratings', 'Fan Voice', ['ratings', 'dotd']], ['title', 'Championship', ['title', 'preview']], ['records', 'Records & milestones', ['record', 'milestone']], ['interviews', 'Interviews', ['interview', 'pen']], ['rumours', 'Transfers & rumours', ['transfer', 'rumour']]];
+const STORY_FILTERS = [['all', 'All', null], ['races', 'Race reports', ['race', 'sprint', 'quali', 'dotd', 'preview']], ['ratings', 'Fan Voice', ['ratings', 'dotd']], ['title', 'Championship', ['title', 'preview']], ['records', 'Records & milestones', ['record', 'milestone']], ['interviews', 'Interviews', ['interview', 'pen']], ['rivalries', 'Rivalries', ['rivalry']], ['rumours', 'Transfers & rumours', ['transfer', 'rumour']]];
 function storyHtml(c, s, x, lead = false) {
   const when = x.r ? `R${x.i + 1} · ${esc(x.r.name)} · ${fmtDay(roundDate(s, x.r))}` : x.i < 0 ? 'Pre-season' : '';
-  const kcls = { race: 'done', title: 'next', preview: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next' }[x.kind] || '';
+  const kcls = { race: 'done', title: 'next', preview: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next', rivalry: 'dnf' }[x.kind] || '';
   const q = (x.quotes || []).filter(Boolean);
   return `<article class="article story ${lead ? 'lead' : ''} ${x.kind === 'transfer' ? 'breaking' : ''} ${x.massive ? 'massive' : ''} ${x.fanVoice ? 'fan-voice' : ''}">
     <div class="row" style="justify-content:space-between">${x.fanVoice ? fvMark(true) : `<span class="outlet">${esc(x.outlet)}</span>`}<span class="row" style="gap:8px"><span class="tag ${kcls}">${esc(x.kicker)}</span><span class="muted" style="font-size:12px">${when}</span></span></div>
@@ -4928,7 +5301,7 @@ function renderStories() {
   const known = allKnownDrivers(c, s);
   return `<div class="page">
     <div class="page-head"><div><h1>Stories</h1><div class="sub">The ${s.year} season as the paddock press tells it: race reports, the title fight, interviews and rumours. Articles update when you edit results.</div></div>
-      <div class="row">${seasonPicker(c, s.index)}${isHist(s) ? '' : '<button class="btn primary" data-act="rm-new">Start a rumour</button>'}</div></div>
+      <div class="row">${seasonPicker(c, s.index)}${isHist(s) ? '' : '<button class="btn" data-act="rv-new">Start a rivalry</button><button class="btn primary" data-act="rm-new">Start a rumour</button>'}</div></div>
     <div class="row"><div class="seg">${STORY_FILTERS.map(([id, l]) => `<button data-act="stories-filter" data-v="${id}" class="${f[0] === id ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     <div class="grid-main">
       <div class="panel">${list.length ? list.map((x, k) => storyHtml(c, s, x, k === 0)).join('') : `<div class="empty">No stories yet. Log a qualifying session or race and the press will write it up.</div>`}
@@ -5278,7 +5651,7 @@ function transferStory(c, s, tr) {
     headline = champ ? `BREAKING: ${Champ} ${nm} announces retirement` : choose(rnd, [`BREAKING: ${L} to retire from Formula 1`, `BREAKING: ${L} calls time on F1 career`]);
     standfirst = champ ? `It is the end of an era. ${nm} is retiring from Formula 1 ${tr.effective === 'next' ? `at the end of ${s.year}` : 'with immediate effect'}, bringing down the curtain on the career of a ${champ}.`
       : `${nm} is retiring from Formula 1 ${tr.effective === 'next' ? `at the end of ${s.year}` : 'with immediate effect'}${from ? `, leaving ${from}` : ''}.`;
-    body = [career, left ? `The decision comes with ${leftTxt} on the contract with ${from}.` : '', champ ? `The paddock will be a quieter place without one of the sport’s champions.` : ''];
+    body = [career, archRetireLine(c, s, m0.driver, tr.at), left ? `The decision comes with ${leftTxt} on the contract with ${from}.` : '', champ ? `The paddock will be a quieter place without one of the sport’s champions.` : ''];
   } else if (m0.to === 'pending') {
     if (champ) kicker = 'BREAKING · World champion';
     headline = champ ? `BREAKING: ${Champ} ${L} to leave ${from}, future unclear` : choose(rnd, [`BREAKING: ${L} to leave ${from}`, `BREAKING: ${L} and ${from} to go separate ways`]);
@@ -5392,7 +5765,7 @@ function renderSettings() {
         <label class="field"><span>Date of birth</span><input type="date" id="pf-born" value="${esc(c.profile.born || '')}"></label>
         <label class="field"><span>Driver type</span><select id="pf-arch">${D.ARCHETYPES.map(a => `<option value="${a.id}" ${a.id === c.profile.archetype ? 'selected' : ''}>${a.name}</option>`).join('')}</select></label>
         <label class="field"><span>Media personality</span><select id="pf-pers">${D.PERSONALITIES.map(a => `<option value="${a.id}" ${a.id === c.profile.personality ? 'selected' : ''}>${a.name}</option>`).join('')}</select></label>
-        <label class="field"><span>Rival</span><select id="pf-rival"><option value="">None</option>${allIds.map(id => `<option value="${id}" ${id === c.profile.rival ? 'selected' : ''}>${esc(known[id].name)}</option>`).join('')}</select></label>
+        ${c.type === 'myteam' ? `<label class="field"><span>Rival team</span><select id="pf-rival"><option value="">None</option>${latestSeason().teams.filter(x => x.id !== MYTEAM).map(x => `<option value="${x.id}" ${x.id === c.profile.rivalTeam ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : `<label class="field"><span>Rival</span><select id="pf-rival"><option value="">None</option>${allIds.map(id => `<option value="${id}" ${id === c.profile.rival ? 'selected' : ''}>${esc(known[id].name)}</option>`).join('')}</select></label>`}
       </div>
       <label class="field"><span>Backstory (used by the media)</span><textarea id="pf-bio">${esc(c.profile.bio || '')}</textarea></label>
       <div class="row" style="gap:12px">${avatar(c, s, PLAYER, 48)}${pictureControls('driver', PLAYER, !!c.profile.photo)}</div>
@@ -5501,7 +5874,7 @@ function defaultSetup() {
   return {
     year: 2025, first: '', last: '', abbr: '', number: 27, nationality: '', archetype: 'prodigy', personality: 'confident', bio: '',
     teamId: 'williams', seat: 'SAI', extra: '', practice: 'full', rival: '',
-    goals: [{ id: uid(), type: 'beat_teammate' }, { id: uid(), type: 'champ_pos', target: 10 }],
+    goals: [{ id: uid(), scope: 'team', type: 'constructor_pos', target: 6 }, { id: uid(), scope: 'driver', type: 'beat_teammate' }, { id: uid(), scope: 'driver', type: 'champ_pos', target: 10 }],
     type: 'driver', role: 'principal', newDrivers: [], nd: {},
     team: { name: '', short: '', color: '#00A19B', color2: '#F2F2F2', logo: null, base: '', engine: 'Mercedes', mate: 'BOT', seats: ['PER', 'BOT'] },
   };
@@ -5673,7 +6046,8 @@ function renderSetup() {
     <div class="panel"><div class="panel-h"><h2>Goals & story</h2></div><div class="panel-b stack">
       ${goalEditor(u.goals, 'setup')}
       <div class="form-grid">
-        <label class="field"><span>Rival</span><select data-ch="setup" data-k="rival"><option value="">None</option>${rivalOpts}</select></label>
+        ${u.type === 'myteam' ? `<label class="field"><span>Rival team</span><select data-ch="setup" data-k="rivalTeam"><option value="">None</option>${grid.map(t => `<option value="${t.id}" ${u.rivalTeam === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>`
+          : `<label class="field"><span>Rival</span><select data-ch="setup" data-k="rival"><option value="">None</option>${rivalOpts}</select></label>`}
         <label class="field"><span>Practice sessions</span><select data-ch="setup" data-k="practice">${[['full', 'Full (FP1, FP2, FP3)'], ['short', 'Short (one session)'], ['none', 'None']].map(([v, l]) => `<option value="${v}" ${u.practice === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
       <label class="field"><span>Backstory (optional, used by the media)</span><textarea data-ch="setup" data-k="bio" placeholder="F2 runner-up in 2024, signed after impressing in a Silverstone test…">${esc(u.bio)}</textarea></label>
@@ -5682,19 +6056,37 @@ function renderSetup() {
     <div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="create-career">${future && u.year - 1 > HIST_TO ? `Simulate to ${u.year} and start` : `Start ${u.year} season`}</button></div>
   </div>`;
 }
+/** Who goals can be set for, and which teams to beat, in the setup or a goals dialog. */
+function goalCtx(scope) {
+  if (scope === 'setup') {
+    const u = ui.setup; const principal = u.type === 'myteam' && u.role === 'principal';
+    return { drivers: principal ? u.team.seats.filter(Boolean).map(id => [id, anyName(id)]) : null, teams: setupGrid(u).filter(t => u.type === 'myteam' || t.id !== u.teamId).map(t => [t.id, t.name]) };
+  }
+  const c = career(); const m = ui.modal; const next = m?.kind === 'next'; const s = curSeason();
+  const teams = next ? m.base.teams : s.teams;
+  const mine = isPrincipal(c) ? MYTEAM : next ? m.teamId : s.playerTeamId;
+  const mt = teams.find(t => t.id === mine);
+  return { drivers: isPrincipal(c) ? (mt?.drivers.filter(Boolean) || []).map(id => [id, next ? m.base.drivers[id]?.name || anyName(id) : dName(s, id)]) : null, teams: teams.filter(t => t.id !== mine).map(t => [t.id, t.name]) };
+}
+/** Team goals and driver goals: in My Team you set them for each of your drivers, in a Driver Career for yourself. */
 function goalEditor(goals, scope) {
-  return `<div class="stack">
-    <div class="table-wrap"><table><thead><tr><th>Goal</th><th style="width:140px">Target</th><th style="width:40px"></th></tr></thead><tbody>
-      ${goals.map(g => {
+  const ctx = goalCtx(scope);
+  const section = (kind) => {
+    const list = goals.filter(g => goalScope(g) === kind);
+    const types = D.GOAL_TYPES.filter(x => x.scope === kind || x.scope === 'any');
+    return `<div class="stack" style="gap:6px"><span class="label">${kind === 'team' ? 'Team goals' : ctx.drivers ? 'Driver goals' : 'Your goals'}</span>
+      ${list.length ? `<div class="table-wrap"><table><tbody>${list.map(g => {
         const gt = D.GOAL_TYPES.find(x => x.id === g.type);
-        return `<tr><td><select data-ch="goal-type" data-scope="${scope}" data-id="${g.id}">${D.GOAL_TYPES.map(x => `<option value="${x.id}" ${x.id === g.type ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
+        return `<tr><td><select data-ch="goal-type" data-scope="${scope}" data-id="${g.id}">${types.map(x => `<option value="${x.id}" ${x.id === g.type ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
           ${g.type === 'custom' ? `<input type="text" style="margin-top:6px" placeholder="Describe the goal" value="${esc(g.text || '')}" data-ch="goal-text" data-scope="${scope}" data-id="${g.id}">` : ''}</td>
-          <td>${gt?.needsTarget ? `<input type="number" min="0" value="${esc(g.target ?? '')}" data-ch="goal-target" data-scope="${scope}" data-id="${g.id}">` : '<span class="muted">—</span>'}</td>
-          <td><button class="icon-btn" title="Remove goal" data-act="goal-remove" data-scope="${scope}" data-id="${g.id}">${ICON.x}</button></td></tr>`;
-      }).join('')}
-    </tbody></table></div>
-    <div><button class="btn sm" data-act="goal-add" data-scope="${scope}">+ Add goal</button></div>
-  </div>`;
+          ${kind === 'driver' && ctx.drivers ? `<td style="width:170px"><select data-ch="goal-driver" data-scope="${scope}" data-id="${g.id}">${ctx.drivers.map(([id, n]) => `<option value="${id}" ${g.driver === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>` : ''}
+          <td style="width:170px">${gt?.needsTeam ? `<select data-ch="goal-team" data-scope="${scope}" data-id="${g.id}">${ctx.teams.map(([id, n]) => `<option value="${id}" ${g.team === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`
+            : gt?.needsTarget ? `<input type="number" min="0" value="${esc(g.target ?? '')}" data-ch="goal-target" data-scope="${scope}" data-id="${g.id}">` : '<span class="muted">—</span>'}</td>
+          <td style="width:40px"><button class="icon-btn" title="Remove goal" data-act="goal-remove" data-scope="${scope}" data-id="${g.id}">${ICON.x}</button></td></tr>`;
+      }).join('')}</tbody></table></div>` : ''}
+      <div><button class="btn sm" data-act="goal-add" data-scope="${scope}" data-kind="${kind}">+ ${kind === 'team' ? 'Team goal' : ctx.drivers ? 'Driver goal' : 'Goal'}</button></div></div>`;
+  };
+  return `<div class="stack">${section('team')}${section('driver')}</div>`;
 }
 
 /* ------------------------------------------------------------------ modal */
@@ -5806,6 +6198,8 @@ function mediaContext(c, seasonIdx, roundId, kind) {
   if (c.profile.bio) lines.push(`Backstory: ${c.profile.bio}`);
   lines.push(`Season: ${s.year} (career season ${seasonIdx + 1}). Team: ${team?.name}. Teammate: ${dName(s, mate)}.`);
   if (c.profile.rival) lines.push(`Declared rival: ${dName(s, c.profile.rival) || c.profile.rival}`);
+  if (c.profile.rivalTeam) lines.push(`Declared rival team: ${(s.teams.find(t => t.id === c.profile.rivalTeam) || teamMeta(c, c.profile.rivalTeam)).name}`);
+  { const rv = rivalsAt(c, s, roundsDone(s) - 1); for (const x of rv.active) lines.push(`Title rivals (${x.kind === 'team' ? 'constructors' : 'drivers'}): ${x.kind === 'team' ? (s.teams.find(t => teamRoot(t.id) === x.a) || {}).name : dName(s, x.a)} v ${x.kind === 'team' ? (s.teams.find(t => teamRoot(t.id) === x.b) || {}).name : dName(s, x.b)}, ${x.gap} points apart`); const a = rv.arch.driver[PLAYER]; if (a) lines.push(`Archrival: ${dName(s, a.rival)} (since ${a.year})`); for (const fd of feudsAt(c, s, roundsDone(s))) lines.push(`Running feud: ${dName(s, fd.a)} v ${dName(s, fd.b)} (${fd.reason})`); }
   if (c.myTeam && s.playerTeamId === MYTEAM) {
     const m = c.myTeam;
     lines.push(`The driver also owns and runs the team: ${m.name}, a new team founded in ${m.founded || 2025}${m.base ? `, based in ${m.base}` : ''}, with ${m.engine} engines. Budget: ${fmtM(m.budget + ledgerTotals(m).net)}.${m.story ? ' Team story: ' + m.story : ''}`);
@@ -6086,7 +6480,7 @@ const actions = {
     const abbr = (u.abbr || u.last.slice(0, 3)).toUpperCase();
     const c = {
       id: uid(), createdAt: new Date().toISOString(), type: u.type,
-      profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), archetype: u.archetype, personality: u.personality, bio: u.bio.trim(), rival: u.rival, photo: u.photo || null, born: u.born || null },
+      profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), archetype: u.archetype, personality: u.personality, bio: u.bio.trim(), rival: u.type === 'myteam' ? '' : u.rival, rivalTeam: u.type === 'myteam' ? u.rivalTeam || null : null, photo: u.photo || null, born: u.born || null },
       customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
       generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
       startYear: u.year,
@@ -6098,6 +6492,8 @@ const actions = {
       c.myTeam = { ...t, name: t.name.trim(), short: (t.short || t.name.trim().slice(0, 3)).toUpperCase(), base: t.base.trim(), principal: `${c.profile.first} ${c.profile.last}`, founded: u.year, budget: 30, ledger: [], sponsors: [], upgrades: [], ratings: {},
         role: principal ? 'principal' : 'owner', ...(principal ? { seats: [...seats], lead: seats[0] } : {}) };
     }
+    // a principal's driver goals start with the lead driver
+    if (principal) for (const g of u.goals) if (goalScope(g) === 'driver' && !g.driver) g.driver = u.team.seats[0];
     // every real season before yours, then (for a start after 2026) the simulated years up to it
     for (let y = HIST_FROM; y < Math.min(u.year, HIST_TO + 1); y++) c.seasons.push(histSeason(y, c.seasons.length));
     if (u.year > 2026) {
@@ -6187,7 +6583,8 @@ const actions = {
   'edit-goals'() { goalsModal(); },
   'goal-add'(el) {
     const list = el.dataset.scope === 'setup' ? ui.setup.goals : ui.modal.goals;
-    list.push({ id: uid(), type: 'podiums', target: 1 });
+    const kind = el.dataset.kind || 'driver'; const ctx = goalCtx(el.dataset.scope);
+    list.push(kind === 'team' ? { id: uid(), scope: 'team', type: 'constructor_pos', target: 5 } : { id: uid(), scope: 'driver', type: 'podiums', target: 1, driver: ctx.drivers?.[0]?.[0] || null });
     el.dataset.scope === 'setup' ? render() : redrawModal();
   },
   'goal-remove'(el) {
@@ -6255,7 +6652,7 @@ const actions = {
     p.first = $('#pf-first').value.trim() || p.first; p.last = $('#pf-last').value.trim() || p.last;
     p.abbr = ($('#pf-abbr').value.trim() || p.abbr).toUpperCase(); p.number = +$('#pf-number').value || p.number;
     p.nationality = $('#pf-nat').value.trim(); p.born = $('#pf-born').value || null; p.archetype = $('#pf-arch').value; p.personality = $('#pf-pers').value;
-    p.rival = $('#pf-rival').value; p.bio = $('#pf-bio').value.trim();
+    if (c.type === 'myteam') p.rivalTeam = $('#pf-rival').value || null; else p.rival = $('#pf-rival').value; p.bio = $('#pf-bio').value.trim();
     if (!isPrincipal(c)) for (const s of playedSeasons(c)) s.drivers[PLAYER_ID] = playerDriver(c);
     store.save(); render(); toast('Profile saved');
   },
@@ -6334,7 +6731,9 @@ const changes = {
   'fv-round'(el) { ui.fvRound = +el.value; render(); },
   'num-one'(el) { const c = career(); (c.numberOne ||= {})[el.dataset.year] = el.checked; syncNumbers(c); store.save(); render(); toast(el.checked ? 'Number 1 it is' : 'Back to their own number'); },
   'nd-field'(el) { const { scope, key, k } = el.dataset; (ndDrafts(scope)[key] ||= {})[k] = el.value; },
-  'goal-type'(el) { const g = goalList(el).find(x => x.id === el.dataset.id); g.type = el.value; if (D.GOAL_TYPES.find(x => x.id === g.type)?.needsTarget && g.target == null) g.target = 1; el.dataset.scope === 'setup' ? render() : redrawModal(); },
+  'goal-type'(el) { const g = goalList(el).find(x => x.id === el.dataset.id); g.scope = goalScope(g); g.type = el.value; const gt = D.GOAL_TYPES.find(x => x.id === g.type); if (gt?.needsTarget && g.target == null) g.target = 1; if (gt?.needsTeam && !g.team) g.team = goalCtx(el.dataset.scope).teams[0]?.[0]; el.dataset.scope === 'setup' ? render() : redrawModal(); },
+  'goal-driver'(el) { goalList(el).find(x => x.id === el.dataset.id).driver = el.value; },
+  'goal-team'(el) { goalList(el).find(x => x.id === el.dataset.id).team = el.value; },
   'goal-target'(el) { goalList(el).find(x => x.id === el.dataset.id).target = +el.value; },
   'goal-text'(el) { goalList(el).find(x => x.id === el.dataset.id).text = el.value; },
   'goal-done'(el) { const g = curSeason().goals.find(x => x.id === el.dataset.id); g.done = el.checked; store.save(); render(); },
@@ -6437,6 +6836,7 @@ Object.assign(changes, {
     } catch (e) { toast(e.message); }
   },
   'rm-field'(el) { ui.modal[el.dataset.k] = el.value; drawRumourModal(); },
+  'rv-field'(el) { ui.modal[el.dataset.k] = el.value; drawRivalryModal(); },
   dob(el) {
     const c = career(); const id = el.dataset.id; const v = el.value || null;
     if (id === PLAYER_ID) c.profile.born = v;
@@ -6466,6 +6866,12 @@ Object.assign(actions, {
   },
   'driver-photo'(el) { photoModal(el.dataset.id); },
   'rm-new'() { rumourModal(); },
+  'rv-new'() { rivalryModal(); },
+  'rv-create'() {
+    const c = career(); const s = latestSeason(); const m = ui.modal; if (m.a === m.b) return;
+    (c.rivalries ||= []).push({ id: uid(), seasonIdx: s.index, after: roundsDone(s), a: m.a, b: m.b, reason: m.reason, createdAt: new Date().toISOString() });
+    closeModal(); ui.view = 'stories'; ui.seasonIdx = null; ui.stories = 'all'; store.save(); render(); toast('Rivalry started. The press has the story.');
+  },
   'weekend-card'(el) { weekendCardModal(el.dataset.round); },
   'award-card'(el) { awardCardModal(el.dataset.kind, el.dataset.ri != null ? +el.dataset.ri : null); },
   async 'card-save'() {
