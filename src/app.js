@@ -2130,6 +2130,17 @@ const refName = (id) => D.DRIVERS[id]?.name || D.HIST_DRIVERS[id] || id;
 const fmtPts = (v) => Number.isInteger(v) ? String(v) : v.toFixed(1);
 const plus = (n, fmt = String) => n > 0 ? ` <small class="plus" title="Added in this career">+${fmt(n)}</small>` : '';
 
+/** careerCtx as it stood after `at` rounds of season s: for stories, which only know what had happened by then. */
+const _ctxCache = new WeakMap();
+function careerCtxTo(c, s, at = Infinity) {
+  let v = _ctxCache.get(c); if (!v || v.gen !== renderGen) { v = { gen: renderGen, m: {} }; _ctxCache.set(c, v); }
+  const key = s.index + ':' + at;
+  return v.m[key] ||= c.seasons.filter(x => x.index <= s.index).map(x => {
+    const n = activeRounds(x).length; const upto = x.index < s.index ? Infinity : at;
+    const st = upto >= n ? seasonStatsCache(x) : seasonStats(x, upto); const done = Math.min(roundsDone(x), upto);
+    return { s: x, st, ds: driverStandings(x, st), cs: constructorStandings(x, st), done, complete: done > 0 && done === n };
+  });
+}
 function careerCtx(c) {
   return c.seasons.map(s => {
     const st = seasonStats(s); const done = roundsDone(s);
@@ -4560,7 +4571,7 @@ function rumourStory(c, s, rm) {
   const cur = teamOf(s, rm.driver);
   const tgt = s.teams.find(t => t.id === rm.team) || teamMeta(c, rm.team);
   const ds = driverStandings(s, seasonStatsCache(s)); const row = ds.find(x => x.id === rm.driver);
-  const { tot, bio } = driverRecord(c, rm.driver);
+  const { tot, bio } = driverRecord(c, rm.driver, careerCtxTo(c, c.seasons[rm.seasonIdx] || s, rm.after ?? Infinity));
   const nat = isMe ? c.profile.nationality : bio?.nat;
   const age = ageNow(c, rm.driver);
   const strong = rm.strength === 'strong';
@@ -5050,7 +5061,7 @@ function transferStory(c, s, tr) {
   const rounds = activeRounds(s);
   const m0 = tr.steps[0];
   const nm = trName(c, s, m0.driver), L = lastName(nm);
-  const { tot } = driverRecord(c, m0.driver);
+  const { tot } = driverRecord(c, m0.driver, careerCtxTo(c, s, tr.at)); // the record when the move was announced
   const titles = tot.titles.length;
   const champ = titles ? (titles === 1 ? 'world champion' : `${numWord(titles)}-time world champion`) : '';
   const Champ = champ ? champ[0].toUpperCase() + champ.slice(1) : '';
