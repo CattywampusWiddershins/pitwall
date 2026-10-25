@@ -1,4 +1,4 @@
-// Reference data: grids and calendars as they appear in F1 25 (2025 base game + APXGP)
+// Reference data: grids and calendars as they appear in F1 25 (2025 base game, with APXGP or Konnersport optional)
 // and the F1 25 2026 Season Pack (Audi + Cadillac). Everything here is only a template:
 // each career copies it into its own season and every roster/calendar is editable in-app.
 
@@ -26,6 +26,8 @@ const DRIVERS = {
   BOR: { id: 'BOR', name: 'Gabriel Bortoleto', abbr: 'BOR', number: 5 },
   HAY: { id: 'HAY', name: 'Sonny Hayes', abbr: 'HAY', number: 7 },
   PEA: { id: 'PEA', name: 'Joshua Pearce', abbr: 'PEA', number: 9 },
+  JAC: { id: 'JAC', name: 'Aiden Jackson', abbr: 'JAC', number: 24 },
+  MAY: { id: 'MAY', name: 'Callie Mayer', abbr: 'MAY', number: 34 },
   LIN: { id: 'LIN', name: 'Arvid Lindblad', abbr: 'LIN', number: 41 },
   PER: { id: 'PER', name: 'Sergio Pérez', abbr: 'PER', number: 11 },
   BOT: { id: 'BOT', name: 'Valtteri Bottas', abbr: 'BOT', number: 77 },
@@ -42,8 +44,13 @@ const GRID_2025 = [
   { id: 'rb', name: 'Racing Bulls', color: '#6692FF', drivers: ['HAD', 'LAW'] },
   { id: 'haas', name: 'Haas', color: '#B6BABD', drivers: ['OCO', 'BEA'] },
   { id: 'sauber', name: 'Kick Sauber', color: '#52E252', drivers: ['HUL', 'BOR'] },
-  { id: 'apxgp', name: 'APXGP', color: '#D4A72C', drivers: ['HAY', 'PEA'] },
 ];
+
+// F1 25 lets a career add an 11th team for 2025: APXGP from the F1 film, or Konnersport from Braking Point.
+const EXTRA_2025 = {
+  apxgp: { id: 'apxgp', name: 'APXGP', color: '#D4A72C', drivers: ['HAY', 'PEA'] },
+  konnersport: { id: 'konnersport', name: 'Konnersport', color: '#1EB7B7', drivers: ['JAC', 'MAY'] },
+};
 
 const GRID_2026 = [
   { id: 'mclaren', name: 'McLaren', color: '#FF8000', drivers: ['NOR', 'PIA'] },
@@ -175,6 +182,7 @@ const THEMES = {
   haas: { name: 'Haas', accent: '#B6BABD', accent2: '#E6002B', base: '#101113' },
   sauber: { name: 'Kick Sauber', accent: '#52E252', accent2: '#FFFFFF', base: '#09110A' },
   apxgp: { name: 'APXGP', accent: '#D4A72C', accent2: '#FFFFFF', base: '#110F0A' },
+  konnersport: { name: 'Konnersport', accent: '#1EB7B7', accent2: '#FFFFFF', base: '#081213' },
   audi: { name: 'Audi', accent: '#F50537', accent2: '#C0C0C0', base: '#121112' },
   cadillac: { name: 'Cadillac', accent: '#E9E4D8', accent2: '#B8A26A', base: '#0F1011' },
 };
@@ -190,4 +198,4 @@ const DEPARTMENTS = [
 const LEDGER_CATS = ['Sponsorship', 'Prize money', 'Race bonus', 'R&D', 'Facilities', 'Staff', 'Driver salary', 'Penalty', 'Other'];
 const SPONSOR_TIERS = ['Title', 'Primary', 'Secondary', 'Technical'];
 
-window.F1DATA = { DRIVERS, GRID_2025, GRID_2026, NUMBERS_2026, CAL_2025, CAL_2026, RACE_DATES, SATURDAY_RACES, RACE_POINTS, SPRINT_POINTS, ARCHETYPES, PERSONALITIES, GOAL_TYPES, OUTLETS, THEMES, ENGINES, DEPARTMENTS, LEDGER_CATS, SPONSOR_TIERS };
+window.F1DATA = { DRIVERS, GRID_2025, EXTRA_2025, GRID_2026, NUMBERS_2026, CAL_2025, CAL_2026, RACE_DATES, SATURDAY_RACES, RACE_POINTS, SPRINT_POINTS, ARCHETYPES, PERSONALITIES, GOAL_TYPES, OUTLETS, THEMES, ENGINES, DEPARTMENTS, LEDGER_CATS, SPONSOR_TIERS };
