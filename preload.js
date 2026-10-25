@@ -12,6 +12,15 @@ contextBridge.exposeInMainWorld('api', {
   saveImage: (dataUrl, name) => ipcRenderer.invoke('image:save', { dataUrl, name }),
   // edits made on a paired phone or tablet
   onRemote: (cb) => ipcRenderer.on('data:remote', (_e, msg) => cb(msg)),
+  // F1 25 telemetry (desktop only)
+  telemetry: {
+    status: () => ipcRenderer.invoke('telemetry:status'),
+    configure: (cfg) => ipcRenderer.invoke('telemetry:configure', cfg),
+    pending: () => ipcRenderer.invoke('telemetry:pending'),
+    ack: (key) => ipcRenderer.invoke('telemetry:ack', key),
+    onStatus: (cb) => ipcRenderer.on('telemetry:status', (_e, st) => cb(st)),
+    onResult: (cb) => ipcRenderer.on('telemetry:result', (_e, r) => cb(r)),
+  },
   companion: {
     status: () => ipcRenderer.invoke('companion:status'),
     enable: (on) => ipcRenderer.invoke('companion:enable', on),

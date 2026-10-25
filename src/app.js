@@ -1318,7 +1318,7 @@ function render() {
   const top = main.scrollTop;
   $('#rail').innerHTML = renderRail();
   $('#topbar').innerHTML = renderTopbar();
-  main.innerHTML = renderView();
+  main.innerHTML = (ui.view === 'setup' ? '' : gameNoticeHtml()) + renderView();
   main.dataset.view = viewKey();
   main.scrollTop = keepScroll ? top : 0;
 }
@@ -1707,6 +1707,8 @@ function renderWeekend() {
         </label>
       </div>
     </div>
+
+    ${race ? strategyPanel(s, sd) : ''}
 
     <div class="panel">
       <div class="panel-h"><h3>Weekend notes</h3><span class="muted" style="font-size:12px">Setups, strategy, incidents. These feed into your media sessions.</span></div>
@@ -3547,6 +3549,12 @@ function renderForecast() {
 /** Each driver's race time: the winner's time plus their gap. DNFs and lapped cars get none. */
 function raceTimes(s, r) {
   const sd = s.weekends[r.id]?.sessions?.R; if (!sd?.done) return null;
+  if (sd.game?.laps) {
+    // logged from F1 25: each driver's average clean lap, so lapped cars and retirements count too
+    const laps = raceLaps(s, r.id); const out = {};
+    sd.results.forEach((x, k) => { const p = x.st === 'DNS' ? null : cleanLapPace(sd, x.d); out[x.d] = { t: p != null ? p * laps : null, pos: k + 1, lapped: false }; });
+    if (Object.values(out).some(o => o.t != null)) return { r, laps, drivers: out };
+  }
   const lead = sd.results[0];
   const L = lead && lead.st === 'FIN' ? parseDur(lead.gap) : null;
   if (L == null || L < 600000) return null; // no winner's time logged (or not a full race time)
@@ -4656,6 +4664,180 @@ function drawRivalryModal() {
     <div class="modal-f"><button class="btn ghost" data-act="modal-close">Cancel</button><button class="btn primary" data-act="rv-create" ${preview ? '' : 'disabled'}>Start the rivalry</button></div>`);
 }
 
+/* --------------------------------------------------------------- telemetry */
+// Results from F1 25 itself (telemetry.js, desktop only). While Pitwall is open it listens to the game, directly or
+// forwarded by another app. When a session ends it works out the career (the open one), the round (the circuit's
+// next round not yet logged, or the weekend it already started) and the session, then logs the order, best laps,
+// race times and gaps (penalties included), laps down and retirements. Every lap, tyre stint, pit stop and penalty
+// is kept too, for the pace tables, the strategy table and the stories. The last import can be undone.
+const GAME_TRACKS = { 0: 'aus', 2: 'chn', 3: 'bhr', 4: 'esp', 5: 'mon', 6: 'can', 7: 'gbr', 9: 'hun', 10: 'bel', 11: 'ita', 12: 'sgp', 13: 'jpn', 14: 'abu', 15: 'usa', 16: 'bra', 17: 'aut', 19: 'mex', 20: 'aze', 26: 'ned', 27: 'emi', 29: 'sau', 30: 'mia', 31: 'lvg', 32: 'qat', 39: 'gbr', 40: 'aut', 41: 'ned', 42: 'mad' };
+const NOT_CAREER_MODES = [5, 6, 7, 15, 17, 75, 127]; // time trial, split screen, online, story mode, benchmark
+const GAME_STATUS = { 2: 'FIN', 3: 'FIN', 4: 'DNF', 6: 'DNF', 7: 'DNF', 5: 'DSQ' };
+const COMPOUNDS = { 16: ['S', 'Soft', '#E8002D'], 17: ['M', 'Medium', '#F5C518'], 18: ['H', 'Hard', '#E7ECF5'], 7: ['I', 'Intermediate', '#2FD07A'], 8: ['W', 'Wet', '#3A8DFF'] };
+const PENALTY_NAMES = { 0: 'drive-through penalty', 1: 'stop-go penalty', 2: 'grid penalty', 4: 'time penalty', 6: 'disqualification' };
+const GAME_SESSION_NAMES = { 1: 'Practice 1', 2: 'Practice 2', 3: 'Practice 3', 4: 'Practice', 5: 'Qualifying 1', 6: 'Qualifying 2', 7: 'Qualifying 3', 8: 'Qualifying', 9: 'One-shot qualifying', 10: 'Sprint Shootout 1', 11: 'Sprint Shootout 2', 12: 'Sprint Shootout 3', 13: 'Sprint Shootout', 14: 'One-shot Sprint Shootout', 15: 'Race', 16: 'Race' };
+let telemetryStatus = null;
+let gameNotice = null; // the last import: its banner and its undo
+const gameQueue = []; // results waiting for you to decide (replace a logged session, or pick the round)
+const normName = (n) => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+/** The same driver? Names in the game can be full, initial-and-surname, or surname only. */
+function sameDriver(a, b) { const A = normName(a), B = normName(b); return !!(A.length && B.length) && (A[A.length - 1] === B[B.length - 1] || A.join('') === B.join('')); }
+/** Which Pitwall session a game session is (null when it isn't one this weekend has). */
+function gameKey(r, keys) {
+  const t = r.sessionType;
+  let k = t >= 1 && t <= 3 ? 'FP' + t : t === 4 ? 'FP' : t >= 5 && t <= 9 ? 'Q' : t >= 10 && t <= 14 ? 'SQ' : t === 15 ? (r.weekend?.includes(16) ? 'SPR' : 'R') : t === 16 ? 'R' : null;
+  if (k && k.startsWith('FP') && !keys.includes(k)) k = keys.includes('FP') ? 'FP' : keys.find(x => x.startsWith('FP')) || null;
+  return k && keys.includes(k) ? k : null;
+}
+/** Where a result belongs: the round at that circuit this weekend is, or the next one not yet logged there. */
+function placeGameResult(c, r) {
+  const s = latestSeason(); if (!s || isHist(s)) return { error: 'There is no season to log into.' };
+  const tid = GAME_TRACKS[r.track];
+  const rounds = activeRounds(s).filter(x => trackOf(x) === tid);
+  if (!rounds.length) return { error: `${D.TRACKS[tid]?.circuit || 'This circuit'} is not on your ${s.year} calendar.`, s };
+  const round = rounds.find(x => s.weekends[x.id]?.game?.weekend === r.weekendLink)
+    || rounds.find(x => { const k = gameKey(r, sessionsFor(s, x)); return k && !s.weekends[x.id]?.sessions?.[k]?.done; })
+    || rounds.find(x => !s.weekends[x.id]?.sessions?.R?.done) || rounds[0];
+  const key = gameKey(r, sessionsFor(s, round));
+  if (!key) return { error: `${GAME_SESSION_NAMES[r.sessionType] || 'This session'} is not one you log for ${round.name} (check practice in Settings).`, s, round, skip: r.sessionType <= 4 };
+  return { s, round, key };
+}
+/** Game cars → Pitwall drivers: the player car is you; then race number, then name. */
+function mapGameDrivers(c, s, r) {
+  const grid = gridIds(s); const used = new Set(); const map = {}; const unmatched = [];
+  const take = (car, id) => { if (id) { used.add(id); map[car.idx] = id; } else unmatched.push(car.name || `#${car.number}`); };
+  const cars = r.cars.slice().sort((a, b) => (b.idx === r.player) - (a.idx === r.player));
+  for (const car of cars) {
+    let id = car.idx === r.player && grid.includes(PLAYER_ID) && !isPrincipal(c) ? PLAYER_ID : null;
+    id ||= grid.find(d => !used.has(d) && car.number && s.drivers[d]?.number === car.number && (!car.name || sameDriver(s.drivers[d]?.name, car.name) || d === PLAYER_ID));
+    id ||= grid.find(d => !used.has(d) && car.name && sameDriver(d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : s.drivers[d]?.name, car.name));
+    id ||= grid.find(d => !used.has(d) && car.number && s.drivers[d]?.number === car.number);
+    take(car, id);
+  }
+  return { map, unmatched };
+}
+/** The session's results in Pitwall's shape. */
+function gameRows(r, key, map, grid) {
+  const race = isRaceKind(key);
+  const order = r.cars.filter(x => map[x.idx]).sort((a, b) => a.position - b.position);
+  const lead = order[0]; const ms = (x) => Math.round((x.total + x.penalty) * 1000); // the game gives race time in seconds
+  const pole = Math.min(...order.map(x => x.best).filter(Boolean));
+  const rows = order.map((x, i) => {
+    const row = { d: map[x.idx], lap: x.best ? fmtLap(x.best) : '', gap: '', st: 'FIN', laps: '' };
+    if (race) {
+      row.st = GAME_STATUS[x.status] || 'DNS';
+      if (row.st === 'FIN') {
+        const down = lead.laps - x.laps;
+        if (i > 0 && down > 0) row.laps = down;
+        else row.gap = i === 0 ? fmtDur(ms(lead)) : fmtDur(ms(x) - ms(lead), true);
+      }
+    } else {
+      if (!x.best) row.st = 'DNS';
+      else if (i > 0 && isFinite(pole)) row.gap = '+' + ((x.best - pole) / 1000).toFixed(3);
+    }
+    return row;
+  });
+  for (const d of grid) if (!rows.some(x => x.d === d)) rows.push({ d, lap: '', gap: '', st: 'DNS', laps: '' });
+  return rows;
+}
+/** Log a game result into a session (keeping what was there, for undo). */
+function applyGameResult(c, r, place) {
+  const { s, round, key } = place;
+  const { map, unmatched } = mapGameDrivers(c, s, r);
+  const w = weekend(s, round.id, true);
+  const prev = w.sessions[key] ? JSON.stringify(w.sessions[key]) : null; const prevLen = w.raceLength;
+  const byId = (pick) => Object.fromEntries(r.cars.filter(x => map[x.idx]).map(x => [map[x.idx], pick(x)]));
+  w.sessions[key] = { results: gameRows(r, key, map, gridIds(s)), fl: null, done: true,
+    game: { key: r.key, at: r.at, sessionType: r.sessionType, totalLaps: r.totalLaps,
+      laps: byId(x => x.lapTimes), stints: byId(x => x.stints.map(t => [t.visual, t.end])), pits: byId(x => x.pits), grid: byId(x => x.grid),
+      penalties: r.penaltyEvents.filter(p => map[p.car] && PENALTY_NAMES[p.type]).map(p => ({ d: map[p.car], type: p.type, time: p.time, lap: p.lap, other: map[p.other] || null })),
+      safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } } };
+  w.game = { weekend: r.weekendLink };
+  // the race distance you ran, from the laps
+  if (key === 'R' && r.totalLaps) { const full = D.TRACKS[trackOf(round)]?.laps; if (full) w.raceLength = RACE_LENGTHS.reduce((a, b) => Math.abs(b - r.totalLaps / full * 100) < Math.abs(a - r.totalLaps / full * 100) ? b : a); }
+  (c.gameKeys ||= []).push(r.key); c.gameKeys = c.gameKeys.slice(-300);
+  gameNotice = { careerId: c.id, seasonIdx: s.index, roundId: round.id, key, prev, prevLen, label: `${round.name} ${SESSION_LABEL[key]}`, unmatched };
+  store.save(); render();
+  toast(`${round.name} ${SESSION_LABEL[key]} logged from F1 25`);
+}
+/** A finished session arrives from the game. */
+function handleGameResult(r) {
+  const c = career(); const done = () => window.api?.telemetry?.ack(r.key);
+  if (!c || NOT_CAREER_MODES.includes(r.gameMode) || !r.cars?.length) { done(); return; }
+  if ((c.gameKeys || []).includes(r.key)) { done(); return; } // already logged
+  const place = placeGameResult(c, r);
+  if (place.error) { if (place.skip) { toast(place.error); done(); return; } gameQueue.push({ r, place, why: 'place' }); done(); nextGameDecision(); return; }
+  const sd = place.s.weekends[place.round.id]?.sessions?.[place.key];
+  const sameWeekend = place.s.weekends[place.round.id]?.game?.weekend === r.weekendLink && sd?.game;
+  if (sd?.done && !sameWeekend) { gameQueue.push({ r, place, why: 'replace' }); done(); nextGameDecision(); return; }
+  applyGameResult(c, r, place); done();
+}
+/** Ask about the next waiting result, once no other dialog is open. */
+function nextGameDecision() {
+  if (!gameQueue.length) return;
+  if ($('#modal-root').innerHTML) { setTimeout(nextGameDecision, 3000); return; }
+  const q = gameQueue[0]; const c = career(); const s = latestSeason();
+  const what = `${D.TRACKS[GAME_TRACKS[q.r.track]]?.circuit || 'Unknown circuit'} · ${GAME_SESSION_NAMES[q.r.sessionType] || 'Session'}`;
+  ui.modal = { kind: 'game' };
+  if (q.why === 'replace') modal(`<div class="modal-h"><h2>Results from F1 25</h2></div><div class="modal-b"><p><b>${esc(what)}</b> has finished in the game, but you have already logged ${esc(q.place.round.name)} ${esc(SESSION_LABEL[q.place.key])}.</p><p class="muted">Replace your logged results with the game’s?</p></div>
+    <div class="modal-f"><button class="btn ghost" data-act="game-skip">Keep mine</button><button class="btn primary" data-act="game-apply">Replace</button></div>`);
+  else {
+    const rounds = activeRounds(s);
+    modal(`<div class="modal-h"><h2>Results from F1 25</h2></div><div class="modal-b"><p><b>${esc(what)}</b> has finished in the game. ${esc(q.place.error)}</p>
+      <div class="form-grid"><label class="field"><span>Round</span><select id="game-round">${rounds.map(x => `<option value="${x.id}">${esc(x.name)}${s.weekends[x.id]?.sessions?.R?.done ? ' (logged)' : ''}</option>`).join('')}</select></label>
+      <label class="field"><span>Session</span><select id="game-key">${['FP1', 'FP2', 'FP3', 'FP', 'SQ', 'SPR', 'Q', 'R'].map(k => `<option value="${k}" ${k === (q.r.sessionType >= 15 ? 'R' : q.r.sessionType >= 10 ? 'SQ' : q.r.sessionType >= 5 ? 'Q' : 'FP1') ? 'selected' : ''}>${SESSION_LABEL[k]}</option>`).join('')}</select></label></div></div>
+      <div class="modal-f"><button class="btn ghost" data-act="game-skip">Skip</button><button class="btn primary" data-act="game-apply">Log it here</button></div>`);
+  }
+}
+/** The banner after an import: where it went, who couldn't be matched, and undo. */
+function gameNoticeHtml() {
+  const g = gameNotice; const c = career(); if (!g || g.careerId !== c?.id) return '';
+  return `<div class="callout game-notice"><span>${ICON.flag} <b>${esc(g.label)}</b> logged from F1 25.${g.unmatched.length ? ` Not matched to a driver on your grid: ${esc(listJoin(g.unmatched))}.` : ''}</span>
+    <span class="row" style="gap:6px"><button class="btn sm" data-act="game-open">Open</button><button class="btn sm ghost" data-act="game-undo">Undo</button><button class="icon-btn" title="Dismiss" data-act="game-dismiss">${ICON.x}</button></span></div>`;
+}
+/** Settings: the connection to the game. */
+function renderTelemetryPanel() {
+  if (!window.api?.telemetry) return window.api?.companion === true ? '' : `<div class="panel"><div class="panel-h"><h2>F1 25 telemetry</h2></div><div class="panel-b muted">Available in the desktop app.</div></div>`;
+  const t = telemetryStatus || {};
+  const ago = t.lastAt ? Math.round((Date.now() - Date.parse(t.lastAt)) / 1000) : null;
+  const live = t.listening && ago != null && ago < 10;
+  return `<div class="panel"><div class="panel-h"><div><h2>F1 25 telemetry</h2><span class="muted" style="font-size:12px">Logs results straight from the game when a session ends</span></div>
+      <span class="row" style="gap:6px"><span class="status-dot ${live ? 'ok' : t.listening ? 'warn' : ''}"></span><span class="muted" style="font-size:12px">${t.error ? 'Problem' : live ? `Receiving F1 25 data (${t.format === 2026 ? '2026 Season Pack' : 'F1 25'})` : t.listening ? (t.lastAt ? `Last data ${ago < 120 ? ago + ' s' : Math.round(ago / 60) + ' min'} ago` : 'Listening, nothing received yet') : 'Off'}</span></span></div>
+    <div class="panel-b stack">
+      ${t.error ? `<div class="callout" style="border-left-color:var(--red)">${esc(t.error)}</div>` : ''}
+      <div class="row" style="gap:12px;flex-wrap:wrap"><label class="check"><input type="checkbox" id="tm-on" ${t.enabled ? 'checked' : ''}> Listen for F1 25</label>
+        <label class="row" style="gap:6px">Port <input type="number" id="tm-port" min="1024" max="65535" value="${t.port || 20778}" style="width:100px"></label>
+        <button class="btn sm primary" data-act="tm-save">Save</button></div>
+      <div class="muted" style="font-size:13px;line-height:1.5">In F1 25: <b>Settings → Telemetry Settings</b>: UDP Telemetry <b>On</b>, UDP Broadcast Mode <b>Off</b>, UDP Format <b>2025</b>, Send Rate 20 Hz or more.
+        Then either send it straight here (UDP IP Address <b>127.0.0.1</b> if the game runs on this PC, otherwise this PC's network address; UDP Port the same as above),
+        or, if another app (your wheel's software, say) already receives it, have that app forward it to this PC on the port above. Pitwall only has to be open when a session ends.</div>
+      ${t.session ? `<div class="muted" style="font-size:12px">Current session: ${esc(D.TRACKS[GAME_TRACKS[t.session.track]]?.circuit || 'unknown circuit')} · ${esc(GAME_SESSION_NAMES[t.session.sessionType] || 'session')}${NOT_CAREER_MODES.includes(t.session.gameMode) ? ' · not a career session, so it won’t be logged' : ''}</div>` : ''}
+    </div></div>`;
+}
+/** Race pace from the game's laps: the average of each driver's clean laps (no lap 1, no laps in or out of the pits,
+ *  nothing more than 4% off their own median, which leaves out safety cars and incidents). */
+function cleanLapPace(sd, d) {
+  const laps = sd.game?.laps?.[d]; if (!laps || laps.length < 4) return null;
+  const pit = new Set((sd.game.stints?.[d] || []).slice(0, -1).flatMap(([, end]) => [end, end + 1]));
+  const pool = laps.map(([ms], k) => ({ ms, lap: k + 1 })).filter(x => x.lap > 1 && !pit.has(x.lap) && x.ms > 0);
+  if (pool.length < 3) return null;
+  const sorted = pool.map(x => x.ms).sort((a, b) => a - b); const med = sorted[Math.floor(sorted.length / 2)];
+  const clean = sorted.filter(ms => ms <= med * 1.04);
+  return clean.length >= 3 ? avg(clean) : null;
+}
+/** Tyres, stops and penalties from the game, for a race or sprint. */
+function strategyPanel(s, sd) {
+  const g = sd?.game; if (!g?.stints) return '';
+  const chip = ([v, end], k, all) => { const cp = COMPOUNDS[v] || ['?', 'Unknown', '#5E6A82']; const from = k ? all[k - 1][1] + 1 : 1; return `<span class="tyre-chip" style="--c:${cp[2]}" title="${cp[1]}, laps ${from}–${end}">${cp[0]}<small>${end - from + 1}</small></span>`; };
+  const pens = (d) => g.penalties.filter(p => p.d === d);
+  return `<div class="panel"><div class="panel-h"><h2>Strategy & penalties</h2><span class="muted" style="font-size:12px">From F1 25${g.safety ? ` · ${plural(g.safety.sc || 0, 'safety car')}, ${plural(g.safety.vsc || 0, 'virtual safety car')}${g.safety.red ? `, ${plural(g.safety.red, 'red flag')}` : ''}` : ''}</span></div>
+    <div class="panel-b tight table-wrap"><table><thead><tr><th>Pos</th><th>Driver</th><th>Tyres (laps)</th><th class="num">Stops</th><th>Penalties</th><th class="num">Clean-lap pace</th></tr></thead><tbody>
+      ${sd.results.filter(x => g.stints[x.d]).map((x, i) => { const p = cleanLapPace(sd, x.d); return `<tr class="${x.d === PLAYER ? 'me' : ''}"><td class="num">${OUT.includes(x.st) ? x.st : i + 1}</td><td>${drvCell(s, x.d, { team: true })}</td>
+        <td><div class="row" style="gap:4px;flex-wrap:nowrap">${(g.stints[x.d] || []).map(chip).join('')}</div></td><td class="num">${g.pits?.[x.d] ?? '–'}</td>
+        <td class="muted" style="font-size:12px">${pens(x.d).map(q => `${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${q.lap ? ` (lap ${q.lap})` : ''}`).join(', ') || '–'}</td><td class="num mono">${p ? fmtLap(p) : '–'}</td></tr>`; }).join('')}
+    </tbody></table></div></div>`;
+}
+
 /* ---------------------------------------------------------------- stories */
 // Stories are rebuilt from the results every time, so editing a result rewrites its article.
 // A seeded picker keeps the wording stable between renders.
@@ -4973,6 +5155,9 @@ function buildStories(c, s) {
     const dnfs = res.filter(x => x.st === 'DNF'); const dsq = res.filter(x => x.st === 'DSQ');
     if (dnfs.length) notes.push(`${listJoin(dnfs.map(x => name(x.d)))} failed to finish.`);
     if (dsq.length) notes.push(`${listJoin(dsq.map(x => name(x.d)))} ${dsq.length > 1 ? 'were' : 'was'} disqualified.`);
+    // penalties, when the race came from the game
+    const pens = (ses.R.game?.penalties || []).filter(p => p.type === 4 || p.type <= 1);
+    if (pens.length) notes.push(`Penalties: ${listJoin(pens.slice(0, 4).map(p => `${last(p.d)} ${p.type === 4 ? `${p.time} seconds` : `a ${PENALTY_NAMES[p.type]}`}${p.lap ? ` on lap ${p.lap}` : ''}`))}${pens.length > 4 ? `, and ${plural(pens.length - 4, 'more')}` : ''}.`);
     if (fl) notes.push(`${name(fl)} set the fastest lap${res.find(x => x.d === fl)?.lap ? ` with a ${res.find(x => x.d === fl).lap}` : ''}.`);
     const sprW = r.sprint && ses.SPR?.done ? ses.SPR.results.find(x => !OUT.includes(x.st))?.d : null;
     if (sprW) notes.push(sprW === W ? `It completes a sprint and Grand Prix double for ${last(W)}.` : `${name(sprW)} had won the sprint.`);
@@ -5791,6 +5976,7 @@ function renderSettings() {
       </tbody></table></div>
       <div class="panel-b"><select data-ch="cal-add" style="width:auto"><option value="">+ Add a circuit…</option>${Object.keys(D.TRACKS).filter(id => !s.calendar.some(r => trackOf(r) === id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div></div>
 
+    ${renderTelemetryPanel()}
     ${renderCompanionPanel()}
 
     <div class="panel"><div class="panel-h"><h2>Data</h2></div><div class="panel-b stack">
@@ -6866,6 +7052,26 @@ Object.assign(actions, {
   },
   'driver-photo'(el) { photoModal(el.dataset.id); },
   'rm-new'() { rumourModal(); },
+  async 'tm-save'() {
+    telemetryStatus = await window.api.telemetry.configure({ enabled: $('#tm-on').checked, port: +$('#tm-port').value || 20778 });
+    render(); toast(telemetryStatus.enabled ? `Listening for F1 25 on port ${telemetryStatus.port}` : 'F1 25 telemetry off');
+  },
+  'game-apply'() {
+    const q = gameQueue.shift(); const c = career(); if (!q) return closeModal();
+    let place = q.place;
+    if (q.why === 'place') { const s = latestSeason(); const round = activeRounds(s).find(x => x.id === $('#game-round').value); const key = $('#game-key').value; if (!round || !sessionsFor(s, round).includes(key)) { gameQueue.unshift(q); toast('That weekend doesn’t have that session'); return; } place = { s, round, key }; }
+    closeModal(); applyGameResult(c, q.r, place); setTimeout(nextGameDecision, 300);
+  },
+  'game-skip'() { gameQueue.shift(); closeModal(); toast('Left as it was'); setTimeout(nextGameDecision, 300); },
+  'game-open'() { const g = gameNotice; if (!g) return; ui.view = 'weekend'; ui.seasonIdx = null; ui.round = g.roundId; ui.session = g.key; render(); },
+  'game-undo'() {
+    const g = gameNotice; const c = state.careers.find(x => x.id === g?.careerId); if (!c) return;
+    const s = c.seasons[g.seasonIdx]; const w = s?.weekends[g.roundId]; if (!w) return;
+    if (g.prev) w.sessions[g.key] = JSON.parse(g.prev); else delete w.sessions[g.key];
+    w.raceLength = g.prevLen; if (g.prevLen === undefined) delete w.raceLength;
+    gameNotice = null; store.save(); render(); toast('Import undone');
+  },
+  'game-dismiss'() { gameNotice = null; render(); },
   'rv-new'() { rivalryModal(); },
   'rv-create'() {
     const c = career(); const s = latestSeason(); const m = ui.modal; if (m.a === m.b) return;
@@ -6964,4 +7170,11 @@ window.pitwallBack = () => {
   render();
   if (renumbered || store.dirty()) store.save(); // also saves an older career that just gained its real seasons
   window.api?.onRemote?.(applyRemote);
+  // F1 25 telemetry: results that finished while the window was loading, then anything new
+  if (window.api?.telemetry) {
+    try { telemetryStatus = await window.api.telemetry.status(); } catch { }
+    window.api.telemetry.onStatus((st) => { telemetryStatus = st; const a = document.activeElement; if (ui.view === 'settings' && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render(); });
+    window.api.telemetry.onResult(handleGameResult);
+    try { for (const r of await window.api.telemetry.pending()) handleGameResult(r); } catch { }
+  }
 })();

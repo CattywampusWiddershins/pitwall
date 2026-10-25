@@ -2,10 +2,12 @@ const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('ele
 const path = require('path');
 const fs = require('fs');
 const createCompanion = require('./companion');
+const createTelemetry = require('./telemetry');
 
 const dataDir = () => app.getPath('userData');
 const dataFile = () => path.join(dataDir(), 'career-data.json');
 const settingsFile = () => path.join(dataDir(), 'settings.json');
+const telemetryFile = () => path.join(dataDir(), 'telemetry.json');
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')); } catch { return fallback; }
@@ -184,10 +186,25 @@ ipcMain.handle('companion:enable', (_e, on) => companion.setEnabled(on));
 ipcMain.handle('companion:new-pin', () => companion.newPin());
 ipcMain.handle('companion:forget', (_e, id) => companion.forget(id));
 
+// F1 25 telemetry: finished sessions wait here until the window has logged them (so none is lost while it loads)
+let telemetry = null; let pendingResults = [];
+function setupTelemetry() {
+  telemetry = createTelemetry({
+    onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); toWindow('telemetry:result', r); },
+    onStatus: (st) => toWindow('telemetry:status', st),
+  });
+  telemetry.configure(readJson(telemetryFile(), { enabled: false, port: 20778 }));
+}
+ipcMain.handle('telemetry:status', () => telemetry.status());
+ipcMain.handle('telemetry:configure', (_e, cfg) => { writeJsonAtomic(telemetryFile(), { enabled: !!cfg.enabled, port: +cfg.port || 20778 }); return telemetry.configure(cfg); });
+ipcMain.handle('telemetry:pending', () => pendingResults);
+ipcMain.handle('telemetry:ack', (_e, key) => { pendingResults = pendingResults.filter(x => x.key !== key); return true; });
+
 app.whenReady().then(() => {
   setupCompanion();
+  setupTelemetry();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => companion && companion.stop());
+app.on('before-quit', () => { companion && companion.stop(); telemetry && telemetry.stop(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
