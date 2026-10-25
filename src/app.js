@@ -445,7 +445,7 @@ for (const [name, abbr, nat, series, note] of window.F1POOL.FEEDER) {
   const id = 'X' + abbr; // never clashes with a three-letter F1 id
   const [level, yr] = series.split(' ');
   // no data in F1 yet: a talent rating (ms off the pace, lower is quicker), with feeder champions a little quicker
-  const skill = Math.round(90 + gauss(mulberry('talent-' + id)) * 100 - (/champion/.test(note) ? 60 : 0));
+  const skill = Math.round(100 + gauss(mulberry('talent-' + id)) * 75 - (/champion/.test(note) ? 50 : 0));
   FEEDER[id] = { id, name, abbr, number: null, nat, series, note, feeder: true, level, joined: +yr, bornEst: `${+yr - (level === 'F2' ? 21 : 18)}-06-01`, skill };
   D.DRIVER_BIO[id] ||= { nat, note: `${series}${note ? '. ' + note : ''}.`, starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0, titles: [], feeder: series };
 }
@@ -488,7 +488,7 @@ function genDriver(taken, level, year, rnd) {
     const abbr = family.normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
     const age = level === 'F2' ? 19 + Math.floor(rnd() * 3) : 16 + Math.floor(rnd() * 2);
     const born = `${year - age}-${String(1 + Math.floor(rnd() * 12)).padStart(2, '0')}-${String(1 + Math.floor(rnd() * 28)).padStart(2, '0')}`;
-    return { id: 'G' + Math.floor(rnd() * 2 ** 40).toString(36), name, abbr, nat, born, skill: Math.round(110 + gauss(rnd) * 120), number: null, generated: true };
+    return { id: 'G' + Math.floor(rnd() * 2 ** 40).toString(36), name, abbr, nat, born, skill: Math.round(125 + gauss(rnd) * 85), number: null, generated: true };
   }
   return null;
 }
@@ -660,10 +660,29 @@ function isTopDriver(s, id) {
   return expect - pos >= 2.5 || (expect - pos >= -1 && pos < matePos);
 }
 /**
- * One winter of the driver market. Anyone who turns 44 this year retires first. With a `target` (the grid you laid out
- * for your first season) every driver moves towards it, all of it settled by the last winter; without one, drivers
- * may retire from their mid-thirties, top teams sign drivers who beat their car, and F2 and F3 drivers fill the gaps.
- * Returns the new line-ups and the moves, as transfer steps.
+ * A driver's race pace against their teammate over their last two seasons (ms per lap, positive = slower), or null
+ * without data. More than 0.3 s down is underperforming.
+ */
+function racePaceDeficit(c, id, upto) {
+  let sum = 0, n = 0;
+  for (const s of c.seasons.slice(0, upto + 1).filter(x => gridIds(x).includes(id)).slice(-2)) {
+    const mate = teammateOf(s, id); if (!mate) continue;
+    const g = teammateGaps(s, id, mate);
+    if (g.r != null && g.rn >= 3) { sum += g.r * g.rn; n += g.rn; }
+  }
+  return n ? sum / n : null;
+}
+const UNDERPERFORM = 300; // ms per lap slower than the teammate, over two seasons
+/**
+ * One winter of the driver market. Anyone who turns 44 this year retires first. Then, while your first season is
+ * still more than two winters away (or with no `target` at all), the market moves on its own:
+ * - drivers retire with age, more and more from 37 (and good drivers stop on their own terms: only a driver more than
+ *   0.3 s a lap slower than the teammate over two seasons is dropped and left a free agent);
+ * - drivers who beat their car move up to a top team, replacing a driver there who is underperforming or only just
+ *   matching the car, who in turn takes the seat that was left (or is out, if he was well off the pace);
+ * - now and then a midfield team does the same with a standout from further back.
+ * With a `target` (the grid you laid out) everyone also moves towards it, all of it settled by the last winter.
+ * F2 and F3 drivers fill whatever seats are left. Returns the new line-ups and the moves, as transfer steps.
  */
 function simWinter(c, prevS, year, lineup, target, rnd) {
   lineup = Object.fromEntries(Object.entries(lineup).map(([t, ds]) => [t, [...ds]]));
@@ -678,48 +697,67 @@ function simWinter(c, prevS, year, lineup, target, rnd) {
     const out = lineup[t][k]; lineup[t][k] = d; step(d, from, t, out || null);
     return out;
   };
+  const want = {}; if (target) for (const [t, ds] of Object.entries(target.lineup)) for (const d of ds) if (d) want[d] = t;
   const locked = (d) => d === PLAYER_ID || (c.type === 'myteam' && teamIn(d) === MYTEAM);
   const age = (d) => ageIn(c, d, year);
   const skills = driverSkills(c); const sk = (d) => skillOf(c, skills, d, year);
+  const deficitCache = {}; const deficit = (d) => (deficitCache[d] ??= racePaceDeficit(c, d, prevS.index));
+  const under = (d) => (deficit(d) ?? 0) > UNDERPERFORM;
+  // a good driver who has to make way stops on his own terms once he's in his thirties; otherwise he's a free agent
+  const exit = (d) => !under(d) && (age(d) ?? 0) >= 33 ? 'retire' : 'free';
   const rank = constructorStandings(prevS).map(x => x.team.id).filter(t => lineup[t]);
+  const winters = target ? Math.max(1, target.year - year + 1) : Infinity; // winters left before your first season
   // nobody races in the year they turn 44
   for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && d !== PLAYER_ID && (turnsIn(c, d, year) ?? 0) >= RETIRE_AGE) leave(d, 'retire');
-  if (target) {
-    const want = {}; for (const [t, ds] of Object.entries(target.lineup)) for (const d of ds) if (d) want[d] = t;
-    const k = Math.max(1, target.year - year + 1); // winters left, this one included
-    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && !want[d] && rnd() < 1 / k) leave(d, (age(d) || 0) >= 35 ? 'retire' : 'free');
-    for (const [d, t] of Object.entries(want)) if (lineup[t] && teamIn(d) !== t && rnd() < 1 / k) {
-      const victim = lineup[t].find(x => x && want[x] !== t) || null;
-      if (victim || lineup[t].includes(null) || lineup[t].length < 2) { const out = join(d, t, victim); if (out && !want[out]) steps.push({ kind: 'move', driver: out, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false }); }
-    }
-  } else {
+  if (winters >= 3) {
+    // retirement: from the mid-thirties, rising every year (drivers on your grid stay to race it)
     for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) {
-      if (!d || locked(d)) continue;
+      if (!d || locked(d) || want[d]) continue;
       const a = age(d) || 25;
-      // most stop between 37 and 43; a few call it a day earlier
-      if ((a >= 37 && rnd() < 0.2 + 0.12 * (a - 37)) || (a >= 32 && a < 37 && rnd() < 0.03)) leave(d, 'retire');
+      if ((a >= 37 && rnd() < 0.15 + 0.11 * (a - 37)) || (a >= 33 && a < 37 && rnd() < 0.04)) leave(d, 'retire');
     }
-    // top teams sign drivers who beat their car from further down the order
-    for (const t of rank.slice(0, 4)) {
-      const ds = lineup[t].filter(d => d && !locked(d)); if (ds.length < 2 || rnd() > 0.45) continue;
-      const weak = ds.sort((a, b) => (seasonStatsCache(prevS)[a]?.pts || 0) - (seasonStatsCache(prevS)[b]?.pts || 0))[0];
-      if (isTopDriver(prevS, weak)) continue;
-      const star = rank.slice(rank.indexOf(t) + 1).flatMap(u => lineup[u]).filter(d => d && !locked(d) && isTopDriver(prevS, d)).sort((a, b) => sk(a) - sk(b))[0];
-      if (!star) continue;
-      const home = teamIn(star); join(star, t, weak);
-      if (rnd() < 0.5 && lineup[home]) join(weak, home); else steps.push({ kind: 'move', driver: weak, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
+    // dropped: only for being well off the pace
+    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && !locked(d) && under(d) && rnd() < 0.6) leave(d, 'free');
+    // drivers who beat their car move up, replacing someone who doesn't
+    const moved = new Set();
+    const upgrade = (teams, from, chance) => {
+      for (const t of teams) {
+        if (rnd() > chance) continue;
+        const ds = lineup[t].filter(d => d && !locked(d) && !moved.has(d));
+        const weak = ds.filter(d => !isTopDriver(prevS, d)).sort((a, b) => (deficit(b) ?? 0) - (deficit(a) ?? 0))[0];
+        if (lineup[t].filter(Boolean).length === 2 && !weak) continue;
+        const star = from(t).flatMap(u => lineup[u]).filter(d => d && !locked(d) && !moved.has(d) && isTopDriver(prevS, d) && !under(d) && (age(d) ?? 25) < 38).sort((a, b) => sk(a) - sk(b))[0];
+        if (!star) continue;
+        const home = teamIn(star); join(star, t, weak || null); moved.add(star);
+        if (weak) { moved.add(weak); if (under(weak)) step(weak, null, 'free'); else join(weak, home); } // he takes the seat that was left
+      }
+    };
+    upgrade(rank.slice(0, 3), (t) => rank.slice(rank.indexOf(t) + 1), 0.55);
+    upgrade(rank.slice(3, 7), (t) => rank.slice(Math.max(rank.indexOf(t) + 1, 5)), 0.25);
+  }
+  if (target) {
+    // towards your grid: the rest of the field leaves, and everyone on it heads for their seat
+    // (a driver who isn't on it only goes early if he's off the pace or old enough to stop; the rest go at the end)
+    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && !want[d] && (winters === 1 || under(d) || (age(d) || 0) >= 35) && rnd() < 1 / winters) leave(d, exit(d));
+    for (const [d, t] of Object.entries(want)) if (lineup[t] && teamIn(d) !== t && rnd() < 1 / winters) {
+      const victim = lineup[t].find(x => x && want[x] !== t) || null;
+      if (victim || lineup[t].includes(null) || lineup[t].length < 2) {
+        const from = teamIn(d);
+        if (victim && winters > 1 && !under(victim) && !from) continue; // nobody's seat to give him yet: wait for a later winter
+        const out = join(d, t, victim);
+        // whoever made way takes the seat that was left, unless he was off the pace or it's the last winter
+        if (out && !want[out]) { if (winters > 1 && !under(out) && from && lineup[from].includes(null)) join(out, from); else step(out, null, exit(out)); }
+      }
     }
-    // the odd change further back
-    for (const t of rank.slice(4)) if (rnd() < 0.2) { const d = lineup[t].filter(x => x && !locked(x)).sort((a, b) => sk(b) - sk(a))[0]; if (d) leave(d, 'free'); }
   }
   // empty seats: whoever is due at the team, then the quickest F2/F3 driver or free agent available (top teams pick first)
   const pool = driverPool(c, prevS);
-  const targetIds = target ? Object.values(target.lineup).flat() : [];
-  const avail = () => [...pool.feeder, ...pool.free, ...pool.custom].filter(d => !onGrid().has(d) && d !== PLAYER_ID && (age(d) ?? 25) < 40 && (!targetIds.includes(d) || Object.entries(target.lineup).some(([t, ds]) => ds.includes(d) && lineup[t])));
+  const targetIds = Object.keys(want);
+  const avail = () => [...pool.feeder, ...pool.free, ...pool.custom].filter(d => !onGrid().has(d) && d !== PLAYER_ID && (age(d) ?? 25) < 40 && !steps.some(st => st.driver === d && st.to === 'retire') && (!want[d] || lineup[want[d]]));
   for (const t of rank.concat(Object.keys(lineup).filter(x => !rank.includes(x)))) {
     while (lineup[t].filter(Boolean).length < 2) {
       const due = target ? (target.lineup[t] || []).find(d => d && !onGrid().has(d)) : null;
-      const cands = avail().filter(d => !targetIds.includes(d) || target.lineup[t]?.includes(d)).map(d => [d, sk(d) + gauss(rnd) * 50]).sort((a, b) => a[1] - b[1]);
+      const cands = avail().filter(d => !want[d] || want[d] === t).map(d => [d, sk(d) + gauss(rnd) * 50]).sort((a, b) => a[1] - b[1]);
       const d = due || cands[Math.floor(rnd() * Math.min(3, cands.length))]?.[0];
       if (!d) break;
       join(d, t);
@@ -759,7 +797,7 @@ function simulateGap(c, startYear, targetGrid, targetCal) {
   const was = (d) => Object.keys(lineup).find(u => lineup[u].includes(d)) || null;
   const steps = [...w.steps];
   for (const t of targetGrid) if (!lineup[t.id]) for (const d of t.drivers) if (d && d !== PLAYER_ID) steps.push({ kind: 'move', driver: d, from: was(d), to: t.id, replaces: null, until: startYear + 1, prevUntil: null, wasPending: false });
-  for (const d of Object.values(lineup).flat()) if (d && !keep.has(d) && !steps.some(x => x.driver === d)) steps.push({ kind: 'move', driver: d, from: was(d), to: (ageIn(c, d, startYear) || 0) >= 35 ? 'retire' : 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
+  for (const d of Object.values(lineup).flat()) if (d && !keep.has(d) && !steps.some(x => x.driver === d)) steps.push({ kind: 'move', driver: d, from: was(d), to: (racePaceDeficit(c, d, prev.index) ?? 0) <= UNDERPERFORM && (ageIn(c, d, startYear) || 0) >= 33 ? 'retire' : 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
   prev.transfers.push(...steps.map((st, k) => ({ id: `sim-${startYear}-${k}`, at: activeRounds(prev).length, effective: 'next', createdAt: new Date((date?.getTime() || 0) + DAY).toISOString(), steps: [st], sim: true, before: null })));
 }
 
