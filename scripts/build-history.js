@@ -68,6 +68,8 @@ const champKeyByName = Object.fromEntries(Object.entries(REF.CHAMP_BIO).map(([k,
 const ERG = {}; // ergast driverId -> Driver object
 for (const y of years(FIRST, LAST)) for (const r of RES[y]) for (const x of r.Results) ERG[x.Driver.driverId] = x.Driver;
 const modern = new Set(); for (const y of years(FROM, LAST)) for (const r of RES[y]) for (const x of r.Results) modern.add(x.Driver.driverId);
+const champKeyById = {};
+for (const [y, key] of REF.CHAMPIONS) { const top = (standings(`${y}/driverStandings`, 'DriverStandings') || []).find(x => x.position === '1'); if (top) champKeyById[top.Driver.driverId] = key; }
 const ID = {}; const taken = new Map();
 for (const did of modern) {
   const d = ERG[did];
@@ -79,6 +81,7 @@ for (const did of modern) {
 /** A stable key for any driver: Pitwall's id for the modern ones, the champion key, else a name-based one. */
 function keyOf(did) {
   if (ID[did]) return ID[did];
+  if (champKeyById[did]) return champKeyById[did];
   const d = ERG[did]; const n = fullName(d);
   return champKeyByName[n] || `H_${did}`;
 }
@@ -277,27 +280,27 @@ function recordBook() {
         if (d.starts === 1 && born) offer('youngStart', did, days(born, r.date), when, false, { born, date: r.date });
         if (+x.points > 0) {
           if (d.pts === 0 && born) offer('youngPoints', did, days(born, r.date), when, false, { born, date: r.date });
-          if (!s.pts) s.ptsFrom = when; s.pts++; offer('ptsStreak', did, s.pts, s.ptsFrom === when ? when : `${s.ptsFrom.slice(0, 4)}–${y}`);
+          if (!s.pts) s.ptsFrom = when; s.pts++; offer('ptsStreak', did, s.pts, s.ptsFrom === when ? when : s.ptsFrom.slice(0, 4) === String(y) ? String(y) : `${s.ptsFrom.slice(0, 4)}–${y}`);
         } else s.pts = 0;
         d.pts += +x.points;
         if (+x.grid === 1) {
           d.poles++; if (!s.pole) s.poleFrom = when; s.pole++;
           if (d.poles === 1 && born) { const q = new Date(Date.parse(r.date) - 864e5).toISOString().slice(0, 10); offer('youngPole', did, days(born, q), when, false, { born, date: q }); }
-          offer('poleStreak', did, s.pole, `${s.poleFrom.slice(0, 4)}–${y}`);
+          offer('poleStreak', did, s.pole, s.poleFrom.slice(0, 4) === String(y) ? String(y) : `${s.poleFrom.slice(0, 4)}–${y}`);
           (sw[did] ||= { wins: 0, pods: 0, poles: 0 }).poles++;
         } else if (+x.grid > 0) s.pole = 0;
         if (pos && pos <= 3) {
           d.podiums++; if (!s.pod) s.podFrom = when; s.pod++;
           if (d.podiums === 1 && born) offer('youngPodium', did, days(born, r.date), when, false, { born, date: r.date });
-          offer('podStreak', did, s.pod, `${s.podFrom.slice(0, 4)}–${y}`);
+          offer('podStreak', did, s.pod, s.podFrom.slice(0, 4) === String(y) ? String(y) : `${s.podFrom.slice(0, 4)}–${y}`);
           (sw[did] ||= { wins: 0, pods: 0, poles: 0 }).pods++;
         } else s.pod = 0;
         if (pos === 1) {
           d.wins++; if (!s.win) s.winFrom = when; s.win++;
           if (born) { offer('youngWin', did, days(born, r.date), when, false, { born, date: r.date }); offer('oldWin', did, days(born, r.date), when, true, { born, date: r.date }); }
-          offer('winStreak', did, s.win, s.winFrom === when ? when : `${s.winFrom.slice(0, 4)}–${y}`);
+          offer('winStreak', did, s.win, s.winFrom === when ? when : s.winFrom.slice(0, 4) === String(y) ? String(y) : `${s.winFrom.slice(0, 4)}–${y}`);
           (sw[did] ||= { wins: 0, pods: 0, poles: 0 }).wins++;
-          for (const [tid, from] of lineageOf[x.Constructor.constructorId] || []) if (y >= from) { T(tid).wins++; tw[tid] = (tw[tid] || 0) + 1; }
+          for (const [tid, from] of lineageOf[x.Constructor.constructorId] || []) if (y >= from) { T(tid).wins++; T(tid).firstWin ??= y; tw[tid] = (tw[tid] || 0) + 1; }
           const cid = `C_${x.Constructor.constructorId}`; if (!lineageOf[x.Constructor.constructorId]) { T(cid).wins++; tw[cid] = (tw[cid] || 0) + 1; T(cid).name = x.Constructor.name; }
         } else s.win = 0;
       }
@@ -312,7 +315,8 @@ function recordBook() {
     if (st[0]) {
       const did = st[0].Driver.driverId; const d = D(did); d.titles++;
       const prev = d.lastTitle === y - 1 ? d.titleStreak : 0; d.titleStreak = prev + 1; d.lastTitle = y;
-      offer('titles', did, d.titles, d.titles === 1 ? String(y) : null); offer('titleStreak', did, d.titleStreak, `${y - d.titleStreak + 1}–${y}`);
+      (d.titleYears ||= []).push(y);
+      offer('titles', did, d.titles, d.titles === 1 ? String(y) : `${d.titleYears[0]}–${y}`); offer('titleStreak', did, d.titleStreak, `${y - d.titleStreak + 1}–${y}`);
       const born = ERG[did].dateOfBirth; const lastRace = RES[y][RES[y].length - 1].date;
       if (born && d.titles <= 8) offer('youngTitle' + d.titles, did, days(born, lastRace), String(y), false, { born, date: lastRace });
       if (born) offer('oldTitle', did, days(born, lastRace), String(y), true, { born, date: lastRace });
@@ -321,15 +325,15 @@ function recordBook() {
     }
     const cs = CST[y] || [];
     if (cs[0]) for (const [tid, from] of lineageOf[cs[0].Constructor.constructorId] || [[`C_${cs[0].Constructor.constructorId}`, 0]]) {
-      if (y < from) continue; const t = T(tid); t.name ||= cs[0].Constructor.name; t.titles++; t.streak = t.last === y - 1 ? t.streak + 1 : 1; t.last = y;
-      offer('teamTitles', tid, t.titles, null); offer('teamStreak', tid, t.streak, `${y - t.streak + 1}–${y}`);
+      if (y < from) continue; const t = T(tid); t.name ||= cs[0].Constructor.name; t.titles++; t.streak = t.last === y - 1 ? t.streak + 1 : 1; t.last = y; t.firstTitle ??= y;
+      offer('teamTitles', tid, t.titles, `${t.firstTitle}–${y}`); offer('teamStreak', tid, t.streak, `${y - t.streak + 1}–${y}`);
     }
   }
   for (const [did, d] of Object.entries(tot)) {
     for (const k of ['wins', 'poles', 'podiums', 'starts', 'pts']) offer(k, did, Math.round(d[k] * 10) / 10, null);
     if (!d.wins) offer('winless', did, d.starts, null);
   }
-  for (const [tid, t] of Object.entries(team)) offer('teamWins', tid, t.wins, null);
+  for (const [tid, t] of Object.entries(team)) offer('teamWins', tid, t.wins, t.firstWin ? `${t.firstWin}–${FROM - 1}` : null);
   return { best, tot, team };
 }
 const book = recordBook();
@@ -346,10 +350,11 @@ const RECORDS = REF.RECORDS.map(R => {
   const holders = b.holders.map(h => {
     if (R.group === 'team') {
       const meta = REF.TEAM_BIO[h.did] || M.OLD_TEAMS[h.did];
-      return { key: h.did, name: h.did.startsWith('C_') ? book.team[h.did].name : lookFor(h.did, 2015).name !== h.did ? lookFor(h.did, 2015).name : meta?.full || h.did, when: h.when || '' };
+      return { key: h.did, name: h.did.startsWith('C_') ? book.team[h.did].name : lookFor(h.did, FROM).name !== h.did ? lookFor(h.did, FROM).name : meta?.full || h.did, when: h.when || '' };
     }
     const d = ERG[h.did];
-    const o = { key: keyOf(h.did), name: fullName(d), when: h.when || careerSpan(h.did) };
+    const key = keyOf(h.did);
+    const o = { key, name: REF.CHAMP_BIO[key]?.name || fullName(d), when: h.when || careerSpan(h.did) };
     if (R.group === 'age') Object.assign(o, { born: h.born, date: h.date });
     return o;
   });

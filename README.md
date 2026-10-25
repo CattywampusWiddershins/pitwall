@@ -1,4 +1,4 @@
-﻿# Pitwall â€” F1 25 Career Tracker
+﻿# Pitwall — F1 25 Career Tracker
 
 A desktop app for tracking your F1 25 driver career: every session result for every driver, fastest laps, championship standings, head-to-head stats, season goals and AI-driven media sessions.
 
@@ -25,26 +25,30 @@ npm run dist:win
 
 This creates a `dist` folder containing:
 
-- `Pitwall-1.1.0-portable.exe` â€” a single file you can double-click from anywhere (pin it to your taskbar or put it on the desktop)
+- `Pitwall-<version>-portable.exe` — a single file you can double-click from anywhere (pin it to your taskbar or put it on the desktop)
 - a `.zip` with the unpacked app
 
 On a Mac use `npm run dist:mac`; on Linux `npm run dist:linux`.
 
-Windows may show a SmartScreen warning the first time because the app isn't code-signed. Click **More info â†’ Run anyway**.
+Windows may show a SmartScreen warning the first time because the app isn't code-signed. Click **More info → Run anyway**.
 
 ## How seasons work
 
-- **Season 1 (2025):** the F1 25 grid with all ten teams plus **APXGP** (Sonny Hayes and Joshua Pearce). You choose which seat you took over.
-- **Season 2 (2026):** the 2026 Season Pack grid. APXGP leaves, **Audi** replaces Kick Sauber, **Cadillac** joins (PÃ©rez and Bottas), Lindblad joins Racing Bulls, Hadjar moves to Red Bull, and Madrid replaces Imola on the calendar.
-- **Season 3 onwards:** carries the previous season's roster forward.
+Every career contains every real season from 2016, read-only, with full qualifying, sprint and race results. Standings, stories, ratings, records and stats all count them.
 
-Rosters and calendars are editable under **Settings** so you can mirror driver-market moves, cancelled rounds, sprint changes or shortened seasons from your save.
+- **Start in 2016–2024:** the real grid and calendar of that year. Each following season starts from the real grid of its year, with the moves made in your career on top.
+- **Start in 2025:** the F1 25 grid with all ten teams plus **APXGP** (Sonny Hayes and Joshua Pearce). You choose which seat you took over.
+- **2026:** the 2026 Season Pack grid. **Audi** replaces Kick Sauber, **Cadillac** joins (Pérez and Bottas), and Madrid replaces Imola on the calendar.
+- **Start after 2026:** you lay out the grid and calendar of your first season. The years between 2026 and your start are simulated race by race, with a driver market that ends on your grid.
+- **From 2027 in your career:** the grid carries over and the rest of the market moves on its own (retirements, top teams signing drivers who beat their car, F2 and F3 rookies). Your own moves go in **Transfers**.
+
+Rosters and calendars are editable under **Settings**, including adding back circuits that have left the calendar.
 
 ## Logging a weekend
 
 Open a round from **Season**. Each weekend has a tab per session (practice, sprint qualifying, sprint, qualifying, race; practice format is set in Settings). For each session you can:
 
-- **Tap finishing order** â€” click drivers in order, fastest way to enter 22 positions
+- **Tap finishing order** — click drivers in order, fastest way to enter 22 positions
 - **Fill order** from another session, the championship, or team order
 - drag rows or use the arrows to adjust
 - enter best lap and gap for any driver (press Enter to jump to the next row)
@@ -52,27 +56,63 @@ Open a round from **Season**. Each weekend has a tab per session (practice, spri
 
 The fastest lap of every session is detected from the quickest lap time and highlighted purple. You can override it if you only log some times.
 
-Points use the 2025+ rules: 25-18-15-12-10-8-6-4-2-1 for races, 8-1 for sprints, no fastest-lap point.
+Points use the 2025+ rules: 25-18-15-12-10-8-6-4-2-1 for races, 8-1 for sprints, no fastest-lap point. Real seasons keep the points they were actually scored with.
 
 ## AI media sessions
 
-Go to **Media â†’ New media session** (or the Media button on any weekend). Pick pre-season, post-qualifying, post-race, mid-season or end-of-season. Journalists ask questions based on your results, driver type, personality, teammate battle, rival, goals and weekend notes. Answer them, then publish to get a press article, paddock reactions and a change to your media reputation.
+Go to **Media → New media session** (or the Media button on any weekend). Pick pre-season, post-qualifying, post-race, mid-season or end-of-season. Journalists ask questions based on your results, driver type, personality, teammate battle, rival, goals and weekend notes. Answer them, then publish to get a press article, paddock reactions and a change to your media reputation.
 
-For AI-written questions and articles, add an Anthropic API key in **Settings â†’ AI media engine** (get one at console.anthropic.com; usage is billed to your API account). The key is stored encrypted on your computer. Without a key, media sessions still work using built-in question templates.
+For AI-written questions and articles, add an Anthropic API key in **Settings → AI media engine** (get one at console.anthropic.com; usage is billed to your API account). The key is stored encrypted on your computer. Without a key, media sessions still work using built-in question templates.
 
 ## Your data
 
-Everything saves automatically to your user folder (`%APPDATA%\Pitwall\career-data.json` on Windows), with a daily backup kept for 14 days in the `backups` folder next to it. Use **Settings â†’ Export backup** to save a copy anywhere.
+Everything saves automatically to your user folder (`%APPDATA%\Pitwall\career-data.json` on Windows), with a daily backup kept for 14 days in the `backups` folder next to it. Use **Settings → Export backup** to save a copy anywhere.
+
+## Versions and rolling back
+
+The project is a git repository. Every release is tagged (`v1.1.0`, `v1.2.0`, …). To see them:
+
+```
+git tag
+```
+
+To go back to a release, for example 1.1.0, and rebuild it:
+
+```
+git checkout v1.1.0
+npm run dist:win
+```
+
+`git checkout main` returns to the latest version. Your career data is stored outside the project, so switching versions never touches it (an older version may not understand data saved by a newer one, so export a backup first).
+
+## Real results data
+
+`src/history.js` (every season from 2016 and the record book before it) is generated from the [Jolpica F1 API](https://github.com/jolpica/jolpica-f1). `src/assets.js` holds circuit outlines from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT) and flags from [flag-icons](https://github.com/lipis/flag-icons) (MIT). To rebuild them:
+
+```
+node scripts/fetch-history.js
+node scripts/build-history.js
+node scripts/build-assets.js
+```
+
+The first downloads into `data-raw/` (about an hour, at the API's rate limit) and only fetches what's missing on later runs.
 
 ## Project layout
 
 ```
-main.js        Electron main process: window, file storage, API calls
-preload.js     Safe bridge between the window and main process
-src/index.html App shell
-src/styles.css Styling
-src/data.js    Grids, calendars, points, driver types (edit to change defaults)
-src/app.js     The app: career model, stats, views, media engine
+main.js            Electron main process: window, file storage, API calls
+preload.js         Safe bridge between the window and main process
+companion.js       Phone/tablet link
+src/index.html     App shell
+src/styles.css     Styling
+src/data.js        Grids, calendars, points, driver types (edit to change defaults)
+src/reference.js   Real-world bios, circuits, team records
+src/history.js     Real seasons from 2016 (generated)
+src/assets.js      Circuit maps and flags (generated)
+src/pool.js        F2 and F3 drivers for the transfer pool
+src/app.js         The app: career model, stats, views, media engine
+scripts/           Data builders and a test server (node scripts/serve.js)
+android/           The Android companion app
 ```
 
-You can also open `src/index.html` directly in a browser to try it; data then stays in that browser and AI media is unavailable.
+You can also run `node scripts/serve.js` and open http://localhost:5173 to try it in a browser; data then stays in that browser and AI media is unavailable.

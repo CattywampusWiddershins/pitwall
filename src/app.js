@@ -445,7 +445,8 @@ function driverPool(c, s = latestSeason()) {
     (c.retired?.[id] != null || y < s.year - 2 || Object.entries(REAL_RETIREMENTS).some(([ry, ids]) => ids.includes(id) && +ry >= y) ? out.retired : out.free).push(id);
   }
   for (const id of ['PER', 'BOT', 'LIN', 'DOO', 'HAY', 'PEA']) if (!grid.has(id) && !lastRaced[id] && !out.free.includes(id)) out.free.push(id);
-  for (const id of Object.keys(FEEDER)) if (!grid.has(id) && !lastRaced[id] && !(c.removedPool || []).includes(id)) out.feeder.push(id);
+  // the 2024–25 feeder grids are for seasons from 2025 (in 2018 most of them were still in karting)
+  if (s.year >= 2025) for (const id of Object.keys(FEEDER)) if (!grid.has(id) && !lastRaced[id] && !(c.removedPool || []).includes(id)) out.feeder.push(id);
   return out;
 }
 
@@ -733,12 +734,14 @@ function addMyTeam(c, teams, prev) {
   const last = prev?.teams.find(t => t.id === MYTEAM)?.drivers.filter(d => d && d !== PLAYER_ID) || [];
   // keep last year's line-up, otherwise the drivers signed at setup
   const seats = isPrincipal(c) ? (last.length ? last : c.myTeam.seats || []).slice(0, 2) : [null, last[0] || c.myTeam.mate || null];
-  // a driver signed from another team leaves a seat there for a reserve
+  // a driver signed from another team leaves a seat there for a reserve: someone who raced last season and is
+  // without a seat (the usual 2025 reserves otherwise)
+  const lastYear = prev ? Object.entries(seasonStatsCache(prev)).filter(([, o]) => o.starts).sort((a, b) => b[1].starts - a[1].starts).map(([id]) => id).filter(id => id !== PLAYER_ID) : [];
   for (const id of seats) if (id) for (const t of teams) {
     const k = t.drivers.indexOf(id);
     if (k < 0) continue;
     const used = new Set(teams.flatMap(x => x.drivers).concat(seats));
-    t.drivers[k] = FREE_AGENTS.find(f => !used.has(f)) || null;
+    t.drivers[k] = [...lastYear, ...(prev && prev.year < 2024 ? [] : FREE_AGENTS)].find(f => !used.has(f)) || null;
   }
   while (seats.length < 2) seats.push(null);
   teams.push({ ...myTeamRow(c), drivers: seats });
@@ -1408,7 +1411,7 @@ function renderCalendar() {
       return `<button class="round ${nr?.id === r.id ? 'is-next' : ''}" data-act="open-round" data-round="${r.id}">
         <div class="row" style="justify-content:space-between"><span class="rn">Round ${i + 1}</span>
         <span class="row" style="gap:6px">${r.sprint ? '<span class="tag sprint">Sprint</span>' : ''}${isDone ? '<span class="tag done">Done</span>' : nr?.id === r.id ? '<span class="tag next">Next</span>' : doneN ? `<span class="tag">${doneN}/${keys.length}</span>` : ''}</span></div>
-        <div><div class="gp">${esc(r.name)}</div><div class="muted" style="font-size:12px">${esc(r.venue)} · ${weekendTxt(s, r)}</div></div>
+        <div><div class="gp">${countryFlag(D.TRACKS[trackOf(r)]?.country, 13)} ${esc(r.name)}</div><div class="muted" style="font-size:12px">${esc(r.venue)} · ${weekendTxt(s, r)}</div></div>
         <div class="res"><span>Q <b>${br.q ? 'P' + br.q : '–'}</b></span>${r.sprint ? `<span>Spr <b>${br.s != null ? (typeof br.s === 'number' ? 'P' + br.s : br.s) : '–'}</b></span>` : ''}<span>Race <b>${br.r != null ? (typeof br.r === 'number' ? 'P' + br.r : br.r) : '–'}</b></span>${br.fl ? '<span class="fl-tag">FL</span>' : ''}</div>
       </button>`;
     }).join('')}</div>
@@ -1519,7 +1522,6 @@ function renderHistWeekend(s, rounds, ri, r) {
       </div>
       <div class="row">
         ${t ? `<button class="btn" data-act="open-track" data-track="${trackOf(r)}">${ICON.track} Circuit guide</button>` : ''}
-        ${keys.length ? `<button class="btn" data-act="weekend-card" data-round="${r.id}">${ICON.camera} Weekend summary</button>` : ''}
       </div>
     </div>
     <div class="panel">
@@ -2214,7 +2216,7 @@ function renderDriver() {
   const recent = me ? activeRounds(s).map((r, i) => ({ r, i, br: me.byRound[r.id] })).filter(x => x.br && (x.br.r != null || x.br.q != null)) : [];
   const resCell = (v) => v == null ? '–' : typeof v === 'number' ? 'P' + v : `<span class="tag dnf">${v}</span>`;
   const firstWin = bio?.firstWin || (() => {
-    for (const { s: se, o } of seasons) { const r = activeRounds(se).find(x => o.byRound[x.id]?.r === 1); if (r) return `${se.year} ${r.name} GP (career)`; }
+    for (const { s: se, o } of seasons) { const r = activeRounds(se).find(x => o.byRound[x.id]?.r === 1); if (r) return `${se.year} ${r.name} GP${isHist(se) ? '' : ' (career)'}`; }
     return null;
   })();
 
@@ -2225,7 +2227,7 @@ function renderDriver() {
       <div class="hero-pic">${avatar(c, s, id, 104)}<div class="big-num">${esc(d.number || '–')}</div></div>
       <div style="position:relative;z-index:1;min-width:0">
         <span class="label">${team ? `<button data-act="open-team" data-id="${team.id}" class="link-btn">${esc(team.name)}</button> · ${s.year}` : `Not on the ${s.year} grid`}</span>
-        <div class="name">${esc(name)}${isMe ? ` <span class="tag">${isPrincipal(c) ? 'Your lead driver' : 'You'}</span>` : ''}${bio?.fictional ? ' <span class="tag">Fictional</span>' : ''}</div>
+        <div class="name">${natFlag(nat, 22)} ${esc(name)}${isMe ? ` <span class="tag">${isPrincipal(c) ? 'Your lead driver' : 'You'}</span>` : ''}${bio?.fictional ? ' <span class="tag">Fictional</span>' : ''}</div>
         <div class="meta">${nat ? `<span>${esc(nat)}</span>` : ''}${age != null ? `<span>Age ${age}</span>` : ''}${bio?.debut ? `<span>Debut: ${esc(bio.debut)}</span>` : ''}${isYou ? '' : `<span>Contract: ${esc(contractTxt(c, latestSeason(), id))}</span>`}</div>
       </div>
       <div class="next-card">
@@ -4721,7 +4723,7 @@ function renderStories() {
   const known = allKnownDrivers(c, s);
   return `<div class="page">
     <div class="page-head"><div><h1>Stories</h1><div class="sub">The ${s.year} season as the paddock press tells it: race reports, the title fight, interviews and rumours. Articles update when you edit results.</div></div>
-      <div class="row">${seasonPicker(c, s.index)}<button class="btn primary" data-act="rm-new">Start a rumour</button></div></div>
+      <div class="row">${seasonPicker(c, s.index)}${isHist(s) ? '' : '<button class="btn primary" data-act="rm-new">Start a rumour</button>'}</div></div>
     <div class="row"><div class="seg">${STORY_FILTERS.map(([id, l]) => `<button data-act="stories-filter" data-v="${id}" class="${f[0] === id ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     <div class="grid-main">
       <div class="panel">${list.length ? list.map((x, k) => storyHtml(c, s, x, k === 0)).join('') : `<div class="empty">No stories yet. Log a qualifying session or race and the press will write it up.</div>`}
@@ -5375,7 +5377,7 @@ function renderSetup() {
   const grid = setupGrid(u);
   if (!grid.some(t => t.id === u.teamId)) { u.teamId = grid[grid.length - 1].id; u.seat = grid[grid.length - 1].drivers[1]; }
   const gridDrivers = grid.flatMap(t => t.drivers).filter(Boolean);
-  const pool = [...gridDrivers.map(id => ({ id, name: anyName(id) })), ...u.newDrivers.map(d => ({ ...d, custom: true }))];
+  const pool = [...gridDrivers.map(id => ({ id, name: anyName(id) })), ...u.newDrivers.map(d => ({ ...d, custom: true })), ...(u.year >= 2025 ? Object.values(FEEDER).map(d => ({ id: d.id, name: `${d.name} (${d.series})` })) : [])];
   const teamCards = grid.map(t => `<div class="choice team-choice ${u.teamId === t.id ? 'on' : ''}" style="--c:${t.color}">
     <span class="bar"></span><div class="inner"><b>${esc(t.name)}</b><small>Replace a driver:</small>
     <div class="row" style="gap:6px">${t.drivers.map(d => `<button class="seat ${u.teamId === t.id && u.seat === d ? 'on' : ''}" data-act="setup-seat" data-team="${t.id}" data-seat="${d}">${esc(anyName(d))}</button>`).join('')}</div></div></div>`).join('');
