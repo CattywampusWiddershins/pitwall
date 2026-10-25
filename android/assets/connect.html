@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect · Pitwall</title>
+<style>
+  :root { --bg: #0B0F17; --panel: #121826; --panel-2: #182033; --line: #263149; --fg: #E7ECF5; --muted: #8B97AF; --team: #E10600; --green: #2FD07A; --red: #F0535A;
+    --font-display: "Bahnschrift", "DIN Alternate", "Barlow Condensed", "Roboto Condensed", "Arial Narrow", sans-serif; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: max(28px, env(safe-area-inset-top)) 20px 40px; display: grid; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .mark { width: 40px; height: 40px; border-radius: 6px; background: var(--team); display: grid; place-items: center; color: #fff; }
+  .mark svg { width: 26px; height: 26px; }
+  .name { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: 0.14em; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; margin: 0; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid color-mix(in srgb, var(--team) 60%, var(--line)); box-shadow: 0 0 16px color-mix(in srgb, var(--team) 25%, transparent); border-radius: 8px; padding: 18px; display: grid; gap: 12px; }
+  .label { font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.09em; font-size: 12px; color: var(--muted); }
+  button { font: inherit; font-family: var(--font-display); letter-spacing: 0.03em; font-size: 17px; border-radius: 6px; padding: 13px 16px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--team); border-color: var(--team); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.5; }
+  input { font: inherit; font-size: 18px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; width: 100%; font-family: ui-monospace, "Cascadia Mono", monospace; }
+  input:focus, button:focus-visible { outline: 2px solid var(--team); outline-offset: 1px; }
+  .row { display: flex; gap: 10px; }
+  .row input { flex: 1; }
+  .err { color: var(--red); min-height: 0; }
+  .found { display: grid; gap: 8px; }
+  .found button { text-align: left; display: flex; justify-content: space-between; gap: 10px; }
+  .found small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 14px; }
+  ol { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
+  ol b { color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M3 17h7l3-10h8M7 12h5"/></svg></div><div class="name">PITWALL</div></div>
+  <h1>Connect to your computer</h1>
+  <p class="err" id="err" hidden></p>
+  <div class="card" id="retry-card" hidden>
+    <span class="label">Last computer</span>
+    <button class="primary" id="retry">Reconnect to <span id="last"></span></button>
+  </div>
+  <div class="card">
+    <span class="label">On the computer</span>
+    <ol><li>Open <b>Pitwall</b></li><li>Go to <b>Settings → Phone &amp; tablet</b></li><li>Press <b>Turn on</b></li></ol>
+  </div>
+  <div class="card">
+    <span class="label">Find it automatically</span>
+    <button id="scan">Search this Wi-Fi</button>
+    <div class="found" id="found"></div>
+  </div>
+  <form class="card" id="manual">
+    <span class="label">Or type its address</span>
+    <p class="muted" style="font-size:14px">Shown under Phone &amp; tablet in the computer’s Settings, for example 192.168.1.20</p>
+    <div class="row"><input id="addr" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.1.20"><button class="primary" type="submit" id="go">Connect</button></div>
+  </form>
+</main>
+<script>
+  const A = window.PitwallAndroid;
+  const $ = (id) => document.getElementById(id);
+  const msg = decodeURIComponent(location.hash.slice(1));
+  if (msg) { $('err').textContent = msg; $('err').hidden = false; }
+  const last = A ? A.lastHost() : '';
+  if (last) { $('retry-card').hidden = false; $('last').textContent = last.replace(':8765', ''); $('addr').value = last.replace(':8765', ''); }
+  const busy = (on) => { for (const b of document.querySelectorAll('button')) b.disabled = on; };
+  function connect(h) { $('err').hidden = true; busy(true); $('go').textContent = 'Connecting…'; A.connect(h); }
+  window.connectFailed = (h) => {
+    busy(false); $('go').textContent = 'Connect';
+    $('err').textContent = h ? `No Pitwall at ${h.replace(':8765', '')}. Check the address, that Phone & tablet is turned on, and that this device is on the same Wi-Fi.` : 'Enter the address shown on the computer.';
+    $('err').hidden = false;
+  };
+  window.scanDone = (list, hasWifi) => {
+    busy(false); $('scan').textContent = 'Search again';
+    $('found').innerHTML = '';
+    if (!list.length) {
+      $('found').innerHTML = `<p class="muted" style="font-size:14px">${hasWifi ? 'Pitwall wasn’t found on this Wi-Fi. Make sure Phone & tablet is turned on, then search again or type the address below.' : 'This device doesn’t seem to be on Wi-Fi.'}</p>`;
+      return;
+    }
+    for (const x of list) {
+      const b = document.createElement('button');
+      b.innerHTML = `<span></span><small></small>`;
+      b.firstChild.textContent = x.name; b.lastChild.textContent = x.host.replace(':8765', '');
+      b.onclick = () => connect(x.host);
+      $('found').appendChild(b);
+    }
+    if (list.length === 1 && !last) connect(list[0].host);
+  };
+  $('scan').onclick = () => { busy(true); $('scan').textContent = 'Searching…'; $('found').innerHTML = ''; A.scan(); };
+  $('retry').onclick = () => connect(last);
+  $('manual').onsubmit = (e) => { e.preventDefault(); connect($('addr').value); };
+  if (!A) $('err').textContent = 'This page only works inside the Pitwall app.';
+  else if (!last && !msg) $('scan').click();
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+tools/
+android/out/
+build/Pitwall.apk
+build/Pitwall.apk.idsig
+*.log
