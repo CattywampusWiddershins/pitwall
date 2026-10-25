@@ -66,7 +66,15 @@ Pitwall can log sessions from the game itself, using F1 25's UDP telemetry. Turn
 
 With Pitwall open on the PC, each finished session is logged by itself: the career you have open, the next round at that circuit not yet logged, and the session type the game reports. It fills the order, best laps, race times and gaps (penalties included), laps down and retirements, and keeps every lap, tyre stint, pit stop and penalty: race pace then uses each driver's clean laps, the weekend page shows a strategy table, and race reports mention penalties. A session you logged yourself is never replaced without asking, Time Trial and online sessions are ignored, and the banner after an import has Undo. My Team finances and upgrades are not part of the game's telemetry, so they stay manual.
 
- sends a made-up race to a running Pitwall, to check the connection.
+**Three-part qualifying (Q1–Q3, SQ1–SQ3).** Each part you run is merged into one qualifying result. Drivers knocked out in a part keep their own time and place. If you're knocked out yourself, the game stops sending results, so the places above you are provisional: they keep the times set for each place, and when the race or sprint starts Pitwall reads the starting grid from the game and puts those drivers in order, each taking that place's time. A provisional driver who starts behind the knocked-out drivers has a grid penalty; their own time was never known, so they're listed at the back of the provisional places without one.
+
+**Practice you skipped** is filled in when qualifying is logged: much the same order as qualifying, about seven tenths slower, and marked as estimated.
+
+**Every lap.** On the weekend page, tap a driver in the strategy (or practice runs) table for all their laps, a lap-time graph and tyre wear for each stint; in practice, a dashed line shows where each run's wear was heading and roughly how many laps the tyre would last (to 70% wear).
+
+**Race strategy.** The dashboard works out the best plan for the next race from that weekend's practice: once from the whole grid's long runs, and once from yours. Each needs at least three consecutive clean laps on two dry compounds. It uses each compound's pace, how much time it loses per lap as it ages, and its wear rate (which sets how long it lasts), and times every one- and two-stop plan with about 22 s per stop.
+
+`node scripts/fake-f1-session.js` sends a made-up race to a running Pitwall, to check the connection.
 
 ## Logging a weekend
 

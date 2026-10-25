@@ -1,11 +1,11 @@
 // F1 25 telemetry: listens for the game's UDP packets, straight from the game or forwarded by another app (a wheel
 // base's software, say), and turns each finished session into a result Pitwall can log. Packet layouts follow EA's
 // F1 25 UDP specification: packet format 2025 for the base game (22 cars), 2026 for the 2026 Season Pack (24 cars,
-// wider driver/team ids). Only what Pitwall uses is read: session, participants, events, session history and the
-// final classification.
+// wider driver/team ids). Only what Pitwall uses is read: session, lap data (grid slots and laps), participants,
+// events, car damage (tyre wear), session history and the final classification.
 const dgram = require('dgram');
 
-const PACKET = { SESSION: 1, EVENT: 3, PARTICIPANTS: 4, FINAL: 8, HISTORY: 11 };
+const PACKET = { SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
 const HEADER = 29;
 const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } : { cars: 22, part: 57, wide: false };
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
@@ -48,6 +48,24 @@ function parseFinal(b, L) {
   }
   return out;
 }
+/** Lap data: each car's current lap, grid slot and result status. */
+function parseLapData(b, L) {
+  const out = [];
+  for (let i = 0; i < L.cars; i++) {
+    const o = HEADER + i * 57; if (o + 57 > b.length) break;
+    out.push({ lap: b[o + 33], grid: b[o + 43], status: b[o + 45] });
+  }
+  return out;
+}
+/** Car damage: the most worn of each car's four tyres, in percent. */
+function parseWear(b, L) {
+  const out = [];
+  for (let i = 0; i < L.cars; i++) {
+    const o = HEADER + i * 46; if (o + 16 > b.length) break;
+    out.push(Math.max(b.readFloatLE(o), b.readFloatLE(o + 4), b.readFloatLE(o + 8), b.readFloatLE(o + 12)));
+  }
+  return out;
+}
 function parseHistory(b) {
   if (b.length < 1460) return null;
   const car = b[HEADER], n = Math.min(b[HEADER + 1], 100), ns = Math.min(b[HEADER + 2], 8);
@@ -71,7 +89,8 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
   const sessionOf = (h) => {
     let s = sessions.get(h.uid);
     if (!s) {
-      s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now() };
+      s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now(),
+        curLap: [], wearNow: [], wear: {}, gridSent: false };
       sessions.set(h.uid, s);
       for (const [k, v] of sessions) if (Date.now() - v.seen > 6 * 3600e3) sessions.delete(k); // forget sessions from hours ago
     }
@@ -82,10 +101,14 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     if (s.sent || !s.final || !s.info) return;
     s.sent = true;
     const parts = s.parts || [];
+    // the lap that was running at the end
+    s.curLap.forEach((lap, i) => { if (lap && s.wearNow[i] != null && (s.wear[i] ||= [])[lap - 1] == null) s.wear[i][lap - 1] = Math.round(s.wearNow[i] * 10) / 10; });
     const cars = s.final.filter(x => x.position > 0).map(x => {
       const p = parts.find(q => q.idx === x.idx) || {};
+      // the stint still running at the flag (or when the car stopped) ends on lap 255: it really ends on the car's last lap
+      const stints = (s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints).map(t => ({ ...t, end: Math.min(t.end, x.laps || t.end) }));
       return { ...x, name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
-        lapTimes: s.laps[x.idx] || [], stints: s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints };
+        lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [] };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements });
@@ -96,13 +119,29 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     if (h.format < 2025 || h.format > 2030) return; // not F1 25
     st.packets++; st.lastAt = new Date().toISOString(); st.format = h.format;
     const L = layout(h.format);
-    if (![PACKET.SESSION, PACKET.EVENT, PACKET.PARTICIPANTS, PACKET.FINAL, PACKET.HISTORY].includes(h.type)) { pushStatus(); return; }
+    if (!Object.values(PACKET).includes(h.type)) { pushStatus(); return; }
     const s = sessionOf(h);
     if (h.type === PACKET.SESSION) {
       const info = parseSession(b); if (!info) return;
       s.info = info; st.session = { track: info.track, sessionType: info.sessionType, gameMode: info.gameMode };
     } else if (h.type === PACKET.PARTICIPANTS) s.parts = parseParticipants(b, L);
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
+    else if (h.type === PACKET.DAMAGE) s.wearNow = parseWear(b, L);
+    else if (h.type === PACKET.LAP) {
+      const lap = parseLapData(b, L);
+      lap.forEach((c, i) => {
+        // a new lap: note the tyre wear at the end of the one just finished
+        if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
+        s.curLap[i] = c.lap;
+      });
+      // a race or sprint has started: the starting grid settles qualifying (whoever was eliminated, whatever was simulated)
+      const n = s.parts?.length || 0;
+      if (!s.gridSent && s.info && (s.info.sessionType === 15 || s.info.sessionType === 16) && n && lap.slice(0, n).every(c => c.grid > 0)) {
+        s.gridSent = true;
+        onResult({ kind: 'grid', key: `${s.uid}:grid`, uid: s.uid, at: new Date().toISOString(), player: s.player, ...s.info,
+          cars: s.parts.map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, grid: lap[p.idx]?.grid || 0 })) });
+      }
+    }
     else if (h.type === PACKET.EVENT) {
       const code = b.toString('ascii', HEADER, HEADER + 4);
       if (code === 'PENA' && b.length >= HEADER + 11) s.penalties.push({ type: b[33], infringement: b[34], car: b[35], other: b[36], time: b[37], lap: b[38], places: b[39] });

@@ -1551,6 +1551,7 @@ function renderDashboard() {
     <div class="grid-main">
       <div class="stack">
         ${goalsPanel(c, s)}
+        ${strategyAdvicePanel(c, s)}
 
         <div class="panel">
           <div class="panel-h"><h2>Recent results</h2><button class="btn sm ghost" data-act="nav" data-view="calendar">Full calendar</button></div>
@@ -1708,7 +1709,8 @@ function renderWeekend() {
       </div>
     </div>
 
-    ${race ? strategyPanel(s, sd) : ''}
+    ${sd.estimated ? `<div class="callout">Estimated from ${key === 'FP' || key.startsWith('FP') ? 'qualifying' : ''}: this practice session wasn't logged, so Pitwall filled it in, about seven tenths off each driver's qualifying time. Edit it like any session.</div>` : ''}
+    ${key !== 'Q' && key !== 'SQ' ? strategyPanel(s, sd, key, r.id) : ''}
 
     <div class="panel">
       <div class="panel-h"><h3>Weekend notes</h3><span class="muted" style="font-size:12px">Setups, strategy, incidents. These feed into your media sessions.</span></div>
@@ -3003,7 +3005,7 @@ function mtSeasonPanels(c, m, s) {
   const top = ds.slice(0, 6); for (const id of mine) { const r = ds.find(x => x.id === id); if (r && !top.includes(r)) top.push(r); }
   const lastArticle = [...c.media].reverse().find(x => x.article && x.seasonIdx === s.index);
   return `<div class="grid-main">
-      <div class="stack">${goalsPanel(c, s)}${rivalryPanel(c, s)}</div>
+      <div class="stack">${goalsPanel(c, s)}${strategyAdvicePanel(c, s)}${rivalryPanel(c, s)}</div>
       <div class="stack">
         <div class="panel"><div class="panel-h"><h2>Constructors</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
           <div class="panel-b tight"><table><tbody>${cs.slice(0, 6).concat(cs.slice(6).filter(x => x.team.id === MYTEAM)).map(x => `<tr class="${x.team.id === MYTEAM ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td><div class="drv">${teamLogo(c, x.team, 20)}<b>${esc(x.team.name)}</b></div></td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div></div>
@@ -4740,6 +4742,65 @@ function gameRows(r, key, map, grid) {
   for (const d of grid) if (!rows.some(x => x.d === d)) rows.push({ d, lap: '', gap: '', st: 'DNS', laps: '' });
   return rows;
 }
+// which part of a three-part qualifying (or sprint shootout) a game session is
+const QUALI_PARTS = { 5: 1, 6: 2, 7: 3, 10: 1, 11: 2, 12: 3 };
+/**
+ * Merge the parts of a three-part qualifying. Whoever was knocked out keeps their time and place (locked to the
+ * driver). The places above the last part that was logged are provisional: their times belong to the place, and the
+ * starting grid later says who was in each one. parts: { 1|2|3: [{ d, best }] } in classification order.
+ */
+function mergeQuali(parts, n) {
+  const out = Math.ceil((n - 10) / 2); const cut1 = n - out, cut2 = 10; // 20 cars: 5 out in Q1, 5 in Q2, 10 in Q3
+  const rows = Array(n).fill(null); const placed = new Set();
+  const put = (p, src) => { const x = src?.[p]; if (x?.d && !placed.has(x.d)) { rows[p] = { d: x.d, best: x.best, lock: 'driver' }; placed.add(x.d); } };
+  for (let p = cut1; p < n; p++) put(p, parts[1]);
+  for (let p = cut2; p < cut1; p++) put(p, parts[2]);
+  for (let p = 0; p < cut2; p++) put(p, parts[3]);
+  const latest = parts[3] || parts[2] || parts[1];
+  const rest = latest.filter(x => x.d && !placed.has(x.d)); let k = 0;
+  for (let p = 0; p < n; p++) if (!rows[p] && rest[k]) { rows[p] = { d: rest[k++].d, best: latest[p]?.best || 0, lock: 'place' }; }
+  return rows.filter(Boolean);
+}
+/** Qualifying rows in Pitwall's shape, from merged rows ({ d, best }). */
+function qualiRows(rows, grid) {
+  const pole = rows.find(x => x.best)?.best;
+  const out = rows.map((x, i) => ({ d: x.d, lap: x.best ? fmtLap(x.best) : '', gap: x.best && i > 0 && pole ? '+' + ((x.best - pole) / 1000).toFixed(3) : '', st: 'FIN', laps: '' }));
+  for (const d of grid) if (!out.some(x => x.d === d)) out.push({ d, lap: '', gap: '', st: 'DNS', laps: '' });
+  return out;
+}
+/** The qualifying session a race's starting grid settles: the sprint shootout for a sprint, qualifying for the race. */
+const qualiFor = (r) => r.sessionType === 15 && r.weekend?.includes(16) ? 'SQ' : 'Q';
+/**
+ * Settle provisional qualifying places from the starting grid: the provisional drivers take the places in grid order
+ * and inherit each place's time. A driver who starts behind the knocked-out drivers has a grid penalty: their own time
+ * was never known, so they go to the back of the provisional places without one.
+ */
+function settleQuali(s, round, qk, slot) {
+  const sd = s.weekends[round.id]?.sessions?.[qk]; const g = sd?.game;
+  if (!g?.parts || !g.provisional) return false;
+  const k = g.provisional; const top = sd.results.slice(0, k); const times = g.placeTimes || top.map(x => parseLap(x.lap) || 0);
+  const ok = top.filter(x => slot[x.d] && slot[x.d] <= k).sort((a, b) => slot[a.d] - slot[b.d]);
+  const pen = top.filter(x => !ok.includes(x));
+  const rows = [...ok.map((x, i) => ({ d: x.d, best: times[i] })), ...pen.map(x => ({ d: x.d, best: 0 }))];
+  const pole = rows[0]?.best;
+  sd.results = [...rows.map((x, i) => ({ d: x.d, lap: x.best ? fmtLap(x.best) : '', gap: x.best && i > 0 && pole ? '+' + ((x.best - pole) / 1000).toFixed(3) : '', st: 'FIN', laps: '' })), ...sd.results.slice(k)];
+  g.provisional = 0; g.grid = slot; g.settled = true;
+  return true;
+}
+/** Practice that wasn't logged, estimated from qualifying: much the same order, about seven tenths slower. */
+function estimatePractice(s, round, qk) {
+  const keys = sessionsFor(s, round); const before = keys.slice(0, keys.indexOf(qk)).filter(k => k.startsWith('FP'));
+  const w = s.weekends[round.id]; const q = w?.sessions?.[qk]; if (!q) return;
+  const known = q.results.filter(x => parseLap(x.lap));
+  const slowest = Math.max(0, ...known.map(x => parseLap(x.lap)));
+  before.forEach((k, n) => {
+    const cur = w.sessions[k]; if (cur?.done && !cur.estimated) return;
+    const rnd = mulberry(`${round.id}-${k}-${q.game?.key || ''}`);
+    const lag = [900, 760, 650][Math.min(n, 2)] - (before.length === 1 ? 100 : 0);
+    const rows = q.results.map(x => ({ d: x.d, ms: (parseLap(x.lap) || slowest + 400) + lag + gauss(rnd) * 220 })).sort((a, b) => a.ms - b.ms);
+    w.sessions[k] = { results: rows.map((x, i) => ({ d: x.d, lap: fmtLap(x.ms), gap: i ? '+' + ((x.ms - rows[0].ms) / 1000).toFixed(3) : '', st: 'FIN' })), fl: null, done: true, estimated: true };
+  });
+}
 /** Log a game result into a session (keeping what was there, for undo). */
 function applyGameResult(c, r, place) {
   const { s, round, key } = place;
@@ -4747,29 +4808,59 @@ function applyGameResult(c, r, place) {
   const w = weekend(s, round.id, true);
   const prev = w.sessions[key] ? JSON.stringify(w.sessions[key]) : null; const prevLen = w.raceLength;
   const byId = (pick) => Object.fromEntries(r.cars.filter(x => map[x.idx]).map(x => [map[x.idx], pick(x)]));
-  w.sessions[key] = { results: gameRows(r, key, map, gridIds(s)), fl: null, done: true,
-    game: { key: r.key, at: r.at, sessionType: r.sessionType, totalLaps: r.totalLaps,
-      laps: byId(x => x.lapTimes), stints: byId(x => x.stints.map(t => [t.visual, t.end])), pits: byId(x => x.pits), grid: byId(x => x.grid),
-      penalties: r.penaltyEvents.filter(p => map[p.car] && PENALTY_NAMES[p.type]).map(p => ({ d: map[p.car], type: p.type, time: p.time, lap: p.lap, other: map[p.other] || null })),
-      safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } } };
+  const game = { key: r.key, at: r.at, sessionType: r.sessionType, totalLaps: r.totalLaps,
+    laps: byId(x => x.lapTimes), stints: byId(x => x.stints.map(t => [t.visual, Math.min(t.end, x.laps || t.end)])), pits: byId(x => x.pits), grid: byId(x => x.grid),
+    wear: byId(x => x.wear || []), finished: byId(x => x.laps),
+    penalties: r.penaltyEvents.filter(p => map[p.car] && PENALTY_NAMES[p.type]).map(p => ({ d: map[p.car], type: p.type, time: p.time, lap: p.lap, other: map[p.other] || null })),
+    safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } };
+  let results;
+  const part = QUALI_PARTS[r.sessionType];
+  if (part) {
+    // a three-part qualifying: this part joins the ones already logged this weekend
+    const old = w.sessions[key]?.game; const same = old?.parts && w.game?.weekend === r.weekendLink;
+    game.parts = { ...(same ? old.parts : {}), [part]: r.cars.slice().sort((a, b) => a.position - b.position).map(x => ({ d: map[x.idx] || null, best: x.best })) };
+    const rows = mergeQuali(game.parts, r.cars.length);
+    game.provisional = rows.filter(x => x.lock === 'place').length; game.placeTimes = rows.slice(0, game.provisional).map(x => x.best);
+    game.locks = Object.fromEntries(rows.map(x => [x.d, x.lock]));
+    results = qualiRows(rows, gridIds(s));
+  } else results = gameRows(r, key, map, gridIds(s));
+  w.sessions[key] = { results, fl: null, done: true, game };
   w.game = { weekend: r.weekendLink };
+  if (key === 'Q' || key === 'SQ') estimatePractice(s, round, key);
+  // a race or sprint also settles its qualifying, if Pitwall didn't catch the start
+  if (isRaceKind(key)) { const slot = byId(x => x.grid); if (Object.values(slot).some(Boolean)) settleQuali(s, round, key === 'SPR' ? 'SQ' : 'Q', slot); }
   // the race distance you ran, from the laps
   if (key === 'R' && r.totalLaps) { const full = D.TRACKS[trackOf(round)]?.laps; if (full) w.raceLength = RACE_LENGTHS.reduce((a, b) => Math.abs(b - r.totalLaps / full * 100) < Math.abs(a - r.totalLaps / full * 100) ? b : a); }
   (c.gameKeys ||= []).push(r.key); c.gameKeys = c.gameKeys.slice(-300);
-  gameNotice = { careerId: c.id, seasonIdx: s.index, roundId: round.id, key, prev, prevLen, label: `${round.name} ${SESSION_LABEL[key]}`, unmatched };
+  const prov = w.sessions[key].game.provisional;
+  gameNotice = { careerId: c.id, seasonIdx: s.index, roundId: round.id, key, prev, prevLen, label: `${round.name} ${SESSION_LABEL[key]}${part ? ` (part ${part})` : ''}`, unmatched,
+    note: prov ? `The top ${prov} are provisional until the ${key === 'SQ' ? 'sprint' : 'race'} starts: the starting grid will put them in order.` : '' };
   store.save(); render();
   toast(`${round.name} ${SESSION_LABEL[key]} logged from F1 25`);
+}
+/** A race or sprint has started: its grid puts provisional qualifying places in order. */
+function applyGameGrid(c, r) {
+  const s = latestSeason(); if (!s || isHist(s)) return;
+  const qk = qualiFor(r); const tid = GAME_TRACKS[r.track];
+  const rounds = activeRounds(s).filter(x => trackOf(x) === tid);
+  const round = rounds.find(x => s.weekends[x.id]?.game?.weekend === r.weekendLink) || rounds.find(x => s.weekends[x.id]?.sessions?.[qk]?.game?.provisional);
+  if (!round) return;
+  const { map } = mapGameDrivers(c, s, r);
+  const slot = Object.fromEntries(r.cars.filter(x => map[x.idx] && x.grid).map(x => [map[x.idx], x.grid]));
+  (c.gameKeys ||= []).push(r.key);
+  if (settleQuali(s, round, qk, slot)) { store.save(); render(); toast(`${round.name} ${SESSION_LABEL[qk]} order set from the starting grid`); }
 }
 /** A finished session arrives from the game. */
 function handleGameResult(r) {
   const c = career(); const done = () => window.api?.telemetry?.ack(r.key);
   if (!c || NOT_CAREER_MODES.includes(r.gameMode) || !r.cars?.length) { done(); return; }
   if ((c.gameKeys || []).includes(r.key)) { done(); return; } // already logged
+  if (r.kind === 'grid') { applyGameGrid(c, r); done(); return; }
   const place = placeGameResult(c, r);
   if (place.error) { if (place.skip) { toast(place.error); done(); return; } gameQueue.push({ r, place, why: 'place' }); done(); nextGameDecision(); return; }
   const sd = place.s.weekends[place.round.id]?.sessions?.[place.key];
   const sameWeekend = place.s.weekends[place.round.id]?.game?.weekend === r.weekendLink && sd?.game;
-  if (sd?.done && !sameWeekend) { gameQueue.push({ r, place, why: 'replace' }); done(); nextGameDecision(); return; }
+  if (sd?.done && !sameWeekend && !sd.estimated) { gameQueue.push({ r, place, why: 'replace' }); done(); nextGameDecision(); return; }
   applyGameResult(c, r, place); done();
 }
 /** Ask about the next waiting result, once no other dialog is open. */
@@ -4792,7 +4883,7 @@ function nextGameDecision() {
 /** The banner after an import: where it went, who couldn't be matched, and undo. */
 function gameNoticeHtml() {
   const g = gameNotice; const c = career(); if (!g || g.careerId !== c?.id) return '';
-  return `<div class="callout game-notice"><span>${ICON.flag} <b>${esc(g.label)}</b> logged from F1 25.${g.unmatched.length ? ` Not matched to a driver on your grid: ${esc(listJoin(g.unmatched))}.` : ''}</span>
+  return `<div class="callout game-notice"><span>${ICON.flag} <b>${esc(g.label)}</b> logged from F1 25.${g.note ? ' ' + esc(g.note) : ''}${g.unmatched.length ? ` Not matched to a driver on your grid: ${esc(listJoin(g.unmatched))}.` : ''}</span>
     <span class="row" style="gap:6px"><button class="btn sm" data-act="game-open">Open</button><button class="btn sm ghost" data-act="game-undo">Undo</button><button class="icon-btn" title="Dismiss" data-act="game-dismiss">${ICON.x}</button></span></div>`;
 }
 /** Settings: the connection to the game. */
@@ -4814,28 +4905,202 @@ function renderTelemetryPanel() {
       ${t.session ? `<div class="muted" style="font-size:12px">Current session: ${esc(D.TRACKS[GAME_TRACKS[t.session.track]]?.circuit || 'unknown circuit')} · ${esc(GAME_SESSION_NAMES[t.session.sessionType] || 'session')}${NOT_CAREER_MODES.includes(t.session.gameMode) ? ' · not a career session, so it won’t be logged' : ''}</div>` : ''}
     </div></div>`;
 }
+/** A driver's tyre stints from the game, cleaned up: [{ c: compound, from, to }]. Older imports could end the last
+ *  stint on lap 255 (the game's "still running"); it really ends on the driver's last lap. */
+function stintsOf(sd, d) {
+  const g = sd?.game; const raw = g?.stints?.[d] || []; const n = g?.laps?.[d]?.length || g?.finished?.[d] || 0;
+  const out = []; let from = 1;
+  for (const [c, end0] of raw) {
+    const end = Math.min(end0 >= 200 || (n && end0 > n) ? n || end0 : end0, n || end0);
+    if (end < from) continue;
+    out.push({ c, from, to: end }); from = end + 1;
+  }
+  return out;
+}
 /** Race pace from the game's laps: the average of each driver's clean laps (no lap 1, no laps in or out of the pits,
  *  nothing more than 4% off their own median, which leaves out safety cars and incidents). */
 function cleanLapPace(sd, d) {
   const laps = sd.game?.laps?.[d]; if (!laps || laps.length < 4) return null;
-  const pit = new Set((sd.game.stints?.[d] || []).slice(0, -1).flatMap(([, end]) => [end, end + 1]));
+  const pit = new Set(stintsOf(sd, d).slice(0, -1).flatMap(x => [x.to, x.to + 1]));
   const pool = laps.map(([ms], k) => ({ ms, lap: k + 1 })).filter(x => x.lap > 1 && !pit.has(x.lap) && x.ms > 0);
   if (pool.length < 3) return null;
   const sorted = pool.map(x => x.ms).sort((a, b) => a - b); const med = sorted[Math.floor(sorted.length / 2)];
   const clean = sorted.filter(ms => ms <= med * 1.04);
   return clean.length >= 3 ? avg(clean) : null;
 }
-/** Tyres, stops and penalties from the game, for a race or sprint. */
-function strategyPanel(s, sd) {
-  const g = sd?.game; if (!g?.stints) return '';
-  const chip = ([v, end], k, all) => { const cp = COMPOUNDS[v] || ['?', 'Unknown', '#5E6A82']; const from = k ? all[k - 1][1] + 1 : 1; return `<span class="tyre-chip" style="--c:${cp[2]}" title="${cp[1]}, laps ${from}–${end}">${cp[0]}<small>${end - from + 1}</small></span>`; };
-  const pens = (d) => g.penalties.filter(p => p.d === d);
-  return `<div class="panel"><div class="panel-h"><h2>Strategy & penalties</h2><span class="muted" style="font-size:12px">From F1 25${g.safety ? ` · ${plural(g.safety.sc || 0, 'safety car')}, ${plural(g.safety.vsc || 0, 'virtual safety car')}${g.safety.red ? `, ${plural(g.safety.red, 'red flag')}` : ''}` : ''}</span></div>
-    <div class="panel-b tight table-wrap"><table><thead><tr><th>Pos</th><th>Driver</th><th>Tyres (laps)</th><th class="num">Stops</th><th>Penalties</th><th class="num">Clean-lap pace</th></tr></thead><tbody>
-      ${sd.results.filter(x => g.stints[x.d]).map((x, i) => { const p = cleanLapPace(sd, x.d); return `<tr class="${x.d === PLAYER ? 'me' : ''}"><td class="num">${OUT.includes(x.st) ? x.st : i + 1}</td><td>${drvCell(s, x.d, { team: true })}</td>
-        <td><div class="row" style="gap:4px;flex-wrap:nowrap">${(g.stints[x.d] || []).map(chip).join('')}</div></td><td class="num">${g.pits?.[x.d] ?? '–'}</td>
-        <td class="muted" style="font-size:12px">${pens(x.d).map(q => `${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${q.lap ? ` (lap ${q.lap})` : ''}`).join(', ') || '–'}</td><td class="num mono">${p ? fmtLap(p) : '–'}</td></tr>`; }).join('')}
+const tyreChip = (c, len, title = '') => { const cp = COMPOUNDS[c] || ['?', 'Unknown', '#5E6A82']; return `<span class="tyre-chip" style="--c:${cp[2]}" title="${esc(title || cp[1])}">${cp[0]}${len != null ? `<small>${len}</small>` : ''}</span>`; };
+/** Tyres, stops and penalties from the game. Each driver opens their lap-by-lap view. */
+function strategyPanel(s, sd, key, roundId) {
+  const g = sd?.game; if (!g?.laps) return '';
+  const race = isRaceKind(key);
+  const pens = (d) => (g.penalties || []).filter(p => p.d === d);
+  return `<div class="panel"><div class="panel-h"><h2>${race ? 'Strategy & penalties' : 'Runs & tyres'}</h2><span class="muted" style="font-size:12px">From F1 25${race && g.safety ? ` · ${plural(g.safety.sc || 0, 'safety car')}, ${plural(g.safety.vsc || 0, 'virtual safety car')}${g.safety.red ? `, ${plural(g.safety.red, 'red flag')}` : ''}` : ''} · tap a driver for every lap</span></div>
+    <div class="panel-b tight table-wrap"><table><thead><tr><th>Pos</th><th>Driver</th><th>Tyres (laps)</th>${race ? '<th class="num">Stops</th><th>Penalties</th>' : '<th class="num">Laps</th>'}<th class="num">${race ? 'Clean-lap pace' : 'Best'}</th></tr></thead><tbody>
+      ${sd.results.filter(x => g.laps[x.d]?.length).map((x, i) => { const p = race ? cleanLapPace(sd, x.d) : Math.min(...g.laps[x.d].map(l => l[0]).filter(Boolean)); return `<tr class="${x.d === PLAYER ? 'me' : ''}" data-act="gd-open" data-round="${roundId}" data-key="${key}" data-d="${x.d}" style="cursor:pointer"><td class="num">${OUT.includes(x.st) ? x.st : i + 1}</td><td>${drvCell(s, x.d, { team: true })}</td>
+        <td><div class="row" style="gap:4px;flex-wrap:nowrap">${stintsOf(sd, x.d).map(st => tyreChip(st.c, st.to - st.from + 1, `${(COMPOUNDS[st.c] || [])[1] || 'Tyre'}, laps ${st.from}–${st.to}`)).join('')}</div></td>
+        ${race ? `<td class="num">${g.pits?.[x.d] ?? '–'}</td><td class="muted" style="font-size:12px">${pens(x.d).map(q => `${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${q.lap ? ` (lap ${q.lap})` : ''}`).join(', ') || '–'}</td>` : `<td class="num">${g.laps[x.d].length}</td>`}
+        <td class="num mono">${p && isFinite(p) ? fmtLap(p) : '–'}</td></tr>`; }).join('')}
     </tbody></table></div></div>`;
+}
+/** A small line chart: series [{ color, pts: [[x, y]], dashed, label }]. */
+function svgChart(series, { h = 180, yFmt = (v) => v, invert = false, xLabel = 'Lap' } = {}) {
+  const all = series.flatMap(s => s.pts); if (!all.length) return '<div class="empty">No data</div>';
+  const W = 640, P = { l: 56, r: 12, t: 10, b: 26 };
+  const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1); let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y1 - y0 < 1e-6) { y0 -= 1; y1 += 1; }
+  const pad = (y1 - y0) * 0.08; y0 = y0 >= 0 ? Math.max(0, y0 - pad) : y0 - pad; y1 += pad;
+  const X = (v) => P.l + (v - x0) / (x1 - x0) * (W - P.l - P.r);
+  const Y = (v) => invert ? P.t + (v - y0) / (y1 - y0) * (h - P.t - P.b) : h - P.b - (v - y0) / (y1 - y0) * (h - P.t - P.b);
+  const ticks = [0, 0.5, 1].map(k => y0 + (y1 - y0) * k);
+  return `<svg class="g-chart" viewBox="0 0 ${W} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px">
+    ${ticks.map(v => `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" class="g-grid"/><text x="${P.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="g-tick">${esc(yFmt(v))}</text>`).join('')}
+    <text x="${W - P.r}" y="${h - 6}" text-anchor="end" class="g-tick">${xLabel} ${Math.round(x1)}</text><text x="${P.l}" y="${h - 6}" class="g-tick">${Math.round(x0)}</text>
+    ${series.map(s => `<polyline fill="none" stroke="${s.color}" stroke-width="2" ${s.dashed ? 'stroke-dasharray="5 4" opacity=".7"' : ''} points="${s.pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')}"/>${s.dots ? s.pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.5" fill="${s.color}"/>`).join('') : ''}`).join('')}
+  </svg>`;
+}
+/** Least-squares line through [[x, y]]: { a: intercept, b: slope }. */
+function fitLine(pts) {
+  const n = pts.length; if (n < 2) return null;
+  const mx = avg(pts.map(p => p[0])), my = avg(pts.map(p => p[1]));
+  const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0); if (!sxx) return null;
+  const b = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / sxx;
+  return { a: my - b * mx, b };
+}
+const WEAR_LIMIT = 70; // % wear at which a tyre is considered done
+/** One driver's session from the game: every lap, the lap-time graph and tyre wear by stint (with where practice
+ *  runs were heading). */
+function gameDriverModal(roundId, key, d) {
+  const s = curSeason(); const sd = s.weekends[roundId]?.sessions?.[key]; const g = sd?.game; if (!g?.laps?.[d]) return;
+  const laps = g.laps[d]; const wear = g.wear?.[d] || []; const st = stintsOf(sd, d); const practice = key.startsWith('FP');
+  const compOf = (lap) => st.find(x => lap >= x.from && lap <= x.to);
+  const med = [...laps.map(l => l[0]).filter(Boolean)].sort((a, b) => a - b)[Math.floor(laps.length / 2)] || 0;
+  const lapPts = laps.map((l, k) => [k + 1, l[0] / 1000]).filter(p => p[1] > 0 && p[1] * 1000 <= med * 1.12);
+  const wearSeries = []; const life = [];
+  for (const x of st) {
+    const pts = []; for (let lap = x.from; lap <= x.to; lap++) if (wear[lap - 1] != null) pts.push([lap - x.from + 1, wear[lap - 1]]);
+    if (!pts.length) continue;
+    const col = (COMPOUNDS[x.c] || [])[2] || '#8B97AF';
+    wearSeries.push({ color: col, pts, dots: true });
+    const fit = fitLine(pts);
+    if (practice && fit && fit.b > 0.05) {
+      const end = Math.min(80, Math.ceil((WEAR_LIMIT - fit.a) / fit.b));
+      if (end > pts[pts.length - 1][0]) wearSeries.push({ color: col, dashed: true, pts: [pts[pts.length - 1], [end, fit.a + fit.b * end]] });
+      life.push(`${(COMPOUNDS[x.c] || [])[1] || 'Tyre'} (laps ${x.from}–${x.to}): ${fit.b.toFixed(1)}% a lap, about ${Math.max(end, pts.length)} laps to ${WEAR_LIMIT}%`);
+    }
+  }
+  ui.modal = { kind: 'gd' };
+  modal(`<div class="modal-h"><h2>${esc(dName(s, d))} · ${esc(SESSION_LABEL[key])}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+    <div class="modal-b stack">
+      <div class="row" style="gap:6px">${st.map(x => tyreChip(x.c, x.to - x.from + 1)).join('')}<span class="muted" style="font-size:12px">${plural(laps.length, 'lap')}${g.pits?.[d] != null ? ` · ${plural(g.pits[d], 'stop')}` : ''}</span></div>
+      <div><span class="label">Lap times</span>${svgChart([{ color: 'var(--team)', pts: lapPts, dots: true }], { yFmt: (v) => fmtLap(v * 1000), invert: true })}</div>
+      <div><span class="label">Tyre wear by stint${practice ? ' (dashed: where each run was heading)' : ''}</span>${wearSeries.length ? svgChart(wearSeries, { yFmt: (v) => v.toFixed(0) + '%', xLabel: 'Tyre age' }) : '<div class="muted" style="font-size:13px">No tyre wear recorded for this session (it was logged before Pitwall 1.9.1).</div>'}
+        ${life.length ? `<div class="muted" style="font-size:12px;display:grid;gap:2px;margin-top:4px">${life.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}</div>
+      <div class="table-wrap" style="max-height:260px;overflow:auto"><table><thead><tr><th class="num">Lap</th><th>Tyre</th><th class="num">Time</th><th class="num">Wear</th><th></th></tr></thead><tbody>
+        ${laps.map((l, k) => { const x = compOf(k + 1); const pit = st.some(y => y.to === k + 1 && y !== st[st.length - 1]); return `<tr><td class="num">${k + 1}</td><td>${x ? tyreChip(x.c, k + 2 - x.from) : ''}</td><td class="num mono ${l[1] ? '' : 'muted'}">${l[0] ? fmtLap(l[0]) : '–'}</td><td class="num">${wear[k] != null ? wear[k].toFixed(0) + '%' : '–'}</td><td class="muted" style="font-size:12px">${pit ? 'In-lap' : x && k + 1 === x.from && x.from > 1 ? 'Out-lap' : l[1] ? '' : 'Invalid'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+    </div>`, 'wide');
+}
+
+/* Optimal race strategy from practice. Long runs on each compound give a base pace, how much slower each lap gets as
+   the tyre ages (fall-off) and how fast it wears (which sets how long it lasts). Every one- and two-stop plan (three if
+   the tyres can't last) is timed: laps × pace + fall-off as the tyres age + the time lost in the pits. Fuel burn is left
+   out: it affects every plan the same. Two plans are worked out: one from the whole grid's practice, one from yours. */
+const PIT_LOSS = 22000; // ms lost to a stop, pit lane included
+const PRACTICE_KEYS = ['FP1', 'FP2', 'FP3', 'FP'];
+const DRY = [16, 17, 18];
+/** One driver's clean consecutive laps on each dry compound in this weekend's practice:
+ *  { compound: { laps, base, deg, wear, life, ref } } (ref: their quickest practice lap, to compare drivers). */
+function practiceRuns(s, round, d) {
+  const w = s.weekends[round.id]; const out = {}; let ref = Infinity;
+  for (const k of PRACTICE_KEYS) {
+    const sd = w?.sessions?.[k]; if (!sd?.game || sd.estimated) continue;
+    const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
+    for (const l of laps) if (l[0] && l[1]) ref = Math.min(ref, l[0]);
+    for (const x of stintsOf(sd, d)) {
+      if (!DRY.includes(x.c)) continue;
+      const run = [];
+      for (let lap = x.from + 1; lap <= x.to; lap++) { const l = laps[lap - 1]; if (l?.[0]) run.push({ age: lap - x.from + 1, ms: l[0], wear: wear[lap - 1] }); }
+      if (run.length < 3) continue;
+      // pushing laps: within 2.5% of the run's best (cool-down and traffic laps break the run)
+      const best = Math.min(...run.map(r => r.ms)); let cur = [], longest = [];
+      for (const r of run) { if (r.ms <= best * 1.025 && (!cur.length || r.age === cur[cur.length - 1].age + 1)) cur.push(r); else { if (cur.length > longest.length) longest = cur; cur = r.ms <= best * 1.025 ? [r] : []; } }
+      if (cur.length > longest.length) longest = cur;
+      if (longest.length < 3) continue;
+      const pace = fitLine(longest.map(r => [r.age, r.ms])); const wr = fitLine(longest.filter(r => r.wear != null).map(r => [r.age, r.wear]));
+      const deg = Math.max(0, pace?.b || 0);
+      const life = wr && wr.b > 0.05 ? Math.floor((WEAR_LIMIT - wr.a) / wr.b) : null;
+      const prev = out[x.c];
+      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, base: (pace?.a ?? avg(longest.map(r => r.ms))) + deg, deg, wear: wr?.b ?? null, life, session: k };
+    }
+  }
+  for (const c in out) out[c].ref = isFinite(ref) ? ref : Math.min(...Object.values(out).map(x => x.base));
+  return out;
+}
+/** The whole grid's practice runs, combined per compound: the typical fall-off, wear and life, and the pace as a gap
+ *  to each driver's own quickest lap (so a fast car on softs and a slow car on hards don't skew the compounds). */
+function gridRuns(s, round) {
+  const w = s.weekends[round.id]; const drivers = new Set();
+  for (const k of PRACTICE_KEYS) { const g = w?.sessions?.[k]?.game; if (g?.laps && !w.sessions[k].estimated) Object.keys(g.laps).forEach(d => drivers.add(d)); }
+  const per = [...drivers].map(d => practiceRuns(s, round, d)).filter(x => Object.keys(x).length);
+  const med = (xs) => { const v = xs.filter(x => x != null && isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
+  const ref = med(per.map(x => Object.values(x)[0].ref));
+  const out = {};
+  for (const c of DRY) {
+    const rs = per.map(x => x[c]).filter(Boolean); if (!rs.length) continue;
+    out[c] = { laps: rs.reduce((a, r) => a + r.laps, 0), drivers: rs.length, base: ref + med(rs.map(r => r.base - r.ref)), deg: med(rs.map(r => r.deg)), wear: med(rs.map(r => r.wear)), life: med(rs.map(r => r.life)) };
+  }
+  return out;
+}
+/** The quickest plans for a race of n laps, given the runs. */
+function optimalStrategies(runs, n) {
+  const comps = Object.keys(runs).map(Number); const res = [];
+  const life = (c) => Math.max(3, Math.min(n, runs[c].life ?? Math.round(n * 0.7)));
+  const stint = (c, L) => L * runs[c].base + runs[c].deg * L * (L - 1) / 2;
+  const seqs = (len) => len === 1 ? comps.map(c => [c]) : seqs(len - 1).flatMap(q => comps.map(c => [...q, c]));
+  for (let stops = 1; stops <= 3; stops++) {
+    if (stops === 3 && res.length) break;
+    for (const seq of seqs(stops + 1)) {
+      if (new Set(seq).size < 2) continue; // two different dry compounds, as the rules require
+      let best = null;
+      const step = stops === 3 ? 2 : 1;
+      const tryLens = (lens) => { if (lens.some((L, i) => L < 1 || L > life(seq[i]))) return; const tt = lens.reduce((a, L, i) => a + stint(seq[i], L), 0) + stops * PIT_LOSS; if (!best || tt < best.t) best = { t: tt, lens: [...lens] }; };
+      if (stops === 1) for (let a = 1; a < n; a++) tryLens([a, n - a]);
+      else if (stops === 2) for (let a = 1; a < n - 1; a++) for (let b = 1; a + b < n; b++) tryLens([a, b, n - a - b]);
+      else for (let a = 1; a < n - 2; a += step) for (let b = 1; a + b < n - 1; b += step) for (let c = 1; a + b + c < n; c += step) tryLens([a, b, c, n - a - b - c]);
+      if (best) res.push({ stops, seq, ...best });
+    }
+  }
+  // the same stints in another order time the same (fuel is left out): keep one of them
+  const seen = new Set();
+  return res.sort((a, b) => a.t - b.t).filter(p => { const k = p.seq.map((c, i) => c + ':' + p.lens[i]).sort().join(); return !seen.has(k) && seen.add(k); }).slice(0, 3);
+}
+/** One strategy block: the quickest plans and the numbers behind them. */
+function strategyBlock(title, runs, n, note) {
+  const plans = optimalStrategies(runs, n);
+  const fmtGap = (ms) => ms < 50 ? 'Fastest' : `+${(ms / 1000).toFixed(1)} s`;
+  return `<div class="panel-b stack" style="gap:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><span class="label" style="margin:0">${esc(title)}</span><span class="muted" style="font-size:12px">${esc(note)}</span></div>
+    ${plans.length ? plans.map((p, i) => { let lap = 0; return `<div class="strat-plan ${i === 0 ? 'best' : ''}"><div class="row" style="justify-content:space-between"><b>${plural(p.stops, 'stop')}</b><span class="muted">${fmtGap(p.t - plans[0].t)}</span></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return `${tyreChip(cp, p.lens[k])}<span class="muted" style="font-size:12px">laps ${from}–${lap}</span>${k < p.seq.length - 1 ? '<span class="muted">→</span>' : ''}`; }).join('')}</div></div>`; }).join('') : '<div class="muted" style="font-size:13px">No plan fits: on these runs the tyres would not last the distance.</div>'}
+    <div class="table-wrap"><table><thead><tr><th>Tyre</th><th class="num">Pace</th><th class="num">Fall-off / lap</th><th class="num">Wear / lap</th><th class="num">Life</th></tr></thead><tbody>
+      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
+    </tbody></table></div></div>`;
+}
+/** Dashboard: the best strategy for the next race, from this weekend's practice (the grid's, then yours). Each needs
+ *  at least two dry compounds with three or more consecutive clean laps. */
+function strategyAdvicePanel(c, s) {
+  const r = nextRound(s); if (!r || isHist(s)) return '';
+  const anyPractice = PRACTICE_KEYS.some(k => s.weekends[r.id]?.sessions?.[k]?.game && !s.weekends[r.id].sessions[k].estimated);
+  const head = `<div class="panel-h"><h2>Race strategy</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice</span></div>`;
+  if (!anyPractice) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No practice logged from F1 25 for ${esc(r.name)} yet. Run practice with telemetry on and the best strategy appears here: it needs at least three consecutive laps on two dry compounds.</div></div>`;
+  const n = raceLaps(s, r.id);
+  const grid = gridRuns(s, r); const mine = practiceRuns(s, r, PLAYER);
+  const names = (runs) => listJoin(DRY.filter(cp => runs[cp]).map(cp => COMPOUNDS[cp][1].toLowerCase()));
+  const short = (title, runs, who) => `<div class="panel-b muted" style="font-size:13px;border-top:1px solid var(--line)"><span class="label">${title}</span>Not enough ${who} yet: it needs at least three consecutive laps on two dry compounds.${Object.keys(runs).length ? ` So far: ${names(runs)}.` : ''}</div>`;
+  const enough = (runs) => Object.keys(runs).length >= 2;
+  return `<div class="panel">${head}
+    ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(...Object.values(grid).map(x => x.drivers)), 'driver')}`) : short('From the whole grid', grid, 'long runs from the grid')}
+    ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving') : short('From your runs', mine, 'of your own running')}
+    <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. Assumes ${PIT_LOSS / 1000} s per stop and a tyre is done at ${WEAR_LIMIT}% wear; fuel burn is the same for every plan, so it is left out.</div></div>`;
 }
 
 /* ---------------------------------------------------------------- stories */
@@ -7072,6 +7337,7 @@ Object.assign(actions, {
     gameNotice = null; store.save(); render(); toast('Import undone');
   },
   'game-dismiss'() { gameNotice = null; render(); },
+  'gd-open'(el) { gameDriverModal(el.dataset.round, el.dataset.key, el.dataset.d); },
   'rv-new'() { rivalryModal(); },
   'rv-create'() {
     const c = career(); const s = latestSeason(); const m = ui.modal; if (m.a === m.b) return;

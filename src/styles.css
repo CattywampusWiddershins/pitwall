@@ -637,3 +637,8 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .game-notice svg { width: 14px; height: 14px; vertical-align: -2px; }
 .tyre-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px 1px 4px; border-radius: 10px; border: 2px solid var(--c); font-weight: 700; font-size: 11px; color: var(--fg); }
 .tyre-chip small { font-weight: 500; color: var(--muted); }
+.g-chart { display: block; background: var(--bg-2, rgba(255,255,255,.02)); border-radius: 6px; }
+.g-chart .g-grid { stroke: var(--line); stroke-width: 1; }
+.g-chart .g-tick { fill: var(--muted); font-size: 10px; }
+.strat-plan { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; }
+.strat-plan.best { border-color: var(--green); }
