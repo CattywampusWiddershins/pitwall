@@ -3,5 +3,6 @@ dist/
 tools/
 android/out/
 build/Pitwall.apk
+data-raw/
 build/Pitwall.apk.idsig
 *.log

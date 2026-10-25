@@ -15,6 +15,9 @@ const STATIC = {
   '/app.js': ['src/app.js', 'text/javascript; charset=utf-8'],
   '/data.js': ['src/data.js', 'text/javascript; charset=utf-8'],
   '/reference.js': ['src/reference.js', 'text/javascript; charset=utf-8'],
+  '/history.js': ['src/history.js', 'text/javascript; charset=utf-8'],
+  '/assets.js': ['src/assets.js', 'text/javascript; charset=utf-8'],
+  '/pool.js': ['src/pool.js', 'text/javascript; charset=utf-8'],
   '/remote.js': ['src/remote.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['src/manifest.webmanifest', 'application/manifest+json'],
   '/icon.png': ['build/icon.png', 'image/png'],
@@ -33,7 +36,7 @@ const newPin = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
 const newRev = () => crypto.randomBytes(9).toString('base64url');
 // The interface files bundled into the Android app; their hash tells the app whether it matches this computer.
 // android/build.ps1 hashes the same files in the same order.
-const BUNDLE = ['src/app.js', 'src/data.js', 'src/reference.js', 'src/styles.css', 'src/remote.js', 'src/index.html'];
+const BUNDLE = ['src/app.js', 'src/data.js', 'src/reference.js', 'src/history.js', 'src/assets.js', 'src/pool.js', 'src/styles.css', 'src/remote.js', 'src/index.html'];
 function bundleHash(root) {
   const h = crypto.createHash('sha256');
   for (const f of BUNDLE) { try { h.update(fs.readFileSync(path.join(root, f))); } catch { } }

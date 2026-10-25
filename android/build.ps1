@@ -27,7 +27,7 @@ Copy-Item (Join-Path $root 'build\icon.png') "$here\res\drawable-nodpi\icon.png"
 # notice when the computer has a newer version.
 $www = "$out\assets\www"
 New-Item -ItemType Directory -Force $www | Out-Null
-$bundle = 'app.js', 'data.js', 'reference.js', 'styles.css', 'remote.js', 'index.html'
+$bundle = 'app.js', 'data.js', 'reference.js', 'history.js', 'assets.js', 'pool.js', 'styles.css', 'remote.js', 'index.html'
 $ms = New-Object IO.MemoryStream
 foreach ($f in $bundle) { $b = [IO.File]::ReadAllBytes((Join-Path $root "src\$f")); $ms.Write($b, 0, $b.Length) }
 $sha = [Security.Cryptography.SHA256]::Create()

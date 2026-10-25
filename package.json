@@ -15,19 +15,37 @@
   },
   "devDependencies": {
     "electron": "33.2.1",
-    "electron-builder": "25.1.8"
+    "electron-builder": "25.1.8",
+    "flag-icons": "^7.2.3"
   },
   "build": {
     "appId": "app.pitwall.f1career",
     "productName": "Pitwall",
-    "files": ["main.js", "preload.js", "companion.js", "src/**/*", "build/icon.png", "build/Pitwall.apk"],
-    "directories": { "output": "dist" },
+    "files": [
+      "main.js",
+      "preload.js",
+      "companion.js",
+      "src/**/*",
+      "build/icon.png",
+      "build/Pitwall.apk"
+    ],
+    "directories": {
+      "output": "dist"
+    },
     "win": {
       "icon": "build/icon.png",
       "signAndEditExecutable": false
     },
-    "portable": { "artifactName": "Pitwall-${version}-portable.exe" },
-    "mac": { "icon": "build/icon.png", "category": "public.app-category.sports" },
-    "linux": { "icon": "build/icon.png", "category": "Game" }
+    "portable": {
+      "artifactName": "Pitwall-${version}-portable.exe"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.sports"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Game"
+    }
   }
 }

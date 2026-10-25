@@ -233,10 +233,10 @@ function flushRemote() {
   if ($('#modal-root').innerHTML || (a && a.matches('input, textarea, select'))) return;
   const { state: inc, rev } = pendingRemote; pendingRemote = null;
   let conflicts = [];
-  if (!store.dirty()) { state = inc; store.setBase(inc, rev); window.api?.adopted?.(inc, rev); }
+  if (!store.dirty()) { store.setBase(inc, rev); window.api?.adopted?.(inc, rev); state = hydrateState(inc); if (store.dirty()) store.save(); }
   else {
     // both sides changed: combine them, then save the result on top of the other side's version
-    state = merge3(JSON.parse(store.baseJson), state, inc, [], conflicts);
+    state = hydrateState(merge3(JSON.parse(store.baseJson), state, inc, [], conflicts));
     store.setBase(inc, rev); store.save();
   }
   if (!state.careers.length) { ui.view = 'setup'; ui.setup ||= defaultSetup(); }
@@ -263,7 +263,387 @@ const career = () => state.careers.find(c => c.id === state.activeCareerId) || n
 const curSeason = () => { const c = career(); if (!c) return null; const i = ui.seasonIdx ?? c.seasons.length - 1; return c.seasons[i] || c.seasons[c.seasons.length - 1]; };
 const latestSeason = () => { const c = career(); return c ? c.seasons[c.seasons.length - 1] : null; };
 
-function templateFor(index) { return index === 0 ? { grid: D.GRID_2025, cal: D.CAL_2025, nums: {} } : { grid: D.GRID_2026, cal: D.CAL_2026, nums: D.NUMBERS_2026 }; }
+/* ---------------------------------------------------------------- history */
+// Every career opens with the real seasons from 2016 (src/history.js): read-only, with their own results, points and
+// line-ups. They're rebuilt from the bundled data on load and saved as a stub, so a save stays small. Totals
+// elsewhere start from each driver's and team's record before 2016, so real seasons plus career add up.
+const H = window.F1HIST;
+const HIST_FROM = H.from, HIST_TO = H.to;
+const isHist = (s) => !!s?.historic;
+/** The circuit a round is held at (the Styrian GP is at the Red Bull Ring, say). */
+const trackOf = (r) => r ? r.track || H.roundTrack[r.id] || r.id : null;
+const playedSeasons = (c) => c.seasons.filter(s => !isHist(s));
+const firstPlayed = (c) => c.seasons.find(s => !isHist(s)) || c.seasons[c.seasons.length - 1];
+// drivers who announced their retirement at the end of that season (the rest of those leaving were left without a seat)
+const REAL_RETIREMENTS = { 2016: ['ROS', 'BUT', 'MAS'], 2017: ['MAS'], 2018: ['ALO'], 2021: ['RAI'], 2022: ['VET'] };
+
+/** Swap the end-of-2024 reference figures for the record before 2016: the real seasons supply the rest. */
+(function useHistoryBaseline() {
+  const KEYS = ['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'];
+  for (const [id, b] of Object.entries(H.bios)) {
+    const cur = D.DRIVER_BIO[id] || {}; const base = H.base.drivers[id] || {};
+    D.DRIVER_BIO[id] = { ...cur, nat: cur.nat || b.nat, born: cur.born || b.born, debut: cur.debut || b.debut, firstWin: cur.firstWin || b.firstWin || undefined,
+      teams: b.teamsPre, career: b.teams, ...Object.fromEntries(KEYS.map(k => [k, base[k] || 0])), titles: base.titles || [], bestChamp: base.bestChamp ?? null, bestFinish: base.bestFinish ?? null };
+  }
+  for (const [id, b] of Object.entries(D.DRIVER_BIO)) if (!H.bios[id] && !b.fictional) Object.assign(b, { starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0, titles: [], bestChamp: null, bestFinish: null });
+  for (const [tid, b] of Object.entries(H.oldTeams)) D.TEAM_BIO[tid] ||= { ...b };
+  for (const bio of Object.values(D.TEAM_BIO)) {
+    if (bio.lineage || bio.fictional) continue;
+    const id = Object.keys(D.TEAM_BIO).find(k => D.TEAM_BIO[k] === bio); const base = H.base.teams[id] || {};
+    Object.assign(bio, { starts: base.starts || 0, wins: base.wins || 0, poles: base.poles || 0, podiums: base.podiums || 0, fls: base.fls || 0,
+      conTitles: base.conTitles || [], drvTitles: base.drvTitles || 0, bestFinish: base.bestFinish ?? null, bestCon: base.bestCon ?? null });
+  }
+  D.RECORDS = H.records; D.STREAKS_2025 = H.streaks;
+  D.CHAMPIONS = D.CHAMPIONS.filter(([y]) => y < HIST_FROM);
+  for (const t of Object.values(D.TRACKS)) t.history = (t.history || []).filter(h => h[0] < HIST_FROM);
+  for (const [id, t] of Object.entries(H.oldTracks)) D.TRACKS[id] ||= { ...t, history: [], former: true };
+})();
+
+/** A real season as Pitwall season data. Saved as { index, year, historic } and rebuilt on load. */
+function histSeason(year, index) {
+  const h = H.seasons[year];
+  const drivers = {};
+  for (const [id, [name, number, code]] of Object.entries(h.drivers)) drivers[id] = { id, name, abbr: code, number };
+  const calendar = [], weekends = {}, raceTeams = {};
+  for (const r of h.rounds) {
+    calendar.push({ id: r.id, name: r.name, venue: r.venue, sprint: !!r.sprint, off: false, ...(r.track ? { track: r.track } : {}), laps: r.laps, date: r.date });
+    const pole = parseLap(r.q[0]?.[1]);
+    const Q = { results: r.q.map(([d, lap, st], i) => { const ms = parseLap(lap); return { d, lap, gap: i && pole != null && ms != null ? '+' + ((ms - pole) / 1000).toFixed(3) : '', st }; }), fl: null, done: true, pole: r.pole };
+    const row = ([d, gap, st, down, pts]) => ({ d, lap: '', gap, st, laps: down || '', pts });
+    const R = { results: r.r.map(row), fl: r.fl, done: true };
+    const flRow = R.results.find(x => x.d === r.fl); if (flRow) flRow.lap = r.flLap;
+    const sessions = { Q, R };
+    if (r.s) sessions.SPR = { results: r.s.map(row), fl: null, done: true };
+    weekends[r.id] = { sessions, notes: '', raceLength: 100 };
+    raceTeams[r.id] = Object.fromEntries([...(r.s || []), ...r.r].map(x => [x[0], x[5]]));
+  }
+  const s = { index, year, historic: 'real', teams: h.teams.map(t => ({ ...t, drivers: [...t.drivers] })), drivers, calendar, benched: null, playerTeamId: null,
+    format: { practice: 'none' }, goals: [], weekends, completed: true, raceTeams, transfers: [],
+    scoring: { fl: year >= 2019 && year <= 2024 ? 1 : 0, spr: year === 2021 ? [3, 2, 1] : null } };
+  Object.defineProperty(s, 'toJSON', { value: () => ({ index, year, historic: 'real' }) });
+  return s;
+}
+/** Each team's line-up at one race of a real season, with stand-ins (three races or fewer for the team that year)
+ *  swapped for the driver they stood in for. { teamId: [driver, driver] } */
+function lineupAt(year, ri) {
+  const rs = H.seasons[year]?.rounds; if (!rs) return null;
+  const races = {};
+  for (const r of rs) for (const x of r.r) { const k = x[5] + '|' + x[0]; races[k] = (races[k] || 0) + 1; }
+  const out = {};
+  for (const x of rs[ri < 0 ? rs.length + ri : ri].r) (out[x[5]] ||= []).push(x[0]);
+  for (const [tid, ds] of Object.entries(out)) {
+    const regulars = Object.keys(races).filter(k => k.startsWith(tid + '|')).map(k => k.split('|')[1]).sort((a, b) => races[tid + '|' + b] - races[tid + '|' + a]);
+    out[tid] = ds.map(d => races[tid + '|' + d] > 3 ? d : regulars.find(r => !ds.includes(r) && races[tid + '|' + r] > 3) || d);
+  }
+  return out;
+}
+/** Each team's line-up at the start of a real season (F1 25's grids for 2025 and 2026). */
+function realLineup(year) {
+  if (year === 2025) return Object.fromEntries(D.GRID_2025.filter(t => t.id !== 'apxgp').map(t => [t.id, [...t.drivers]]));
+  if (year === 2026) return Object.fromEntries(D.GRID_2026.map(t => [t.id, [...t.drivers]]));
+  return lineupAt(year, 0);
+}
+/** Who was in which car at the end of a real season. */
+const finalLineup = (year) => lineupAt(year, -1);
+/** A team's regular drivers in a real season (more than three races). */
+function regularsOf(year, tid) {
+  const n = {}; for (const r of H.seasons[year].rounds) for (const x of r.r) if (x[5] === tid) n[x[0]] = (n[x[0]] || 0) + 1;
+  return Object.keys(n).filter(d => n[d] > 3);
+}
+/** The real driver market as transfer records, so the press covers it like any other move. */
+function realTransfers(c) {
+  const byYear = Object.fromEntries(c.seasons.map(s => [s.year, s]));
+  for (const s of c.seasons) if (s.historic === 'real') s.transfers = s.transfers.filter(t => !t.real);
+  const mk = (id, at, effective, date, steps) => ({ id, at, effective, createdAt: date ? new Date(Date.parse(date) + 864e5).toISOString() : new Date(0).toISOString(), steps, real: true, before: null });
+  const step = (driver, from, to, replaces = null) => ({ kind: 'move', driver, from, to, replaces, until: null, prevUntil: null, wasPending: false });
+  for (let y = HIST_FROM; y <= HIST_TO; y++) {
+    const s = byYear[y]; if (s?.historic !== 'real') continue;
+    const rs = H.seasons[y].rounds;
+    // during the season
+    // (a regular coming back after missing races, or starting late, isn't news)
+    (H.moves[y] || []).filter(m => m.at > 0 && !(m.from == null && regularsOf(y, m.to).includes(m.driver) && Object.values(lineupAt(y, 0)).flat().includes(m.driver))).forEach((m, k) => {
+      const prevTeam = Object.entries(s.raceTeams[rs[m.at - 1].id]).filter(([, t]) => t === m.to).map(([d]) => d);
+      const nowTeam = Object.entries(s.raceTeams[rs[m.at].id]).filter(([, t]) => t === m.to).map(([d]) => d);
+      s.transfers.push(mk(`real-${y}-${k}`, m.at, 'now', rs[m.at - 1].date, [step(m.driver, m.from, m.to, prevTeam.find(d => !nowTeam.includes(d)) || null)]));
+    });
+    // over the winter into the next season (which always starts from the real grid after a real season)
+    if (!byYear[y + 1]) continue;
+    // into a season you play, compare with the grid it started from (F1 25's, say); with you back out of your seat
+    const ns = byYear[y + 1];
+    const after = isHist(ns) ? (ns.historic === 'sim' ? Object.fromEntries(ns.teams.map(t => [t.id, t.drivers.filter(Boolean)])) : realLineup(y + 1))
+      : Object.fromEntries(ns.teams.filter(t => t.id !== MYTEAM).map(t => [t.id, t.drivers.map(d => d === PLAYER_ID ? ns.benched : d).filter(Boolean)]));
+    const before = finalLineup(y); if (!after) continue;
+    const teamIn = (L, d) => Object.keys(L).find(t => L[t].includes(d)) || null;
+    const date = rs[rs.length - 1].date; let k = 0;
+    for (const [tid, ds] of Object.entries(after)) for (const d of ds) {
+      const from = teamIn(before, d);
+      if (from === tid) continue;
+      const replaces = (before[tid] || []).find(x => !ds.includes(x)) || null;
+      s.transfers.push(mk(`real-${y}w-${k++}`, rs.length, 'next', date, [step(d, from, tid, replaces)]));
+    }
+    for (const [tid, ds] of Object.entries(before)) for (const d of ds) {
+      if (teamIn(after, d)) continue;
+      s.transfers.push(mk(`real-${y}w-${k++}`, rs.length, 'next', date, [step(d, tid, (REAL_RETIREMENTS[y] || []).includes(d) ? 'retire' : 'free')]));
+    }
+  }
+}
+/** Put every season reference in a career forward by n (older saves get the real seasons in front of them). */
+function shiftSeasonRefs(c, n) {
+  for (const s of c.seasons) s.index += n;
+  for (const m of c.media || []) if (m.seasonIdx != null) m.seasonIdx += n;
+  for (const r of c.rumours || []) if (r.seasonIdx != null) r.seasonIdx += n;
+  for (const p of Object.values(c.pending || {})) if (p?.seasonIdx != null) p.seasonIdx += n;
+  for (const k of ['ledger', 'upgrades', 'sponsors']) for (const e of c.myTeam?.[k] || []) if (e.seasonIdx != null) e.seasonIdx += n;
+}
+/** Fill in the real seasons of a loaded career (and give an older save its 2016 onwards). */
+function hydrateCareer(c) {
+  if (!c?.seasons?.length) return;
+  if (!c.seasons.some(isHist) && c.seasons[0].year > HIST_FROM) {
+    const n = Math.min(c.seasons[0].year, HIST_TO + 1) - HIST_FROM;
+    shiftSeasonRefs(c, n);
+    c.seasons.unshift(...Array.from({ length: n }, (_, i) => ({ index: i, year: HIST_FROM + i, historic: 'real' })));
+  }
+  c.seasons = c.seasons.map(s => s.historic === 'real' && !s.teams ? histSeason(s.year, s.index) : s);
+  c.startYear ||= firstPlayed(c).year;
+  realTransfers(c);
+}
+function hydrateState(st) { for (const c of st?.careers || []) hydrateCareer(c); return st; }
+
+/** The grid and calendar a season starts from when it follows real life, or the grid you laid out for a career that
+ *  starts later (null otherwise: the grid carries over). */
+function templateFor(year, c = career()) {
+  if (c?.startGrid && year === c.startYear) return { grid: c.startGrid, cal: c.startCal, nums: {} };
+  // F1 25's grid (with APXGP) is for careers that start in 2025: reaching 2025 from an earlier start, it's the real one
+  if (year === 2025 && (!c || c.startYear === 2025)) return { grid: D.GRID_2025, cal: D.CAL_2025, nums: {} };
+  if (year === 2026) return { grid: D.GRID_2026, cal: D.CAL_2026, nums: D.NUMBERS_2026 };
+  const h = H.seasons[year]; if (!h) return null;
+  const lineup = realLineup(year);
+  const grid = h.teams.filter(t => lineup[t.id]).map(t => ({ id: t.id, name: t.name, color: t.color, drivers: lineup[t.id].slice(0, 2) }));
+  const nums = Object.fromEntries(Object.entries(h.drivers).map(([id, v]) => [id, v[1]]));
+  const cal = h.rounds.map(r => [r.id, r.name, r.venue, !!r.sprint, r.track || null, r.date]);
+  return { grid, cal, nums, drivers: Object.fromEntries(Object.entries(h.drivers).map(([id, [name, number, abbr]]) => [id, { id, name, abbr, number }])) };
+}
+
+/* ----------------------------------------------------------- driver pool */
+// Who can be signed besides the grid: feeder-series drivers (F2 and F3, 2024–25), the drivers you add yourself, and
+// everyone who has raced since 2016 (free agents if they raced in the last two seasons, otherwise retired).
+const FEEDER = {};
+for (const [name, abbr, nat, series, note] of window.F1POOL.FEEDER) {
+  const id = 'X' + abbr; // never clashes with a three-letter F1 id
+  FEEDER[id] = { id, name, abbr, number: null, nat, series, note, feeder: true };
+  D.DRIVER_BIO[id] ||= { nat, note: `${series}${note ? '. ' + note : ''}.`, starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0, titles: [], feeder: series };
+}
+/** The drivers off the grid, by kind: { free, retired, feeder, custom } (each a list of ids). */
+function driverPool(c, s = latestSeason()) {
+  const grid = new Set(gridIds(s));
+  const lastRaced = {};
+  for (const se of c.seasons) for (const id of Object.keys(seasonStatsCache(se))) if (seasonStatsCache(se)[id].starts) lastRaced[id] = se.year;
+  const out = { free: [], retired: [], feeder: [], custom: [] };
+  for (const cd of c.customDrivers || []) if (!grid.has(cd.id) && cd.id !== PLAYER_ID) out.custom.push(cd.id);
+  for (const [id, y] of Object.entries(lastRaced)) {
+    if (grid.has(id) || id === PLAYER_ID || out.custom.includes(id)) continue;
+    (c.retired?.[id] != null || y < s.year - 2 || Object.entries(REAL_RETIREMENTS).some(([ry, ids]) => ids.includes(id) && +ry >= y) ? out.retired : out.free).push(id);
+  }
+  for (const id of ['PER', 'BOT', 'LIN', 'DOO', 'HAY', 'PEA']) if (!grid.has(id) && !lastRaced[id] && !out.free.includes(id)) out.free.push(id);
+  for (const id of Object.keys(FEEDER)) if (!grid.has(id) && !lastRaced[id] && !(c.removedPool || []).includes(id)) out.feeder.push(id);
+  return out;
+}
+
+/* ------------------------------------------------------------- simulation */
+// A career that starts after 2026 needs the years in between. Each is simulated race by race: the car order carries
+// over from the year before (drifting back towards the pack, with the odd big leap), drivers keep the pace they
+// showed against their teammates, and the driver market moves everyone towards the grid you laid out.
+function mulberry(seed) {
+  let a = 0; for (const ch of String(seed)) a = Math.imul(a ^ ch.charCodeAt(0), 2654435761) >>> 0;
+  return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const gauss = (rnd) => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+/** Each driver's qualifying pace against the car in ms (negative = quicker), from the last three seasons. */
+function driverSkills(c) {
+  const sum = {}, n = {};
+  c.seasons.slice(-3).forEach((s, k) => {
+    const w = k + 1; const rs = activeRounds(s);
+    rs.forEach((r, ri) => {
+      const q = qualiTimes(s, r); if (!q) return;
+      const byTeam = {};
+      for (const [d, o] of Object.entries(q.drivers)) if (o.t != null) { const t = teamAt(s, d, ri)?.id; if (t) (byTeam[t] ||= []).push([d, o.t]); }
+      for (const p of Object.values(byTeam)) if (p.length === 2 && Math.abs(p[0][1] - p[1][1]) < 1500) {
+        const g = (p[0][1] - p[1][1]) / 2;
+        sum[p[0][0]] = (sum[p[0][0]] || 0) + g * w; n[p[0][0]] = (n[p[0][0]] || 0) + w;
+        sum[p[1][0]] = (sum[p[1][0]] || 0) - g * w; n[p[1][0]] = (n[p[1][0]] || 0) + w;
+      }
+    });
+  });
+  return Object.fromEntries(Object.keys(sum).map(d => [d, Math.max(-250, Math.min(300, sum[d] / n[d]))]));
+}
+/** Each team's qualifying gap to the fastest car in ms, from a season's laps (or F1 25's estimate). */
+function teamPaceOf(s) {
+  const out = {};
+  if (s) for (const o of paceTable(s, 'quali', false).rows) if (o.rel != null) out[o.team.id] = o.rel;
+  return out;
+}
+/** Next year's car order: most of the gap carries over, the pack closes up a little, and now and then a team leaps. */
+function evolvePace(pace, teams, rnd) {
+  const vals = teams.map(t => pace[t.id] ?? (D.BASE_PACE[t.id] ?? 0.9) * 1000);
+  const mean = avg(vals);
+  const out = {};
+  teams.forEach((t, k) => {
+    let v = vals[k] * 0.7 + mean * 0.3 + gauss(rnd) * 160;
+    if (rnd() < 0.02) v -= 500 + rnd() * 500; // a new concept that works: very rare
+    out[t.id] = v;
+  });
+  const best = Math.min(...Object.values(out));
+  for (const k of Object.keys(out)) out[k] = Math.max(0, out[k] - best);
+  return out;
+}
+/** Age on 1 March of a year, or null. */
+function ageIn(c, id, year) { const b = bornOf(c, id); return b ? year - +b.slice(0, 4) - (b.slice(5) > '03-01' ? 1 : 0) : null; }
+/** A driver's roster entry for a simulated season, with a race number nobody else on that grid uses. */
+function simEntry(c, id, used) {
+  const e = { ...(driverEntry(c, id) || FEEDER[id] || { id, name: id, abbr: id.slice(-3), number: null }) };
+  delete e.feeder; delete e.series; delete e.note; delete e.nat;
+  if (!e.number || used.has(e.number)) e.number = [...Array(98).keys()].map(k => k + 2).find(k => !used.has(k) && k !== 17);
+  used.add(e.number);
+  return e;
+}
+/** One simulated season, every session of every round. */
+function simSeason(c, year, index, teams, calendar, pace, skills, rnd) {
+  const used = new Set(); const drivers = {};
+  for (const t of teams) for (const d of t.drivers) if (d) drivers[d] = simEntry(c, d, used);
+  const s = { index, year, historic: 'sim', teams, drivers, calendar: calendar.map(r => ({ ...r, off: false })), benched: null, playerTeamId: null, format: { practice: 'none' }, goals: [], weekends: {}, completed: true, transfers: [], simPace: pace };
+  for (const r of s.calendar) {
+    const t = D.TRACKS[trackOf(r)];
+    const base = (parseLap(t?.record?.[0]) || 90000) * 1.012, laps = t?.laps || 57;
+    const field = teams.flatMap(tm => tm.drivers.filter(Boolean).map(d => ({ d, car: pace[tm.id] ?? 1200, sk: skills[d] ?? 120 })));
+    const form = Object.fromEntries(field.map(x => [x.d, gauss(rnd) * 80]));
+    const q = field.map(x => ({ d: x.d, t: base + x.car + x.sk + form[x.d] + gauss(rnd) * 100 + (rnd() < 0.03 ? 800 + rnd() * 1500 : 0) })).sort((a, b) => a.t - b.t);
+    const grid = q.map(x => x.d);
+    const Q = { results: q.map((x, i) => ({ d: x.d, lap: fmtLap(x.t), gap: i ? '+' + ((x.t - q[0].t) / 1000).toFixed(3) : '', st: 'FIN' })), fl: null, done: true };
+    const race = (n, dnfP) => {
+      const lapT = base * 1.045;
+      const rows = field.map(x => {
+        const per = lapT + (x.car + x.sk) * 0.9 + form[x.d] + gauss(rnd) * 70;
+        const total = per * n + grid.indexOf(x.d) * 420 + Math.abs(gauss(rnd)) * 3500 * n / laps + (rnd() < 0.07 ? (8000 + rnd() * 20000) * n / laps : 0);
+        return { d: x.d, per, total, out: rnd() < dnfP * (1 + x.car / 2500), fl: per - 900 + gauss(rnd) * 300 };
+      });
+      const fin = rows.filter(x => !x.out).sort((a, b) => a.total - b.total), outs = rows.filter(x => x.out).sort(() => rnd() - 0.5);
+      const win = fin[0];
+      const results = [...fin.map((x, i) => {
+        const down = i ? Math.floor((x.total - win.total) / win.per) : 0;
+        return { d: x.d, lap: '', gap: i === 0 ? fmtDur(win.total) : down ? '' : fmtDur(x.total - win.total, true), st: 'FIN', laps: down || '' };
+      }), ...outs.map(x => ({ d: x.d, lap: '', gap: '', st: 'DNF', laps: '' }))];
+      const flx = fin.slice(0, 12).sort((a, b) => a.fl - b.fl)[0];
+      if (flx) results.find(x => x.d === flx.d).lap = fmtLap(flx.fl);
+      return { results, fl: flx?.d || null, done: true };
+    };
+    const sessions = { Q, R: race(laps, 0.07) };
+    if (r.sprint) sessions.SPR = race(Math.ceil(laps / 3), 0.025);
+    s.weekends[r.id] = { sessions, notes: '', raceLength: 100 };
+  }
+  return s;
+}
+/** A driver who beat the car: finished well above it in the championship, or matched it and beat the teammate. */
+function isTopDriver(s, id) {
+  const st = seasonStatsCache(s); const ds = driverStandings(s, st); const cs = constructorStandings(s, st);
+  const pos = ds.find(x => x.id === id)?.pos; const t = teamOf(s, id); if (!pos || !t) return false;
+  const expect = (cs.find(x => x.team.id === t.id)?.pos || 6) * 2 - 0.5;
+  const mate = t.drivers.find(d => d && d !== id); const matePos = ds.find(x => x.id === mate)?.pos ?? 99;
+  return expect - pos >= 2.5 || (expect - pos >= -1 && pos < matePos);
+}
+/**
+ * One winter of the driver market. With a `target` (the grid you laid out for your first season) every driver moves
+ * towards it, all of it settled by the last winter; without one, drivers retire with age, top teams sign drivers who
+ * beat their car, and rookies from F2 and F3 fill the gaps. Returns the new line-ups and the moves, as transfer steps.
+ */
+function simWinter(c, prevS, year, lineup, target, rnd) {
+  lineup = Object.fromEntries(Object.entries(lineup).map(([t, ds]) => [t, [...ds]]));
+  const steps = [];
+  const teamIn = (d) => Object.keys(lineup).find(t => lineup[t].includes(d)) || null;
+  const onGrid = () => new Set(Object.values(lineup).flat().filter(Boolean));
+  const step = (driver, from, to, replaces = null) => steps.push({ kind: 'move', driver, from, to, replaces, until: to === 'free' || to === 'retire' ? null : year + Math.floor(rnd() * 3), prevUntil: null, wasPending: false });
+  const leave = (d, to) => { const t = teamIn(d); if (!t) return; lineup[t][lineup[t].indexOf(d)] = null; step(d, t, to); };
+  const join = (d, t, replaces = null) => {
+    const from = teamIn(d); if (from) lineup[from][lineup[from].indexOf(d)] = null;
+    let k = replaces ? lineup[t].indexOf(replaces) : -1; if (k < 0) k = lineup[t].indexOf(null); if (k < 0) k = lineup[t].length < 2 ? lineup[t].length : 1;
+    const out = lineup[t][k]; lineup[t][k] = d; step(d, from, t, out || null);
+    return out;
+  };
+  const locked = (d) => d === PLAYER_ID || (c.type === 'myteam' && teamIn(d) === MYTEAM);
+  const skills = driverSkills(c);
+  const rank = constructorStandings(prevS).map(x => x.team.id).filter(t => lineup[t]);
+  if (target) {
+    const want = {}; for (const [t, ds] of Object.entries(target.lineup)) for (const d of ds) if (d) want[d] = t;
+    const k = Math.max(1, target.year - year + 1); // winters left, this one included
+    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && !want[d] && rnd() < 1 / k) leave(d, (ageIn(c, d, year) || 0) >= 35 ? 'retire' : 'free');
+    for (const [d, t] of Object.entries(want)) if (lineup[t] && teamIn(d) !== t && rnd() < 1 / k) {
+      const victim = lineup[t].find(x => x && want[x] !== t) || null;
+      if (victim || lineup[t].includes(null) || lineup[t].length < 2) { const out = join(d, t, victim); if (out && !want[out]) { /* left without a seat */ steps.push({ kind: 'move', driver: out, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false }); } }
+    }
+  } else {
+    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) {
+      if (!d || locked(d)) continue;
+      const a = ageIn(c, d, year) || 25;
+      if (a >= 37 && rnd() < 0.25 + 0.12 * (a - 37)) leave(d, 'retire');
+    }
+    // top teams sign drivers who beat their car from further down the order
+    for (const t of rank.slice(0, 4)) {
+      const ds = lineup[t].filter(d => d && !locked(d)); if (ds.length < 2 || rnd() > 0.45) continue;
+      const weak = ds.sort((a, b) => (seasonStatsCache(prevS)[a]?.pts || 0) - (seasonStatsCache(prevS)[b]?.pts || 0))[0];
+      if (isTopDriver(prevS, weak)) continue;
+      const star = rank.slice(rank.indexOf(t) + 1).flatMap(u => lineup[u]).filter(d => d && !locked(d) && isTopDriver(prevS, d)).sort((a, b) => (skills[a] ?? 0) - (skills[b] ?? 0))[0];
+      if (!star) continue;
+      const home = teamIn(star); join(star, t, weak);
+      if (rnd() < 0.5 && lineup[home]) join(weak, home); else steps.push({ kind: 'move', driver: weak, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
+    }
+    // the odd change further back
+    for (const t of rank.slice(4)) if (rnd() < 0.2) { const d = lineup[t].filter(x => x && !locked(x)).sort((a, b) => (skills[b] ?? 150) - (skills[a] ?? 150))[0]; if (d) leave(d, 'free'); }
+  }
+  // empty seats: whoever is due at the team, then the quickest rookie or free agent available
+  const pool = driverPool(c, prevS);
+  const avail = () => [...pool.feeder, ...pool.free, ...pool.custom].filter(d => !onGrid().has(d) && d !== PLAYER_ID && (!target || !Object.values(target.lineup).flat().includes(d) || Object.entries(target.lineup).some(([t, ds]) => ds.includes(d) && lineup[t])));
+  for (const t of rank.concat(Object.keys(lineup).filter(x => !rank.includes(x)))) {
+    while (lineup[t].filter(Boolean).length < 2) {
+      const due = target ? Object.entries(target.lineup).filter(([u]) => u === t).flatMap(([, ds]) => ds).find(d => d && !onGrid().has(d)) : null;
+      const cands = avail().filter(d => !target || !Object.values(target.lineup).flat().includes(d) || target.lineup[t]?.includes(d));
+      const d = due || cands.sort((a, b) => (skills[a] ?? 60 + rnd() * 120) - (skills[b] ?? 60 + rnd() * 120))[Math.floor(rnd() * Math.min(3, cands.length))];
+      if (!d) break;
+      join(d, t);
+    }
+  }
+  return { lineup, steps };
+}
+/** Simulate the seasons between the real data and a career's first season, ending on the grid you laid out. */
+function simulateGap(c, startYear, targetGrid, targetCal) {
+  const target = { year: startYear, lineup: Object.fromEntries(targetGrid.map(t => [t.id, t.drivers.filter(Boolean)])) };
+  let prev = c.seasons[c.seasons.length - 1];
+  let lineup = realLineup(HIST_TO + 1);
+  let pace = Object.fromEntries(D.GRID_2026.map(t => [t.id, (D.BASE_PACE[t.id] ?? 0.9) * 1000]));
+  for (let y = HIST_TO + 1; y < startYear; y++) {
+    const rnd = mulberry(`${c.id}-${y}`);
+    if (y > HIST_TO + 1) {
+      const w = simWinter(c, prev, y, lineup, target, rnd);
+      lineup = w.lineup;
+      const date = roundDate(prev, activeRounds(prev).slice(-1)[0]);
+      prev.transfers.push(...w.steps.map((st, k) => ({ id: `sim-${y}-${k}`, at: activeRounds(prev).length, effective: 'next', createdAt: new Date((date?.getTime() || 0) + DAY).toISOString(), steps: [st], sim: true, before: null })));
+      pace = evolvePace(teamPaceOf(prev), prev.teams, rnd);
+    }
+    const tpl = y === 2026 ? D.GRID_2026 : prev.teams;
+    const teams = tpl.filter(t => lineup[t.id]).map(t => ({ id: t.id, name: t.name, color: t.color, drivers: lineup[t.id].slice(0, 2) }));
+    const cal = (y === 2026 ? D.CAL_2026.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint })) : targetCal.map(r => ({ id: r.id, name: r.name, venue: r.venue, sprint: r.sprint, ...(r.track ? { track: r.track } : {}) })));
+    const s = simSeason(c, y, c.seasons.length, teams, cal, pace, driverSkills(c), rnd);
+    c.seasons.push(s); prev = s;
+  }
+  // the last winter: everyone takes their seat for your first season
+  const w = simWinter(c, prev, startYear, lineup, { ...target, year: startYear }, mulberry(`${c.id}-${startYear}`));
+  const date = roundDate(prev, activeRounds(prev).slice(-1)[0]);
+  // the winter's moves, plus joining a team that's new on your grid and leaving for anyone not on it
+  const was = (d) => Object.keys(lineup).find(u => lineup[u].includes(d)) || null;
+  const want = new Set(targetGrid.flatMap(t => t.drivers).filter(Boolean));
+  const steps = [...w.steps];
+  for (const t of targetGrid) if (!lineup[t.id]) for (const d of t.drivers) if (d && d !== PLAYER_ID) steps.push({ kind: 'move', driver: d, from: was(d), to: t.id, replaces: null, until: startYear + 1, prevUntil: null, wasPending: false });
+  for (const d of Object.values(lineup).flat()) if (d && !want.has(d) && !steps.some(x => x.driver === d)) steps.push({ kind: 'move', driver: d, from: was(d), to: (ageIn(c, d, startYear) || 0) >= 35 ? 'retire' : 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
+  prev.transfers.push(...steps.map((st, k) => ({ id: `sim-${startYear}-${k}`, at: activeRounds(prev).length, effective: 'next', createdAt: new Date((date?.getTime() || 0) + DAY).toISOString(), steps: [st], sim: true, before: null })));
+}
 
 function playerDriver(c) {
   const p = c.profile;
@@ -275,13 +655,17 @@ function driverEntry(c, id) {
   const cd = c.customDrivers?.find(x => x.id === id);
   if (cd) return { ...cd };
   for (let i = c.seasons.length - 1; i >= 0; i--) if (c.seasons[i].drivers[id]) return { ...c.seasons[i].drivers[id] };
-  return D.DRIVERS[id] ? { ...D.DRIVERS[id] } : null;
+  if (D.DRIVERS[id]) return { ...D.DRIVERS[id] };
+  if (FEEDER[id]) { const { id: i, name, abbr, number } = FEEDER[id]; return { id: i, name, abbr, number }; }
+  return null;
 }
 
 /** Build the roster a season starts from, before the player is placed. */
 function baseRoster(c, index, prev) {
   let out;
-  if (index >= 2 && prev) {
+  const year = prev ? prev.year + 1 : c.startYear;
+  const tpl = templateFor(year, c);
+  if (!tpl && prev) {
     const teams = clone(prev.teams);
     const drivers = clone(prev.drivers);
     // put back the driver the player replaced last year, then take the player out
@@ -290,22 +674,35 @@ function baseRoster(c, index, prev) {
       if (i >= 0) t.drivers[i] = prev.benched && drivers[prev.benched] ? prev.benched : null;
     }
     out = { teams, drivers, calendar: clone(prev.calendar).map(r => ({ ...r })) };
+    // past the real data the rest of the market moves on its own: retirements, top teams signing drivers who beat
+    // their car, rookies from F2 and F3. The same moves every time for the same career and year.
+    if (year > 2026) {
+      const w = simWinter(c, prev, year, Object.fromEntries(teams.map(t => [t.id, [...t.drivers]])), null, mulberry(`${c.id}-${year}`));
+      for (const t of teams) t.drivers = w.lineup[t.id];
+      const used = new Set(Object.values(drivers).map(d => d.number));
+      for (const d of teams.flatMap(t => t.drivers)) if (d && !drivers[d]) drivers[d] = simEntry(c, d, used);
+      out.aiSteps = w.steps;
+    }
   } else {
-    const tpl = templateFor(index);
+    // real life: that year's real grid (F1 25's for 2025 and 2026)
     const teams = tpl.grid.map(t => ({ ...t, drivers: [...t.drivers] }));
     if (c.type === 'myteam') addMyTeam(c, teams, prev);
     const drivers = {};
     for (const t of teams) for (const id of t.drivers) {
-      if (id && D.DRIVERS[id]) drivers[id] = { ...D.DRIVERS[id], number: tpl.nums[id] ?? D.DRIVERS[id].number };
+      const e = id && (tpl.drivers?.[id] || D.DRIVERS[id] || driverEntry(c, id));
+      if (e) drivers[id] = { ...e, number: tpl.nums[id] ?? e.number };
     }
     for (const cd of c.customDrivers || []) drivers[cd.id] = { ...cd };
-    const calendar = tpl.cal.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint, off: false }));
+    const calendar = tpl.cal.map(([id, name, venue, sprint, track, date]) => ({ id, name, venue, sprint, off: false, ...(track ? { track } : {}), ...(date ? { date } : {}) }));
     out = { teams, drivers, calendar };
+    // drivers your career retired stay retired, whatever they did in real life
+    if (prev) for (const id of Object.keys(c.retired || {})) for (const t of out.teams) { const k = t.drivers.indexOf(id); if (k >= 0) t.drivers[k] = null; }
   }
-  // the driver market carries over: moves signed for next season, and (onto the fresh 2026 grid) last year's moves too
-  // (your own moves aren't replayed here: you are placed in your seat when the season starts)
-  for (const tr of prev?.transfers || []) {
-    if (tr.effective === 'next' || (index === 1 && tr.effective === 'now')) for (const m of tr.steps) if (m.driver !== PLAYER_ID) applyMove(c, out.teams, out.drivers, m);
+  // your career's driver market carries over: moves signed for next season, and (onto a fresh real grid) last year's
+  // moves too. Real seasons' moves are already in the real grid. (Your own moves aren't replayed here: you are placed
+  // in your seat when the season starts.)
+  for (const tr of prev && !isHist(prev) ? prev.transfers || [] : []) {
+    if (tr.effective === 'next' || (tpl && tr.effective === 'now')) for (const m of tr.steps) if (m.driver !== PLAYER_ID) applyMove(c, out.teams, out.drivers, m);
   }
   if (c.type === 'myteam') { const t = out.teams.find(x => x.id === MYTEAM); if (t) Object.assign(t, myTeamRow(c), { drivers: t.drivers }); }
   return out;
@@ -354,7 +751,8 @@ function titleHolderFor(c, s) {
   const id = Object.entries(D.DRIVER_BIO).find(([, b]) => b.titles?.includes(s.year - 1))?.[0];
   return id ? { id, year: s.year - 1 } : null;
 }
-const usesNumberOne = (c, h) => !!h && c.numberOne?.[h.year] !== false;
+/** Unless you choose, a real champion does what they did in real life (Hamilton kept 44), anyone else runs the 1. */
+const usesNumberOne = (c, h) => !!h && (c.numberOne?.[h.year] ?? (H.seasons[h.year + 1]?.drivers[h.id] ? H.seasons[h.year + 1].drivers[h.id][1] === 1 : true));
 /** A driver's own race number, the one they go back to without the number 1. */
 function ownNumber(c, s, id) {
   if (id === PLAYER_ID) return +c.profile.number || null;
@@ -366,6 +764,7 @@ function ownNumber(c, s, id) {
 function syncNumbers(c) {
   let changed = false;
   for (const s of c?.seasons || []) {
+    if (isHist(s)) continue; // real seasons keep their real numbers
     const h = titleHolderFor(c, s); const one = usesNumberOne(c, h) ? h.id : null;
     for (const [id, d] of Object.entries(s.drivers)) {
       const n = id === one ? 1 : ownNumber(c, s, id) ?? d.number;
@@ -418,20 +817,29 @@ function newSeason(c, index, { teamId, seatDriverId, goals, practice }) {
   const prev = c.seasons[index - 1];
   const base = baseRoster(c, index, prev);
   const s = {
-    index, year: 2025 + index,
+    index, year: prev ? prev.year + 1 : c.startYear,
     teams: base.teams, drivers: base.drivers, calendar: base.calendar,
     benched: null, playerTeamId: null,
     format: { practice: practice || prev?.format?.practice || 'full' },
     goals: goals || [], weekends: {}, completed: false,
   };
+  const taken = {};
+  for (const id of gridIds(s)) { const d = s.drivers[id]; if (!d?.number) continue; if (taken[d.number] && !D.DRIVERS[id]) d.number = null; else taken[d.number] = id; }
+  for (const id of gridIds(s)) { const d = s.drivers[id]; if (d && !d.number) { d.number = [...Array(98).keys()].map(k => k + 2).find(k => !taken[k] && k !== 17); taken[d.number] = id; } }
   if (isPrincipal(c)) s.playerTeamId = teamId; // you run the team; both seats are your signings
   else placePlayer(s, c, teamId, seatDriverId);
+  // the winter's other moves go on record in the season just finished, so the press covers them
+  if (prev && base.aiSteps?.length) {
+    const last = activeRounds(prev); const d = roundDate(prev, last[last.length - 1]);
+    (prev.transfers ||= []).push(...base.aiSteps.map((st, k) => ({ id: `ai-${s.year}-${k}-${uid()}`, at: last.length, effective: 'next', createdAt: new Date((d?.getTime() || Date.now()) + DAY).toISOString(), steps: [st], ai: true, before: null })));
+  }
   return s;
 }
 
 const teamOf = (s, did) => s.teams.find(t => t.drivers.includes(did)) || null;
 /** The team a driver raced for at round index ri: today's line-up with this season's later mid-season moves undone. */
 function teamAt(s, did, ri) {
+  if (s.raceTeams) { const tid = s.raceTeams[activeRounds(s)[ri]?.id]?.[did]; if (tid) return s.teams.find(t => t.id === tid) || null; }
   let tid = teamOf(s, did)?.id ?? null;
   const later = (s.transfers || []).filter(tr => tr.effective === 'now' && tr.at > ri);
   for (let i = later.length - 1; i >= 0; i--) for (let j = later[i].steps.length - 1; j >= 0; j--) {
@@ -490,8 +898,9 @@ function fastestOf(sd) {
   for (const r of sd.results) { const ms = parseLap(r.lap); if (ms != null && (best == null || ms < best)) { best = ms; who = r.d; } }
   return who;
 }
-function pointsFor(kind, pos, st) {
+function pointsFor(kind, pos, st, pts) {
   if (OUT.includes(st)) return 0;
+  if (pts != null && pts !== '') return +pts; // real seasons carry their own points (old sprint scoring, fastest-lap points, half points)
   const table = kind === 'R' ? D.RACE_POINTS : kind === 'SPR' ? D.SPRINT_POINTS : [];
   return table[pos - 1] || 0;
 }
@@ -515,7 +924,7 @@ function seasonStats(s, upto = Infinity) {
       const o = get(x.d); const pos = i + 1;
       if (OUT.includes(x.st)) return;
       o.qPos.push(pos); o.bestQ = o.bestQ == null ? pos : Math.min(o.bestQ, pos);
-      if (pos === 1) o.poles++;
+      if (q.pole === undefined ? pos === 1 : q.pole === x.d) o.poles++; // real seasons: the official pole (who started first)
       (o.byRound[r.id] ||= {}).q = pos;
     });
     for (const k of ['SPR', 'R']) {
@@ -524,7 +933,7 @@ function seasonStats(s, upto = Infinity) {
       const fl = k === 'R' ? fastestOf(sd) : null;
       sd.results.forEach((x, i) => {
         const o = get(x.d); const pos = i + 1;
-        const pts = pointsFor(k, pos, x.st);
+        const pts = pointsFor(k, pos, x.st, x.pts);
         o.pts += pts;
         // constructors' points stay with the team the driver raced for that weekend, even after a move
         const tid = teamAt(s, x.d, ri)?.id;
@@ -774,6 +1183,7 @@ function renderView() {
 
 function seasonPicker(c, idx, act = 'pick-season') {
   if (c.seasons.length < 2) return '';
+  if (c.seasons.length > 5) return `<select class="season-sel" data-ch="season-sel" data-to="${act}" style="width:auto" title="Season">${c.seasons.slice().reverse().map(s => `<option value="${s.index}" ${s.index === idx ? 'selected' : ''}>${s.year}${s.historic === 'sim' ? ' · simulated' : s.historic ? ' · real' : ''}</option>`).join('')}</select>`;
   return `<div class="seg">${c.seasons.map((s, i) => `<button data-act="${act}" data-idx="${i}" class="${i === idx ? 'on' : ''}">${s.year}</button>`).join('')}</div>`;
 }
 
@@ -939,7 +1349,7 @@ function renderDashboard() {
               if (!rows.length) return `<tr><td colspan="6"><div class="empty">No sessions logged yet.</div></td></tr>`;
               return rows.map(({ r, i, br }) => {
                 const w = s.weekends[r.id];
-                const pts = ['R', 'SPR'].reduce((a, k) => { const sd = w.sessions[k]; if (!sd?.done) return a; const ix = sd.results.findIndex(x => x.d === PLAYER); return a + (ix >= 0 ? pointsFor(k, ix + 1, sd.results[ix].st) : 0); }, 0);
+                const pts = ['R', 'SPR'].reduce((a, k) => { const sd = w.sessions[k]; if (!sd?.done) return a; const ix = sd.results.findIndex(x => x.d === PLAYER); return a + (ix >= 0 ? pointsFor(k, ix + 1, sd.results[ix].st, sd.results[ix].pts) : 0); }, 0);
                 return `<tr data-act="open-round" data-round="${r.id}" style="cursor:pointer"><td class="muted num">${i + 1}</td><td>${esc(r.name)}</td><td class="num">${br.q ? 'P' + br.q : '–'}</td><td class="num">${br.s != null ? (typeof br.s === 'number' ? 'P' + br.s : br.s) : '–'}</td><td class="num">${br.r != null ? (typeof br.r === 'number' ? `<b>P${br.r}</b>` : `<span class="tag dnf">${br.r}</span>`) : '–'}${br.fl ? ' <span class="fl-tag">FL</span>' : ''}</td><td class="num">${pts}</td></tr>`;
               }).join('');
             })()}</tbody></table></div>
@@ -1012,6 +1422,7 @@ function renderWeekend() {
   const ri = rounds.findIndex(r => r.id === ui.round);
   const r = rounds[ri];
   if (!r) { ui.view = 'calendar'; return renderCalendar(); }
+  if (isHist(s)) return renderHistWeekend(s, rounds, ri, r);
   const keys = sessionsFor(s, r);
   if (!keys.includes(ui.session)) ui.session = keys.find(k => !s.weekends[r.id]?.sessions[k]?.done) || keys[0];
   const key = ui.session;
@@ -1035,7 +1446,7 @@ function renderWeekend() {
         <div class="seg" title="Race distance you run in the game. Race pace is worked out per lap at this distance.">${RACE_LENGTHS.map(p => `<button data-act="race-length" data-v="${p}" class="${raceLength(s, r.id) === p ? 'on' : ''}">${p}%</button>`).join('')}</div>
         <span class="muted">${raceLaps(s, r.id)} laps</span>
         ${media.length ? `<span class="muted">${media.length} media session${media.length > 1 ? 's' : ''}</span>` : ''}
-        ${D.TRACKS[r.id] ? `<button class="btn" data-act="open-track" data-track="${r.id}">${ICON.track} Circuit guide</button>` : ''}
+        ${D.TRACKS[trackOf(r)] ? `<button class="btn" data-act="open-track" data-track="${trackOf(r)}">${ICON.track} Circuit guide</button>` : ''}
         ${Object.values(w.sessions).some(x => x.done) ? `<button class="btn" data-act="weekend-card" data-round="${r.id}">${ICON.camera} Weekend summary</button>` : ''}
         <button class="btn" data-act="new-media" data-round="${r.id}">${ICON.mic} Media session</button>
       </div>
@@ -1068,7 +1479,7 @@ function renderWeekend() {
               <td class="w-gap">${!race && i === 0 ? '<span class="muted" style="font-size:12px">Fastest</span>'
                 : `<input type="text" inputmode="numeric" placeholder="${i === 0 ? '1:32:15.120' : i === 1 ? (race ? '+5.123' : '+0.123') : ''}" value="${esc(x.gap)}" data-ch="res-field" data-f="gap" data-i="${i}" data-mask="${race ? (i === 0 ? 'rtime' : 'rgap') : 'qgap'}" ${race && +x.laps > 0 ? 'disabled title="Lapped: the gap is not needed"' : ''}>`}</td>
               ${race ? `<td class="w-laps">${i === 0 ? '' : `<input type="number" min="0" max="99" placeholder="0" value="${+x.laps > 0 ? +x.laps : ''}" data-ch="res-field" data-f="laps" data-i="${i}">`}</td><td class="w-st"><select data-ch="res-field" data-f="st" data-i="${i}">${['FIN', ...OUT].map(o => `<option ${x.st === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>
-              <td class="num">${pointsFor(key, i + 1, x.st) || ''}</td>` : ''}
+              <td class="num">${pointsFor(key, i + 1, x.st, x.pts) || ''}</td>` : ''}
               <td><div class="row" style="gap:2px;flex-wrap:nowrap"><button class="icon-btn" title="Move up" data-act="move" data-i="${i}" data-dir="-1">${ICON.up}</button><button class="icon-btn" title="Move down" data-act="move" data-i="${i}" data-dir="1">${ICON.down}</button></div></td>
             </tr>`;
           }).join('')}</tbody>
@@ -1087,6 +1498,42 @@ function renderWeekend() {
     <div class="panel">
       <div class="panel-h"><h3>Weekend notes</h3><span class="muted" style="font-size:12px">Setups, strategy, incidents. These feed into your media sessions.</span></div>
       <div class="panel-b"><textarea data-ch="notes" placeholder="e.g. Two-stop medium-hard-medium, lost a place to the safety car on lap 31.">${esc(w.notes || '')}</textarea></div>
+    </div>
+  </div>`;
+}
+
+/** A weekend of a real (or simulated) season: the results as they were, read-only. */
+function renderHistWeekend(s, rounds, ri, r) {
+  const w = s.weekends[r.id] || { sessions: {} };
+  const keys = ['Q', 'SPR', 'R'].filter(k => w.sessions[k]?.done);
+  if (!keys.includes(ui.session)) ui.session = keys[keys.length - 1];
+  const key = ui.session; const sd = w.sessions[key]; const race = isRaceKind(key);
+  const fl = race ? fastestOf(sd) : null;
+  const t = D.TRACKS[trackOf(r)];
+  return `<div class="page">
+    <div class="page-head">
+      <div class="row" style="gap:14px">
+        <button class="icon-btn" title="Previous round" data-act="open-round" data-round="${rounds[ri - 1]?.id || ''}" ${ri === 0 ? 'disabled style="opacity:.3"' : ''}>${ICON.left}</button>
+        <div><span class="label">${s.year} · Round ${ri + 1} of ${rounds.length} · ${s.historic === 'sim' ? 'Simulated season' : 'Real result'}</span><h1>${t ? countryFlag(t.country, 22) + ' ' : ''}${esc(r.name)} Grand Prix ${r.sprint ? '<span class="tag sprint" style="vertical-align:middle">Sprint weekend</span>' : ''}</h1><div class="sub">${esc(r.venue)} · ${weekendTxt(s, r)}${r.laps ? ` · ${r.laps} laps` : ''}</div></div>
+        <button class="icon-btn" title="Next round" data-act="open-round" data-round="${rounds[ri + 1]?.id || ''}" ${ri === rounds.length - 1 ? 'disabled style="opacity:.3"' : ''}>${ICON.right}</button>
+      </div>
+      <div class="row">
+        ${t ? `<button class="btn" data-act="open-track" data-track="${trackOf(r)}">${ICON.track} Circuit guide</button>` : ''}
+        ${keys.length ? `<button class="btn" data-act="weekend-card" data-round="${r.id}">${ICON.camera} Weekend summary</button>` : ''}
+      </div>
+    </div>
+    <div class="panel">
+      <div class="session-tabs">${keys.map(k => `<button data-act="pick-session" data-key="${k}" class="${k === key ? 'on' : ''}"><span class="ok"></span>${SESSION_LABEL[k]}</button>`).join('')}</div>
+      ${sd ? `<div class="panel-b tight table-wrap"><table class="res-table">
+        <thead><tr><th>Pos</th><th>Driver</th><th>${race ? 'Fastest lap' : 'Best lap'}</th><th>${race ? 'Time / gap' : 'Gap to pole'}</th>${race ? '<th class="num">Pts</th>' : ''}</tr></thead>
+        <tbody>${sd.results.map((x, i) => `<tr class="${x.d === fl ? 'is-fl' : ''}">
+          <td class="pos ${i < 3 && !OUT.includes(x.st) ? 'p' + (i + 1) : ''}">${OUT.includes(x.st) ? `<span class="tag dnf">${x.st}</span>` : i + 1}</td>
+          <td>${drvCell(s, x.d, { team: true })}</td>
+          <td class="mono">${esc(x.lap || '')}${x.d === fl ? ' <span class="fl-tag">FL</span>' : ''}</td>
+          <td class="mono">${OUT.includes(x.st) ? '' : +x.laps > 0 ? `+${x.laps} lap${+x.laps > 1 ? 's' : ''}` : esc(x.gap || (i === 0 && !race ? 'Pole' : ''))}</td>
+          ${race ? `<td class="num">${pointsFor(key, i + 1, x.st, x.pts) || ''}</td>` : ''}</tr>`).join('')}</tbody>
+      </table></div>` : '<div class="empty">No results for this weekend.</div>'}
+      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${s.historic === 'sim' ? 'Simulated before your career began. It cannot be edited.' : 'Real results, from before your career began. They cannot be edited.'}</div>
     </div>
   </div>`;
 }
@@ -1134,7 +1581,7 @@ async function drawWeekendCard(c, s, r) {
   text(`${team?.name || ''}  ·  #${s.drivers[PLAYER]?.number ?? c.profile.number}`, 262, 326, { size: 22, color: '#8B97AF' });
   // results tiles
   const at = (k) => { const sd = ses[k]; if (!sd?.done) return null; const i = sd.results.findIndex(x => x.d === PLAYER); return i < 0 ? null : OUT.includes(sd.results[i].st) ? sd.results[i].st : 'P' + (i + 1); };
-  const pts = ['SPR', 'R'].reduce((a, k) => { const sd = ses[k]; if (!sd?.done) return a; const i = sd.results.findIndex(x => x.d === PLAYER); return a + (i >= 0 ? pointsFor(k, i + 1, sd.results[i].st) : 0); }, 0);
+  const pts = ['SPR', 'R'].reduce((a, k) => { const sd = ses[k]; if (!sd?.done) return a; const i = sd.results.findIndex(x => x.d === PLAYER); return a + (i >= 0 ? pointsFor(k, i + 1, sd.results[i].st, sd.results[i].pts) : 0); }, 0);
   const before = driverStandings(s, seasonStats(s, ri)).find(x => x.id === PLAYER)?.pos;
   const after = driverStandings(s, seasonStats(s, ri + 1)).find(x => x.id === PLAYER)?.pos;
   const move = ri > 0 && before && after && before !== after ? (after < before ? `▲${before - after}` : `▼${after - before}`) : '';
@@ -1381,7 +1828,7 @@ function renderH2H() {
       <div class="h2h-bar"><i style="--c:${cb2};width:${pb}%"></i></div><span class="v r ${wb ? 'win' : wa ? 'lose' : ''}">${fmt(vb)}</span></div>`;
   };
   const sel = (which, val) => `<select data-ch="h2h-${which}" style="width:auto;max-width:240px">${ids.map(id => `<option value="${id}" ${id === val ? 'selected' : ''}>${esc(pool[id].name)}${id === PLAYER ? ' (you)' : ''}</option>`).join('')}</select>`;
-  const scopeSel = `<select data-ch="h2h-scope" style="width:auto"><option value="cur" ${scope === 'cur' ? 'selected' : ''}>Current season</option>${c.seasons.map((s, i) => `<option value="${i}" ${scope === String(i) ? 'selected' : ''}>${s.year} season</option>`).join('')}<option value="all" ${scope === 'all' ? 'selected' : ''}>Whole career</option></select>`;
+  const scopeSel = `<select data-ch="h2h-scope" style="width:auto"><option value="cur" ${scope === 'cur' ? 'selected' : ''}>Current season</option>${c.seasons.map((s, i) => `<option value="${i}" ${scope === String(i) ? 'selected' : ''}>${s.year} season</option>`).join('')}<option value="all" ${scope === 'all' ? 'selected' : ''}>Every season since ${c.seasons[0].year}</option></select>`;
   const pct = (w, t) => t ? Math.round(w / t * 100) + '%' : '–';
   const whole = scope === 'all';
   // whole career: real F1 records up to 2024 plus everything logged since
@@ -1414,7 +1861,7 @@ function renderH2H() {
       ${row('Podium rate', rate(ra, 'podiums'), rate(rb, 'podiums'), false, (v) => v == null ? '–' : v.toFixed(1) + '%')}
       ${row('Best championship', ra.bestChamp, rb.bestChamp, true, (v) => v ? 'P' + v : '–')}
     </div>
-    <div class="panel-h" style="border-top:1px solid var(--line)"><h3>Head to head in your career</h3><span class="muted" style="font-size:12px">Sessions where both drivers took part, ${c.seasons[0].year} onwards</span></div>` : ''}
+    <div class="panel-h" style="border-top:1px solid var(--line)"><h3>Head to head in your career</h3><span class="muted" style="font-size:12px">Sessions where both drivers took part, ${c.seasons[0].year} onwards (real seasons included)</span></div>` : ''}
     <div class="panel-b" style="border-top:1px solid var(--line)">
       ${row('Qualifying', h.q[0], h.q[1])}
       ${row('Race', h.r[0], h.r[1])}
@@ -1507,7 +1954,8 @@ function posChart(rounds, ca, cb, ka, kb) {
 /* ----------------------------------------------------------- career stats */
 function renderStats() {
   const c = career();
-  const rows = c.seasons.map(s => {
+  const played = playedSeasons(c);
+  const rows = played.map(s => {
     const st = seasonStats(s);
     const me = st[PLAYER] || emptyStat();
     const ds = driverStandings(s, st);
@@ -1526,7 +1974,7 @@ function renderStats() {
   const board = lbIds.map(id => {
     const rec = driverRecord(c, id, ctx);
     const t = full ? rec.tot : Object.fromEntries(['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'].map(k => [k, rec.tot[k] - rec.base[k]]));
-    const titles = full ? rec.tot.titles.length : rec.seasons.filter(x => x.complete && x.pos === 1).length;
+    const titles = full ? rec.tot.titles.length : rec.seasons.filter(x => x.complete && x.pos === 1 && !isHist(x.s)).length;
     return { id, name: id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id].name, team: teamOf(latest, id), ...t, titles, base: rec.base };
   });
   const lk = ui.lb.sort;
@@ -1535,13 +1983,13 @@ function renderStats() {
   const lbAdd = (x, k, fmt) => full ? plus(x[k] - x.base[k], fmt) : '';
 
   const wins = [];
-  for (const s of c.seasons) {
+  for (const s of played) {
     const st = seasonStats(s);
     activeRounds(s).forEach(r => { const br = st[PLAYER]?.byRound[r.id]; if (br?.r === 1) wins.push(`${s.year} ${r.name}`); });
   }
 
   return `<div class="page">
-    <div class="page-head"><div><h1>Career Stats</h1><div class="sub">${c.seasons.length} season${c.seasons.length > 1 ? 's' : ''} · ${T.starts} race starts</div></div></div>
+    <div class="page-head"><div><h1>Career Stats</h1><div class="sub">${played.length} season${played.length > 1 ? 's' : ''} · ${T.starts} race starts</div></div></div>
     <div class="tiles">
       <div class="tile"><span class="label">Titles</span><span class="v">${T.titles}</span></div>
       <div class="tile"><span class="label">Wins</span><span class="v">${T.wins}<small>${T.starts ? ` ${Math.round(T.wins / T.starts * 100)}%` : ''}</small></span></div>
@@ -1558,7 +2006,7 @@ function renderStats() {
         <td class="num">${fmtAvg(avg(r.me.qPos))}</td><td class="num">${fmtAvg(avg(r.me.finPos))}</td>
         <td><span class="tnum">${r.h.q[0]}–${r.h.q[1]} / ${r.h.r[0]}–${r.h.r[1]}</span> <span class="muted">vs ${esc(dAbbr(r.s, r.mate))}</span></td></tr>`).join('')}</tbody>
     </table></div></div>
-    <div class="panel"><div class="panel-h"><div><h2>All-time leaderboard</h2><span class="muted" style="font-size:12px">${full ? 'Entire F1 careers: real records up to the start of 2025 plus your career (shown in green)' : `Only what each driver has done since ${c.seasons[0].year} in your career`}. The ${latest.year} grid plus everyone who has raced in your career. Click a column to sort.</span></div>
+    <div class="panel"><div class="panel-h"><div><h2>All-time leaderboard</h2><span class="muted" style="font-size:12px">${full ? `Entire F1 careers: real records up to ${firstPlayed(c).year - 1} plus your career (shown in green)` : `Only what each driver has done since ${firstPlayed(c).year} in your career`}. The ${latest.year} grid plus everyone who has raced since ${c.seasons[0].year}. Click a column to sort.</span></div>
       <div class="seg">${[['full', 'Entire careers'], ['career', 'This career only']].map(([v, l]) => `<button data-act="lb-scope" data-v="${v}" class="${ui.lb.scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="panel-b tight table-wrap"><table>
         <thead><tr><th>#</th><th>Driver</th><th>${latest.year} team</th>${lth('titles', 'Titles')}${lth('starts', 'Starts')}${lth('wins', 'Wins')}${lth('podiums', 'Podiums')}${lth('poles', 'Poles')}${lth('pts', 'Points')}</tr></thead>
@@ -1596,7 +2044,7 @@ function renderReview() {
   const weekends = rounds.map((r, i) => {
     const ses = s.weekends[r.id]?.sessions; if (!ses?.R?.done) return null;
     const br = me.byRound[r.id] || {};
-    const p = ['SPR', 'R'].reduce((a, k) => { const sd = ses[k]; if (!sd?.done) return a; const ix = sd.results.findIndex(x => x.d === PLAYER); return a + (ix >= 0 ? pointsFor(k, ix + 1, sd.results[ix].st) : 0); }, 0);
+    const p = ['SPR', 'R'].reduce((a, k) => { const sd = ses[k]; if (!sd?.done) return a; const ix = sd.results.findIndex(x => x.d === PLAYER); return a + (ix >= 0 ? pointsFor(k, ix + 1, sd.results[ix].st, sd.results[ix].pts) : 0); }, 0);
     return { r, i, br, pts: p, fin: typeof br.r === 'number' ? br.r : 99 };
   }).filter(Boolean);
   const best = weekends.slice().sort((a, b) => b.pts - a.pts || a.fin - b.fin).slice(0, 3);
@@ -1687,7 +2135,8 @@ function careerCtx(c) {
   });
 }
 
-/** Real totals up to the end of 2024 plus everything logged in this career. */
+/** Real totals before 2016, the real seasons since, plus everything logged in this career. `base` is everything
+ *  real (so tot − base is what the career added). */
 function driverRecord(c, id, ctx = careerCtx(c)) {
   const bio = id === PLAYER_ID ? null : D.DRIVER_BIO[id] || null;
   const KEYS = ['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'];
@@ -1699,7 +2148,7 @@ function driverRecord(c, id, ctx = careerCtx(c)) {
     if (!o || !s.drivers[id]) continue;
     const pos = ds.find(x => x.id === id)?.pos ?? null;
     seasons.push({ s, o, pos, team: teamOf(s, id), complete });
-    for (const k of KEYS) tot[k] += o[k];
+    for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; }
     tot.dnfs += o.dnfs;
     if (o.best != null) tot.bestFinish = tot.bestFinish == null ? o.best : Math.min(tot.bestFinish, o.best);
     if (complete && pos != null) {
@@ -1722,32 +2171,24 @@ function renderDrivers() {
   const k = ui.drv.sort;
   const val = (r) => k === 'titles' ? r.tot.titles.length : k === 'winPct' ? (r.tot.starts ? r.tot.wins / r.tot.starts : -1) : r.tot[k];
   rows.sort((a, b) => k === 'name' ? name(a.id).localeCompare(name(b.id)) : (val(b) - val(a)) || name(a.id).localeCompare(name(b.id)));
-  const th = (key, label, cls = 'num') => `<th class="${cls} sortable ${k === key ? 'on' : ''}" data-act="drv-sort" data-k="${key}">${label}</th>`;
   return `<div class="page">
-    <div class="page-head"><div><h1>Drivers</h1><div class="sub">Real F1 career totals up to the start of 2025, plus every race logged in your career (shown in green).</div></div>
-      <div class="seg">${[['grid', `${s.year} grid`], ['all', 'All drivers']].map(([v, l]) => `<button data-act="drv-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-    <div class="panel"><div class="panel-b tight table-wrap"><table>
-      <thead><tr><th>#</th>${th('name', 'Driver', '')}<th>Team</th><th class="num">Age</th>${th('titles', 'Titles')}${th('starts', 'Starts')}${th('wins', 'Wins')}${th('podiums', 'Podiums')}${th('poles', 'Poles')}${th('fls', 'FL')}${th('pts', 'Points')}${th('winPct', 'Win %')}</tr></thead>
-      <tbody>${rows.map((r, i) => {
-        const t = teamOf(s, r.id);
-        const add = (key) => r.tot[key] - r.base[key];
-        return `<tr class="${r.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${r.id}">
-          <td class="muted num">${i + 1}</td>
-          <td><div class="drv">${avatar(c, s, r.id, 28)}<span class="ab">${esc(known[r.id]?.abbr || r.id)}</span><span class="nm">${esc(name(r.id))}</span>${r.bio?.fictional ? '<span class="tag">Fictional</span>' : ''}</div></td>
-          <td class="muted">${t ? `<div class="drv">${teamLogo(c, t, 20)}${esc(t.name)}</div>` : 'Not on the grid'}</td>
-          <td class="num">${ageNow(c, r.id) ?? '–'}</td>
-          <td class="num">${r.tot.titles.length || '–'}</td>
-          <td class="num">${r.tot.starts}${plus(add('starts'))}</td>
-          <td class="num">${r.tot.wins}${plus(add('wins'))}</td>
-          <td class="num">${r.tot.podiums}${plus(add('podiums'))}</td>
-          <td class="num">${r.tot.poles}${plus(add('poles'))}</td>
-          <td class="num">${r.tot.fls}${plus(add('fls'))}</td>
-          <td class="num"><b>${fmtPts(r.tot.pts)}</b>${plus(add('pts'), fmtPts)}</td>
-          <td class="num">${r.tot.starts ? Math.round(r.tot.wins / r.tot.starts * 100) + '%' : '–'}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table></div></div>
+    <div class="page-head"><div><h1>Drivers</h1><div class="sub">Real F1 career totals, plus every race logged in your career (shown in green).</div></div>
+      <div class="row">${sortSel('drv-sort-sel', k, [['wins', 'Wins'], ['titles', 'Titles'], ['podiums', 'Podiums'], ['poles', 'Poles'], ['starts', 'Starts'], ['pts', 'Points'], ['fls', 'Fastest laps'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All drivers']].map(([v, l]) => `<button data-act="drv-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="cards">${rows.map(r => driverCard(c, s, r, name(r.id), known[r.id])).join('')}</div>
   </div>`;
+}
+const sortSel = (ch, v, opts) => `<label class="row muted" style="gap:6px;font-size:13px">Sort <select data-ch="${ch}" style="width:auto">${opts.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+/** A driver as a card: team colour, photo, number, flag and the career totals. */
+function driverCard(c, s, r, nm, entry) {
+  const t = teamOf(s, r.id); const col = t?.color || '#5E6A82';
+  const add = (key, fmt) => plus(r.tot[key] - r.base[key], fmt);
+  const nat = r.id === PLAYER_ID ? c.profile.nationality : r.bio?.nat;
+  const stat = (label, v, extra = '') => `<div><span class="label">${label}</span><b>${v}</b>${extra}</div>`;
+  return `<button class="dcard ${r.id === PLAYER ? 'me' : ''}" style="--c:${col}" data-act="open-driver" data-id="${r.id}">
+    <span class="dcard-num">${esc(entry?.number ?? '')}</span>
+    <div class="dcard-top">${avatar(c, s, r.id, 58)}<div class="dcard-who"><span class="ab">${natFlag(nat, 12)} ${esc(entry?.abbr || r.id)}</span><b>${esc(nm)}</b><small>${t ? esc(t.name) : r.bio?.feeder ? esc(r.bio.feeder) : 'Not on the grid'}${ageNow(c, r.id) != null ? ` · ${ageNow(c, r.id)}` : ''}</small></div>${r.bio?.fictional ? '<span class="tag">Fictional</span>' : ''}</div>
+    <div class="dcard-stats">${stat('Titles', r.tot.titles.length || '–')}${stat('Wins', r.tot.wins, add('wins'))}${stat('Podiums', r.tot.podiums, add('podiums'))}${stat('Poles', r.tot.poles, add('poles'))}${stat('Starts', r.tot.starts, add('starts'))}${stat('Points', fmtPts(r.tot.pts), add('pts', fmtPts))}</div>
+  </button>`;
 }
 
 function renderDriver() {
@@ -1808,7 +2249,7 @@ function renderDriver() {
     <div class="panel"><div class="panel-h"><h2>Career by season</h2><span class="muted" style="font-size:12px">Green figures are what this driver has added in your career</span></div><div class="panel-b tight table-wrap"><table>
       <thead><tr><th>Season</th><th>Team</th><th class="num">Pos</th><th class="num">Starts</th><th class="num">Pts</th><th class="num">Wins</th><th class="num">Pod</th><th class="num">Poles</th><th class="num">FL</th><th class="num">DNF</th><th class="num">Avg finish</th></tr></thead>
       <tbody>
-        ${bio && !bio.fictional && bio.starts ? `<tr><td><b>Up to 2024</b><div class="muted" style="font-size:12px">Real F1</div></td><td class="muted" style="max-width:340px;white-space:normal">${esc(bio.teams || '')}</td><td class="num">${bio.bestChamp ? 'Best P' + bio.bestChamp : '–'}</td>
+        ${bio && !bio.fictional && bio.starts ? `<tr><td><b>Before ${HIST_FROM}</b><div class="muted" style="font-size:12px">Real F1</div></td><td class="muted" style="max-width:340px;white-space:normal">${esc(bio.teams || '')}</td><td class="num">${bio.bestChamp ? 'Best P' + bio.bestChamp : '–'}</td>
           <td class="num">${bio.starts}</td><td class="num"><b>${fmtPts(bio.pts)}</b></td><td class="num">${bio.wins}</td><td class="num">${bio.podiums}</td><td class="num">${bio.poles}</td><td class="num">${bio.fls}</td><td class="num muted">–</td><td class="num muted">–</td></tr>` : ''}
         ${seasons.map(x => `<tr class="${x.s === s ? 'me' : ''}"><td><b>${x.s.year}</b>${x.complete ? '' : ' <span class="muted" style="font-size:12px">in progress</span>'}</td>
           <td>${x.team ? `<div class="drv"><span class="chip" style="--c:${x.team.color}"></span>${esc(x.team.name)}</div>` : '<span class="muted">Left the grid</span>'}</td>
@@ -1869,7 +2310,7 @@ function teamRecord(c, id, ctx = careerCtx(c)) {
       o.wins += x.wins; o.poles += x.poles; o.podiums += x.podiums; o.fls += x.fls;
       if (x.best != null) o.best = o.best == null ? x.best : Math.min(o.best, x.best);
     }
-    for (const k of KEYS) tot[k] += o[k];
+    for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; }
     tot.pts += o.pts;
     if (o.best != null) tot.bestFinish = tot.bestFinish == null ? o.best : Math.min(tot.bestFinish, o.best);
     if (complete && row) {
@@ -1895,27 +2336,24 @@ function renderTeams() {
   const k = ui.tms.sort;
   const val = (r) => k === 'conTitles' ? r.tot.conTitles.length * 1000 + r.tot.drvTitles : k === 'drvTitles' ? r.tot.drvTitles : k === 'winPct' ? (r.tot.starts ? r.tot.wins / r.tot.starts : -1) : r.tot[k];
   rows.sort((a, b) => k === 'name' ? a.meta.name.localeCompare(b.meta.name) : (val(b) - val(a)) || b.tot.wins - a.tot.wins || a.meta.name.localeCompare(b.meta.name));
-  const th = (key, label, cls = 'num') => `<th class="${cls} sortable ${k === key ? 'on' : ''}" data-act="tm-sort" data-k="${key}">${label}</th>`;
   return `<div class="page">
-    <div class="page-head"><div><h1>Teams</h1><div class="sub">Real F1 team records up to the start of 2025, plus every race logged in your career (shown in green).</div></div>
-      <div class="seg">${[['grid', `${s.year} grid`], ['all', 'All teams']].map(([v, l]) => `<button data-act="tm-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-    <div class="panel"><div class="panel-b tight table-wrap"><table>
-      <thead><tr><th>#</th>${th('name', 'Team', '')}<th>${s.year} drivers</th>${th('conTitles', 'Constructors’')}${th('drvTitles', 'Drivers’')}${th('starts', 'Starts')}${th('wins', 'Wins')}${th('poles', 'Poles')}${th('podiums', 'Podiums')}${th('fls', 'FL')}${th('winPct', 'Win %')}</tr></thead>
-      <tbody>${rows.map((r, i) => {
-        const t = s.teams.find(x => x.id === r.id);
-        const add = (key) => r.tot[key] - r.base[key];
-        return `<tr class="${r.id === s.playerTeamId ? 'me' : ''}" data-act="open-team" data-id="${r.id}">
-          <td class="muted num">${i + 1}</td>
-          <td><div class="drv">${teamLogo(c, r.meta, 30)}<span class="nm"><b>${esc(r.meta.name)}</b></span>${r.src?.fictional ? '<span class="tag">Fictional</span>' : ''}</div></td>
-          <td>${t ? `<div class="row" style="gap:4px;flex-wrap:nowrap">${t.drivers.filter(Boolean).map(d => avatar(c, s, d, 26)).join('')}<span class="muted" style="font-size:12px;margin-left:4px">${t.drivers.filter(Boolean).map(d => esc(dAbbr(s, d))).join(' · ')}</span></div>` : '<span class="muted">Not on the grid</span>'}</td>
-          <td class="num">${r.tot.conTitles.length || '–'}</td><td class="num">${r.tot.drvTitles || '–'}</td>
-          <td class="num">${r.tot.starts}${plus(add('starts'))}</td><td class="num">${r.tot.wins}${plus(add('wins'))}</td><td class="num">${r.tot.poles}${plus(add('poles'))}</td>
-          <td class="num">${r.tot.podiums}${plus(add('podiums'))}</td><td class="num">${r.tot.fls}${plus(add('fls'))}</td>
-          <td class="num">${r.tot.starts ? (r.tot.wins / r.tot.starts * 100).toFixed(1) + '%' : '–'}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table></div></div>
+    <div class="page-head"><div><h1>Teams</h1><div class="sub">Real F1 team records, plus every race logged in your career (shown in green).</div></div>
+      <div class="row">${sortSel('tm-sort-sel', k, [['conTitles', 'Constructors’ titles'], ['drvTitles', 'Drivers’ titles'], ['wins', 'Wins'], ['poles', 'Poles'], ['podiums', 'Podiums'], ['starts', 'Starts'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All teams']].map(([v, l]) => `<button data-act="tm-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="cards">${rows.map(r => teamCard(c, s, r)).join('')}</div>
   </div>`;
+}
+/** A team as a card: colours, logo, this season's drivers and the record. */
+function teamCard(c, s, r) {
+  const t = s.teams.find(x => x.id === r.id);
+  const add = (key) => plus(r.tot[key] - r.base[key]);
+  const bio = D.TEAM_BIO[r.id];
+  const country = (bio?.base || '').split(',').pop().trim();
+  const stat = (label, v, extra = '') => `<div><span class="label">${label}</span><b>${v}</b>${extra}</div>`;
+  return `<button class="dcard tcard ${r.id === s.playerTeamId ? 'me' : ''}" style="--c:${r.meta.color}" data-act="open-team" data-id="${r.id}">
+    <div class="dcard-top">${teamLogo(c, r.meta, 46)}<div class="dcard-who"><span class="ab">${countryFlag(country, 12)} ${esc(bio?.short || r.meta.name.slice(0, 3).toUpperCase())}</span><b>${esc(r.meta.name)}</b><small>${bio?.since ? `Since ${bio.since}` : ''}${bio?.engine ? ` · ${esc(bio.engine)}` : ''}</small></div>${r.src?.fictional ? '<span class="tag">Fictional</span>' : ''}</div>
+    <div class="tcard-drivers">${t ? t.drivers.filter(Boolean).map(d => `<span>${avatar(c, s, d, 24)} ${esc(dName(s, d))}</span>`).join('') : '<span class="muted">Not on the grid</span>'}</div>
+    <div class="dcard-stats">${stat('Constructors’', r.tot.conTitles.length || '–')}${stat('Drivers’', r.tot.drvTitles || '–')}${stat('Wins', r.tot.wins, add('wins'))}${stat('Poles', r.tot.poles, add('poles'))}${stat('Podiums', r.tot.podiums, add('podiums'))}${stat('Starts', r.tot.starts, add('starts'))}</div>
+  </button>`;
 }
 
 function renderTeam() {
@@ -1965,7 +2403,7 @@ function renderTeam() {
     <div class="panel"><div class="panel-h"><h2>Record by season</h2><span class="muted" style="font-size:12px">Green figures are what the team has added in your career</span></div><div class="panel-b tight table-wrap"><table>
       <thead><tr><th>Season</th><th>Entered as</th><th class="num">Pos</th><th class="num">Starts</th><th class="num">Pts</th><th class="num">Wins</th><th class="num">Pod</th><th class="num">Poles</th><th class="num">FL</th><th>Drivers</th></tr></thead>
       <tbody>
-        ${src && !src.fictional && src.starts ? `<tr><td><b>Up to 2024</b><div class="muted" style="font-size:12px">Real F1</div></td><td class="muted" style="max-width:300px;white-space:normal">${esc(src.scope || '')}</td><td class="num">${src.conTitles?.length ? `${src.conTitles.length}× champion` : src.bestFinish ? 'Best finish P' + src.bestFinish : '–'}</td>
+        ${src && !src.fictional && src.starts ? `<tr><td><b>Before ${HIST_FROM}</b><div class="muted" style="font-size:12px">Real F1</div></td><td class="muted" style="max-width:300px;white-space:normal">${esc(src.scope || '')}</td><td class="num">${src.conTitles?.length ? `${src.conTitles.length}× champion` : src.bestFinish ? 'Best finish P' + src.bestFinish : '–'}</td>
           <td class="num">${src.starts}</td><td class="num muted">–</td><td class="num">${src.wins}</td><td class="num">${src.podiums}</td><td class="num">${src.poles}</td><td class="num">${src.fls}</td><td class="muted">–</td></tr>` : ''}
         ${seasons.slice().reverse().map(x => `<tr class="${x.s === s ? 'me' : ''}"><td><b>${x.s.year}</b>${x.complete ? '' : ` <span class="muted" style="font-size:12px">${x.done}/${activeRounds(x.s).length}</span>`}</td>
           <td><div class="drv">${teamLogo(c, x.t, 20)}${esc(x.t.name)}</div></td>
@@ -2006,15 +2444,15 @@ let renderGen = 0;
 /** Every edition of a circuit, newest first: career seasons, then the real pre-2025 history. */
 function trackEditions(c, tid) {
   const out = [];
-  for (const s of c.seasons) {
-    const r = activeRounds(s).find(x => x.id === tid);
-    const w = r && s.weekends[r.id];
+  // `career`: the edition comes from a season in this career (real or yours); `played`: one you raced
+  for (const s of c.seasons) for (const r of activeRounds(s).filter(x => trackOf(x) === tid)) {
+    const w = s.weekends[r.id];
     const R = w?.sessions?.R;
     if (!R?.done) continue;
     const fin = R.results.filter(x => !OUT.includes(x.st)).map(x => x.d);
     const Q = w.sessions.Q;
     const fl = fastestOf(R);
-    out.push({ career: true, s, year: s.year, pole: Q?.done ? Q.results.find(x => !OUT.includes(x.st))?.d : null, podium: fin.slice(0, 3), fl, flLap: R.results.find(x => x.d === fl)?.lap || '' });
+    out.push({ career: true, played: !isHist(s), s, r, year: s.year, gp: r.id !== tid ? r.name : null, pole: Q?.done ? Q.pole ?? Q.results.find(x => !OUT.includes(x.st))?.d : null, podium: fin.slice(0, 3), fl, flLap: R.results.find(x => x.d === fl)?.lap || '' });
   }
   out.reverse();
   for (const [year, pole, p1, p2, p3, team] of D.TRACKS[tid]?.history || []) out.push({ career: false, year, pole, podium: [p1, p2, p3], team });
@@ -2024,8 +2462,20 @@ function gpName(s, tid) {
   const own = s.calendar.find(x => x.id === tid);
   if (own) return own.name;
   // off this calendar: take the name from a template, unless another round already uses it (Madrid vs Barcelona)
-  const name = [...D.CAL_2026, ...D.CAL_2025].find(([id]) => id === tid)?.[1];
+  const name = [...D.CAL_2026, ...D.CAL_2025].find(([id]) => id === tid)?.[1] || Object.values(H.seasons).flatMap(h => h.rounds).find(r => r.id === tid)?.name;
   return name && !s.calendar.some(x => x.name === name) ? name : D.TRACKS[tid]?.city || tid;
+}
+/* Flags and circuit outlines (src/assets.js). Flags go in as images so their SVG ids never clash on a page. */
+const A = window.F1ASSETS;
+function flagHtml(code, h = 14) {
+  const svg = code && A.flags[code];
+  return svg ? `<img class="flag" alt="" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}" style="height:${h}px;width:${Math.round(h * 4 / 3)}px">` : '';
+}
+const natFlag = (nat, h) => flagHtml(A.nat[nat], h);
+const countryFlag = (country, h) => flagHtml(A.country[country], h);
+function trackMap(tid, size = 120) {
+  const d = A.maps[tid];
+  return d ? `<svg class="track-map" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><path d="${d}"/></svg>` : '';
 }
 const edAbbr = (e, id) => e.career ? dAbbr(e.s, id) : id;
 const edName = (e, id) => e.career ? dName(e.s, id) : refName(id);
@@ -2049,8 +2499,8 @@ function circuitForm(c) {
     for (const r of activeRounds(s)) {
       const ses = s.weekends[r.id]?.sessions; if (!ses?.R?.done) continue;
       const br = st[PLAYER]?.byRound[r.id]; if (!br) continue;
-      const o = (by[r.id] ||= { id: r.id, name: gpName(s, r.id), visits: [], fin: [], grid: [], best: null, wins: 0, pods: 0, pts: 0, teamQ: [], teamR: [] });
-      const pts = ['SPR', 'R'].reduce((a, k) => { const sd = ses[k]; if (!sd?.done) return a; const ix = sd.results.findIndex(x => x.d === PLAYER); return a + (ix >= 0 ? pointsFor(k, ix + 1, sd.results[ix].st) : 0); }, 0);
+      const o = (by[trackOf(r)] ||= { id: trackOf(r), name: gpName(s, trackOf(r)), visits: [], fin: [], grid: [], best: null, wins: 0, pods: 0, pts: 0, teamQ: [], teamR: [] });
+      const pts = ['SPR', 'R'].reduce((a, k) => { const sd = ses[k]; if (!sd?.done) return a; const ix = sd.results.findIndex(x => x.d === PLAYER); return a + (ix >= 0 ? pointsFor(k, ix + 1, sd.results[ix].st, sd.results[ix].pts) : 0); }, 0);
       const tq = ses.Q?.done ? rankOf(ses.Q, s, tid) : null; const tr = rankOf(ses.R, s, tid);
       o.visits.push({ s, br, pts, tq, tr, team: teamOf(s, PLAYER) });
       o.pts += pts;
@@ -2085,23 +2535,25 @@ function renderTracks() {
         <td class="num">${x.teamQ.length ? fmtAvg(avg(x.teamQ)) : '–'}</td><td class="num">${x.teamR.length ? fmtAvg(avg(x.teamR)) : '–'}</td></tr>`).join('')}</tbody>
     </table></div></div>` : '';
   const rounds = activeRounds(s);
-  const onCal = new Set(rounds.map(r => r.id));
-  const others = Object.keys(D.TRACKS).filter(id => !onCal.has(id));
+  const onCal = new Set(rounds.map(trackOf));
+  const others = Object.keys(D.TRACKS).filter(id => !onCal.has(id) && !D.TRACKS[id].former);
+  const former = Object.keys(D.TRACKS).filter(id => !onCal.has(id) && D.TRACKS[id].former);
   const card = (id, title, label, sprint) => {
     const t = D.TRACKS[id];
     const last = trackEditions(c, id)[0];
     const w = last?.podium[0];
-    return `<button class="round" data-act="open-track" data-track="${id}">
+    return `<button class="round track-card" data-act="open-track" data-track="${id}">
       <div class="row" style="justify-content:space-between"><span class="rn">${label}</span>${sprint ? '<span class="tag sprint">Sprint</span>' : ''}</div>
-      <div><div class="gp">${esc(title)}</div><div class="muted" style="font-size:12px">${esc(t.circuit)}</div></div>
+      <div class="row" style="gap:10px;align-items:center">${trackMap(id, 54)}<div><div class="gp">${countryFlag(t.country, 13)} ${esc(title)}</div><div class="muted" style="font-size:12px">${esc(t.circuit)}</div></div></div>
       <div class="res"><span><b>${t.km.toFixed(3)}</b> km</span><span><b>${t.laps}</b> laps</span><span>${w ? `Last winner <b>${esc(edAbbr(last, w))}</b> ${last.year}` : t.provisional ? 'New circuit' : ''}</span></div>
     </button>`;
   };
   return `<div class="page">
     <div class="page-head"><div><h1>Circuits</h1><div class="sub">Track guides and recent results. Every race you log is added to the circuit's history.</div></div></div>
-    <div class="rounds">${rounds.filter(r => D.TRACKS[r.id]).map(r => card(r.id, r.name, `Round ${rounds.indexOf(r) + 1} · ${fmtDay(roundDate(s, r))}`, r.sprint)).join('')}</div>
+    <div class="rounds">${rounds.filter(r => D.TRACKS[trackOf(r)]).map(r => card(trackOf(r), r.name, `Round ${rounds.indexOf(r) + 1} · ${fmtDay(roundDate(s, r))}`, r.sprint)).join('')}</div>
     ${formHtml}
     ${others.length ? `<h2 style="margin-top:8px">Not on the ${s.year} calendar</h2><div class="rounds">${others.map(id => card(id, gpName(s, id), 'Off calendar', false)).join('')}</div>` : ''}
+    ${former.length ? `<h2 style="margin-top:8px">Former circuits</h2><p class="muted" style="margin:0">Raced since 2016 but off the calendar now. Add any of them back to a season's calendar in Settings.</p><div class="rounds">${former.map(id => card(id, gpName(s, id), 'Former circuit', false)).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -2110,7 +2562,7 @@ function renderTrack() {
   const tid = ui.trackId; const t = D.TRACKS[tid];
   if (!t) { ui.view = 'tracks'; return renderTracks(); }
   const rounds = activeRounds(s);
-  const ri = rounds.findIndex(x => x.id === tid);
+  const ri = rounds.findIndex(x => trackOf(x) === tid);
   const r = rounds[ri];
   const eds = trackEditions(c, tid);
   const shown = ui.trackAll ? eds : eds.slice(0, 5);
@@ -2120,19 +2572,19 @@ function renderTrack() {
   const realMs = t.record ? parseLap(t.record[0]) : null;
   let rec = t.record ? { lap: t.record[0], who: t.record[1], year: t.record[2], career: false } : null;
   for (const e of eds) {
-    const ms = e.career ? parseLap(e.flLap) : null;
+    const ms = e.played ? parseLap(e.flLap) : null;
     if (ms != null && (rec == null || ms < (rec.career ? parseLap(rec.lap) : realMs))) rec = { lap: fmtLap(ms), who: dName(e.s, e.fl), year: e.year, career: true };
   }
 
   // winners across the editions shown
   const tally = {};
-  for (const e of shown) { const w = e.podium[0]; if (w) (tally[edName(e, w)] ||= { n: 0, me: w === PLAYER && e.career }).n++; }
+  for (const e of shown) { const w = e.podium[0]; if (w) (tally[edName(e, w)] ||= { n: 0, me: w === PLAYER && e.played }).n++; }
   const top = Object.entries(tally).sort((a, b) => b[1].n - a[1].n);
 
   // your own history here
   const mine = [];
   for (const se of c.seasons) {
-    const rr = activeRounds(se).find(x => x.id === tid);
+    const rr = activeRounds(se).find(x => trackOf(x) === tid);
     if (!rr) continue;
     const br = seasonStats(se)[PLAYER]?.byRound[rr.id];
     if (br && (br.q != null || br.r != null)) mine.push({ se, rr, br, team: se.teams.find(x => x.id === se.playerTeamId) });
@@ -2145,7 +2597,7 @@ function renderTrack() {
     <div class="row"><button class="btn sm ghost" data-act="nav" data-view="tracks">${ICON.left} All circuits</button></div>
     <div class="page-head">
       <div><span class="label">${r ? `${s.year} · Round ${ri + 1} of ${rounds.length} · ${weekendTxt(s, r)}` : `Not on the ${s.year} calendar`}${r?.sprint ? ' · Sprint weekend' : ''}</span>
-        <h1>${esc(title)} Grand Prix</h1><div class="sub">${esc(t.circuit)} · ${esc(t.city)}, ${esc(t.country)}</div></div>
+        <h1>${countryFlag(t.country, 22)} ${esc(title)} Grand Prix</h1><div class="sub">${esc(t.circuit)} · ${esc(t.city)}, ${esc(t.country)}${t.former ? ' · Former circuit' : ''}</div></div>
       ${r ? `<button class="btn primary" data-act="open-round" data-round="${r.id}">Open weekend</button>` : ''}
     </div>
     ${t.provisional ? '<div class="callout">New circuit for 2026. Figures are provisional and there is no race history yet: your career will write it.</div>' : ''}
@@ -2163,8 +2615,8 @@ function renderTrack() {
       ${eds.length > 5 ? `<button class="btn sm ghost" data-act="track-all">${ui.trackAll ? 'Show last 5' : `Show all ${eds.length}`}</button>` : ''}</div>
       <div class="panel-b tight table-wrap"><table>
         <thead><tr><th>Year</th><th>Winner</th><th>2nd</th><th>3rd</th><th>Pole</th><th>Fastest lap</th></tr></thead>
-        <tbody>${shown.length ? shown.map(e => `<tr class="${e.career && e.podium.includes(PLAYER) ? 'me' : ''}">
-          <td><b>${e.year}</b>${e.career ? ' <span class="tag done">Career</span>' : ''}</td>
+        <tbody>${shown.length ? shown.map(e => `<tr class="${e.played && e.podium.includes(PLAYER) ? 'me' : ''}">
+          <td><b>${e.year}</b>${e.gp ? ` <span class="muted">${esc(e.gp)}</span>` : ''}${e.played ? ' <span class="tag done">Career</span>' : ''}</td>
           <td>${edDriver(e, e.podium[0], true)}</td><td>${edDriver(e, e.podium[1])}</td><td>${edDriver(e, e.podium[2])}</td>
           <td>${edDriver(e, e.pole)}</td>
           <td>${e.career && e.fl ? `<span class="ab">${esc(dAbbr(e.s, e.fl))}</span> <span class="mono fl">${esc(e.flLap)}</span>` : '<span class="muted">–</span>'}</td>
@@ -2184,6 +2636,7 @@ function renderTrack() {
           </tbody></table></div>`; })()}
       </div>
       <div class="panel"><div class="panel-h"><h2>Circuit guide</h2></div><div class="panel-b stack">
+        ${A.maps[tid] ? `<div class="track-map-big">${trackMap(tid, 260)}</div>` : ''}
         <p style="margin:0">${esc(t.about)}</p>
         <dl class="kv">
           <dt>Location</dt><dd>${esc(t.city)}, ${esc(t.country)}</dd>
@@ -2320,7 +2773,7 @@ function renderMyTeam() {
 }
 
 function renderMtOverview(c, m, s, cur, balance) {
-  const hist = c.seasons.map(x => myTeamSeason(c, x));
+  const hist = playedSeasons(c).map(x => myTeamSeason(c, x));
   const all = hist.reduce((a, h) => ({ pts: a.pts + (h.row?.pts || 0), wins: a.wins + (h.row?.wins || 0), podiums: a.podiums + (h.row?.podiums || 0), poles: a.poles + h.poles }), { pts: 0, wins: 0, podiums: 0, poles: 0 });
   const titles = hist.filter(h => h.row?.pos === 1 && roundsDone(h.s) === activeRounds(h.s).length && roundsDone(h.s) > 0).map(h => h.s.year);
   const ids = cur.ids;
@@ -2462,7 +2915,7 @@ function hallOfFame(c) {
   const years = D.CHAMPIONS.map(([year, key, team]) => ({ year, key, team, career: false }));
   for (const x of ctx) if (x.complete && x.ds[0]) {
     const id = x.ds[0].id; const t = teamOf(x.s, id);
-    years.push({ year: x.s.year, key: id, team: t?.name || '', color: t?.color, career: true });
+    years.push({ year: x.s.year, key: id, team: t?.name || '', color: t?.color, career: !isHist(x.s) });
   }
   const known = allKnownDrivers(c, latestSeason());
   const byKey = {};
@@ -2478,7 +2931,7 @@ function hallOfFame(c) {
     const name = key === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : cb?.name || known[key]?.name || key;
     const about = key === PLAYER_ID ? (c.profile.bio || 'Crowned world champion in your career.') : cb?.about || D.DRIVER_BIO[key]?.note || 'World champion in your career.';
     const last = ys[ys.length - 1];
-    return { key, name, nat, years: ys, titles: ys.length, stats, about, life: cb?.life || (D.DRIVER_BIO[key]?.born ? 'b. ' + D.DRIVER_BIO[key].born.slice(0, 4) : ''), color: last.color || D.TITLE_TEAM_COLORS[last.team] || '#5E6A82', active: !!live, career: ys.some(y => y.career) };
+    return { key, name, nat, years: ys, titles: ys.length, stats, about, life: cb?.life || (D.DRIVER_BIO[key]?.born ? 'b. ' + D.DRIVER_BIO[key].born.slice(0, 4) : ''), color: last.color || D.TITLE_TEAM_COLORS[last.team] || '#5E6A82', active: key === PLAYER || gridIds(latestSeason()).includes(key), career: ys.some(y => y.career) };
   });
   return { years: years.sort((a, b) => b.year - a.year), champs, byKey };
 }
@@ -2534,7 +2987,9 @@ const NO_PTS = D.RACE_POINTS.length + 1; // stands for "outside the points"
  */
 function titleMath(s, kind = 'driver', upto = null) {
   const team = kind === 'team';
-  const M = team ? { R: D.RACE_POINTS[0] + D.RACE_POINTS[1], SPR: D.SPRINT_POINTS[0] + D.SPRINT_POINTS[1] } : { R: D.RACE_POINTS[0], SPR: D.SPRINT_POINTS[0] };
+  // real seasons had a point for fastest lap (2019–24) and a smaller sprint (2021)
+  const fl = s.scoring?.fl || 0, spr = s.scoring?.spr || D.SPRINT_POINTS;
+  const M = team ? { R: D.RACE_POINTS[0] + D.RACE_POINTS[1] + fl, SPR: spr[0] + spr[1] } : { R: D.RACE_POINTS[0] + fl, SPR: spr[0] };
   const st = upto == null ? seasonStatsCache(s) : seasonStats(s, upto);
   const rows = team ? constructorStandings(s, st).map(x => ({ id: x.team.id, name: x.team.name, pts: x.pts, wins: x.wins }))
     : driverStandings(s, st).map(x => ({ id: x.id, name: dName(s, x.id), pts: x.pts, wins: x.wins, posCount: x.posCount }));
@@ -2707,7 +3162,7 @@ function recentRaces(c, s, id, n = 5) {
       const at = sd.results.findIndex(x => x.d === id);
       if (at < 0 || sd.results[at].st === 'DNS') continue;
       const x = sd.results[at];
-      out.push({ year: ss.year, r: rounds[i], pos: at + 1, st: x.st, pts: pointsFor('R', at + 1, x.st) });
+      out.push({ year: ss.year, r: rounds[i], pos: at + 1, st: x.st, pts: pointsFor('R', at + 1, x.st, x.pts) });
     }
   }
   return out;
@@ -2878,7 +3333,9 @@ function raceLength(s, roundId) {
 }
 /** Grand Prix laps at the weekend's distance. F1 games round shortened races up (Miami 57 laps → 15 at 25%). */
 function raceLaps(s, roundId) {
-  const full = D.TRACKS[roundId]?.laps || 60;
+  const r = s.calendar.find(x => x.id === roundId);
+  if (r?.laps) return r.laps; // a real race: the laps it actually ran
+  const full = D.TRACKS[trackOf(r) || roundId]?.laps || 60;
   return Math.ceil(full * raceLength(s, roundId) / 100 - 1e-9);
 }
 /** Each driver's best qualifying lap. */
@@ -3355,7 +3812,7 @@ function raceDates(s) {
   const out = {}; let prev = null;
   for (const r of activeRounds(s)) {
     let d = null;
-    const real = D.RACE_DATES[s.year]?.[r.id];
+    const real = r.date ? r.date.slice(5) : D.RACE_DATES[s.year]?.[r.id];
     if (real) { const [m, dd] = real.split('-').map(Number); d = utc(s.year, m, dd); }
     else {
       const tpl = D.RACE_DATES[2026][r.id] || D.RACE_DATES[2025][r.id];
@@ -3443,7 +3900,7 @@ function buildTimeline(c) {
   function bump(rid, id, value, where, { team = null, disp = null, when = null } = {}) {
     const R = recs[rid]; if (value == null) return;
     const better = R.value == null || (R.cmp === 'max' ? value > R.value : value < R.value);
-    const holder = { id, name: team ? team.name : nameOf(id), team: !!team, when: when || where.when, disp, career: true, seasonIdx: where.seasonIdx };
+    const holder = { id, name: team ? team.name : nameOf(id), team: !!team, when: when || where.when, disp, career: !where.hist, real: !!where.hist, seasonIdx: where.seasonIdx };
     if (better) {
       const self = R.holders.length === 1 && R.holders[0].id === id;
       if (!self) events.push({ type: 'record', kind: 'broken', rid, id, team, value, disp, prev: { value: R.value, holders: R.holders.map(h => ({ ...h })) }, ...where });
@@ -3473,7 +3930,7 @@ function buildTimeline(c) {
     rounds.forEach((r, ri) => {
       const ses = s.weekends[r.id]?.sessions; if (!ses) return;
       const date = roundDate(s, r);
-      const where = { seasonIdx: s.index, ri, r, date, year: s.year, when: `${s.year} ${r.name} GP` };
+      const where = { seasonIdx: s.index, hist: isHist(s), ri, r, date, year: s.year, when: `${s.year} ${r.name} GP` };
       const ms = [];
       const age = (id, d = date) => ageParts(bornOf(c, id), d);
       const mile = (id, text, rank = 1) => ms.push({ id, text, rank });
@@ -3487,7 +3944,7 @@ function buildTimeline(c) {
       };
       if (ses.Q?.done) {
         const qd = new Date(date.getTime() - DAY);
-        const pole = ses.Q.results.find(x => !OUT.includes(x.st))?.d;
+        const pole = ses.Q.pole ?? ses.Q.results.find(x => !OUT.includes(x.st))?.d;
         for (const x of ses.Q.results) if (x.d !== pole && !OUT.includes(x.st)) getP(x.d).poleStreak = 0;
         if (pole) {
           const p = getP(pole); p.poles++; sget(pole).poles++;
@@ -3498,13 +3955,13 @@ function buildTimeline(c) {
           bump('poles', pole, p.poles, where); bump('poleStreak', pole, p.poleStreak, where, { when: spanFrom(p, 'pole', where) }); bump('seasonPoles', pole, sget(pole).poles, where, { when: String(s.year) });
         }
       }
-      if (ses.SPR?.done) ses.SPR.results.forEach((x, k) => addPts(x.d, pointsFor('SPR', k + 1, x.st)));
+      if (ses.SPR?.done) ses.SPR.results.forEach((x, k) => addPts(x.d, pointsFor('SPR', k + 1, x.st, x.pts)));
       if (ses.R?.done) {
         const fl = fastestOf(ses.R);
         ses.R.results.forEach((x, k) => {
           if (x.st === 'DNS') return;
           const id = x.d; const p = getP(id); const pos = k + 1; const out = OUT.includes(x.st);
-          const pts = pointsFor('R', pos, x.st);
+          const pts = pointsFor('R', pos, x.st, x.pts);
           p.starts++;
           if (p.starts === 1) { const a = age(id); mile(id, `${nameOf(id)} makes a Formula 1 debut${a ? ` aged ${a.y}` : ''}`, 3); if (a) bump('youngStart', id, a.days, where, { disp: ageTxt(a) }); }
           else if (p.starts % 50 === 0) mile(id, `${nameOf(id)} starts a ${ordWord(p.starts)} Grand Prix`, 2);
@@ -3592,9 +4049,9 @@ function renderRecords() {
     const best = grid.filter(id => !R.holders.some(h => h.id === id)).map(id => ({ id, v: val(id) })).filter(x => x.v).sort((a, b) => b.v - a.v)[0];
     return best ? `${esc(tl.nameOf(best.id))} <b>${fmtPts(best.v)}</b>` : '–';
   };
-  const broken = tl.events.filter(e => e.type === 'record');
+  const broken = tl.events.filter(e => e.type === 'record' && !e.hist);
   return `<div class="page">
-    <div class="page-head"><div><h1>Records</h1><div class="sub">The F1 record book as it stood at the start of 2025, updated by every session in your career. Records set in your career are tagged.</div></div></div>
+    <div class="page-head"><div><h1>Records</h1><div class="sub">The F1 record book: real records up to ${firstPlayed(c).year - 1}, then updated by every session in your career. Records set in your career are tagged.</div></div></div>
     <div class="tiles">
       <div class="tile"><span class="label">Records tracked</span><span class="v">${D.RECORDS.length}</span></div>
       <div class="tile"><span class="label">Broken in career</span><span class="v">${broken.filter(e => e.kind === 'broken').length}</span></div>
@@ -3631,7 +4088,12 @@ function seeded(str) {
   return () => { h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
 }
 const choose = (rnd, arr) => arr[Math.floor(rnd() * arr.length)];
-const lastName = (n) => String(n || '').trim().split(' ').slice(-1)[0];
+// family name: "de Vries", "van Hoepen"; Zhou Guanyu is written family name first
+const lastName = (n) => {
+  const w = String(n || '').trim().split(' ');
+  if (w[0] === 'Zhou') return 'Zhou';
+  return w.length > 2 && /^(de|van|von|di|da|del|der)$/.test(w[w.length - 2]) ? w.slice(-2).join(' ') : w[w.length - 1];
+};
 const listJoin = (a) => a.length <= 1 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 const ORD = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth'];
 const ordWord = (n) => ORD[n - 1] || `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
@@ -3668,7 +4130,7 @@ function titleDecision(s, kind) {
 /** Sprint and Grand Prix points scored at round ri by the given drivers. */
 function weekendPoints(s, ri, ids) {
   const ses = s.weekends[activeRounds(s)[ri]?.id]?.sessions || {}; let p = 0;
-  for (const k of ['SPR', 'R']) { const sd = ses[k]; if (sd?.done) sd.results.forEach((x, j) => { if (ids.includes(x.d)) p += pointsFor(k, j + 1, x.st); }); }
+  for (const k of ['SPR', 'R']) { const sd = ses[k]; if (sd?.done) sd.results.forEach((x, j) => { if (ids.includes(x.d)) p += pointsFor(k, j + 1, x.st, x.pts); }); }
   return p;
 }
 /**
@@ -3898,7 +4360,7 @@ function buildStories(c, s) {
           headline: choose(rnd, [`${last(fin[0].d)} wins the ${gp} sprint`, `Sprint victory for ${last(fin[0].d)} in ${gp}`]),
           standfirst: `${name(fin[0].d)} took the eight points for winning the ${gp} sprint${fin[1] ? `, from ${name(fin[1].d)}${fin[2] ? ` and ${name(fin[2].d)}` : ''}` : ''}.`,
           body: [fin.length > 3 ? `Also in the points: ${fin.slice(3, 8).map((x, k) => `${last(x.d)} (${ordWord(k + 4)})`).join(', ')}.` : ''].filter(Boolean),
-          results: ses.SPR.results.slice(0, 8).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('SPR', k + 1, x.st) })),
+          results: ses.SPR.results.slice(0, 8).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('SPR', k + 1, x.st, x.pts) })),
         });
       }
     }
@@ -3980,7 +4442,7 @@ function buildStories(c, s) {
     const myLine = mine?.questions.map(q => q.answer?.trim()).find(a => a && a.length > 20 && !/^no comment/i.test(a));
     const qs = quotes.filter(q => q.id !== PLAYER);
     if (myLine) qs.push({ id: PLAYER, text: myLine, real: true });
-    out.push({ id: rid + 'r', seq: i * 10 + 4, kind: 'race', i, r, subject: W, outlet: outletFor(rnd), kicker: 'Race report', headline, standfirst: `Round ${i + 1} of ${rounds.length} · ${r.venue}`, body, quotes: qs, results: res.slice(0, 10).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('R', k + 1, x.st), gap: x.gap })) });
+    out.push({ id: rid + 'r', seq: i * 10 + 4, kind: 'race', i, r, subject: W, outlet: outletFor(rnd), kicker: 'Race report', headline, standfirst: `Round ${i + 1} of ${rounds.length} · ${r.venue}`, body, quotes: qs, results: res.slice(0, 10).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('R', k + 1, x.st, x.pts), gap: x.gap })) });
     if (dd) out.push(dotdStory(c, s, i, dd, mem, { name, last, tName }));
     const fv = fanVoiceStory(c, s, i); if (fv) out.push(fv);
 
@@ -4429,12 +4891,12 @@ function drawTransferModal() {
     if (st.action === 'extend' && !curTeam) st.action = 'move';
     let body = '';
     if (i === 0) {
-      const extra = Object.keys(known).filter(id => id !== PLAYER_ID && !grid.includes(id));
+      const extra = [...new Set([...Object.keys(known), ...Object.keys(FEEDER)])].filter(id => id !== PLAYER_ID && !grid.includes(id));
       const pool = [...extra, ...m.newDrivers.map(d => d.id).filter(id => !extra.includes(id))];
       body += `<label class="field"><span>Driver</span><select data-ch="tr-field" data-i="0" data-k="driver">
         ${!st.driver ? opt('', 'Pick a driver…', true) : ''}
         ${s.teams.map(t => `<optgroup label="${esc(t.name)}">${t.drivers.filter(d => d && trPick(c, d)).map(d => opt(d, trLabel(c, s, d), st.driver === d)).join('')}</optgroup>`).join('')}
-        <optgroup label="Free agents, reserves & retired">${pool.map(d => opt(d, `${trName(c, s, d)}${c.retired?.[d] != null ? ' (retired)' : ''}`, st.driver === d)).join('')}</optgroup>
+        ${poolGroups(c, s, pool, (d) => opt(d, trName(c, s, d), st.driver === d))}
         <option value="__new" ${m.nd[0] ? 'selected' : ''}>+ A new driver entering F1…</option></select></label>`;
     }
     if (m.nd[i]) { html.push(`<div class="tr-step">${body}${newDriverForm('transfer', i, m.nd[i])}</div>`); break; }
@@ -4522,8 +4984,29 @@ function undoTransfer() {
 const trLine = (c, s, st) => st.kind === 'extend' ? `${trName(c, s, st.driver)} stays at ${trTeam(c, s, st.to)} until the end of ${st.until}`
   : st.to === 'free' ? `${trName(c, s, st.driver)} becomes a free agent` : st.to === 'retire' ? `${trName(c, s, st.driver)} retires`
   : st.to === 'pending' ? `${trName(c, s, st.driver)} ${st.from ? `leaves ${trTeam(c, s, st.from)}` : 'is without a seat'}, next move not decided yet`
-  : `${trName(c, s, st.driver)} joins ${trTeam(c, s, st.to)}${st.replaces ? `, replacing ${lastName(trName(c, s, st.replaces))}` : ''} (until ${st.until})`;
+  : `${trName(c, s, st.driver)} joins ${trTeam(c, s, st.to)}${st.replaces ? `, replacing ${lastName(trName(c, s, st.replaces))}` : ''}${st.until ? ` (until ${st.until})` : ''}`;
 
+/** The pool as <optgroup>s for a driver picker. ids limits it to those (anyone else known lands in "Others"). */
+function poolGroups(c, s, ids, opt) {
+  const P = driverPool(c, s); const pick = new Set(ids);
+  const seen = new Set();
+  const group = (label, list) => { const l = list.filter(d => pick.has(d) && !seen.has(d)); l.forEach(d => seen.add(d)); return l.length ? `<optgroup label="${esc(label)}">${l.map(opt).join('')}</optgroup>` : ''; };
+  return group('Free agents', P.free) + group('Your drivers', P.custom) + group('F2 & F3 (2024–25)', P.feeder) + group('Retired', P.retired) + group('Others', ids);
+}
+/** Transfers: everyone who could be signed besides the grid. */
+function poolPanel(c, s) {
+  const P = driverPool(c, s);
+  const btn = (id, extra = '') => `<button class="btn sm ghost" data-act="tr-new" data-driver="${id}">${avatar(c, s, id, 20)} ${esc(trName(c, s, id))}${extra}</button>`;
+  const sec = (title, note, ids, extra) => `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">${title}</span>${note ? ` <span class="muted" style="font-size:12px">${note}</span>` : ''}
+    <div class="row" style="gap:6px;margin-top:8px">${ids.length ? ids.map(id => btn(id, extra ? extra(id) : '')).join('') : '<span class="muted" style="font-size:13px">Nobody</span>'}</div></div>`;
+  return `<div class="panel"><div class="panel-h"><div><h2>Driver pool</h2><span class="muted" style="font-size:12px">Tap anyone to sign them</span></div><button class="btn sm" data-act="pool-add">+ Add a driver</button></div>
+    ${sec('Free agents', 'raced in the last two seasons', P.free)}
+    ${sec('Your drivers', 'added by you', P.custom)}
+    ${sec('F2 & F3', '2024 and 2025 grids', P.feeder, (id) => ` <span class="muted">· ${esc(FEEDER[id].series)}</span>`)}
+    <details class="panel-b" style="border-top:1px solid var(--line)"><summary><span class="label">Retired</span> <span class="muted" style="font-size:12px">${P.retired.length} drivers · a comeback is rare, but possible</span></summary>
+      <div class="row" style="gap:6px;margin-top:8px">${P.retired.map(id => btn(id)).join('')}</div></details>
+  </div>`;
+}
 function renderTransfers() {
   const c = career(); const s = latestSeason();
   const open = (c.rumours || []).filter(rm => rm.seasonIdx === s.index && rm.status === 'open' && trPick(c, rm.driver));
@@ -4547,8 +5030,8 @@ function renderTransfers() {
       <div class="panel-b tight table-wrap"><table><thead><tr><th>Team</th><th>Driver</th><th>Contract</th><th>Driver</th><th>Contract</th></tr></thead><tbody>
         ${s.teams.map(t => `<tr class="${t.id === s.playerTeamId ? 'me' : ''}"><td><div class="drv">${teamLogo(c, t, 22)}<b>${esc(t.name)}</b></div></td>${cell(t.drivers[0])}${cell(t.drivers[1])}</tr>`).join('')}
       </tbody></table></div>
-      ${bench.length ? `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Free agents, reserves & retired</span><div class="row" style="gap:6px;margin-top:8px">${bench.map(id => `<button class="btn sm ghost" data-act="tr-new" data-driver="${id}">${avatar(c, s, id, 20)} ${esc(trName(c, s, id))}${c.retired?.[id] != null ? ' · retired' : ''}</button>`).join('')}</div></div>` : ''}
     </div>
+    ${poolPanel(c, s)}
     <div class="panel"><div class="panel-h"><h2>Transfer history</h2></div>
       ${history.length ? `<div class="panel-b tight">${history.map(({ se, tr }) => `<div class="tr-hist">
         <div class="row" style="justify-content:space-between"><span class="label">${se.year} · ${tr.at ? `after round ${tr.at}` : 'pre-season'} · ${tr.effective === 'next' ? `from ${se.year + 1}` : 'immediate'}</span>
@@ -4581,7 +5064,7 @@ function transferStory(c, s, tr) {
   let headline, standfirst, body = [], kicker = 'BREAKING', massive = false;
   if (m0.kind === 'extend') {
     headline = champ ? `BREAKING: ${Champ} ${L} commits future to ${to}` : choose(rnd, [`BREAKING: ${L} signs new ${to} deal`, `BREAKING: ${L} commits future to ${to}`]);
-    standfirst = `${nm} has agreed a new contract with ${to} that runs ${length(m0.until)}.`;
+    standfirst = `${nm} has agreed a new contract with ${to}${m0.until ? ` that runs ${length(m0.until)}` : ''}.`;
     body = [career];
   } else if (m0.to === 'retire') {
     massive = !!champ;
@@ -4605,7 +5088,7 @@ function transferStory(c, s, tr) {
     else if (debut) headline = choose(rnd, [`BREAKING: ${to} hand ${nm} an F1 debut`, `BREAKING: ${nm} gets an F1 chance with ${to}`]);
     else if (left) headline = choose(rnd, [`BREAKING: Shock as ${L} walks out on ${from} for ${to}`, `BREAKING: ${L} breaks ${from} contract to join ${to}`]);
     else headline = choose(rnd, [`BREAKING: ${L} joins ${to}`, `BREAKING: ${to} sign ${L}`]);
-    standfirst = `${nm} will race for ${to} ${when}${from ? `, leaving ${from}` : ''}, on a deal that runs ${length(m0.until)}.`;
+    standfirst = `${nm} will race for ${to} ${when}${from ? `, leaving ${from}` : ''}${m0.until ? `, on a deal that runs ${length(m0.until)}` : ''}.`;
     body = [left ? `Nobody saw this coming. ${L} was under contract with ${from} until the end of ${m0.prevUntil}, with ${leftTxt}, and walking away from a deal like that is rare in Formula 1.` : '',
       champ ? `World champions hardly ever change teams these days, which makes this one of the biggest moves the sport has seen in years.` : '',
       debut ? `${nm} makes the step up to Formula 1 for the first time.` : career,
@@ -4724,8 +5207,9 @@ function renderSettings() {
       <div class="panel-b tight table-wrap"><table><thead><tr><th>Rnd</th><th>Grand Prix</th><th>Venue</th><th>Sprint</th><th>Included</th><th></th></tr></thead><tbody>
         ${s.calendar.map((r, i) => `<tr style="${r.off ? 'opacity:.45' : ''}"><td class="num muted">${i + 1}</td><td>${esc(r.name)}</td><td class="muted">${esc(r.venue)}</td>
         <td><input type="checkbox" data-ch="cal-sprint" data-i="${i}" ${r.sprint ? 'checked' : ''}></td><td><input type="checkbox" data-ch="cal-on" data-i="${i}" ${r.off ? '' : 'checked'}></td>
-        <td><div class="row" style="gap:2px"><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="-1" title="Move earlier">${ICON.up}</button><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="1" title="Move later">${ICON.down}</button></div></td></tr>`).join('')}
-      </tbody></table></div></div>
+        <td><div class="row" style="gap:2px"><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="-1" title="Move earlier">${ICON.up}</button><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="1" title="Move later">${ICON.down}</button>${r.added && !s.weekends[r.id] ? `<button class="icon-btn" data-act="cal-del" data-i="${i}" title="Remove">${ICON.x}</button>` : ''}</div></td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="panel-b"><select data-ch="cal-add" style="width:auto"><option value="">+ Add a circuit…</option>${Object.keys(D.TRACKS).filter(id => !s.calendar.some(r => trackOf(r) === id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div></div>
 
     ${renderCompanionPanel()}
 
@@ -4808,7 +5292,7 @@ function allKnownDrivers(c, s) {
 /* ------------------------------------------------------------------ setup */
 function defaultSetup() {
   return {
-    first: '', last: '', abbr: '', number: 27, nationality: '', archetype: 'prodigy', personality: 'confident', bio: '',
+    year: 2025, first: '', last: '', abbr: '', number: 27, nationality: '', archetype: 'prodigy', personality: 'confident', bio: '',
     teamId: 'apxgp', seat: 'PEA', practice: 'full', rival: '',
     goals: [{ id: uid(), type: 'beat_teammate' }, { id: uid(), type: 'champ_pos', target: 10 }],
     type: 'driver', role: 'principal', newDrivers: [], nd: {},
@@ -4826,19 +5310,87 @@ function newDriverForm(scope, key, nd) {
   </div>`;
 }
 const ndDrafts = (scope) => scope === 'setup' ? (ui.setup.nd ||= {}) : (ui.modal.nd ||= {});
+/** Any driver's name, wherever Pitwall knows them from. */
+const anyName = (id) => id === PLAYER_ID ? 'You' : D.DRIVERS[id]?.name || H.bios[id]?.name || FEEDER[id]?.name || career()?.customDrivers?.find(d => d.id === id)?.name || ui.setup?.newDrivers?.find(d => d.id === id)?.name || id;
+/** The grid a new career's first season starts from. */
+function setupGrid(u) {
+  if (u.year > 2026) return u.futureGrid;
+  return templateFor(u.year, null).grid.map(t => ({ ...t, drivers: [...t.drivers] }));
+}
+/** Change a new career's first season: the seat picked must exist on that grid. */
+function setupYear(y) {
+  const u = ui.setup; u.year = y;
+  const grid = setupGrid(Object.assign(u, y > 2026 ? { futureGrid: u.futureGrid || D.GRID_2026.map(t => ({ ...t, drivers: [...t.drivers] })), futureCal: u.futureCal || D.CAL_2026.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint })) } : {}));
+  const team = grid.find(t => t.id === u.teamId) || grid[grid.length - 1];
+  u.teamId = team.id; if (!team.drivers.includes(u.seat)) u.seat = team.drivers[1] || team.drivers[0];
+  if (u.type === 'myteam') { const ids = grid.flatMap(t => t.drivers); u.team.seats = u.team.seats.map((d, i) => ids.includes(d) || u.newDrivers.some(n => n.id === d) ? d : ['PER', 'BOT'][i]); }
+  render();
+}
+function setupBlurb(y) {
+  if (y === 2025) return 'Starts in 2025 with the full F1 25 grid plus APXGP. From season two the grid moves to 2026: APXGP leaves, Audi and Cadillac join.';
+  if (y === 2026) return 'Starts in 2026 with the F1 25 2026 Season Pack grid: Audi takes over Sauber and Cadillac joins as the 11th team.';
+  if (y > 2026) return `Starts in ${y} on a grid and calendar you lay out. Every real season to ${HIST_TO} is in your career, and the years after it are simulated.`;
+  return `Starts in ${y} on the real grid and calendar. Each season after follows real life (the real line-ups and calendar) with your career’s moves on top, up to 2026; after that the driver market runs itself.`;
+}
+/** A circuit's Grand Prix name and venue, for adding it to a calendar. */
+function trackGp(tid) {
+  const t = D.TRACKS[tid] || {};
+  const cal = [...D.CAL_2026, ...D.CAL_2025].find(([id]) => id === tid);
+  const h = Object.values(H.seasons).flatMap(x => x.rounds).find(r => r.id === tid);
+  return { id: tid, name: cal?.[1] || h?.name || t.country || tid, venue: cal?.[2] || h?.venue || t.city || '' };
+}
+/** For a career that starts after 2026: lay out the first season's grid and calendar. */
+function futureGridEditor(u) {
+  const grid26 = new Set(D.GRID_2026.flatMap(t => t.drivers));
+  const raced = Object.keys(H.bios).filter(id => !grid26.has(id)).sort((a, b) => anyName(a).localeCompare(anyName(b)));
+  const opt = (id, sel) => `<option value="${id}" ${sel === id ? 'selected' : ''}>${esc(anyName(id))}</option>`;
+  const options = (sel) => `<optgroup label="2026 grid">${[...grid26].map(id => opt(id, sel)).join('')}</optgroup>
+    ${u.newDrivers.length ? `<optgroup label="Your new drivers">${u.newDrivers.map(d => opt(d.id, sel)).join('')}</optgroup>` : ''}
+    <optgroup label="F2 & F3 (2024–25)">${Object.keys(FEEDER).map(id => opt(id, sel)).join('')}</optgroup>
+    <optgroup label="Raced since ${HIST_FROM}">${raced.map(id => opt(id, sel)).join('')}</optgroup>
+    <option value="__new">+ A new driver…</option>`;
+  const used = u.futureGrid.flatMap(t => t.drivers);
+  const dupes = used.filter((d, i) => d && used.indexOf(d) !== i);
+  const onCal = new Set(u.futureCal.map(r => r.track || r.id));
+  return `<div class="panel"><div class="panel-h"><h2>The ${u.year} grid</h2><span class="muted" style="font-size:12px">Who drives where in your first season. The simulated years move everyone here.</span></div><div class="panel-b stack">
+      ${dupes.length ? `<div class="callout">${esc(listJoin([...new Set(dupes)].map(anyName)))} ${dupes.length > 1 ? 'are' : 'is'} in two seats.</div>` : ''}
+      <div class="fg-grid">${u.futureGrid.map((t, ti) => `<div class="fg-team" style="--c:${t.color}"><span class="bar"></span>
+        <div class="row" style="gap:6px"><input type="text" value="${esc(t.name)}" data-ch="fg-name" data-i="${ti}" title="Team name"><input type="color" value="${esc(t.color)}" data-ch="fg-color" data-i="${ti}" title="Team colour"></div>
+        ${[0, 1].map(si => `<select data-ch="fg-seat" data-i="${ti}" data-j="${si}">${options(t.drivers[si])}</select>
+          ${u.nd['g' + ti + '-' + si] ? newDriverForm('setup', 'g' + ti + '-' + si, u.nd['g' + ti + '-' + si]) : ''}`).join('')}</div>`).join('')}</div>
+    </div></div>
+    <div class="panel"><div class="panel-h"><h2>The ${u.year} calendar</h2><span class="muted" style="font-size:12px">${u.futureCal.length} rounds · also used for the simulated years</span></div>
+      <div class="panel-b tight table-wrap"><table><tbody>${u.futureCal.map((r, i) => `<tr><td class="muted num">${i + 1}</td><td>${countryFlag(D.TRACKS[r.track || r.id]?.country, 12)} <b>${esc(r.name)}</b> <span class="muted">${esc(r.venue)}</span></td>
+        <td><label class="check"><input type="checkbox" data-ch="fc-sprint" data-i="${i}" ${r.sprint ? 'checked' : ''}> Sprint</label></td>
+        <td><div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:flex-end"><button class="icon-btn" title="Earlier" data-act="fc-move" data-i="${i}" data-dir="-1">${ICON.up}</button><button class="icon-btn" title="Later" data-act="fc-move" data-i="${i}" data-dir="1">${ICON.down}</button><button class="icon-btn" title="Remove" data-act="fc-remove" data-i="${i}">${ICON.x}</button></div></td></tr>`).join('')}</tbody></table></div>
+      <div class="panel-b"><select data-ch="fc-add" style="width:auto"><option value="">+ Add a circuit…</option>${Object.keys(D.TRACKS).filter(id => !onCal.has(id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div>
+    </div>`;
+}
 function renderSetup() {
   const u = ui.setup ||= defaultSetup();
-  u.role ||= 'owner'; u.nd ||= {}; u.newDrivers ||= []; u.team.seats ||= ['PER', 'BOT'];
+  u.role ||= 'owner'; u.nd ||= {}; u.newDrivers ||= []; u.team.seats ||= ['PER', 'BOT']; u.year ||= 2025;
   const principal = u.type === 'myteam' && u.role === 'principal';
-  const pool = [...Object.values(D.DRIVERS), ...u.newDrivers.map(d => ({ ...d, custom: true }))];
-  const teamCards = D.GRID_2025.map(t => `<div class="choice team-choice ${u.teamId === t.id ? 'on' : ''}" style="--c:${t.color}">
+  const future = u.year > 2026;
+  if (future) { u.futureGrid ||= D.GRID_2026.map(t => ({ ...t, drivers: [...t.drivers] })); u.futureCal ||= D.CAL_2026.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint })); }
+  const grid = setupGrid(u);
+  if (!grid.some(t => t.id === u.teamId)) { u.teamId = grid[grid.length - 1].id; u.seat = grid[grid.length - 1].drivers[1]; }
+  const gridDrivers = grid.flatMap(t => t.drivers).filter(Boolean);
+  const pool = [...gridDrivers.map(id => ({ id, name: anyName(id) })), ...u.newDrivers.map(d => ({ ...d, custom: true }))];
+  const teamCards = grid.map(t => `<div class="choice team-choice ${u.teamId === t.id ? 'on' : ''}" style="--c:${t.color}">
     <span class="bar"></span><div class="inner"><b>${esc(t.name)}</b><small>Replace a driver:</small>
-    <div class="row" style="gap:6px">${t.drivers.map(d => `<button class="seat ${u.teamId === t.id && u.seat === d ? 'on' : ''}" data-act="setup-seat" data-team="${t.id}" data-seat="${d}">${esc(D.DRIVERS[d].name)}</button>`).join('')}</div></div></div>`).join('');
-  const rivalOpts = Object.values(D.DRIVERS).filter(d => !['LIN', 'PER', 'BOT', 'DOO'].includes(d.id)).map(d => `<option value="${d.id}" ${u.rival === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
+    <div class="row" style="gap:6px">${t.drivers.map(d => `<button class="seat ${u.teamId === t.id && u.seat === d ? 'on' : ''}" data-act="setup-seat" data-team="${t.id}" data-seat="${d}">${esc(anyName(d))}</button>`).join('')}</div></div></div>`).join('');
+  const rivalOpts = gridDrivers.map(id => `<option value="${id}" ${u.rival === id ? 'selected' : ''}>${esc(anyName(id))}</option>`).join('');
   const first = !state.careers.length;
   return `<div class="page" style="max-width:1100px">
-    <div class="page-head"><div>${first ? '<span class="label">Welcome to Pitwall</span>' : ''}<h1>New driver career</h1><div class="sub">Starts in the 2025 season with the full F1 25 grid plus APXGP. From season two the grid moves to 2026: APXGP leaves and Cadillac joins.</div></div>
+    <div class="page-head"><div>${first ? '<span class="label">Welcome to Pitwall</span>' : ''}<h1>New career</h1><div class="sub">${esc(setupBlurb(u.year))}</div></div>
       ${!first ? '<button class="btn ghost" data-act="cancel-setup">Cancel</button>' : ''}</div>
+
+    <div class="panel"><div class="panel-h"><h2>First season</h2><span class="muted" style="font-size:12px">Every season from ${HIST_FROM} is in your career either way, so you can look back on all of it</span></div><div class="panel-b stack">
+      <div class="row" style="gap:10px"><div class="seg year-seg">${Array.from({ length: 2026 - HIST_FROM + 1 }, (_, k) => HIST_FROM + k).map(y => `<button data-act="setup-year" data-v="${y}" class="${u.year === y ? 'on' : ''}">${y}</button>`).join('')}<button data-act="setup-year" data-v="${Math.max(2027, u.year)}" class="${future ? 'on' : ''}">Later…</button></div>
+        ${future ? `<label class="row" style="gap:8px">Year <input type="number" min="2027" max="2060" value="${u.year}" data-ch="setup-year" style="width:90px"></label>` : ''}</div>
+      ${future ? `<p class="muted" style="margin:0;font-size:13px">Real results run to the end of ${HIST_TO}. ${u.year - 1 > HIST_TO ? `${HIST_TO + 1}${u.year - 1 > HIST_TO + 1 ? `–${u.year - 1}` : ''} will be simulated race by race, with a driver market that ends on the grid you lay out below.` : ''}</p>` : ''}
+    </div></div>
+    ${future ? futureGridEditor(u) : ''}
 
     <div class="panel"><div class="panel-h"><h2>Career mode</h2></div><div class="panel-b">
       <div class="choices">${[['driver', 'Driver Career', 'Take a seat at an existing team and work your way up.'], ['myteam', 'My Team', 'Found the 11th team: you own it, run it and drive for it.']].map(([id, n, b]) => `<button class="choice ${u.type === id ? 'on' : ''}" data-act="setup-pick" data-k="type" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
@@ -4871,18 +5423,18 @@ function renderSetup() {
       <div class="choices">${D.PERSONALITIES.map(a => `<button class="choice ${u.personality === a.id ? 'on' : ''}" data-act="setup-pick" data-k="personality" data-v="${a.id}"><b>${a.name}</b><small>${a.blurb}</small></button>`).join('')}</div>
     </div></div>
 
-    ${u.type === 'myteam' ? `<div class="panel"><div class="panel-h"><h2>Your team</h2><span class="muted" style="font-size:12px">Replaces APXGP as the 11th team. Everything can be changed later in My Team.</span></div><div class="panel-b stack">
+    ${u.type === 'myteam' ? `<div class="panel"><div class="panel-h"><h2>Your team</h2><span class="muted" style="font-size:12px">${u.year === 2025 ? 'Replaces APXGP as the 11th team' : 'Joins the grid as an extra team'}. Everything can be changed later in My Team.</span></div><div class="panel-b stack">
       ${teamIdentityForm(u.team, 'setup')}
       ${principal ? `<div class="form-grid">${[0, 1].map(i => `<label class="field"><span>${i ? 'Second driver' : 'Lead driver'}</span><select data-ch="mt-seat" data-i="${i}">
           ${pool.map(d => `<option value="${d.id}" ${u.team.seats[i] === d.id ? 'selected' : ''}>${esc(d.name)}${d.custom ? ' (new)' : ''}</option>`).join('')}<option value="__new" ${u.nd[i] ? 'selected' : ''}>+ Create a new driver…</option></select></label>`).join('')}</div>
         ${[0, 1].filter(i => u.nd[i]).map(i => newDriverForm('setup', i, u.nd[i])).join('')}
         <p class="muted" style="font-size:13px">The lead driver is the one Pitwall follows on the dashboard, teammate battle and career stats. Signing a driver from another team frees up their seat for a reserve driver.</p>`
       : `<div class="form-grid">
-        <label class="field"><span>Teammate</span><select data-ch="mt-field" data-scope="setup" data-k="mate">${Object.values(D.DRIVERS).map(d => `<option value="${d.id}" ${u.team.mate === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
+        <label class="field"><span>Teammate</span><select data-ch="mt-field" data-scope="setup" data-k="mate">${[...new Set([...gridDrivers, 'PER', 'BOT'])].map(id => `<option value="${id}" ${u.team.mate === id ? 'selected' : ''}>${esc(anyName(id))}</option>`).join('')}</select></label>
       </div>
       <p class="muted" style="font-size:13px">Signing a driver from another team frees up their seat for a reserve driver.</p>`}
     </div></div>`
-    : `<div class="panel"><div class="panel-h"><h2>2025 team</h2><span class="muted" style="font-size:12px">Pick the seat you took over in-game</span></div><div class="panel-b">
+    : `<div class="panel"><div class="panel-h"><h2>${u.year} team</h2><span class="muted" style="font-size:12px">Pick the seat you took over in-game</span></div><div class="panel-b">
       <div class="choices">${teamCards}</div>
     </div></div>`}
 
@@ -4895,7 +5447,7 @@ function renderSetup() {
       <label class="field"><span>Backstory (optional, used by the media)</span><textarea data-ch="setup" data-k="bio" placeholder="F2 runner-up in 2024, signed after impressing in a Silverstone test…">${esc(u.bio)}</textarea></label>
     </div></div>
 
-    <div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="create-career">Start 2025 season</button></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="create-career">${future && u.year - 1 > HIST_TO ? `Simulate to ${u.year} and start` : `Start ${u.year} season`}</button></div>
   </div>`;
 }
 function goalEditor(goals, scope) {
@@ -4957,8 +5509,10 @@ function drawNextSeasonModal() {
   const c = career(); const s = latestSeason(); const m = ui.modal;
   const st = seasonStats(s); const ds = driverStandings(s, st); const myPos = ds.find(x => x.id === PLAYER)?.pos;
   const remaining = activeRounds(s).length - roundsDone(s);
-  const year = 2025 + m.index;
-  const apxNote = m.index === 1 ? '<div class="callout">The grid moves to the 2026 regulations: APXGP leaves, Audi replaces Kick Sauber, and Cadillac joins as the 11th team. Madrid replaces Imola on the calendar.</div>' : '';
+  const year = s.year + 1;
+  const apxNote = year === 2026 ? '<div class="callout">The grid moves to the 2026 regulations: Audi replaces Kick Sauber and Cadillac joins as the 11th team. Madrid replaces Imola on the calendar.</div>'
+    : templateFor(year) ? `<div class="callout">The ${year} grid and calendar follow real life, with the moves made in your career on top.</div>`
+    : '<div class="callout">Past the real data: the grid carries over from last season with every transfer, and the rest of the market moves on its own. Check the moves in Transfers.</div>';
   modal(`<div class="modal-h"><h2>Start the ${year} season</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b">
       ${remaining ? `<div class="callout">${remaining} round${remaining > 1 ? 's' : ''} of ${s.year} still unlogged. You can come back and log them later.</div>` : ''}
@@ -4991,7 +5545,7 @@ function drawMediaModal() {
     <div class="modal-b">
       <div class="choices">${[['preseason', 'Pre-season media day', 'Expectations, targets and your new team.'], ['quali', 'Post-qualifying', 'Your grid slot and Sunday’s plan.'], ['race', 'Post-race', 'The result, the battles, the fallout.'], ['midseason', 'Mid-season interview', 'Form, standings and the teammate battle.'], ['endseason', 'End-of-season interview', 'Verdict on the year and what comes next.']].map(([id, n, b]) => `<button class="choice ${m.mkind === id ? 'on' : ''}" data-act="media-kind" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
       <div class="form-grid">
-        <label class="field"><span>Season</span><select data-ch="media-season">${c.seasons.map((x, i) => `<option value="${i}" ${i === m.seasonIdx ? 'selected' : ''}>${x.year}</option>`).join('')}</select></label>
+        <label class="field"><span>Season</span><select data-ch="media-season">${playedSeasons(c).map(x => `<option value="${x.index}" ${x.index === m.seasonIdx ? 'selected' : ''}>${x.year}</option>`).join('')}</select></label>
         ${needsRound ? `<label class="field"><span>Round</span><select data-ch="media-round">${activeRounds(s).map((r, i) => `<option value="${r.id}" ${r.id === m.roundId ? 'selected' : ''}>R${i + 1} · ${esc(r.name)}</option>`).join('')}</select></label>` : ''}
       </div>
       ${!settings.hasKey ? '<p class="muted" style="font-size:13px">No API key saved, so questions come from the built-in template set. Add a key in Settings for AI-written journalists and articles.</p>' : ''}
@@ -5046,7 +5600,7 @@ function mediaContext(c, seasonIdx, roundId, kind) {
       const fl = fastestOf(sd);
       const top3 = sd.results.slice(0, 3).map((x, i) => `${i + 1}. ${dName(s, x.d)}`).join(', ');
       const mi = sd.results.findIndex(x => x.d === mate);
-      lines.push(`${SESSION_LABEL[k]}: player ${OUT.includes(my?.st) ? my.st : 'P' + (ix + 1)}${my?.lap ? ` (best lap ${my.lap})` : ''}${my?.gap ? ` gap ${my.gap}` : ''}; teammate P${mi + 1}${OUT.includes(sd.results[mi]?.st) ? ' ' + sd.results[mi].st : ''}; top 3: ${top3}${fl ? `; fastest lap ${dName(s, fl)}` : ''}${isRaceKind(k) ? `; player scored ${pointsFor(k, ix + 1, my?.st)} pts` : ''}.`);
+      lines.push(`${SESSION_LABEL[k]}: player ${OUT.includes(my?.st) ? my.st : 'P' + (ix + 1)}${my?.lap ? ` (best lap ${my.lap})` : ''}${my?.gap ? ` gap ${my.gap}` : ''}; teammate P${mi + 1}${OUT.includes(sd.results[mi]?.st) ? ' ' + sd.results[mi].st : ''}; top 3: ${top3}${fl ? `; fastest lap ${dName(s, fl)}` : ''}${isRaceKind(k) ? `; player scored ${pointsFor(k, ix + 1, my?.st, my?.pts)} pts` : ''}.`);
     }
     if (w?.notes) lines.push(`Driver's own notes on the weekend: ${w.notes}`);
   }
@@ -5252,12 +5806,20 @@ const actions = {
   'cancel-setup'() { ui.view = 'dashboard'; render(); },
   'setup-pick'(el) { ui.setup[el.dataset.k] = el.dataset.v; render(); },
   'setup-seat'(el) { ui.setup.teamId = el.dataset.team; ui.setup.seat = el.dataset.seat; render(); },
+  'setup-year'(el) { setupYear(+el.dataset.v); },
+  'fc-move'(el) { const L = ui.setup.futureCal; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; render(); },
+  'fc-remove'(el) { ui.setup.futureCal.splice(+el.dataset.i, 1); render(); },
   'nd-add'(el) {
     const { scope, key } = el.dataset; const drafts = ndDrafts(scope); const nd = drafts[key] || {};
     const name = (nd.name || '').trim(); if (!name) { toast('Enter the new driver’s name'); return; }
     const d = { id: 'C' + uid().slice(0, 6), name, abbr: ((nd.abbr || '').trim() || name.split(' ').slice(-1)[0].slice(0, 3)).toUpperCase(), number: +nd.number || 0, born: nd.born || null, photo: nd.photo || null, custom: true };
     delete drafts[key];
-    if (scope === 'setup') { ui.setup.newDrivers.push(d); ui.setup.team.seats[+key] = d.id; render(); }
+    if (scope === 'setup') {
+      ui.setup.newDrivers.push(d);
+      if (/^g/.test(key)) { const [ti, si] = key.slice(1).split('-').map(Number); ui.setup.futureGrid[ti].drivers[si] = d.id; } else ui.setup.team.seats[+key] = d.id;
+      render();
+    }
+    else if (scope === 'pool') { (career().customDrivers ||= []).push(d); closeModal(); store.save(); render(); toast(`${d.name} added to the driver pool`); }
     else { (ui.modal.newDrivers ||= []).push(d); ui.modal.steps[+key].driver = d.id; drawTransferModal(); }
   },
   'autofill-laps'() {
@@ -5275,7 +5837,8 @@ const actions = {
   },
   'tr-confirm'() { confirmTransfer(); },
   'tr-undo'() { confirmBox('Undo transfer', 'Put the drivers back where they were before the latest transfer? Its story is removed too.', 'Undo', undoTransfer); },
-  'nd-cancel'(el) { const { scope, key } = el.dataset; delete ndDrafts(scope)[key]; scope === 'setup' ? render() : drawTransferModal(); },
+  'nd-cancel'(el) { const { scope, key } = el.dataset; delete ndDrafts(scope)[key]; scope === 'setup' ? render() : scope === 'pool' ? closeModal() : drawTransferModal(); },
+  'pool-add'() { ui.modal = { kind: 'pool', nd: { 0: {} } }; modal(`<div class="modal-h"><h2>Add a driver to the pool</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b">${newDriverForm('pool', 0, ui.modal.nd[0])}<p class="muted" style="font-size:12px">They wait in the pool until a team signs them in Transfers.</p></div>`); },
   'create-career'() {
     const u = ui.setup;
     const principal = u.type === 'myteam' && u.role === 'principal';
@@ -5286,17 +5849,27 @@ const actions = {
     const c = {
       id: uid(), createdAt: new Date().toISOString(), type: u.type,
       profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), archetype: u.archetype, personality: u.personality, bio: u.bio.trim(), rival: u.rival, photo: u.photo || null, born: u.born || null },
-      customDrivers: principal ? u.newDrivers.filter(d => u.team.seats.includes(d.id)) : [], media: [], seasons: [], rumours: [],
+      customDrivers: u.newDrivers.filter(d => (principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id)))), media: [], seasons: [], rumours: [],
+      startYear: u.year,
     };
     if (u.type === 'myteam') {
       const { seats, ...t } = u.team;
-      c.myTeam = { ...t, name: t.name.trim(), short: (t.short || t.name.trim().slice(0, 3)).toUpperCase(), base: t.base.trim(), principal: `${c.profile.first} ${c.profile.last}`, founded: 2025, budget: 30, ledger: [], sponsors: [], upgrades: [], ratings: {},
+      c.myTeam = { ...t, name: t.name.trim(), short: (t.short || t.name.trim().slice(0, 3)).toUpperCase(), base: t.base.trim(), principal: `${c.profile.first} ${c.profile.last}`, founded: u.year, budget: 30, ledger: [], sponsors: [], upgrades: [], ratings: {},
         role: principal ? 'principal' : 'owner', ...(principal ? { seats: [...seats], lead: seats[0] } : {}) };
     }
-    c.seasons.push(newSeason(c, 0, u.type === 'myteam' ? { teamId: MYTEAM, seatDriverId: null, goals: u.goals, practice: u.practice } : { teamId: u.teamId, seatDriverId: u.seat, goals: u.goals, practice: u.practice }));
+    // every real season before yours, then (for a start after 2026) the simulated years up to it
+    for (let y = HIST_FROM; y < Math.min(u.year, HIST_TO + 1); y++) c.seasons.push(histSeason(y, c.seasons.length));
+    if (u.year > 2026) {
+      c.startGrid = u.futureGrid.map(t => ({ id: t.id, name: t.name.trim() || t.id, color: t.color, drivers: [...t.drivers] }));
+      c.startCal = u.futureCal.map(r => [r.id, r.name, r.venue, !!r.sprint, r.track || null]);
+      if (u.year - 1 > HIST_TO) simulateGap(c, u.year, c.startGrid, u.futureCal);
+    }
+    c.seasons.push(newSeason(c, c.seasons.length, u.type === 'myteam' ? { teamId: MYTEAM, seatDriverId: null, goals: u.goals, practice: u.practice } : { teamId: u.teamId, seatDriverId: u.seat, goals: u.goals, practice: u.practice }));
+    realTransfers(c);
     state.careers.push(c); state.activeCareerId = c.id; syncNumbers(c);
     ui.setup = null; ui.view = 'dashboard'; ui.seasonIdx = null;
-    store.save(); render(); toast('Career created. Good luck in Melbourne.');
+    const first = activeRounds(latestSeason())[0];
+    store.save(); render(); toast(`Career created. Good luck in ${first?.venue || 'the first race'}.`);
     if (!c.profile.photo && !isPrincipal(c)) photoModal(PLAYER_ID);
   },
   'pick-season'(el) { ui.seasonIdx = +el.dataset.idx; render(); },
@@ -5440,7 +6013,7 @@ const actions = {
     p.abbr = ($('#pf-abbr').value.trim() || p.abbr).toUpperCase(); p.number = +$('#pf-number').value || p.number;
     p.nationality = $('#pf-nat').value.trim(); p.born = $('#pf-born').value || null; p.archetype = $('#pf-arch').value; p.personality = $('#pf-pers').value;
     p.rival = $('#pf-rival').value; p.bio = $('#pf-bio').value.trim();
-    if (!isPrincipal(c)) for (const s of c.seasons) s.drivers[PLAYER_ID] = playerDriver(c);
+    if (!isPrincipal(c)) for (const s of playedSeasons(c)) s.drivers[PLAYER_ID] = playerDriver(c);
     store.save(); render(); toast('Profile saved');
   },
   'add-driver'() {
@@ -5452,6 +6025,7 @@ const actions = {
     store.save(); render(); toast(`${name} added. Pick them in a seat above.`);
     photoModal(d.id);
   },
+  'cal-del'(el) { latestSeason().calendar.splice(+el.dataset.i, 1); store.save(); render(); },
   'cal-move'(el) {
     const s = latestSeason(); const i = +el.dataset.i, j = i + (+el.dataset.dir);
     if (j < 0 || j >= s.calendar.length) return;
@@ -5466,7 +6040,7 @@ const actions = {
     const data = await window.api.importData();
     if (!data || !Array.isArray(data.careers)) { if (data !== null) toast('That file is not a Pitwall backup'); return; }
     confirmBox('Import backup', `Replace all current data with this backup (${data.careers.length} career${data.careers.length === 1 ? '' : 's'})?`, 'Import', () => {
-      state = data; ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render(); toast('Backup imported');
+      state = hydrateState(data); ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render(); toast('Backup imported');
     });
   },
   'delete-career'() {
@@ -5482,6 +6056,19 @@ const actions = {
 function redrawModal() { if (ui.modal?.kind === 'goals') drawGoalsModal(); else if (ui.modal?.kind === 'next') drawNextSeasonModal(); }
 
 const changes = {
+  'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
+  'tm-sort-sel'(el) { ui.tms.sort = el.value; render(); },
+  'setup-year'(el) { setupYear(Math.max(2027, Math.min(2060, +el.value || 2027))); },
+  'fg-name'(el) { ui.setup.futureGrid[+el.dataset.i].name = el.value; },
+  'fg-color'(el) { ui.setup.futureGrid[+el.dataset.i].color = el.value; render(); },
+  'fg-seat'(el) {
+    const u = ui.setup; const key = 'g' + el.dataset.i + '-' + el.dataset.j;
+    if (el.value === '__new') { u.nd[key] ||= {}; } else { u.futureGrid[+el.dataset.i].drivers[+el.dataset.j] = el.value; delete u.nd[key]; }
+    render();
+  },
+  'fc-sprint'(el) { ui.setup.futureCal[+el.dataset.i].sprint = el.checked; },
+  'fc-add'(el) { if (!el.value) return; const tr = trackGp(el.value); ui.setup.futureCal.push({ ...tr, sprint: false, ...(H.roundTrack[tr.id] ? { track: H.roundTrack[tr.id] } : {}) }); render(); },
+  'season-sel'(el) { actions[el.dataset.to]({ dataset: { idx: el.value } }); },
   'switch-career'(el) { state.activeCareerId = el.value; ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render(); },
   setup(el) { ui.setup[el.dataset.k] = el.value; },
   'mt-seat'(el) {
@@ -5565,6 +6152,7 @@ const changes = {
   practice(el) { latestSeason().format.practice = el.value; store.save(); render(); },
   'cal-sprint'(el) { latestSeason().calendar[+el.dataset.i].sprint = el.checked; store.save(); render(); },
   'cal-on'(el) { latestSeason().calendar[+el.dataset.i].off = !el.checked; store.save(); render(); },
+  'cal-add'(el) { if (!el.value) return; const s = latestSeason(); const g = trackGp(el.value); let id = g.id; while (s.calendar.some(r => r.id === id)) id += '2'; s.calendar.push({ ...g, id, ...(id !== g.id ? { track: g.id } : {}), sprint: false, off: false, added: true }); store.save(); render(); toast(`${g.name} added to the ${s.year} calendar`); },
 };
 function goalList(el) { return el.dataset.scope === 'setup' ? ui.setup.goals : ui.modal.goals; }
 // team identity fields live on the setup form or on the active career's team
@@ -5709,7 +6297,7 @@ window.pitwallBack = () => {
 
 /* ------------------------------------------------------------------ boot */
 (async function boot() {
-  try { const loaded = await store.load(); if (loaded && Array.isArray(loaded.careers)) state = loaded; } catch (e) { console.error(e); }
+  try { const loaded = await store.load(); if (loaded && Array.isArray(loaded.careers)) state = hydrateState(loaded); } catch (e) { console.error(e); }
   if (window.api) { try { settings = await window.api.getSettings(); } catch { } }
   if (window.api?.companion?.status) {
     try { companion = await window.api.companion.status(); } catch { }
@@ -5725,6 +6313,6 @@ window.pitwallBack = () => {
   let renumbered = false;
   for (const cc of state.careers) { try { renumbered = syncNumbers(cc) || renumbered; } catch { } }
   render();
-  if (renumbered) store.save();
+  if (renumbered || store.dirty()) store.save(); // also saves an older career that just gained its real seasons
   window.api?.onRemote?.(applyRemote);
 })();
