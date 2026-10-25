@@ -405,6 +405,7 @@ function hydrateCareer(c) {
   }
   c.seasons = c.seasons.map(s => s.historic === 'real' && !s.teams ? histSeason(s.year, s.index) : s);
   c.startYear ||= firstPlayed(c).year;
+  feederBios(c);
   realTransfers(c);
 }
 function hydrateState(st) { for (const c of st?.careers || []) hydrateCareer(c); return st; }
@@ -424,14 +425,101 @@ function templateFor(year, c = career()) {
   return { grid, cal, nums, drivers: Object.fromEntries(Object.entries(h.drivers).map(([id, [name, number, abbr]]) => [id, { id, name, abbr, number }])) };
 }
 
+/* ------------------------------------------------------- random numbers */
+/** A repeatable random sequence: the same career and year always simulate the same way. */
+function mulberry(seed) {
+  let a = 0; for (const ch of String(seed)) a = Math.imul(a ^ ch.charCodeAt(0), 2654435761) >>> 0;
+  return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const gauss = (rnd) => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+
 /* ----------------------------------------------------------- driver pool */
-// Who can be signed besides the grid: feeder-series drivers (F2 and F3, 2024–25), the drivers you add yourself, and
-// everyone who has raced since 2016 (free agents if they raced in the last two seasons, otherwise retired).
+// Who can be signed besides the grid: the F2 and F3 fields, the drivers you add yourself, and everyone who has raced
+// since 2016 (free agents if they raced in the last two seasons and are under 44, otherwise retired).
+// From 2025 each career keeps its own F2 (22 drivers) and F3 (30) fields, starting from the real 2024–25 grids: a
+// driver who reaches F1 is replaced by a newly generated one, F3 drivers step up to F2 after two years, and anyone
+// not in F1 after two years in F2 (four in all, coming through F3) drops off the list.
+const F2_SIZE = 22, F3_SIZE = 30, RETIRE_AGE = 44;
 const FEEDER = {};
 for (const [name, abbr, nat, series, note] of window.F1POOL.FEEDER) {
   const id = 'X' + abbr; // never clashes with a three-letter F1 id
-  FEEDER[id] = { id, name, abbr, number: null, nat, series, note, feeder: true };
+  const [level, yr] = series.split(' ');
+  // no data in F1 yet: a talent rating (ms off the pace, lower is quicker), with feeder champions a little quicker
+  const skill = Math.round(90 + gauss(mulberry('talent-' + id)) * 100 - (/champion/.test(note) ? 60 : 0));
+  FEEDER[id] = { id, name, abbr, number: null, nat, series, note, feeder: true, level, joined: +yr, bornEst: `${+yr - (level === 'F2' ? 21 : 18)}-06-01`, skill };
   D.DRIVER_BIO[id] ||= { nat, note: `${series}${note ? '. ' + note : ''}.`, starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0, titles: [], feeder: series };
+}
+/** A career's F2 and F3 fields: { year, list: [{ id, level, joined, f2 }] }, from the real grids in 2025. */
+function feederOf(c) {
+  return c.feeder ||= { year: 2025, list: Object.values(FEEDER).map(f => ({ id: f.id, level: f.level, joined: f.joined, f2: f.level === 'F2' ? f.joined : null })) };
+}
+/** "F2" / "F3" / "F2 2025" for a feeder driver, or null. */
+const feederLabel = (c, id) => { const x = c?.feeder?.list.find(f => f.id === id); return x ? `${x.level} · ${x.level === 'F3' ? x.joined : x.f2 ?? x.joined} entry` : FEEDER[id]?.series || null; };
+// names for generated drivers, by nationality: [weight, first names, family names]
+const GEN_NAMES = {
+  British: [6, ['Oliver', 'Harry', 'Jack', 'George', 'Charlie', 'Thomas', 'Alfie', 'Freddie', 'Lewis', 'Callum', 'Archie', 'Max'], ['Walker', 'Hughes', 'Bennett', 'Carter', 'Fletcher', 'Holt', 'Marsh', 'Pryce', 'Lambert', 'Reid', 'Shaw', 'Turner', 'Ashby', 'Whitlock']],
+  Italian: [4, ['Luca', 'Marco', 'Matteo', 'Andrea', 'Lorenzo', 'Gabriele', 'Tommaso', 'Riccardo', 'Davide', 'Edoardo'], ['Rossi', 'Bianchi', 'Ferraro', 'Conti', 'Galli', 'Marino', 'Rinaldi', 'Moretti', 'Lombardi', 'Greco', 'Colombo', 'Barone']],
+  French: [3, ['Hugo', 'Théo', 'Lucas', 'Mathis', 'Arthur', 'Louis', 'Enzo', 'Raphaël', 'Nathan', 'Jules'], ['Moreau', 'Laurent', 'Girard', 'Lefèvre', 'Fontaine', 'Rousseau', 'Garnier', 'Chevalier', 'Faure', 'Mercier', 'Perrin']],
+  Spanish: [2, ['Pablo', 'Álvaro', 'Diego', 'Javier', 'Marc', 'Sergio', 'Adrián', 'Iker'], ['García', 'Navarro', 'Ortega', 'Romero', 'Serrano', 'Molina', 'Castillo', 'Vidal', 'Ruiz']],
+  German: [3, ['Leon', 'Finn', 'Jonas', 'Elias', 'Paul', 'Moritz', 'Felix', 'Niklas', 'Lukas'], ['Becker', 'Hoffmann', 'Schäfer', 'Krüger', 'Wagner', 'Vogel', 'Brandt', 'Seidel', 'Lorenz', 'Kessler']],
+  Dutch: [2, ['Daan', 'Sem', 'Bram', 'Thijs', 'Jesse', 'Ruben', 'Lars'], ['de Jong', 'Bakker', 'Visser', 'Smit', 'Meijer', 'Mulder', 'van Dijk', 'Kok']],
+  Brazilian: [2, ['Gabriel', 'Rafael', 'Pedro', 'Enzo', 'Felipe', 'Caio', 'Bruno'], ['Oliveira', 'Santos', 'Ferreira', 'Almeida', 'Carvalho', 'Ribeiro', 'Moura']],
+  American: [2, ['Jackson', 'Tyler', 'Cole', 'Logan', 'Hunter', 'Mason', 'Ryan'], ['Miller', 'Brooks', 'Hayes', 'Reynolds', 'Coleman', 'Parker', 'Sullivan']],
+  Japanese: [1, ['Ren', 'Haruto', 'Sora', 'Kaito', 'Yuto', 'Riku'], ['Sato', 'Takahashi', 'Nakamura', 'Kobayashi', 'Yamamoto', 'Ito']],
+  Australian: [2, ['Liam', 'Noah', 'Cooper', 'Jett', 'Hamish', 'Riley'], ['Mitchell', 'Barnes', 'Doyle', 'Kerr', 'Lawson', 'Pearce', 'Quinn']],
+  Mexican: [1, ['Santiago', 'Emiliano', 'Mateo', 'Diego', 'Leonardo'], ['Hernández', 'Ramírez', 'Torres', 'Vargas', 'Mendoza']],
+  Danish: [1, ['Magnus', 'Oscar', 'Emil', 'Frederik'], ['Nielsen', 'Jensen', 'Kristensen', 'Lund']],
+  Finnish: [1, ['Eetu', 'Aleksi', 'Onni', 'Väinö'], ['Virtanen', 'Korhonen', 'Mäkinen', 'Lehtonen']],
+  Polish: [1, ['Jakub', 'Kacper', 'Filip', 'Szymon'], ['Nowak', 'Kowalski', 'Wójcik', 'Zieliński']],
+  Chinese: [1, ['Haoran', 'Yuxuan', 'Zihan', 'Jiahao'], ['Wang', 'Li', 'Chen', 'Liu', 'Zhang']],
+  Indian: [1, ['Arjun', 'Rohan', 'Kabir', 'Aarav'], ['Sharma', 'Mehta', 'Kapoor', 'Iyer']],
+  Argentine: [1, ['Thiago', 'Lautaro', 'Benjamín', 'Joaquín'], ['Gómez', 'Fernández', 'Sosa', 'Acosta']],
+  Belgian: [1, ['Arthur', 'Lucas', 'Milan', 'Lars'], ['Peeters', 'Janssens', 'Maes', 'Claes']],
+};
+/** A new F2 or F3 driver for `year`: name, nationality, age and a hidden talent rating (some are gems). */
+function genDriver(taken, level, year, rnd) {
+  const nats = Object.entries(GEN_NAMES), total = nats.reduce((a, [, v]) => a + v[0], 0);
+  for (let attempt = 0; attempt < 50; attempt++) {
+    let p = rnd() * total; const [nat, [, firsts, lasts]] = nats.find(([, v]) => (p -= v[0]) < 0) || nats[0];
+    const name = `${firsts[Math.floor(rnd() * firsts.length)]} ${lasts[Math.floor(rnd() * lasts.length)]}`;
+    if (taken.has(name)) continue;
+    taken.add(name);
+    const family = lastName(name).replace(/^(de|van) /, '');
+    const abbr = family.normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+    const age = level === 'F2' ? 19 + Math.floor(rnd() * 3) : 16 + Math.floor(rnd() * 2);
+    const born = `${year - age}-${String(1 + Math.floor(rnd() * 12)).padStart(2, '0')}-${String(1 + Math.floor(rnd() * 28)).padStart(2, '0')}`;
+    return { id: 'G' + Math.floor(rnd() * 2 ** 40).toString(36), name, abbr, nat, born, skill: Math.round(110 + gauss(rnd) * 120), number: null, generated: true };
+  }
+  return null;
+}
+/** Bios for a career's generated drivers, so ages, flags and cards work like everyone else's. */
+function feederBios(c) {
+  for (const g of Object.values(c.generated || {})) D.DRIVER_BIO[g.id] ||= { nat: g.nat, born: g.born, starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0, titles: [], generated: true, note: 'A product of the junior series in your career.' };
+  for (const x of c.feeder?.list || []) if (D.DRIVER_BIO[x.id]) D.DRIVER_BIO[x.id].feeder = feederLabel(c, x.id);
+}
+/**
+ * Move a career's F2 and F3 fields on to `year`: whoever is on the F1 grid leaves, F3 drivers step up after two years,
+ * anyone out of time drops off, and new drivers fill both fields back up. `keep`: drivers who must stay available.
+ */
+function feederTick(c, year, grid, keep = new Set()) {
+  if (year < 2026) return;
+  const F = feederOf(c); c.generated ||= {};
+  const taken = new Set([...Object.values(FEEDER), ...Object.values(c.generated)].map(x => x.name).concat(Object.values(H.bios).map(b => b.name)));
+  for (let y = F.year + 1; y <= year; y++) {
+    const rnd = mulberry(`${c.id}-feeder-${y}`);
+    F.list = F.list.filter(x => !grid.has(x.id));
+    F.list = F.list.filter(x => keep.has(x.id) || (x.level === 'F3' ? y - x.joined < 4 : y - (x.f2 ?? x.joined) < 2));
+    const ready = F.list.filter(x => x.level === 'F3' && y - x.joined >= 2).sort((a, b) => priorSkill(c, a.id) - priorSkill(c, b.id));
+    for (const x of ready) { if (F.list.filter(z => z.level === 'F2').length >= F2_SIZE) break; x.level = 'F2'; x.f2 = y; }
+    for (const level of ['F2', 'F3']) {
+      for (let n = F.list.filter(x => x.level === level).length; n < (level === 'F2' ? F2_SIZE : F3_SIZE); n++) {
+        const g = genDriver(taken, level, y, rnd); if (!g) break;
+        c.generated[g.id] = g; F.list.push({ id: g.id, level, joined: y, f2: level === 'F2' ? y : null });
+      }
+    }
+    F.year = y;
+  }
+  feederBios(c);
 }
 /** The drivers off the grid, by kind: { free, retired, feeder, custom } (each a list of ids). */
 function driverPool(c, s = latestSeason()) {
@@ -439,44 +527,61 @@ function driverPool(c, s = latestSeason()) {
   const lastRaced = {};
   for (const se of c.seasons) for (const id of Object.keys(seasonStatsCache(se))) if (seasonStatsCache(se)[id].starts) lastRaced[id] = se.year;
   const out = { free: [], retired: [], feeder: [], custom: [] };
+  const old = (id) => (turnsIn(c, id, s.year) ?? 0) >= RETIRE_AGE;
   for (const cd of c.customDrivers || []) if (!grid.has(cd.id) && cd.id !== PLAYER_ID) out.custom.push(cd.id);
   for (const [id, y] of Object.entries(lastRaced)) {
     if (grid.has(id) || id === PLAYER_ID || out.custom.includes(id)) continue;
-    (c.retired?.[id] != null || y < s.year - 2 || Object.entries(REAL_RETIREMENTS).some(([ry, ids]) => ids.includes(id) && +ry >= y) ? out.retired : out.free).push(id);
+    (c.retired?.[id] != null || old(id) || y < s.year - 2 || Object.entries(REAL_RETIREMENTS).some(([ry, ids]) => ids.includes(id) && +ry >= y) ? out.retired : out.free).push(id);
   }
-  for (const id of ['PER', 'BOT', 'LIN', 'DOO', 'HAY', 'PEA']) if (!grid.has(id) && !lastRaced[id] && !out.free.includes(id)) out.free.push(id);
-  // the 2024–25 feeder grids are for seasons from 2025 (in 2018 most of them were still in karting)
-  if (s.year >= 2025) for (const id of Object.keys(FEEDER)) if (!grid.has(id) && !lastRaced[id] && !(c.removedPool || []).includes(id)) out.feeder.push(id);
+  for (const id of ['PER', 'BOT', 'LIN', 'DOO', 'HAY', 'PEA']) if (!grid.has(id) && !lastRaced[id] && !out.free.includes(id) && !old(id)) out.free.push(id);
+  // the feeder fields are for seasons from 2025 (in 2018 most of today's F2 drivers were still karting)
+  if (s.year >= 2025) {
+    const list = c.feeder ? c.feeder.list.slice().sort((a, b) => a.level.localeCompare(b.level)).map(x => x.id) : Object.keys(FEEDER);
+    for (const id of list) if (!grid.has(id) && !lastRaced[id] && !(c.removedPool || []).includes(id)) out.feeder.push(id);
+  }
   return out;
 }
 
 /* ------------------------------------------------------------- simulation */
 // A career that starts after 2026 needs the years in between. Each is simulated race by race: the car order carries
 // over from the year before (drifting back towards the pack, with the odd big leap), drivers keep the pace they
-// showed against their teammates, and the driver market moves everyone towards the grid you laid out.
-function mulberry(seed) {
-  let a = 0; for (const ch of String(seed)) a = Math.imul(a ^ ch.charCodeAt(0), 2654435761) >>> 0;
-  return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-}
-const gauss = (rnd) => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
-/** Each driver's qualifying pace against the car in ms (negative = quicker), from the last three seasons. */
+// showed against their teammates (rising in their early twenties, fading in their mid-thirties), nobody races past
+// 44, and the driver market moves everyone towards the grid you laid out.
+/** A driver's pace before any F1 data (ms, lower is quicker): F2/F3 or generated talent, or an average rookie. */
+const priorSkill = (c, id) => c.generated?.[id]?.skill ?? FEEDER[id]?.skill ?? c.customDrivers?.find(d => d.id === id)?.skill ?? 90;
+/**
+ * Each driver's qualifying pace against the car (ms, negative = quicker), from every teammate battle of the last four
+ * seasons. Teammates link up across teams and years (Verstappen v Pérez, Pérez v Stroll, …) into one scale, so beating
+ * a strong teammate counts for more than beating a weak one. Drivers with few comparisons lean on their prior.
+ */
 function driverSkills(c) {
-  const sum = {}, n = {};
-  c.seasons.slice(-3).forEach((s, k) => {
-    const w = k + 1; const rs = activeRounds(s);
-    rs.forEach((r, ri) => {
+  const adj = {};
+  c.seasons.slice(-4).forEach((s, k) => {
+    const w = (k + 1) / 4;
+    activeRounds(s).forEach((r, ri) => {
       const q = qualiTimes(s, r); if (!q) return;
       const byTeam = {};
       for (const [d, o] of Object.entries(q.drivers)) if (o.t != null) { const t = teamAt(s, d, ri)?.id; if (t) (byTeam[t] ||= []).push([d, o.t]); }
       for (const p of Object.values(byTeam)) if (p.length === 2 && Math.abs(p[0][1] - p[1][1]) < 1500) {
-        const g = (p[0][1] - p[1][1]) / 2;
-        sum[p[0][0]] = (sum[p[0][0]] || 0) + g * w; n[p[0][0]] = (n[p[0][0]] || 0) + w;
-        sum[p[1][0]] = (sum[p[1][0]] || 0) - g * w; n[p[1][0]] = (n[p[1][0]] || 0) + w;
+        const [[a, ta], [b, tb]] = p;
+        (adj[a] ||= []).push([b, ta - tb, w]); (adj[b] ||= []).push([a, tb - ta, w]);
       }
     });
   });
-  return Object.fromEntries(Object.keys(sum).map(d => [d, Math.max(-250, Math.min(300, sum[d] / n[d]))]));
+  const ids = Object.keys(adj); const sk = {}, prior = {};
+  for (const id of ids) sk[id] = prior[id] = priorSkill(c, id);
+  const LAMBDA = 3; // how many comparisons the prior is worth
+  for (let it = 0; it < 40; it++) for (const id of ids) {
+    let num = LAMBDA * prior[id], den = LAMBDA;
+    for (const [j, g, w] of adj[id]) { num += w * (sk[j] + g); den += w; }
+    sk[id] = num / den;
+  }
+  return Object.fromEntries(ids.map(id => [id, Math.max(-250, Math.min(500, sk[id]))]));
 }
+/** Pace by age: raw before 24, at the peak to 33, then fading (ms added to a lap). */
+function ageEffect(a) { if (a == null) return 0; if (a <= 21) return 45; if (a <= 23) return 20; if (a <= 33) return 0; return (a - 33) * 16 + Math.max(0, a - 37) * 18; }
+/** A driver's simulated pace in a given year. */
+const skillOf = (c, skills, id, year) => (skills[id] ?? priorSkill(c, id)) + ageEffect(ageIn(c, id, year));
 /** Each team's qualifying gap to the fastest car in ms, from a season's laps (or F1 25's estimate). */
 function teamPaceOf(s) {
   const out = {};
@@ -497,12 +602,14 @@ function evolvePace(pace, teams, rnd) {
   for (const k of Object.keys(out)) out[k] = Math.max(0, out[k] - best);
   return out;
 }
-/** Age on 1 March of a year, or null. */
-function ageIn(c, id, year) { const b = bornOf(c, id); return b ? year - +b.slice(0, 4) - (b.slice(5) > '03-01' ? 1 : 0) : null; }
+/** The age a driver turns during a year (44 means out), or null. */
+function turnsIn(c, id, year) { const b = bornOf(c, id) || FEEDER[id]?.bornEst; return b ? year - +b.slice(0, 4) : null; }
+/** Age on 1 March of a year, or null (F2/F3 drivers without a known birthday get an estimate). */
+function ageIn(c, id, year) { const b = bornOf(c, id) || FEEDER[id]?.bornEst; return b ? year - +b.slice(0, 4) - (b.slice(5) > '03-01' ? 1 : 0) : null; }
 /** A driver's roster entry for a simulated season, with a race number nobody else on that grid uses. */
 function simEntry(c, id, used) {
   const e = { ...(driverEntry(c, id) || FEEDER[id] || { id, name: id, abbr: id.slice(-3), number: null }) };
-  delete e.feeder; delete e.series; delete e.note; delete e.nat;
+  for (const k of ['feeder', 'series', 'note', 'nat', 'level', 'joined', 'bornEst', 'skill', 'generated', 'born']) delete e[k];
   if (!e.number || used.has(e.number)) e.number = [...Array(98).keys()].map(k => k + 2).find(k => !used.has(k) && k !== 17);
   used.add(e.number);
   return e;
@@ -512,18 +619,19 @@ function simSeason(c, year, index, teams, calendar, pace, skills, rnd) {
   const used = new Set(); const drivers = {};
   for (const t of teams) for (const d of t.drivers) if (d) drivers[d] = simEntry(c, d, used);
   const s = { index, year, historic: 'sim', teams, drivers, calendar: calendar.map(r => ({ ...r, off: false })), benched: null, playerTeamId: null, format: { practice: 'none' }, goals: [], weekends: {}, completed: true, transfers: [], simPace: pace };
+  const sk = Object.fromEntries(teams.flatMap(t => t.drivers.filter(Boolean)).map(d => [d, skillOf(c, skills, d, year)]));
   for (const r of s.calendar) {
     const t = D.TRACKS[trackOf(r)];
     const base = (parseLap(t?.record?.[0]) || 90000) * 1.012, laps = t?.laps || 57;
-    const field = teams.flatMap(tm => tm.drivers.filter(Boolean).map(d => ({ d, car: pace[tm.id] ?? 1200, sk: skills[d] ?? 120 })));
-    const form = Object.fromEntries(field.map(x => [x.d, gauss(rnd) * 80]));
-    const q = field.map(x => ({ d: x.d, t: base + x.car + x.sk + form[x.d] + gauss(rnd) * 100 + (rnd() < 0.03 ? 800 + rnd() * 1500 : 0) })).sort((a, b) => a.t - b.t);
+    const field = teams.flatMap(tm => tm.drivers.filter(Boolean).map(d => ({ d, car: pace[tm.id] ?? 1200, sk: sk[d] })));
+    const form = Object.fromEntries(field.map(x => [x.d, gauss(rnd) * 70]));
+    const q = field.map(x => ({ d: x.d, t: base + x.car + x.sk + form[x.d] + gauss(rnd) * 90 + (rnd() < 0.03 ? 800 + rnd() * 1500 : 0) })).sort((a, b) => a.t - b.t);
     const grid = q.map(x => x.d);
     const Q = { results: q.map((x, i) => ({ d: x.d, lap: fmtLap(x.t), gap: i ? '+' + ((x.t - q[0].t) / 1000).toFixed(3) : '', st: 'FIN' })), fl: null, done: true };
     const race = (n, dnfP) => {
       const lapT = base * 1.045;
       const rows = field.map(x => {
-        const per = lapT + (x.car + x.sk) * 0.9 + form[x.d] + gauss(rnd) * 70;
+        const per = lapT + x.car * 0.9 + x.sk + form[x.d] + gauss(rnd) * 60;
         const total = per * n + grid.indexOf(x.d) * 420 + Math.abs(gauss(rnd)) * 3500 * n / laps + (rnd() < 0.07 ? (8000 + rnd() * 20000) * n / laps : 0);
         return { d: x.d, per, total, out: rnd() < dnfP * (1 + x.car / 2500), fl: per - 900 + gauss(rnd) * 300 };
       });
@@ -552,9 +660,10 @@ function isTopDriver(s, id) {
   return expect - pos >= 2.5 || (expect - pos >= -1 && pos < matePos);
 }
 /**
- * One winter of the driver market. With a `target` (the grid you laid out for your first season) every driver moves
- * towards it, all of it settled by the last winter; without one, drivers retire with age, top teams sign drivers who
- * beat their car, and rookies from F2 and F3 fill the gaps. Returns the new line-ups and the moves, as transfer steps.
+ * One winter of the driver market. Anyone who turns 44 this year retires first. With a `target` (the grid you laid out
+ * for your first season) every driver moves towards it, all of it settled by the last winter; without one, drivers
+ * may retire from their mid-thirties, top teams sign drivers who beat their car, and F2 and F3 drivers fill the gaps.
+ * Returns the new line-ups and the moves, as transfer steps.
  */
 function simWinter(c, prevS, year, lineup, target, rnd) {
   lineup = Object.fromEntries(Object.entries(lineup).map(([t, ds]) => [t, [...ds]]));
@@ -570,43 +679,48 @@ function simWinter(c, prevS, year, lineup, target, rnd) {
     return out;
   };
   const locked = (d) => d === PLAYER_ID || (c.type === 'myteam' && teamIn(d) === MYTEAM);
-  const skills = driverSkills(c);
+  const age = (d) => ageIn(c, d, year);
+  const skills = driverSkills(c); const sk = (d) => skillOf(c, skills, d, year);
   const rank = constructorStandings(prevS).map(x => x.team.id).filter(t => lineup[t]);
+  // nobody races in the year they turn 44
+  for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && d !== PLAYER_ID && (turnsIn(c, d, year) ?? 0) >= RETIRE_AGE) leave(d, 'retire');
   if (target) {
     const want = {}; for (const [t, ds] of Object.entries(target.lineup)) for (const d of ds) if (d) want[d] = t;
     const k = Math.max(1, target.year - year + 1); // winters left, this one included
-    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && !want[d] && rnd() < 1 / k) leave(d, (ageIn(c, d, year) || 0) >= 35 ? 'retire' : 'free');
+    for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && !want[d] && rnd() < 1 / k) leave(d, (age(d) || 0) >= 35 ? 'retire' : 'free');
     for (const [d, t] of Object.entries(want)) if (lineup[t] && teamIn(d) !== t && rnd() < 1 / k) {
       const victim = lineup[t].find(x => x && want[x] !== t) || null;
-      if (victim || lineup[t].includes(null) || lineup[t].length < 2) { const out = join(d, t, victim); if (out && !want[out]) { /* left without a seat */ steps.push({ kind: 'move', driver: out, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false }); } }
+      if (victim || lineup[t].includes(null) || lineup[t].length < 2) { const out = join(d, t, victim); if (out && !want[out]) steps.push({ kind: 'move', driver: out, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false }); }
     }
   } else {
     for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) {
       if (!d || locked(d)) continue;
-      const a = ageIn(c, d, year) || 25;
-      if (a >= 37 && rnd() < 0.25 + 0.12 * (a - 37)) leave(d, 'retire');
+      const a = age(d) || 25;
+      // most stop between 37 and 43; a few call it a day earlier
+      if ((a >= 37 && rnd() < 0.2 + 0.12 * (a - 37)) || (a >= 32 && a < 37 && rnd() < 0.03)) leave(d, 'retire');
     }
     // top teams sign drivers who beat their car from further down the order
     for (const t of rank.slice(0, 4)) {
       const ds = lineup[t].filter(d => d && !locked(d)); if (ds.length < 2 || rnd() > 0.45) continue;
       const weak = ds.sort((a, b) => (seasonStatsCache(prevS)[a]?.pts || 0) - (seasonStatsCache(prevS)[b]?.pts || 0))[0];
       if (isTopDriver(prevS, weak)) continue;
-      const star = rank.slice(rank.indexOf(t) + 1).flatMap(u => lineup[u]).filter(d => d && !locked(d) && isTopDriver(prevS, d)).sort((a, b) => (skills[a] ?? 0) - (skills[b] ?? 0))[0];
+      const star = rank.slice(rank.indexOf(t) + 1).flatMap(u => lineup[u]).filter(d => d && !locked(d) && isTopDriver(prevS, d)).sort((a, b) => sk(a) - sk(b))[0];
       if (!star) continue;
       const home = teamIn(star); join(star, t, weak);
       if (rnd() < 0.5 && lineup[home]) join(weak, home); else steps.push({ kind: 'move', driver: weak, from: null, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
     }
     // the odd change further back
-    for (const t of rank.slice(4)) if (rnd() < 0.2) { const d = lineup[t].filter(x => x && !locked(x)).sort((a, b) => (skills[b] ?? 150) - (skills[a] ?? 150))[0]; if (d) leave(d, 'free'); }
+    for (const t of rank.slice(4)) if (rnd() < 0.2) { const d = lineup[t].filter(x => x && !locked(x)).sort((a, b) => sk(b) - sk(a))[0]; if (d) leave(d, 'free'); }
   }
-  // empty seats: whoever is due at the team, then the quickest rookie or free agent available
+  // empty seats: whoever is due at the team, then the quickest F2/F3 driver or free agent available (top teams pick first)
   const pool = driverPool(c, prevS);
-  const avail = () => [...pool.feeder, ...pool.free, ...pool.custom].filter(d => !onGrid().has(d) && d !== PLAYER_ID && (!target || !Object.values(target.lineup).flat().includes(d) || Object.entries(target.lineup).some(([t, ds]) => ds.includes(d) && lineup[t])));
+  const targetIds = target ? Object.values(target.lineup).flat() : [];
+  const avail = () => [...pool.feeder, ...pool.free, ...pool.custom].filter(d => !onGrid().has(d) && d !== PLAYER_ID && (age(d) ?? 25) < 40 && (!targetIds.includes(d) || Object.entries(target.lineup).some(([t, ds]) => ds.includes(d) && lineup[t])));
   for (const t of rank.concat(Object.keys(lineup).filter(x => !rank.includes(x)))) {
     while (lineup[t].filter(Boolean).length < 2) {
-      const due = target ? Object.entries(target.lineup).filter(([u]) => u === t).flatMap(([, ds]) => ds).find(d => d && !onGrid().has(d)) : null;
-      const cands = avail().filter(d => !target || !Object.values(target.lineup).flat().includes(d) || target.lineup[t]?.includes(d));
-      const d = due || cands.sort((a, b) => (skills[a] ?? 60 + rnd() * 120) - (skills[b] ?? 60 + rnd() * 120))[Math.floor(rnd() * Math.min(3, cands.length))];
+      const due = target ? (target.lineup[t] || []).find(d => d && !onGrid().has(d)) : null;
+      const cands = avail().filter(d => !targetIds.includes(d) || target.lineup[t]?.includes(d)).map(d => [d, sk(d) + gauss(rnd) * 50]).sort((a, b) => a[1] - b[1]);
+      const d = due || cands[Math.floor(rnd() * Math.min(3, cands.length))]?.[0];
       if (!d) break;
       join(d, t);
     }
@@ -616,17 +730,20 @@ function simWinter(c, prevS, year, lineup, target, rnd) {
 /** Simulate the seasons between the real data and a career's first season, ending on the grid you laid out. */
 function simulateGap(c, startYear, targetGrid, targetCal) {
   const target = { year: startYear, lineup: Object.fromEntries(targetGrid.map(t => [t.id, t.drivers.filter(Boolean)])) };
+  const keep = new Set(Object.values(target.lineup).flat());
   let prev = c.seasons[c.seasons.length - 1];
   let lineup = realLineup(HIST_TO + 1);
+  feederTick(c, HIST_TO + 1, new Set(Object.values(lineup).flat()), keep);
   let pace = Object.fromEntries(D.GRID_2026.map(t => [t.id, (D.BASE_PACE[t.id] ?? 0.9) * 1000]));
   for (let y = HIST_TO + 1; y < startYear; y++) {
     const rnd = mulberry(`${c.id}-${y}`);
     if (y > HIST_TO + 1) {
       const w = simWinter(c, prev, y, lineup, target, rnd);
       lineup = w.lineup;
+      feederTick(c, y, new Set(Object.values(lineup).flat()), keep);
       const date = roundDate(prev, activeRounds(prev).slice(-1)[0]);
       prev.transfers.push(...w.steps.map((st, k) => ({ id: `sim-${y}-${k}`, at: activeRounds(prev).length, effective: 'next', createdAt: new Date((date?.getTime() || 0) + DAY).toISOString(), steps: [st], sim: true, before: null })));
-      pace = evolvePace(teamPaceOf(prev), prev.teams, rnd);
+      pace = evolvePace(prev.simPace || teamPaceOf(prev), prev.teams, rnd);
     }
     const tpl = y === 2026 ? D.GRID_2026 : prev.teams;
     const teams = tpl.filter(t => lineup[t.id]).map(t => ({ id: t.id, name: t.name, color: t.color, drivers: lineup[t.id].slice(0, 2) }));
@@ -636,13 +753,13 @@ function simulateGap(c, startYear, targetGrid, targetCal) {
   }
   // the last winter: everyone takes their seat for your first season
   const w = simWinter(c, prev, startYear, lineup, { ...target, year: startYear }, mulberry(`${c.id}-${startYear}`));
+  feederTick(c, startYear, keep);
   const date = roundDate(prev, activeRounds(prev).slice(-1)[0]);
   // the winter's moves, plus joining a team that's new on your grid and leaving for anyone not on it
   const was = (d) => Object.keys(lineup).find(u => lineup[u].includes(d)) || null;
-  const want = new Set(targetGrid.flatMap(t => t.drivers).filter(Boolean));
   const steps = [...w.steps];
   for (const t of targetGrid) if (!lineup[t.id]) for (const d of t.drivers) if (d && d !== PLAYER_ID) steps.push({ kind: 'move', driver: d, from: was(d), to: t.id, replaces: null, until: startYear + 1, prevUntil: null, wasPending: false });
-  for (const d of Object.values(lineup).flat()) if (d && !want.has(d) && !steps.some(x => x.driver === d)) steps.push({ kind: 'move', driver: d, from: was(d), to: (ageIn(c, d, startYear) || 0) >= 35 ? 'retire' : 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
+  for (const d of Object.values(lineup).flat()) if (d && !keep.has(d) && !steps.some(x => x.driver === d)) steps.push({ kind: 'move', driver: d, from: was(d), to: (ageIn(c, d, startYear) || 0) >= 35 ? 'retire' : 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
   prev.transfers.push(...steps.map((st, k) => ({ id: `sim-${startYear}-${k}`, at: activeRounds(prev).length, effective: 'next', createdAt: new Date((date?.getTime() || 0) + DAY).toISOString(), steps: [st], sim: true, before: null })));
 }
 
@@ -657,7 +774,8 @@ function driverEntry(c, id) {
   if (cd) return { ...cd };
   for (let i = c.seasons.length - 1; i >= 0; i--) if (c.seasons[i].drivers[id]) return { ...c.seasons[i].drivers[id] };
   if (D.DRIVERS[id]) return { ...D.DRIVERS[id] };
-  if (FEEDER[id]) { const { id: i, name, abbr, number } = FEEDER[id]; return { id: i, name, abbr, number }; }
+  const g = c.generated?.[id] || FEEDER[id];
+  if (g) return { id: g.id, name: g.name, abbr: g.abbr, number: g.number ?? null };
   return null;
 }
 
@@ -831,6 +949,8 @@ function newSeason(c, index, { teamId, seatDriverId, goals, practice }) {
   for (const id of gridIds(s)) { const d = s.drivers[id]; if (d && !d.number) { d.number = [...Array(98).keys()].map(k => k + 2).find(k => !taken[k] && k !== 17); taken[d.number] = id; } }
   if (isPrincipal(c)) s.playerTeamId = teamId; // you run the team; both seats are your signings
   else placePlayer(s, c, teamId, seatDriverId);
+  // a new season moves the F2 and F3 fields on: whoever reached F1 is replaced by new talent
+  feederTick(c, s.year, new Set(gridIds(s)));
   // the winter's other moves go on record in the season just finished, so the press covers them
   if (prev && base.aiSteps?.length) {
     const last = activeRounds(prev); const d = roundDate(prev, last[last.length - 1]);
@@ -3857,7 +3977,7 @@ function weekendTxt(s, r) {
 }
 function bornOf(c, id) {
   if (id === PLAYER_ID) return c.profile.born || null;
-  const cd = c.customDrivers?.find(x => x.id === id);
+  const cd = c.customDrivers?.find(x => x.id === id) || c.generated?.[id];
   return cd ? cd.born || null : D.DRIVER_BIO[id]?.born || null;
 }
 function ageParts(born, date) {
@@ -5015,7 +5135,7 @@ function poolPanel(c, s) {
   return `<div class="panel"><div class="panel-h"><div><h2>Driver pool</h2><span class="muted" style="font-size:12px">Tap anyone to sign them</span></div><button class="btn sm" data-act="pool-add">+ Add a driver</button></div>
     ${sec('Free agents', 'raced in the last two seasons', P.free)}
     ${sec('Your drivers', 'added by you', P.custom)}
-    ${sec('F2 & F3', '2024 and 2025 grids', P.feeder, (id) => ` <span class="muted">· ${esc(FEEDER[id].series)}</span>`)}
+    ${sec('F2 & F3', c.feeder ? `${F2_SIZE} in F2, ${F3_SIZE} in F3 · new talent replaces anyone who moves up` : '2024 and 2025 grids', P.feeder, (id) => ` <span class="muted">· ${esc(feederLabel(c, id) || '')}</span>`)}
     <details class="panel-b" style="border-top:1px solid var(--line)"><summary><span class="label">Retired</span> <span class="muted" style="font-size:12px">${P.retired.length} drivers · a comeback is rare, but possible</span></summary>
       <div class="row" style="gap:6px;margin-top:8px">${P.retired.map(id => btn(id)).join('')}</div></details>
   </div>`;
@@ -5324,7 +5444,7 @@ function newDriverForm(scope, key, nd) {
 }
 const ndDrafts = (scope) => scope === 'setup' ? (ui.setup.nd ||= {}) : (ui.modal.nd ||= {});
 /** Any driver's name, wherever Pitwall knows them from. */
-const anyName = (id) => id === PLAYER_ID ? 'You' : D.DRIVERS[id]?.name || H.bios[id]?.name || FEEDER[id]?.name || career()?.customDrivers?.find(d => d.id === id)?.name || ui.setup?.newDrivers?.find(d => d.id === id)?.name || id;
+const anyName = (id) => id === PLAYER_ID ? 'You' : D.DRIVERS[id]?.name || H.bios[id]?.name || FEEDER[id]?.name || career()?.generated?.[id]?.name || career()?.customDrivers?.find(d => d.id === id)?.name || ui.setup?.newDrivers?.find(d => d.id === id)?.name || id;
 /** The grid a new career's first season starts from. */
 function setupGrid(u) {
   if (u.year > 2026) return u.futureGrid;
@@ -5352,13 +5472,35 @@ function trackGp(tid) {
   const h = Object.values(H.seasons).flatMap(x => x.rounds).find(r => r.id === tid);
   return { id: tid, name: cal?.[1] || h?.name || t.country || tid, venue: cal?.[2] || h?.venue || t.city || '' };
 }
+/** A driver's age in a year, for drivers picked before the career exists. */
+const setupAge = (u, id, year) => { const b = u.newDrivers.find(d => d.id === id)?.born || D.DRIVER_BIO[id]?.born || FEEDER[id]?.bornEst; return b ? year - +b.slice(0, 4) - (b.slice(5) > '03-01' ? 1 : 0) : null; };
+/** Too old to race in the first season: the year they turn 44 or later. */
+const retiredBy = (u, id) => { const b = id && (u.newDrivers.find(d => d.id === id)?.born || D.DRIVER_BIO[id]?.born || FEEDER[id]?.bornEst); return !!b && u.year - +b.slice(0, 4) >= RETIRE_AGE; };
+let _realSkills = null;
+/** Pace ratings from the last three real seasons, for picking replacements before a career exists. */
+const realSkills = () => _realSkills ||= driverSkills({ seasons: [2023, 2024, 2025].map((y, i) => histSeason(y, i)), customDrivers: [] });
+/** Fill one seat of the first season's grid: a driver who is free and young enough (quicker ones more likely), or a new talent. */
+function setupFill(u, ti, si) {
+  const year = u.year; const on = new Set(u.futureGrid.flatMap(t => t.drivers));
+  const skills = realSkills();
+  const recent = [2024, 2025].flatMap(y => Object.keys(H.seasons[y].drivers));
+  const cands = [...new Set([...recent, ...Object.keys(FEEDER), ...u.newDrivers.map(d => d.id)])].filter(d => !on.has(d) && (setupAge(u, d, year) ?? 25) < 38)
+    .map(d => [d, (skills[d] ?? u.newDrivers.find(x => x.id === d)?.skill ?? FEEDER[d]?.skill ?? 90) + ageEffect(setupAge(u, d, year)) + gauss(Math.random) * 60]).sort((a, b) => a[1] - b[1]);
+  let pick = cands.length && Math.random() > 0.35 ? cands[Math.floor(Math.random() * Math.min(5, cands.length))][0] : null;
+  if (!pick) {
+    const g = genDriver(new Set([...u.newDrivers, ...Object.values(FEEDER), ...Object.values(H.bios)].map(x => x.name)), 'F2', year - 1, Math.random);
+    u.newDrivers.push(g); pick = g.id;
+  }
+  u.futureGrid[ti].drivers[si] = pick;
+}
 /** For a career that starts after 2026: lay out the first season's grid and calendar. */
 function futureGridEditor(u) {
   const grid26 = new Set(D.GRID_2026.flatMap(t => t.drivers));
   const raced = Object.keys(H.bios).filter(id => !grid26.has(id)).sort((a, b) => anyName(a).localeCompare(anyName(b)));
   const opt = (id, sel) => `<option value="${id}" ${sel === id ? 'selected' : ''}>${esc(anyName(id))}</option>`;
   const options = (sel) => `<optgroup label="2026 grid">${[...grid26].map(id => opt(id, sel)).join('')}</optgroup>
-    ${u.newDrivers.length ? `<optgroup label="Your new drivers">${u.newDrivers.map(d => opt(d.id, sel)).join('')}</optgroup>` : ''}
+    ${u.newDrivers.some(d => !d.generated) ? `<optgroup label="Your new drivers">${u.newDrivers.filter(d => !d.generated).map(d => opt(d.id, sel)).join('')}</optgroup>` : ''}
+    ${u.newDrivers.some(d => d.generated) ? `<optgroup label="New talent">${u.newDrivers.filter(d => d.generated).map(d => opt(d.id, sel)).join('')}</optgroup>` : ''}
     <optgroup label="F2 & F3 (2024–25)">${Object.keys(FEEDER).map(id => opt(id, sel)).join('')}</optgroup>
     <optgroup label="Raced since ${HIST_FROM}">${raced.map(id => opt(id, sel)).join('')}</optgroup>
     <option value="__new">+ A new driver…</option>`;
@@ -5367,9 +5509,11 @@ function futureGridEditor(u) {
   const onCal = new Set(u.futureCal.map(r => r.track || r.id));
   return `<div class="panel"><div class="panel-h"><h2>The ${u.year} grid</h2><span class="muted" style="font-size:12px">Who drives where in your first season. The simulated years move everyone here.</span></div><div class="panel-b stack">
       ${dupes.length ? `<div class="callout">${esc(listJoin([...new Set(dupes)].map(anyName)))} ${dupes.length > 1 ? 'are' : 'is'} in two seats.</div>` : ''}
+      ${(() => { const n = used.filter(d => retiredBy(u, d)).length; return n ? `<div class="callout row" style="justify-content:space-between"><span>${n === 1 ? 'One driver' : numWord(n)[0].toUpperCase() + numWord(n).slice(1) + ' drivers'} will have retired by ${u.year}: nobody races past ${RETIRE_AGE - 1}.</span><button class="btn sm primary" data-act="fg-fill-all">Auto-fill ${n === 1 ? 'the seat' : `all ${n} seats`}</button></div>` : ''; })()}
       <div class="fg-grid">${u.futureGrid.map((t, ti) => `<div class="fg-team" style="--c:${t.color}"><span class="bar"></span>
         <div class="row" style="gap:6px"><input type="text" value="${esc(t.name)}" data-ch="fg-name" data-i="${ti}" title="Team name"><input type="color" value="${esc(t.color)}" data-ch="fg-color" data-i="${ti}" title="Team colour"></div>
         ${[0, 1].map(si => `<select data-ch="fg-seat" data-i="${ti}" data-j="${si}">${options(t.drivers[si])}</select>
+          ${retiredBy(u, t.drivers[si]) ? `<div class="fg-retired"><span>Retired by ${u.year}</span><button class="btn sm" data-act="fg-fill" data-i="${ti}" data-j="${si}">Auto-fill</button></div>` : ''}
           ${u.nd['g' + ti + '-' + si] ? newDriverForm('setup', 'g' + ti + '-' + si, u.nd['g' + ti + '-' + si]) : ''}`).join('')}</div>`).join('')}</div>
     </div></div>
     <div class="panel"><div class="panel-h"><h2>The ${u.year} calendar</h2><span class="muted" style="font-size:12px">${u.futureCal.length} rounds · also used for the simulated years</span></div>
@@ -5820,6 +5964,8 @@ const actions = {
   'setup-pick'(el) { ui.setup[el.dataset.k] = el.dataset.v; render(); },
   'setup-seat'(el) { ui.setup.teamId = el.dataset.team; ui.setup.seat = el.dataset.seat; render(); },
   'setup-year'(el) { setupYear(+el.dataset.v); },
+  'fg-fill'(el) { setupFill(ui.setup, +el.dataset.i, +el.dataset.j); render(); },
+  'fg-fill-all'() { const u = ui.setup; u.futureGrid.forEach((t, ti) => t.drivers.forEach((d, si) => { if (retiredBy(u, d)) setupFill(u, ti, si); })); render(); toast('Retired drivers replaced'); },
   'fc-move'(el) { const L = ui.setup.futureCal; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; render(); },
   'fc-remove'(el) { ui.setup.futureCal.splice(+el.dataset.i, 1); render(); },
   'nd-add'(el) {
@@ -5858,11 +6004,14 @@ const actions = {
     if (!u.first.trim() || !u.last.trim()) { toast(principal ? 'Enter your first and last name' : 'Enter your driver’s first and last name'); return; }
     if (u.type === 'myteam' && !u.team.name.trim()) { toast('Give your team a name'); return; }
     if (principal && (!u.team.seats[0] || !u.team.seats[1] || u.team.seats[0] === u.team.seats[1])) { toast('Sign two different drivers'); return; }
+    const old = u.year > 2026 ? u.futureGrid.flatMap(t => t.drivers).filter(d => retiredBy(u, d)) : [];
+    if (old.length) { toast(`${listJoin(old.map(anyName))} will have retired by ${u.year}. Auto-fill or pick someone else.`); return; }
     const abbr = (u.abbr || u.last.slice(0, 3)).toUpperCase();
     const c = {
       id: uid(), createdAt: new Date().toISOString(), type: u.type,
       profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), archetype: u.archetype, personality: u.personality, bio: u.bio.trim(), rival: u.rival, photo: u.photo || null, born: u.born || null },
-      customDrivers: u.newDrivers.filter(d => (principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id)))), media: [], seasons: [], rumours: [],
+      customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
+      generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
       startYear: u.year,
     };
     if (u.type === 'myteam') {

@@ -630,3 +630,4 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .tcard-drivers span { display: flex; align-items: center; gap: 6px; }
 .fg-team .row { flex-wrap: nowrap; }
 .fg-team input[type="text"] { flex: 1; min-width: 0; }
+.fg-retired { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--yellow); }
