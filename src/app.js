@@ -4572,11 +4572,11 @@ function feudStory(c, s, fd) {
 const feudsAt = (c, s, i) => (c.rivalries || []).filter(fd => fd.seasonIdx === s.index && i >= fd.after && i < fd.after + FEUD_RACES);
 
 /* ---------------------------------------------------------------- battles */
-// A battle: two drivers who swapped places at least five times in a race, each passing the other at least twice (so a
+// A battle: two drivers who swapped places at least eight times in a race, each passing the other at least twice (so a
 // lapped car waved through, or one car simply driving away, never counts). It comes from every pass F1 25 reports as
 // it happens, so a move made at the same corner every lap counts as much as one made over the line. Races logged
 // before 1.9.5, or by hand, have no passes: for those, nobody knows.
-const BATTLE_SWAPS = 5, BATTLE_EACH = 2;
+const BATTLE_SWAPS = 8, BATTLE_EACH = 2;
 /** A race's battles, biggest first: [{ a, b, n, by: { id: passes }, from, to, ahead, behind, posW, posL }], or null. */
 function raceBattles(sd) {
   const ov = sd?.done && sd.game?.overtakes; if (!Array.isArray(ov)) return null;
@@ -4588,7 +4588,31 @@ function raceBattles(sd) {
   const fin = (d) => { const k = sd.results.findIndex(x => x.d === d); return k < 0 || OUT.includes(sd.results[k].st) ? 99 : k + 1; };
   return Object.values(P).filter(o => o.n >= BATTLE_SWAPS && (o.by[o.a] || 0) >= BATTLE_EACH && (o.by[o.b] || 0) >= BATTLE_EACH)
     .map(o => { const [w, l] = fin(o.a) <= fin(o.b) ? [o.a, o.b] : [o.b, o.a]; return { ...o, from: Math.min(...o.laps), to: Math.max(...o.laps), ahead: w, behind: l, posW: fin(w), posL: fin(l) }; })
-    .sort((x, y) => y.n - x.n || x.posW - y.posW);
+    .map(o => ({ ...o, forLead: forTheLead(sd, o) }))
+    .sort((x, y) => (y.forLead - x.forLead) || y.n - x.n || x.posW - y.posW);
+}
+/** Was a battle for the lead? The two ran first and second at some point while it lasted. */
+function forTheLead(sd, b) {
+  const P = lapPositions(sd);
+  if (!P) return b.posW === 1 && b.posL === 2;
+  for (let k = Math.max(1, b.from - 1); k <= Math.min(P.N, b.to); k++) { const pa = P.pos[b.a]?.[k], pb = P.pos[b.b]?.[k]; if (pa && pb && Math.min(pa, pb) === 1 && Math.max(pa, pb) === 2) return true; }
+  return false;
+}
+/**
+ * The winner's pass for the lead in the last five laps, if that's how the race was won: { lap, N, left, prev, fight }.
+ * From the running order lap by lap (the last change of leader before the flag), confirmed as a pass by the logged
+ * passes (or, without them, by the old leader still running and not pitting that lap).
+ */
+function lateWinPass(sd, W) {
+  const P = lapPositions(sd); if (!P || !W) return null;
+  const { N, pos } = P; const lead = (k) => Object.keys(pos).find(d => pos[d][k] === 1);
+  let j = null; for (let k = N; k >= 1; k--) { if (lead(k) !== W) break; if (lead(k - 1) && lead(k - 1) !== W) { j = k; break; } }
+  if (j == null || N - j > 4) return null;
+  const prev = lead(j - 1); const ov = sd.game?.overtakes;
+  const passes = Array.isArray(ov) ? ov.filter(([a, b]) => (a === W && b === prev) || (a === prev && b === W)) : [];
+  const passed = Array.isArray(ov) && ov.length ? passes.some(([a, b, l]) => a === W && b === prev && l >= j - 1 && l <= j)
+    : j < N && pos[prev]?.[j] && !stintsOf(sd, prev).some((x, k, all) => x.to === j && k < all.length - 1);
+  return passed ? { lap: j, N, left: N - j, prev, fight: passes.length } : null;
 }
 /** Passes each driver made and lost in a race, and the net places on the opening lap: { made, lost, lap1 } by driver. */
 function racePasses(sd) {
@@ -4934,7 +4958,7 @@ function gameRows(r, key, map, grid) {
       row.st = GAME_STATUS[x.status] || 'DNS';
       if (row.st === 'FIN') {
         const down = lead.laps - x.laps;
-        if (i > 0 && down > 0) row.laps = down;
+        if (i > 0 && down > 0) { if (x.leadGap > 0) row.gap = fmtDur(x.leadGap + Math.round((x.penalty || 0) * 1000), true); else row.laps = down; }
         else row.gap = i === 0 ? fmtDur(ms(lead)) : fmtDur(ms(x) - ms(lead), true);
       }
     } else {
@@ -5303,7 +5327,7 @@ function battlesFooter(s, sd) {
   const B = raceBattles(sd), P = racePasses(sd); if (!P) return '';
   const nm = (d) => esc(lastName(dName(s, d)));
   const top = Object.entries(P.made).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  return `<div class="panel-b battles-foot"><div><span class="label">Battles</span> ${B.length ? B.slice(0, 6).map(b => `<span class="battle-chip"><b>${nm(b.ahead)}</b> v ${nm(b.behind)} · ${b.n} passes${b.to > b.from ? `, laps ${b.from}–${b.to}` : ''}</span>`).join('') : '<span class="muted">Nobody swapped places five times or more.</span>'}</div>
+  return `<div class="panel-b battles-foot"><div><span class="label">Battles</span> ${B.length ? B.slice(0, 6).map(b => `<span class="battle-chip"><b>${nm(b.ahead)}</b> v ${nm(b.behind)} · ${b.n} passes${b.to > b.from ? `, laps ${b.from}–${b.to}` : ''}</span>`).join('') : '<span class="muted">Nobody swapped places eight times or more.</span>'}</div>
     <div class="muted">${P.total === 1 ? '1 pass' : `${P.total} passes`} in all${top.length ? `. Most made: ${top.map(([d, n]) => `${nm(d)} ${n}`).join(', ')}` : ''}.${sd.game.passSource === 'positions' ? ' (From position changes: the game sent no overtake events.)' : ''}</div></div>`;
 }
 /** A small line chart: series [{ color, pts: [[x, y]], dashed, label }]. */
@@ -6349,7 +6373,7 @@ function raceFacts(c, s, i) {
   return { c, s, i, r, gp: gpThe(r.name), ses, res, fin, W, P2: fin[1]?.d || null, P3: fin[2]?.d || null, gap2: parseGap(res[1]?.gap), pole: qOrder?.[0] || null, gpos, pos,
     firstWin: !hist && !D.DRIVER_BIO[W]?.fictional && prior(W, 'wins') === 0,
     firstPods: hist ? [] : fin.slice(1, 3).map(x => x.d).filter(d => !D.DRIVER_BIO[d]?.fictional && prior(d, 'podiums') === 0),
-    streak: mem.run(W).wins + 1, mem, dB, dA, tB, tA,
+    streak: mem.run(W).wins + 1, mem, dB, dA, tB, tA, latePass: lateWinPass(ses.R, W),
     // the title contenders going in (from the third race: before that, everyone is)
     contenders: i < 2 ? [] : dB.rows.filter(x => x.alive && x.pts > 0 && (x.pos <= 2 || x.gap <= 25)).slice(0, 4).map(x => x.id),
     climbers: fin.map((x, k) => ({ d: x.d, from: gpos(x.d), to: k + 1 })).filter(x => x.from && x.from - x.to >= 5).map(x => ({ ...x, g: x.from - x.to })).sort((a, b) => b.g - a.g || a.to - b.to),
@@ -6427,10 +6451,10 @@ function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) 
     const A = L(b.ahead), B = L(b.behind); const k = pairKey(b.a, b.b);
     const span = b.to > b.from ? ` between laps ${b.from} and ${b.to}` : b.from ? ` on lap ${b.from}` : '';
     const where = b.posW < 99 ? ` in ${o(b.posW)}` : '';
-    let t = w('battle', [`${A} and ${B} swapped places ${nw(b.n)} times${span}, ${A} coming out on top${where}.`, `The fight of the race was ${A} against ${B}: ${nw(b.n)} changes of position${span}, and ${A} had the last word.`, `${B} and ${A} went at it wheel to wheel${span}, trading places ${nw(b.n)} times before ${A} made it stick.`, `${A} and ${B} put on a show${span}, passing each other ${nw(b.n)} times; ${A} finished ahead.`, `With ${nw(b.n)} passes between them${span}, ${A} and ${B} produced the duel of the day, and it went ${A}’s way.`, `${A} and ${B} could not shake each other off${span}: ${nw(b.n)} changes of position, ${A} ahead at the end.`, `Lap after lap, ${A} and ${B} traded places${span}, ${nw(b.n)} times in all, before ${A} came out in front.`]);
+    let t = b.forLead ? w('battle-lead', [`${A} and ${B} fought over the lead${span}, swapping places ${nw(b.n)} times before ${A} came out in front.`, `The battle for the lead between ${A} and ${B} saw ${nw(b.n)} changes of position${span}; ${A} had the final say.`, `Up front, ${A} and ${B} traded the lead ${nw(b.n)} times${span}, ${A} ending up ahead.`]) : w('battle', [`${A} and ${B} swapped places ${nw(b.n)} times${span}, ${A} coming out on top${where}.`, `The fight of the race was ${A} against ${B}: ${nw(b.n)} changes of position${span}, and ${A} had the last word.`, `${B} and ${A} went at it wheel to wheel${span}, trading places ${nw(b.n)} times before ${A} made it stick.`, `${A} and ${B} put on a show${span}, passing each other ${nw(b.n)} times; ${A} finished ahead.`, `With ${nw(b.n)} passes between them${span}, ${A} and ${B} produced the duel of the day, and it went ${A}’s way.`, `${A} and ${B} could not shake each other off${span}: ${nw(b.n)} changes of position, ${A} ahead at the end.`, `Lap after lap, ${A} and ${B} traded places${span}, ${nw(b.n)} times in all, before ${A} came out in front.`]);
     if (duelsNow.has(k)) t += ' ' + w('duel-born', ['It was the second race running they had gone wheel to wheel, and a rivalry was born.', 'Two races in a row now: these two are rivals on track.', 'That made it two races running, and the paddock started calling it a rivalry.']);
     else if (duelsOn.has(k)) t += ' ' + w('duel-on', ['Another chapter in their running duel.', 'Their on-track rivalry shows no sign of cooling.', 'These two just keep finding each other.']);
-    add('battle', 3.5 + Math.min(4, (b.n - 5) / 2) + (b.posW <= 5 ? 2 : 0) + (duelsNow.has(k) ? 3 : 0) + (isC(b.a) || isC(b.b) ? 2 : 0) + ([b.a, b.b].some(mine) ? 1.5 : 0), t, [b.a, b.b]);
+    add('battle', 3.5 + Math.min(4, (b.n - 8) / 2) + (b.forLead ? 4 : b.posW <= 5 ? 2 : 0) + (duelsNow.has(k) ? 3 : 0) + (isC(b.a) || isC(b.b) ? 2 : 0) + ([b.a, b.b].some(mine) ? 1.5 : 0), t, [b.a, b.b]);
   }
   // great drives: the climbers (the winner's climb belongs to the winner's line)
   for (const x of F.climbers.filter(x => x.d !== F.W).slice(0, 2)) {
@@ -6552,6 +6576,9 @@ function buildSeasonReview(c, s, rounds) {
     const W = L(F.W), P2 = F.P2 && L(F.P2), P3 = F.P3 && L(F.P3), gp = F.gp, GP = cap(F.gp); const tn = F.team(F.W)?.name || '';
     const from = F.gpos(F.W); const gap = F.gap2;
     const pod = P2 && P3 ? w('pod', [`, ahead of ${P2} and ${P3}`, `, from ${P2} and ${P3}`, `, with ${P2} and ${P3} completing the podium`, '', '']) : '';
+    if (F.latePass) { const LP = F.latePass; const P0 = L(LP.prev); return LP.left === 0
+      ? w('w-lastlap', [`${GP} was won on the last lap: ${W} got past ${P0} for the lead and took the flag.`, `${W} stole ${gp} from ${P0} on the very last lap.`, `Last lap, last chance: ${W} passed ${P0} to win ${gp}.`])
+      : w('w-late', [`${W} won ${gp} with a late pass on ${P0}, taking the lead on lap ${LP.lap} of ${LP.N}${LP.fight >= 3 ? ` after ${nw(LP.fight)} passes between them` : ''}.`, `With ${pw(LP.left + 1, 'lap')} to go in ${gp}, ${W} passed ${P0} for the lead, and the win.`, `${P0} looked set to win ${gp} until lap ${LP.lap}, when ${W} found a way past.`]); }
     if (F.firstWin) return w('w-first', [`${GP} belonged to ${W}, who finally broke through for a first Grand Prix win.`, `${W} became a Grand Prix winner for the first time in ${gp}${pod}.`, `A first career win for ${W} made ${gp} a day to remember for ${tn}.`, `${W} took a long-awaited maiden victory in ${gp}${pod}.`]);
     if (from >= 10) return w('w-back', [`${W} won ${gp} from ${ordWord(from)} on the grid, picking off the cars ahead one by one.`, `${GP} was a comeback for the ages: ${W} went from ${ordWord(from)} to the top step.`, `Few gave ${W} a chance from ${ordWord(from)} on the grid in ${gp}, but the win came all the same.`, `From ${ordWord(from)} to first: ${W}’s drive in ${gp} will be remembered for years.`]);
     if (from >= 5) return w('w-up', [`Starting ${ordWord(from)}, ${W} still found a way to win ${gp}${pod}.`, `${W} came from ${ordWord(from)} on the grid to win ${gp}.`, `${W} worked forward from ${ordWord(from)} and took the win in ${gp}${pod}.`, `${ordWord(from)[0].toUpperCase() + ordWord(from).slice(1)} on the grid, first at the flag: ${W} in ${gp}.`]);
@@ -6706,13 +6733,14 @@ const BATTLE_QUOTES = {
 function battleStory(c, s, i, r, key, sd, h) {
   const B = raceBattles(sd); const b = B?.[0]; if (!b) return null;
   const mine = [b.a, b.b].some(d => d === PLAYER || teamOf(s, d)?.id === s.playerTeamId);
-  if (b.posW > 6 && !mine && b.n < 8) return null;
+  if (b.posW > 10 && !mine && !b.forLead) return null;
   if (duels(s).events.some(e => e.type === 'duelStart' && e.i === i && e.key === key && pairKey(e.a, e.b) === pairKey(b.a, b.b))) return null; // the rivalry story tells it
   const rnd = seeded(`${s.index}-${r.id}-${key}-battle`); const sprint = key === 'SPR';
   const A = h.last(b.ahead), Bn = h.last(b.behind);
   const touched = (sd.game?.incidents || []).some(x => pairKey(x.a, x.b) === pairKey(b.a, b.b));
-  const at = b.posW <= 3 ? `for ${b.posW === 1 ? 'the lead' : 'a podium place'}` : b.posW <= 10 ? 'for points' : 'deep in the pack';
-  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: sprint ? 'Battle of the sprint' : 'Battle of the race',
+  const at = b.forLead ? 'for the lead' : b.posW <= 3 ? 'for a podium place' : b.posW <= 10 ? 'for points' : 'deep in the pack';
+  const LP = key === 'R' && b.forLead ? lateWinPass(sd, sd.results.find(x => !OUT.includes(x.st))?.d) : null; const late = LP && pairKey(LP.prev, b.ahead) === pairKey(b.a, b.b);
+  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: b.forLead ? (sprint ? 'Battle for the sprint win' : 'Battle for the win') : sprint ? 'Battle of the sprint' : 'Battle of the race', massive: !!late,
     headline: choose(rnd, [`${A} v ${Bn}: ${b.n} passes ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn} after a ${b.n}-pass fight`, `${b.n} changes of position, one winner: ${A} edges ${Bn}`]),
     standfirst: `${A} and ${Bn} swapped places ${nw(b.n)} times ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}. ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
     body: touched ? ['It wasn’t all clean: the two made contact along the way.'] : [],
@@ -6812,8 +6840,10 @@ function buildStories(c, s) {
     const fl = fastestOf(ses.R);
     const sameTeam = fin[1] && teamOf(s, W)?.id === teamOf(s, fin[1].d)?.id;
     const firstWin = prevWins(W) + (seasonStats(s, i)[W]?.wins || 0) === 0 && !D.DRIVER_BIO[W]?.fictional;
-    let headline;
-    if (W === PLAYER) headline = firstWin ? `${last(W)} takes a first Grand Prix win in ${gp}` : choose(rnd, [`${last(W)} wins the ${gp} Grand Prix`, `Victory for ${last(W)} in ${gp}`]);
+    let headline; const LP = lateWinPass(ses.R, W);
+    if (LP) headline = choose(rnd, LP.left === 0 ? [`Last-lap pass hands ${last(W)} victory in ${gp}`, `${last(W)} passes ${last(LP.prev)} on the final lap to win in ${gp}`, `${last(W)} snatches ${gp} on the last lap`]
+      : [`${last(W)} snatches ${gp} win with a late pass on ${last(LP.prev)}`, `Lap ${LP.lap} of ${LP.N}: ${last(W)} passes ${last(LP.prev)} for victory in ${gp}`, `${last(W)} steals it late from ${last(LP.prev)} in ${gp}`]);
+    else if (W === PLAYER) headline = firstWin ? `${last(W)} takes a first Grand Prix win in ${gp}` : choose(rnd, [`${last(W)} wins the ${gp} Grand Prix`, `Victory for ${last(W)} in ${gp}`]);
     else if (firstWin) headline = `${last(W)} takes a maiden Grand Prix win in ${gp}`;
     else if (sameTeam) headline = `${tName(W)} one-two in ${gp} as ${last(W)} leads ${last(fin[1].d)} home`;
     else if (gpos(W) >= 6) headline = `${last(W)} charges from ${ordWord(gpos(W))} on the grid to win in ${gp}`;
@@ -6837,6 +6867,7 @@ function buildStories(c, s) {
     if (fl) notes.push(`${name(fl)} set the fastest lap${res.find(x => x.d === fl)?.lap ? ` with a ${res.find(x => x.d === fl).lap}` : ''}.`);
     const sprW = r.sprint && ses.SPR?.done ? ses.SPR.results.find(x => !OUT.includes(x.st))?.d : null;
     if (sprW) notes.push(sprW === W ? `It completes a sprint and Grand Prix double for ${last(W)}.` : `${name(sprW)} had won the sprint.`);
+    if (LP) body.push(`The win was decided ${LP.left === 0 ? 'on the very last lap' : `with ${pw(LP.left + 1, 'lap')} to go`}: ${name(W)} passed ${name(LP.prev)} for the lead on lap ${LP.lap}${LP.fight >= 3 ? `, after ${nw(LP.fight)} passes between the two` : ''}, and ${LP.left === 0 ? 'took the flag' : 'held on to the flag'}${gap2 != null ? ` ${gap2.toFixed(3)} seconds ahead` : ''}.`);
     const RF = raceFacts(c, s, i);
     const narr = RF ? raceNarrative(RF, last, seeded(rid + 'narr'), { duelsNow: new Set(duels(s).events.filter(e => e.type === 'duelStart' && e.i === i && e.key === 'R').map(e => pairKey(e.a, e.b))), duelsOn: new Set(duelsAt(s, i - 1).map(x => pairKey(x.a, x.b))) }) : '';
     if (narr) body.push(narr);
@@ -8184,7 +8215,7 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
       if (b.a !== d && b.b !== d) continue;
       const o = b.a === d ? b.b : b.a; const won = b.ahead === d;
       const born = duels(s).events.some(e => e.type === 'duelStart' && e.i === ri && e.key === 'R' && pairKey(e.a, e.b) === pairKey(d, o));
-      add('battle-' + d + o, 6 + Math.min(3, (b.n - 5) / 2) + (born ? 2 : 0), `${dName(s, d)} and ${dName(s, o)} swapped places ${b.n} times; ${dName(s, b.ahead)} finished ahead.${born ? ' It was their second race running wheel to wheel: they are now rivals on track.' : ''}`, born
+      add('battle-' + d + o, 6 + Math.min(3, (b.n - 8) / 2) + (b.forLead ? 3 : 0) + (born ? 2 : 0), `${dName(s, d)} and ${dName(s, o)} swapped places ${b.n} times; ${dName(s, b.ahead)} finished ahead.${born ? ' It was their second race running wheel to wheel: they are now rivals on track.' : ''}`, born
         ? [tp ? `${L(d)} and ${L(o)} have gone wheel to wheel two races running now. Is this a rivalry?` : `That's two races in a row you've been wheel to wheel with ${L(o)}. Is this becoming a rivalry?`, tp ? `Do you worry ${L(d)} and ${L(o)} will end up taking each other out?` : `Do you enjoy racing ${L(o)}, or is it getting personal?`]
         : [tp ? `${L(d)} and ${L(o)} passed each other ${b.n} times. Were you enjoying it on the pit wall?` : `You and ${L(o)} swapped places ${b.n} times. What was that fight like from the cockpit?`, won ? (tp ? `${L(d)} came out on top against ${L(o)}. What made the difference?` : `You came out on top against ${L(o)} in the end. Where did you make it stick?`) : (tp ? `${L(o)} got the better of ${L(d)} in the end. What was missing?` : `${L(o)} got the better of you in the end. What was missing?`)]);
     }

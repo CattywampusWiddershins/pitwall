@@ -68,7 +68,7 @@ function parseLapData(b, L) {
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0 });
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: b.readUInt16LE(o + 17) + b[o + 19] * 60000 });
   }
   return out;
 }
@@ -107,18 +107,19 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     let s = sessions.get(h.uid);
     if (!s) {
       s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now(),
-        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [], pit: [], live: [], overtakes: [], swaps: [] };
+        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [], pit: [], live: [], overtakes: [], swaps: [], lead: [], leadFin: [] };
       sessions.set(h.uid, s);
       for (const [k, v] of sessions) if (Date.now() - v.seen > 6 * 3600e3) sessions.delete(k); // forget sessions from hours ago
     }
     s.player = h.player; s.seen = Date.now();
     return s;
   };
-  // Every pass as it happens. The game's overtake event is the source; when a session sends none, a swap of two
-  // places between one lap data packet and the next (the game sends them many times a second) stands in. Passes in
-  // or out of the pit lane, or of a car that has stopped, don't count. Places that flicker back within 1.5 s (two
-  // cars side by side over a timing line) cancel out.
-  const FLICKER = 1.5;
+  // Every pass as it happens, anywhere on the lap: two cars swapping places between one lap data packet and the next
+  // (the game sends them many times a second). The game's own overtake event stands in if a session never shows a
+  // swap. Passes in or out of the pit lane, or of a car that has stopped, don't count. A pass counts once it has held
+  // for 0.25 s: retaken sooner, it was the timing flickering and both cancel out; retaken later, the two are racing
+  // wheel to wheel and both count.
+  const FLICKER = 0.25;
   function pass(s, list, a, b, t) {
     if (a === b || a == null || b == null || s.pit[a] || s.pit[b] || s.live[a] === false || s.live[b] === false) return;
     for (let k = list.length - 1; k >= 0 && t - list[k].t < FLICKER; k--) {
@@ -167,11 +168,11 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       // the stint still running at the flag (or when the car stopped) ends on lap 255: it really ends on the car's last lap
       const stints = (s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints).map(t => ({ ...t, end: Math.min(t.end, x.laps || t.end) }));
       return { ...x, name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
-        lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [] };
+        lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
-      overtakes: s.overtakes.length ? s.overtakes : s.swaps, passSource: s.overtakes.length ? 'event' : s.swaps.length ? 'positions' : null,
+      overtakes: s.swaps.length ? s.swaps : s.overtakes, passSource: s.swaps.length ? 'positions' : s.overtakes.length ? 'event' : null,
       ers: s.info.sessionType >= 1 && s.info.sessionType <= 4 ? packErs(s) : null });
   }
   function onPacket(b) {
@@ -203,6 +204,9 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         // a new lap: note the tyre wear at the end of the one just finished
         if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
         s.curLap[i] = c.lap; s.pos[i] = c.pos; s.pit[i] = c.pit; s.live[i] = c.status === 2;
+        // the gap to the leader as the car takes the flag (the game's own interval, so a lapped car has one too)
+        if (c.status === 2 && c.lead) s.lead[i] = c.lead;
+        else if (c.status === 3 && s.leadFin[i] == null) s.leadFin[i] = c.lead || s.lead[i] || null;
       });
       if (s.info && s.info.sessionType >= 1 && s.info.sessionType <= 4) logErs(s, lap[h.player]);
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
