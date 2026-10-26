@@ -81,7 +81,7 @@ a { color: var(--team); }
 .rail-foot { margin-top: auto; display: grid; gap: 6px; }
 
 .main { overflow-y: auto; height: 100%; }
-.page { padding: 26px 32px 60px; max-width: 1320px; display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+.page { padding: 26px 32px 60px; max-width: none; display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
 .page > *, .stack > *, .grid-2 > *, .grid-main > * { min-width: 0; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .page-head .sub { color: var(--muted); margin-top: 4px; }
@@ -710,3 +710,5 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .pos-chart:hover .pc-line:not(:hover) polyline { opacity: .25; }
 .pos-chart .pc-lab { font-size: 11px; font-weight: 700; font-family: var(--font-display); }
 .pos-chart .pc-out { fill: var(--red); font-size: 12px; font-weight: 700; }
+.ers-curve { margin-top: 10px; }
+.ers-curve table td, .ers-curve table th { padding: 4px 8px; font-size: 12px; white-space: nowrap; }

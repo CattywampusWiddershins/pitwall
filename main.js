@@ -76,6 +76,14 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
+  // scale the interface with the window: the page fills the width, and a window wider than 1800 (in Windows' own
+  // display-scaled pixels) also grows the text and controls, in 5% steps up to 160%
+  const fit = () => {
+    if (!win || win.isDestroyed()) return;
+    const [w] = win.getContentSize();
+    win.webContents.setZoomFactor(Math.min(1.6, Math.max(1, Math.round(w / 1800 / 0.05) * 0.05)));
+  };
+  win.on('resize', fit); win.webContents.on('did-finish-load', fit);
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
