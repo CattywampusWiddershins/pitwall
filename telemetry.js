@@ -139,8 +139,10 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     const o = lap.bins[Math.floor(c.dist / ERS_BIN)] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
     o.n++; o.thr += s.tel.thr; o.brk += s.tel.brk; o.spd += s.tel.spd; o.ers += s.stat.ers; o.pw += s.stat.mguk;
     o.dep = s.stat.dep; o.harv = s.stat.harv; o.modes[s.stat.mode] = (o.modes[s.stat.mode] || 0) + 1;
-    // DRS open, or within a second of the car ahead: the straight-line speed isn't yours alone (slipstream)
-    if (s.tel.drs || (c.front > 0 && c.front < 1000)) o.tow = 1;
+    // DRS (or, under the 2026 rules, straight-mode aero) open, and within a second of the car ahead (the slipstream):
+    // kept apart, since which one matters depends on the season's rules
+    if (s.tel.drs) o.drs = 1;
+    if (c.front > 0 && c.front < 1000) o.close = 1;
     if (s.mot) { o.nm++; o.x += s.mot.x; o.z += s.mot.z; }
     if (c.invalid) lap.invalid = true;
   }
@@ -155,7 +157,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       laps.push({ lap: +lapNo, invalid: lap.invalid,
         thr: col(o => Math.round(o.thr / o.n * 100)), brk: col(o => Math.round(o.brk / o.n * 100)), spd: col(o => Math.round(o.spd / o.n)),
         ers: col(o => Math.round(o.ers / o.n / 1000)), dep: col(o => Math.round(o.dep / 1000)), harv: col(o => Math.round(o.harv / 1000)), pw: col(o => Math.round(o.pw / o.n / 1000)),
-        mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]), tow: col(o => o.tow ? 1 : 0) });
+        mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]), drs: col(o => o.drs ? 1 : 0), close: col(o => o.close ? 1 : 0) });
       for (let i = 0; i < nb; i++) { const o = lap.bins[i]; if (o?.nm) { mx[i] += o.x / o.nm; mz[i] += o.z / o.nm; mn[i]++; } }
     }
     if (!laps.length) return null;
