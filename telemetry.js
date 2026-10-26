@@ -3,10 +3,11 @@
 // F1 25 UDP specification: packet format 2025 for the base game (22 cars), 2026 for the 2026 Season Pack (24 cars,
 // wider driver/team ids). Only what Pitwall uses is read: session, lap data (grid slots and laps), participants,
 // events (penalties, warnings, collisions, overtakes), car damage (tyre wear), session history (laps and sectors) and the final
-// classification.
+// classification. In practice it also follows your own car (motion, car telemetry and car status) to profile the ERS.
 const dgram = require('dgram');
 
-const PACKET = { SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
+const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
+const ERS_BIN = 20; // metres: the ERS profile is kept in slices of the lap this long
 const HEADER = 29;
 const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } : { cars: 22, part: 57, wide: false };
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
@@ -51,12 +52,23 @@ function parseFinal(b, L) {
   }
   return out;
 }
+/** Each car's record size, worked out from the packet length (a newer format may add fields at the end of each car). */
+const stride = (b, L, base, tail = 0) => { const n = (b.length - HEADER - tail) / L.cars; return Number.isInteger(n) && n >= base ? n : base; };
+/** Your car's position on the map (world x and z, in metres). */
+function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return o + 12 > b.length ? null : { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }; }
+/** Your car's speed (km/h), throttle and brake (0 to 1). */
+function playerTelemetry(b, L, p) { const o = HEADER + p * stride(b, L, 60, 3); return o + 14 > b.length ? null : { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10) }; }
+/** Your car's ERS: stored energy, deploy mode, harvested and deployed this lap (joules) and MGU-K power (watts). */
+function playerStatus(b, L, p) {
+  const o = HEADER + p * stride(b, L, 55); if (o + 54 > b.length) return null;
+  return { mguk: b.readFloatLE(o + 33), ers: b.readFloatLE(o + 37), mode: b[o + 41], harv: b.readFloatLE(o + 42) + b.readFloatLE(o + 46), dep: b.readFloatLE(o + 50) };
+}
 /** Lap data: each car's race position, current lap, grid slot, result status and whether it is in the pit lane. */
 function parseLapData(b, L) {
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0 });
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0 });
   }
   return out;
 }
@@ -116,6 +128,34 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     }
     list.push({ a, b, t, lap: s.curLap[a] || 0 });
   }
+  // Practice only, your car only: every lap data packet adds a sample (throttle, brake, speed, ERS store, mode, deployed
+  // and harvested so far this lap, MGU-K power, position) to the 20 m slice of the lap you're in.
+  function logErs(s, c) {
+    if (!c || !s.tel || !s.stat || c.dist < 0 || c.pit || !c.lap) return;
+    const lap = (s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false };
+    const o = lap.bins[Math.floor(c.dist / ERS_BIN)] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
+    o.n++; o.thr += s.tel.thr; o.brk += s.tel.brk; o.spd += s.tel.spd; o.ers += s.stat.ers; o.pw += s.stat.mguk;
+    o.dep = s.stat.dep; o.harv = s.stat.harv; o.modes[s.stat.mode] = (o.modes[s.stat.mode] || 0) + 1;
+    if (s.mot) { o.nm++; o.x += s.mot.x; o.z += s.mot.z; }
+    if (c.invalid) lap.invalid = true;
+  }
+  /** The ERS profile, packed: per lap one array per measure (one value per slice), and the track outline. */
+  function packErs(s) {
+    if (!s.ers || !s.info?.trackLength) return null;
+    const nb = Math.ceil(s.info.trackLength / ERS_BIN); const r = (v, k = 1) => v == null ? null : Math.round(v * k) / k;
+    const laps = []; const mx = Array(nb).fill(0), mz = Array(nb).fill(0), mn = Array(nb).fill(0);
+    for (const [lapNo, lap] of Object.entries(s.ers)) {
+      const have = Object.keys(lap.bins).length; if (have < nb * 0.8) continue; // a partial lap (out-lap, or the session ended)
+      const col = (fn) => Array.from({ length: nb }, (_, i) => { const o = lap.bins[i]; return o ? fn(o) : null; });
+      laps.push({ lap: +lapNo, invalid: lap.invalid,
+        thr: col(o => Math.round(o.thr / o.n * 100)), brk: col(o => Math.round(o.brk / o.n * 100)), spd: col(o => Math.round(o.spd / o.n)),
+        ers: col(o => Math.round(o.ers / o.n / 1000)), dep: col(o => Math.round(o.dep / 1000)), harv: col(o => Math.round(o.harv / 1000)), pw: col(o => Math.round(o.pw / o.n / 1000)),
+        mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]) });
+      for (let i = 0; i < nb; i++) { const o = lap.bins[i]; if (o?.nm) { mx[i] += o.x / o.nm; mz[i] += o.z / o.nm; mn[i]++; } }
+    }
+    if (!laps.length) return null;
+    return { player: s.player, bin: ERS_BIN, length: s.info.trackLength, laps, map: mx.map((x, i) => mn[i] ? [r(x / mn[i], 10), r(mz[i] / mn[i], 10)] : null) };
+  }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
     s.sent = true;
@@ -131,7 +171,8 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
-      overtakes: s.overtakes.length ? s.overtakes : s.swaps, passSource: s.overtakes.length ? 'event' : s.swaps.length ? 'positions' : null });
+      overtakes: s.overtakes.length ? s.overtakes : s.swaps, passSource: s.overtakes.length ? 'event' : s.swaps.length ? 'positions' : null,
+      ers: s.info.sessionType >= 1 && s.info.sessionType <= 4 ? packErs(s) : null });
   }
   function onPacket(b) {
     if (b.length < HEADER) return;
@@ -150,6 +191,9 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       for (const p of parseParticipants(b, L)) byIdx.set(p.idx, p);
       s.parts = [...byIdx.values()].sort((a, b) => a.idx - b.idx);
     }
+    else if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
+    else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
+    else if (h.type === PACKET.STATUS) s.stat = playerStatus(b, L, h.player) || s.stat;
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.DAMAGE) s.wearNow = parseWear(b, L);
     else if (h.type === PACKET.LAP) {
@@ -160,6 +204,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
         s.curLap[i] = c.lap; s.pos[i] = c.pos; s.pit[i] = c.pit; s.live[i] = c.status === 2;
       });
+      if (s.info && s.info.sessionType >= 1 && s.info.sessionType <= 4) logErs(s, lap[h.player]);
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
       const race = s.info && (s.info.sessionType === 15 || s.info.sessionType === 16);
       if (race) lap.forEach((c, i) => {

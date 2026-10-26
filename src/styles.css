@@ -683,3 +683,22 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .title-chart { display: grid; gap: 6px; margin: 6px 0 10px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; align-items: center; }
 .chart-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+/* ERS: where to boost */
+.ers-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .ers-grid { grid-template-columns: 1fr; } }
+.ers-map { width: 100%; max-height: 420px; display: block; }
+.ers-map polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ers-map .em-base { stroke: var(--panel-3); stroke-width: 3.2; }
+.ers-map .em-straight { stroke: var(--silver); stroke-width: 1.4; opacity: .55; }
+.ers-map .em-brake { stroke: var(--red); stroke-width: 1.6; opacity: .75; }
+.ers-map .em-boost { stroke: var(--green); stroke-width: 2.6; }
+.ers-map .em-used { stroke-width: 2.6; }
+.ers-map .em-mark circle { fill: var(--bg); stroke: var(--green); stroke-width: .8; }
+.ers-map .em-mark text { fill: var(--fg); font-size: 3.4px; font-weight: 700; text-anchor: middle; }
+.ers-map .em-line { fill: var(--fg); }
+.ers-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ers-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; }
+.ers-facts div { display: grid; gap: 2px; }
+.ers-facts span { color: var(--muted); font-size: 12px; }
+.ers-grid table td, .ers-grid table th { white-space: nowrap; }
