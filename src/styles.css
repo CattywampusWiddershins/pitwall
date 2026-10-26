@@ -679,3 +679,7 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .battle-chip { display: inline-block; margin: 2px 8px 2px 0; padding: 2px 8px; border-radius: 10px; background: var(--panel-3); }
 .review-panel .standfirst { margin: 0 0 12px; }
 .review-panel .body p { margin: 0 0 10px; line-height: 1.55; }
+/* the title, lap by lap */
+.title-chart { display: grid; gap: 6px; margin: 6px 0 10px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; align-items: center; }
+.chart-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
