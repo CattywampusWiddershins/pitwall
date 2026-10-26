@@ -664,3 +664,18 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .sb-end { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
 .sb-label { position: static; margin-right: 8px; text-align: right; font-size: 13px; }
 @media (max-width: 640px) { .strat-row { grid-template-columns: 1fr; gap: 4px; } .strat-name { display: flex; gap: 8px; } .sb-label { font-size: 11px; } .sb-lap { font-size: 10px; } .stint-bar { height: 38px; } }
+
+/* season review, race by race */
+.review-more { margin-top: 4px; }
+.review-more > summary { cursor: pointer; font-weight: 600; color: var(--fg); padding: 6px 0; }
+.review-body { display: grid; gap: 18px; margin-top: 10px; }
+.rv-ch h3 { margin: 0 0 8px; font-family: var(--font-display); font-size: 18px; }
+.rv-ch h3 .muted { font-size: 12px; font-family: inherit; font-weight: 400; }
+.rv-ch p { margin: 0 0 10px; line-height: 1.55; }
+.rv-r { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
+.rv-close { font-style: italic; color: var(--muted); border-left: 2px solid var(--line); padding-left: 10px; }
+/* battles under the race strategy table */
+.battles-foot { border-top: 1px solid var(--line); display: grid; gap: 6px; font-size: 13px; }
+.battle-chip { display: inline-block; margin: 2px 8px 2px 0; padding: 2px 8px; border-radius: 10px; background: var(--panel-3); }
+.review-panel .standfirst { margin: 0 0 12px; }
+.review-panel .body p { margin: 0 0 10px; line-height: 1.55; }

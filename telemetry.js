@@ -2,7 +2,7 @@
 // base's software, say), and turns each finished session into a result Pitwall can log. Packet layouts follow EA's
 // F1 25 UDP specification: packet format 2025 for the base game (22 cars), 2026 for the 2026 Season Pack (24 cars,
 // wider driver/team ids). Only what Pitwall uses is read: session, lap data (grid slots and laps), participants,
-// events (penalties, warnings, collisions), car damage (tyre wear), session history (laps and sectors) and the final
+// events (penalties, warnings, collisions, overtakes), car damage (tyre wear), session history (laps and sectors) and the final
 // classification.
 const dgram = require('dgram');
 
@@ -51,12 +51,12 @@ function parseFinal(b, L) {
   }
   return out;
 }
-/** Lap data: each car's race position, current lap, grid slot and result status. */
+/** Lap data: each car's race position, current lap, grid slot, result status and whether it is in the pit lane. */
 function parseLapData(b, L) {
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45] });
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0 });
   }
   return out;
 }
@@ -95,13 +95,27 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     let s = sessions.get(h.uid);
     if (!s) {
       s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now(),
-        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [] };
+        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [], pit: [], live: [], overtakes: [], swaps: [] };
       sessions.set(h.uid, s);
       for (const [k, v] of sessions) if (Date.now() - v.seen > 6 * 3600e3) sessions.delete(k); // forget sessions from hours ago
     }
     s.player = h.player; s.seen = Date.now();
     return s;
   };
+  // Every pass as it happens. The game's overtake event is the source; when a session sends none, a swap of two
+  // places between one lap data packet and the next (the game sends them many times a second) stands in. Passes in
+  // or out of the pit lane, or of a car that has stopped, don't count. Places that flicker back within 1.5 s (two
+  // cars side by side over a timing line) cancel out.
+  const FLICKER = 1.5;
+  function pass(s, list, a, b, t) {
+    if (a === b || a == null || b == null || s.pit[a] || s.pit[b] || s.live[a] === false || s.live[b] === false) return;
+    for (let k = list.length - 1; k >= 0 && t - list[k].t < FLICKER; k--) {
+      const x = list[k];
+      if (x.a === b && x.b === a) { list.splice(k, 1); return; } // straight back again: noise
+      if (x.a === a && x.b === b) return; // the same pass, reported twice
+    }
+    list.push({ a, b, t, lap: s.curLap[a] || 0 });
+  }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
     s.sent = true;
@@ -116,7 +130,8 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [] };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
-      penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions });
+      penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
+      overtakes: s.overtakes.length ? s.overtakes : s.swaps, passSource: s.overtakes.length ? 'event' : s.swaps.length ? 'positions' : null });
   }
   function onPacket(b) {
     if (b.length < HEADER) return;
@@ -139,10 +154,18 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     else if (h.type === PACKET.DAMAGE) s.wearNow = parseWear(b, L);
     else if (h.type === PACKET.LAP) {
       const lap = parseLapData(b, L);
+      const before = s.pos.slice();
       lap.forEach((c, i) => {
         // a new lap: note the tyre wear at the end of the one just finished
         if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
-        s.curLap[i] = c.lap; s.pos[i] = c.pos;
+        s.curLap[i] = c.lap; s.pos[i] = c.pos; s.pit[i] = c.pit; s.live[i] = c.status === 2;
+      });
+      // two cars that swapped places since the last packet (a stand-in for the overtake event)
+      const race = s.info && (s.info.sessionType === 15 || s.info.sessionType === 16);
+      if (race) lap.forEach((c, i) => {
+        const was = before[i]; if (!was || !c.pos || c.pos >= was) return;
+        const j = lap.findIndex((o, k) => k !== i && before[k] === c.pos && o.pos === was);
+        if (j >= 0) pass(s, s.swaps, i, j, h.time);
       });
       // a race or sprint has started: the starting grid settles qualifying (whoever was eliminated, whatever was simulated)
       const n = s.parts?.length || 0;
@@ -160,6 +183,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         const a = b[33], c2 = b[34]; const last = s.collisions.find(x => ((x.a === a && x.b === c2) || (x.a === c2 && x.b === a)) && h.time - x.t < 10);
         if (!last && a !== c2) s.collisions.push({ a, b: c2, t: h.time, lap: s.curLap[a] || 0, posA: s.pos[a] || 0, posB: s.pos[c2] || 0 });
       }
+      else if (code === 'OVTK' && b.length >= HEADER + 6) pass(s, s.overtakes, b[33], b[34], h.time);
       else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34] });
     } else if (h.type === PACKET.FINAL) {
       s.final = parseFinal(b, L);

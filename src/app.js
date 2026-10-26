@@ -2307,6 +2307,8 @@ function renderReview() {
       return `<div class="panel ${d.final ? 'decider' : ''}"><div class="panel-h"><div><span class="label">${k === 'team' ? 'Constructors’ championship' : 'Drivers’ championship'}${d.final ? ' · decided at the final race' : ''}</span><h2>How ${esc(T.name)} won it</h2></div>
         <span class="muted" style="font-size:12px">Sealed in ${esc(d.r.name)}${d.final ? (d.contenders.length >= 3 ? ` in a ${numWord(d.contenders.length)}-way showdown` : ' on the final day') : ` with ${plural(d.m.left.length, 'round')} to spare`} · ${plural(d.m.margin, 'point')} clear of ${esc(T.rivalName || '–')}</span></div>
         <div class="panel-b grid-2">${retroSections(c, s, T).map(sec => `<div><h3 style="margin-bottom:8px">${esc(sec.title)}</h3><ul class="ms-list">${sec.items.map(o => `<li>${o.id ? avatar(c, s, o.id, 24) : ''}<span>${esc(o.text)}</span></li>`).join('')}</ul></div>`).join('')}</div></div>`; }).join('')}
+    ${(() => { const RV = seasonReview(c, s); return RV ? `<div class="panel review-panel"><div class="panel-h"><div><span class="label">The season in review</span><h2>${esc(RV.headline)}</h2></div></div>
+      <div class="panel-b"><p class="standfirst">${esc(RV.standfirst)}</p><div class="body">${RV.intro.map(p => `<p>${esc(p)}</p>`).join('')}</div>${reviewHtml(c, s, RV)}</div></div>` : ''; })()}
     <div class="tiles">
       <div class="tile"><span class="label">Your position</span><span class="v">${myPos ? 'P' + myPos : '–'}<small>${delta ? ` ${delta > 0 ? '▲' : '▼'}${Math.abs(delta)} on ${prev.year}` : ''}</small></span></div>
       <div class="tile"><span class="label">Points</span><span class="v">${me.pts}</span></div>
@@ -4530,6 +4532,7 @@ function rivalryStories(c, s) {
   }
   // your feuds: the moment they start (later races mention them in the reports)
   for (const fd of c.rivalries || []) if (fd.seasonIdx === s.index) out.push({ ...feudStory(c, s, fd), t: Date.parse(fd.createdAt) || 0 });
+  out.push(...duelStories(c, s));
   return out;
 }
 
@@ -4567,6 +4570,113 @@ function feudStory(c, s, fd) {
 /** Feuds still running at round i: started after an earlier round and within five races of it. */
 const feudsAt = (c, s, i) => (c.rivalries || []).filter(fd => fd.seasonIdx === s.index && i >= fd.after && i < fd.after + FEUD_RACES);
 
+/* ---------------------------------------------------------------- battles */
+// A battle: two drivers who swapped places at least five times in a race, each passing the other at least twice (so a
+// lapped car waved through, or one car simply driving away, never counts). It comes from every pass F1 25 reports as
+// it happens, so a move made at the same corner every lap counts as much as one made over the line. Races logged
+// before 1.9.5, or by hand, have no passes: for those, nobody knows.
+const BATTLE_SWAPS = 5, BATTLE_EACH = 2;
+/** A race's battles, biggest first: [{ a, b, n, by: { id: passes }, from, to, ahead, behind, posW, posL }], or null. */
+function raceBattles(sd) {
+  const ov = sd?.done && sd.game?.overtakes; if (!Array.isArray(ov)) return null;
+  const P = {};
+  for (const [a, b, lap] of ov) {
+    const o = P[pairKey(a, b)] ||= { a: a < b ? a : b, b: a < b ? b : a, n: 0, by: {}, laps: [] };
+    o.n++; o.by[a] = (o.by[a] || 0) + 1; o.laps.push(lap || 0);
+  }
+  const fin = (d) => { const k = sd.results.findIndex(x => x.d === d); return k < 0 || OUT.includes(sd.results[k].st) ? 99 : k + 1; };
+  return Object.values(P).filter(o => o.n >= BATTLE_SWAPS && (o.by[o.a] || 0) >= BATTLE_EACH && (o.by[o.b] || 0) >= BATTLE_EACH)
+    .map(o => { const [w, l] = fin(o.a) <= fin(o.b) ? [o.a, o.b] : [o.b, o.a]; return { ...o, from: Math.min(...o.laps), to: Math.max(...o.laps), ahead: w, behind: l, posW: fin(w), posL: fin(l) }; })
+    .sort((x, y) => y.n - x.n || x.posW - y.posW);
+}
+/** Passes each driver made and lost in a race, and the net places on the opening lap: { made, lost, lap1 } by driver. */
+function racePasses(sd) {
+  const ov = sd?.done && sd.game?.overtakes; if (!Array.isArray(ov)) return null;
+  const made = {}, lost = {}, lap1 = {};
+  for (const [a, b, lap] of ov) {
+    made[a] = (made[a] || 0) + 1; lost[b] = (lost[b] || 0) + 1;
+    if (lap <= 1) { lap1[a] = (lap1[a] || 0) + 1; lap1[b] = (lap1[b] || 0) - 1; }
+  }
+  return { made, lost, lap1, total: ov.length };
+}
+// Wheel-to-wheel rivals: a battle in two races in a row (a sprint and its Grand Prix are two races) makes the two
+// drivers rivals on track. It lasts until they go three races in a row without one, and can start again later. Races
+// without pass data don't count either way. Like title rivalries, these are worked out from the results, so editing
+// or undoing a race puts them right.
+const DUEL_ON = 2, DUEL_OFF = 3;
+const _duelCache = new WeakMap();
+/** The season's wheel-to-wheel rivalries: { events: [{ type: 'duelStart'|'duelEnd', a, b, i, key, battles }], at: { ri: [active] }, all: battles } */
+function duels(s) {
+  let v = _duelCache.get(s); if (v && v.gen === renderGen) return v.d;
+  const P = {}; const events = []; const at = {}; const all = [];
+  activeRounds(s).forEach((r, i) => {
+    const ses = s.weekends[r.id]?.sessions || {};
+    for (const key of ['SPR', 'R']) {
+      const B = raceBattles(ses[key]); if (!B) continue;
+      const hit = new Set();
+      for (const b of B) {
+        const k = pairKey(b.a, b.b); hit.add(k); all.push({ i, key, ...b });
+        const p = P[k] ||= { a: b.a, b: b.b, run: 0, quiet: 0, active: false, battles: [], stints: 0, start: 0 };
+        p.run++; p.quiet = 0; p.battles.push({ i, key, n: b.n, ahead: b.ahead });
+        if (!p.active && p.run >= DUEL_ON) {
+          p.active = true; p.stints++; p.start = p.battles.length - p.run;
+          events.push({ type: 'duelStart', a: b.a, b: b.b, i, key, again: p.stints > 1, battles: p.battles.slice(p.start) });
+        }
+      }
+      for (const [k, p] of Object.entries(P)) {
+        if (hit.has(k)) continue;
+        p.run = 0;
+        if (p.active && ++p.quiet >= DUEL_OFF) { p.active = false; events.push({ type: 'duelEnd', a: p.a, b: p.b, i, key, battles: p.battles.slice(p.start) }); }
+      }
+    }
+    at[i] = Object.values(P).filter(p => p.active).map(p => ({ a: p.a, b: p.b, quiet: p.quiet, battles: p.battles.slice(p.start) }));
+  });
+  const d = { events, at, all };
+  _duelCache.set(s, { gen: renderGen, d });
+  return d;
+}
+/** Wheel-to-wheel rivalries running after round ri. */
+const duelsAt = (s, ri) => { const D2 = duels(s); for (let i = ri; i >= 0; i--) if (D2.at[i]) return D2.at[i]; return []; };
+/** Who has come out ahead in a set of battles: { a: n, b: n }. */
+const duelScore = (x) => x.battles.reduce((o, b) => { o[b.ahead] = (o[b.ahead] || 0) + 1; return o; }, {});
+// what drivers say about a rival they keep racing wheel to wheel: respect, or (after contact between them) needle
+const DUEL_QUOTES = {
+  respect: ['Every time we race, it’s hard but fair. I enjoy it, honestly.', 'We seem to find each other every weekend. It’s good fun, as long as it stays clean.', 'I know exactly how they race now, and they know how I race. That makes it great.', 'You can’t give an inch, because they won’t. That’s proper racing.', 'It’s become a bit of a habit, hasn’t it? I don’t mind, I like a fight.'],
+  needle: ['They race me harder than anyone else on the grid. Sometimes too hard.', 'We have touched a couple of times now. I hope it stays fair.', 'I’ll race anyone hard, but there has to be respect both ways.', 'There is a line, and I think it has been close to being crossed.', 'Let’s just say we won’t be having dinner together.'],
+  ended: ['We’re just not in the same part of the field any more. I’m sure we’ll meet again.', 'It was fun while it lasted.'],
+};
+/** The stories of the season's wheel-to-wheel rivalries: when one starts, and when it runs out. */
+function duelStories(c, s) {
+  const out = []; const rounds = activeRounds(s);
+  const L = (id) => id === PLAYER_ID ? c.profile.last : lastName(dName(s, id));
+  const gpOf = (b) => b.key === 'SPR' ? `the ${rounds[b.i]?.name || ''} sprint` : rounds[b.i]?.name || '';
+  for (const e of duels(s).events) {
+    const r = rounds[e.i]; const rnd = seeded(`duel-${s.index}-${e.i}-${e.key}-${e.type}-${e.a}-${e.b}`);
+    const A = L(e.a), B = L(e.b);
+    // contact between them in any of these races makes it spicier
+    const touched = e.battles.some(b => (s.weekends[rounds[b.i]?.id]?.sessions?.[b.key]?.game?.incidents || []).some(x => (x.a === e.a && x.b === e.b) || (x.a === e.b && x.b === e.a)));
+    const sc = duelScore(e); const lead = (sc[e.a] || 0) >= (sc[e.b] || 0) ? e.a : e.b;
+    const base = { id: `duel-${s.index}-${e.i}-${e.key}-${e.type}-${e.a}-${e.b}`, seq: e.i * 10 + (e.key === 'SPR' ? 2.6 : 4.6), kind: 'rivalry', i: e.i, r, outlet: choose(rnd, D.OUTLETS), subject: e.b === PLAYER ? e.a : e.b };
+    if (e.type === 'duelStart') {
+      const last2 = e.battles.slice(-2);
+      out.push({ ...base, kicker: e.again ? 'Wheel to wheel · Round two' : 'Wheel to wheel',
+        headline: e.again ? choose(rnd, [`${A} and ${B} are at it again`, `${A} v ${B}: the on-track war is back on`, `They can’t stay apart: ${A} and ${B} renew hostilities`])
+          : touched ? choose(rnd, [`${A} v ${B}: a rivalry born in contact`, `${A} and ${B}: elbows out, again`, `Bumping and barging: ${A} and ${B} make it personal`])
+          : choose(rnd, [`${A} v ${B}: a rivalry born wheel to wheel`, `${A} and ${B} can’t stay away from each other`, `${A} and ${B}, the battle that keeps on giving`, `Two races, ${last2.reduce((a, b) => a + b.n, 0)} passes: ${A} v ${B} is the fight to watch`]),
+        standfirst: `${A} and ${B} swapped places ${pw(last2[0].n, 'time')} in ${gpOf(last2[0])} and ${pw(last2[1].n, 'time')} in ${gpOf(last2[1])}. Two races running, the same fight: the pair are now rivals on track.`,
+        body: [last2[0].ahead === last2[1].ahead ? `${L(last2[1].ahead)} came out ahead both times, and ${L(last2[1].ahead === e.a ? e.b : e.a)} will want to turn that around.` : `They have one each: ${L(last2[0].ahead)} had the final say first time, ${L(last2[1].ahead)} the second.`,
+          touched ? 'The two have already made contact along the way, and neither looks in the mood to back down.' : choose(rnd, ['It has been hard, clean racing so far. Long may it continue.', 'So far it has stayed clean. With these two, that may not last.'])],
+        quotes: [e.a, e.b].filter(id => id !== PLAYER).map(id => ({ id, text: choose(rnd, DUEL_QUOTES[touched ? 'needle' : 'respect']) })) });
+    } else {
+      out.push({ ...base, kicker: 'Wheel to wheel', subject: lead === PLAYER ? (lead === e.a ? e.b : e.a) : lead,
+        headline: choose(rnd, [`The ${A}–${B} duel goes quiet`, `${A} and ${B} go their separate ways`, `Three races of peace between ${A} and ${B}`]),
+        standfirst: `${A} and ${B} have now gone three races without a fight. Over ${pw(e.battles.length, 'battle')}, ${sc[e.a] === sc[e.b] ? 'they finished honours even' : sc[lead] === e.battles.length ? `${L(lead)} came out ahead every time` : `${L(lead)} came out ahead in ${nw(sc[lead])}`}.`,
+        body: [], quotes: [e.a, e.b].filter(id => id !== PLAYER).slice(0, 1).map(id => ({ id, text: choose(rnd, DUEL_QUOTES.ended) })) });
+    }
+  }
+  return out;
+}
+
 /** Lines for a qualifying report: archrivals or feuding drivers side by side on the grid. */
 function rivalryQualiLines(c, s, i, q, last, rnd) {
   const lines = []; const pos = (id) => q.findIndex(x => x.d === id);
@@ -4583,6 +4693,11 @@ function rivalryQualiLines(c, s, i, q, last, rnd) {
     const pa = pos(fd.a), pb = pos(fd.b); if (pa < 0 || pb < 0 || Math.abs(pa - pb) !== 1) continue;
     const gp0 = activeRounds(s)[Math.max(0, fd.after - 1)]?.name || 'the last race';
     lines.push(choose(rnd, [`${last(fd.a)} and ${last(fd.b)}, who came to blows after ${feudCause(fd, gp0, rnd)}, line up next to each other.`, `Fate puts ${last(fd.a)} and ${last(fd.b)} side by side, not long after ${feudCause(fd, gp0, rnd)}.`]));
+  }
+  for (const x of duelsAt(s, i - 1)) {
+    const pa = pos(x.a), pb = pos(x.b); if (pa < 0 || pb < 0 || Math.abs(pa - pb) !== 1) continue;
+    const [f, sb] = pa < pb ? [x.a, x.b] : [x.b, x.a];
+    lines.push(choose(rnd, [`${last(f)} and ${last(sb)}, wheel to wheel in ${plural(x.battles.length, 'race')} lately, line up ${ordWord(Math.min(pa, pb) + 1)} and ${ordWord(Math.max(pa, pb) + 1)}. Expect more of the same.`, `Here we go again: ${last(f)} starts just ahead of on-track rival ${last(sb)}.`, `${last(sb)} will have ${last(f)} in sight from the start. These two never seem to race anyone else.`]));
   }
   return lines;
 }
@@ -4641,12 +4756,14 @@ function rivalryPanel(c, s) {
   for (const id of mine) { const a = st.arch.driver[id]; if (id && a) arch.push(`${nm('driver', id)} v ${nm('driver', a.rival)} (since ${a.year})`); }
   if (st.arch.team[myRoot]) arch.push(`${nm('team', myRoot)} v ${nm('team', st.arch.team[myRoot].rival)} (since ${st.arch.team[myRoot].year})`);
   const feuds = feudsAt(c, s, roundsDone(s));
+  const w2w = duelsAt(s, roundsDone(s) - 1).slice().sort((a, b) => (mine.has(b.a) || mine.has(b.b)) - (mine.has(a.a) || mine.has(a.b)) || b.battles.length - a.battles.length).slice(0, 5);
   const rows = live.map(x => `<div class="goal"><div><div style="font-weight:600">${esc(nm(x.kind, x.a))} v ${esc(nm(x.kind, x.b))}</div><div class="muted" style="font-size:12px">${x.kind === 'team' ? 'Constructors' : 'Drivers'} · ${x.gap ? plural(x.gap, 'point') : 'level'}</div></div>
     <span class="tag ${x.heat >= 0.8 ? 'dnf' : x.heat >= 0.55 ? 'sprint' : ''}">${x.heat >= 0.8 ? 'White hot' : x.heat >= 0.55 ? 'Heated' : 'Simmering'}</span>
     <div class="bar-track"><div class="bar-fill" style="width:${Math.round(x.heat * 100)}%;background:var(--red)"></div></div></div>`).join('');
   return `<div class="panel"><div class="panel-h"><h2>Rivalries</h2><button class="btn sm ghost" data-act="rv-new">Start a rivalry</button></div>
     ${rows ? `<div class="panel-b"><span class="label">Title rivals</span>${rows}</div>` : `<div class="panel-b muted" style="font-size:13px">${roundsDone(s) < 5 ? 'Title rivalries form from the sixth race.' : 'Nobody is close enough to the leader to call it a fight.'}</div>`}
     ${arch.length ? `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Archrivals</span><div style="display:grid;gap:4px;margin-top:6px">${arch.map(x => `<div>${esc(x)}</div>`).join('')}</div></div>` : ''}
+    ${w2w.length ? `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Wheel to wheel</span><div style="display:grid;gap:4px;margin-top:6px">${w2w.map(x => `<div>${esc(dName(s, x.a))} v ${esc(dName(s, x.b))} <span class="muted">· ${plural(x.battles.length, 'battle')}${x.quiet ? `, ${plural(x.quiet, 'race')} without one` : ''}</span></div>`).join('')}</div></div>` : ''}
     ${feuds.length ? `<div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Bad blood</span><div style="display:grid;gap:4px;margin-top:6px">${feuds.map(fd => `<div>${esc(dName(s, fd.a))} v ${esc(dName(s, fd.b))} <span class="muted">· ${esc(FEUD_REASONS.find(x => x[0] === fd.reason)?.[1] || '')}, ${plural(fd.after + FEUD_RACES - roundsDone(s), 'race')} left</span></div>`).join('')}</div></div>` : ''}
   </div>`;
 }
@@ -4924,6 +5041,7 @@ function applyGameResult(c, r, place) {
     wear: byId(x => x.wear || []), finished: byId(x => x.laps),
     penalties: r.penaltyEvents.filter(p => map[p.car] && (PENALTY_NAMES[p.type] || p.type === WARNING)).map(p => ({ d: map[p.car], type: p.type, infr: p.infringement, time: p.time, lap: p.lap, other: map[p.other] || null, t: p.t ?? null })),
     incidents: buildIncidents(r, map),
+    ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),
     safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } };
   let results;
   const part = QUALI_PARTS[r.sessionType];
@@ -5096,7 +5214,15 @@ function strategyPanel(s, sd, key, roundId) {
         <td style="${race ? 'min-width:260px;width:40%' : ''}">${race ? stintBar(stintsOf(sd, x.d), Math.max(...Object.keys(g.laps).map(d => stintsOf(sd, d).at(-1)?.to || 0)), { compact: true }) : `<div class="row" style="gap:4px;flex-wrap:nowrap">${stintsOf(sd, x.d).map(st => tyreChip(st.c, st.to - st.from + 1, `${(COMPOUNDS[st.c] || [])[1] || 'Tyre'}, laps ${st.from}–${st.to}`)).join('')}</div>`}</td>
         ${race ? `<td class="num">${g.pits?.[x.d] ?? '–'}</td><td class="muted" style="font-size:12px">${pens(x.d).map(q => `${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${INFRINGEMENTS[q.infr] ? ` for ${INFRINGEMENTS[q.infr]}` : ''}${q.lap ? ` (lap ${q.lap})` : ''}`).join(', ') || '–'}</td>` : `<td class="num">${g.laps[x.d].length}</td>`}
         <td class="num mono">${p && isFinite(p) ? fmtLap(p) : '–'}</td></tr>`; }).join('')}
-    </tbody></table></div></div>`;
+    </tbody></table></div>${race ? battlesFooter(s, sd) : ''}</div>`;
+}
+/** Under the race strategy table: the battles (pairs who swapped places five or more times) and who passed most. */
+function battlesFooter(s, sd) {
+  const B = raceBattles(sd), P = racePasses(sd); if (!P) return '';
+  const nm = (d) => esc(lastName(dName(s, d)));
+  const top = Object.entries(P.made).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return `<div class="panel-b battles-foot"><div><span class="label">Battles</span> ${B.length ? B.slice(0, 6).map(b => `<span class="battle-chip"><b>${nm(b.ahead)}</b> v ${nm(b.behind)} · ${b.n} passes${b.to > b.from ? `, laps ${b.from}–${b.to}` : ''}</span>`).join('') : '<span class="muted">Nobody swapped places five times or more.</span>'}</div>
+    <div class="muted">${P.total === 1 ? '1 pass' : `${P.total} passes`} in all${top.length ? `. Most made: ${top.map(([d, n]) => `${nm(d)} ${n}`).join(', ')}` : ''}.${sd.game.passSource === 'positions' ? ' (From position changes: the game sent no overtake events.)' : ''}</div></div>`;
 }
 /** A small line chart: series [{ color, pts: [[x, y]], dashed, label }]. */
 function svgChart(series, { h = 180, yFmt = (v) => v, invert = false, xLabel = 'Lap' } = {}) {
@@ -5571,6 +5697,397 @@ function dotdStory(c, s, i, dd, mem, { name, last, tName }) {
     standfirst: dd.pub.length ? `${name(dd.id)} (${tName(dd.id)}) ${listJoin(dd.pub)}.` : `${name(dd.id)} (${tName(dd.id)}) was the standout driver of the race.`, body, dotd: { ri: i } };
 }
 
+/* ------------------------------------------------------------ race facts */
+/**
+ * Everything worth telling about one Grand Prix, for the race report's account of the race and the season review:
+ * the result, where people started, first wins and podiums, streaks, the title before and after, incidents, battles,
+ * passes on the opening lap, safety cars, retirements, the sprint and Driver of the Day.
+ */
+function raceFacts(c, s, i) {
+  const r = activeRounds(s)[i]; const ses = (r && s.weekends[r.id]?.sessions) || {};
+  if (!ses.R?.done) return null;
+  const res = ses.R.results; const fin = res.filter(x => !OUT.includes(x.st)); const W = fin[0]?.d; if (!W) return null;
+  const g = ses.R.game || null;
+  const gridG = g?.grid && Object.values(g.grid).some(Boolean) ? g.grid : null;
+  const qOrder = ses.Q?.done ? ses.Q.results.filter(x => !OUT.includes(x.st)).map(x => x.d) : null;
+  const gpos = (d) => gridG?.[d] || (qOrder ? qOrder.indexOf(d) + 1 || null : null);
+  const pos = (d) => { const k = res.findIndex(x => x.d === d); return k < 0 ? null : OUT.includes(res[k].st) ? res[k].st : k + 1; };
+  // career tallies going into the race (real seasons count from the record books, so no "first win" claims there)
+  const hist = isHist(s); const stB = seasonStats(s, i);
+  const prior = (id, key) => (id === PLAYER_ID || D.DRIVER_BIO[id]?.fictional ? 0 : (D.DRIVER_BIO[id]?.[key] || 0)) + c.seasons.slice(0, s.index).reduce((a, x) => a + (seasonStatsCache(x)[id]?.[key] || 0), 0) + (stB[id]?.[key] || 0);
+  const dB = titleMath(s, 'driver', i), dA = titleMath(s, 'driver', i + 1);
+  const tB = titleMath(s, 'team', i), tA = titleMath(s, 'team', i + 1);
+  const mem = raceMemory(c, s, i);
+  const sprint = r.sprint && ses.SPR?.done ? ses.SPR : null;
+  return { c, s, i, r, gp: gpThe(r.name), ses, res, fin, W, P2: fin[1]?.d || null, P3: fin[2]?.d || null, gap2: parseGap(res[1]?.gap), pole: qOrder?.[0] || null, gpos, pos,
+    firstWin: !hist && !D.DRIVER_BIO[W]?.fictional && prior(W, 'wins') === 0,
+    firstPods: hist ? [] : fin.slice(1, 3).map(x => x.d).filter(d => !D.DRIVER_BIO[d]?.fictional && prior(d, 'podiums') === 0),
+    streak: mem.run(W).wins + 1, mem, dB, dA, tB, tA,
+    // the title contenders going in (from the third race: before that, everyone is)
+    contenders: i < 2 ? [] : dB.rows.filter(x => x.alive && x.pts > 0 && (x.pos <= 2 || x.gap <= 25)).slice(0, 4).map(x => x.id),
+    climbers: fin.map((x, k) => ({ d: x.d, from: gpos(x.d), to: k + 1 })).filter(x => x.from && x.from - x.to >= 5).map(x => ({ ...x, g: x.from - x.to })).sort((a, b) => b.g - a.g || a.to - b.to),
+    dnfs: res.filter(x => x.st === 'DNF').map(x => x.d), dsq: res.filter(x => x.st === 'DSQ').map(x => x.d),
+    incidents: g?.incidents || [], battles: raceBattles(ses.R) || [], passes: racePasses(ses.R), safety: g?.safety || null,
+    sprW: sprint?.results.find(x => !OUT.includes(x.st))?.d || null,
+    dotd: driverOfTheDay(s, i), team: (d) => teamAt(s, d, i),
+    oneTwo: !!fin[1] && teamAt(s, W, i)?.id === teamAt(s, fin[1].d, i)?.id,
+    title: { change: i > 0 && dA.rows[0]?.id !== dB.rows[0]?.id, decided: dA.decided && !dB.decided,
+      out: dA.decided ? [] : dB.rows.filter(x => x.alive && x.pos <= 5 && !dA.rows.find(y => y.id === x.id)?.alive).map(x => x.id),
+      teamChange: i > 0 && tA.rows[0]?.id !== tB.rows[0]?.id, teamDecided: tA.decided && !tB.decided } };
+}
+// Grand Prix names that take "the" in a sentence
+const GP_THE = ['Netherlands', 'United States', 'United Kingdom', 'Americas'];
+const gpThe = (n) => GP_THE.includes(n) ? 'the ' + n : n;
+const cap = (x) => x ? x[0].toUpperCase() + x.slice(1) : x;
+/** A count in words up to ten: "three places", "one round". */
+const pw = (n, w) => `${nw(n)} ${w}${n === 1 ? '' : 's'}`;
+const nw = (n) => n <= 10 ? numWord(n) : String(n);
+/** A phrase picker that works through every variant of a kind before it repeats one, so a long piece doesn't echo. */
+function phrasebook(rnd) {
+  const used = {};
+  return (key, variants) => {
+    const list = variants.filter(x => x != null && x !== false); if (!list.length) return '';
+    const u = used[key] ||= new Set();
+    let free = list.map((_, k) => k).filter(k => !u.has(list[k]));
+    if (!free.length) { u.clear(); free = list.map((_, k) => k); }
+    const k = free[Math.floor(rnd() * free.length)]; u.add(list[k]);
+    return list[k];
+  };
+}
+/**
+ * The things that happened in a race, each a sentence with a weight for how much it matters: { tag, w, text, ids }.
+ * Tags: lap1, safety, incident, battle, climber, firstpod, pole, dnf, sprint, dotd, player.
+ * duelsNow / duelsOn: pair keys of wheel-to-wheel rivalries born in this race, and already running.
+ */
+function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) {
+  const out = []; const add = (tag, wt, text, ids = []) => { if (text) out.push({ tag, w: wt, text, ids }); };
+  const o = ordWord; const isC = (d) => F.contenders.includes(d); const num = (d) => typeof F.pos(d) === 'number' ? F.pos(d) : null;
+  const out_ = (d) => !!F.pos(d) && typeof F.pos(d) !== 'number';
+  const mine = (d) => d === PLAYER || F.team(d)?.id === F.s.playerTeamId;
+  const onLap = (l) => l ? ` on lap ${l}` : '';
+  // the start
+  if (F.passes) {
+    const L1 = Object.entries(F.passes.lap1).sort((a, b) => b[1] - a[1]);
+    const up = L1[0], down = L1[L1.length - 1];
+    if (up && up[1] >= 3) { const n = pw(up[1], 'place'); add('lap1', 1 + up[1] / 2 + (mine(up[0]) ? 1 : 0), w('lap1', [`${L(up[0])} made a flying start, ${n} better off by the end of lap one.`, `${L(up[0])} gained ${n} on the opening lap.`, `The start belonged to ${L(up[0])}, up ${n} in the first few corners.`, `${L(up[0])} was the star of lap one, climbing ${n}.`, `${L(up[0])} got the jump on the field and made up ${n} before the first lap was out.`, `A brilliant getaway lifted ${L(up[0])} ${n}.`, `${L(up[0])} picked off ${n} on the run to the first corners.`]), [up[0]]); }
+    if (down && down[1] <= -4) { const n = pw(-down[1], 'place'); add('lap1', 1 - down[1] / 3 + (isC(down[0]) ? 2 : 0), w('lap1-lost', [`${L(down[0])} had a nightmare start, losing ${n} on the first lap.`, `Lap one went badly wrong for ${L(down[0])}, down ${n}.`, `${L(down[0])} was swallowed up at the start and lost ${n}.`, `${L(down[0])} bogged down off the line and dropped ${n}.`]), [down[0]]); }
+  }
+  // safety cars and red flags
+  const sf = F.safety || {};
+  if (sf.red) add('safety', 4.5, w('red', ['A red flag stopped the race, and it had to be restarted.', 'The race was red-flagged at one point, bunching everyone up for the restart.', 'Proceedings were halted by a red flag.']));
+  else if (sf.sc >= 2) add('safety', 3, w('sc2', [`${numWord(sf.sc)[0].toUpperCase() + numWord(sf.sc).slice(1)} safety car periods kept bunching the field up.`, `The safety car came out ${sf.sc} times.`, `It was a stop-start race, with ${numWord(sf.sc)} safety cars.`]));
+  else if (sf.sc === 1) add('safety', 2.2, w('sc1', ['A safety car period shuffled the order.', 'One safety car bunched the field up.', 'The safety car made an appearance and closed the gaps.']));
+  else if (sf.vsc) add('safety', 1.2, w('vsc', ['A virtual safety car briefly neutralised the race.', `The race went under a virtual safety car${sf.vsc > 1 ? ` ${sf.vsc} times` : ''}.`]));
+  // incidents: the ones that matter most first
+  const ended = new Set();
+  const incs = F.incidents.map(inc => {
+    const big = isC(inc.a) || isC(inc.b) || [inc.a, inc.b].some(d => num(d) && num(d) <= 3);
+    const bOut = out_(inc.b);
+    return { inc, wt: (inc.major ? 6 : 2.5) + (big ? 3 : 0) + (bOut ? 2 : 0) + ([inc.a, inc.b].some(mine) ? 1.5 : 0), bOut };
+  }).sort((a, b) => b.wt - a.wt).slice(0, 3);
+  for (const { inc, wt, bOut } of incs) {
+    const A = L(inc.a), B = L(inc.b); const lp = onLap(inc.lap);
+    const end = bOut ? w('inc-end', [`, ending ${B}’s race`, `, and ${B} did not make it to the flag`, `, which put ${B} out`]) : '';
+    if (bOut) ended.add(inc.b);
+    const text = inc.noFault ? w('inc-even', [`${A} and ${B} tangled${lp}${end}, a racing incident in the stewards’ eyes.`, `${A} and ${B} made contact${lp}${end}; nobody was blamed.`, inc.lap ? `Lap ${inc.lap} brought contact between ${A} and ${B}${end}, put down as a racing incident.` : null])
+      : inc.pen && inc.pen !== 'a warning' ? w('inc-pen', [`${A} was handed ${inc.pen} for hitting ${B}${lp}${end}.`, `Contact with ${B}${lp} earned ${A} ${inc.pen}${end}.`, `The stewards hit ${A} with ${inc.pen} after a clash with ${B}${lp}${end}.`, `${A} went for a gap that wasn’t there${lp}, hit ${B} and collected ${inc.pen}${end}.`])
+      : inc.major ? w('inc-major', [`${A} and ${B} collided${lp}${end}, and ${A} was given ${inc.pen || 'the blame'}.`, `A heavy clash between ${A} and ${B}${lp}${end} drew ${inc.pen || 'a reprimand'} for ${A}.`])
+      : w('inc-minor', [`${A} tagged ${B}${lp}${end || ', with no lasting harm done'}.`, `There was a brush between ${A} and ${B}${lp}${end}.`, `${A} and ${B} touched${lp}${end || ', but both carried on'}.`, `${A} nudged ${B}${lp}${end}; the stewards let it go.`]);
+    add('incident', wt, text, [inc.a, inc.b]);
+  }
+  // battles
+  for (const b of F.battles.slice(0, 3)) {
+    const A = L(b.ahead), B = L(b.behind); const k = pairKey(b.a, b.b);
+    const span = b.to > b.from ? ` between laps ${b.from} and ${b.to}` : b.from ? ` on lap ${b.from}` : '';
+    const where = b.posW < 99 ? ` in ${o(b.posW)}` : '';
+    let t = w('battle', [`${A} and ${B} swapped places ${nw(b.n)} times${span}, ${A} coming out on top${where}.`, `The fight of the race was ${A} against ${B}: ${nw(b.n)} changes of position${span}, and ${A} had the last word.`, `${B} and ${A} went at it wheel to wheel${span}, trading places ${nw(b.n)} times before ${A} made it stick.`, `${A} and ${B} put on a show${span}, passing each other ${nw(b.n)} times; ${A} finished ahead.`, `With ${nw(b.n)} passes between them${span}, ${A} and ${B} produced the duel of the day, and it went ${A}’s way.`, `${A} and ${B} could not shake each other off${span}: ${nw(b.n)} changes of position, ${A} ahead at the end.`, `Lap after lap, ${A} and ${B} traded places${span}, ${nw(b.n)} times in all, before ${A} came out in front.`]);
+    if (duelsNow.has(k)) t += ' ' + w('duel-born', ['It was the second race running they had gone wheel to wheel, and a rivalry was born.', 'Two races in a row now: these two are rivals on track.', 'That made it two races running, and the paddock started calling it a rivalry.']);
+    else if (duelsOn.has(k)) t += ' ' + w('duel-on', ['Another chapter in their running duel.', 'Their on-track rivalry shows no sign of cooling.', 'These two just keep finding each other.']);
+    add('battle', 3.5 + Math.min(4, (b.n - 5) / 2) + (b.posW <= 5 ? 2 : 0) + (duelsNow.has(k) ? 3 : 0) + (isC(b.a) || isC(b.b) ? 2 : 0) + ([b.a, b.b].some(mine) ? 1.5 : 0), t, [b.a, b.b]);
+  }
+  // great drives: the climbers (the winner's climb belongs to the winner's line)
+  for (const x of F.climbers.filter(x => x.d !== F.W).slice(0, 2)) {
+    add('climber', 1.5 + x.g / 3 + (x.to <= 3 ? 3 : x.to <= 10 ? 1 : 0) + (mine(x.d) ? 1.5 : 0), w('climber', [`${L(x.d)} charged from ${o(x.from)} on the grid to ${o(x.to)}.`, `${L(x.d)} made up ${pw(x.g, 'place')}, ${o(x.from)} to ${o(x.to)}.`, x.to <= 10 ? `${L(x.d)} started ${o(x.from)} and still scored, finishing ${o(x.to)}.` : `${L(x.d)} gained ${pw(x.g, 'place')} on the day, though ${o(x.to)} was still out of the points.`, `${L(x.d)} quietly worked through from ${o(x.from)} to ${o(x.to)}.`, `Up from ${o(x.from)} to ${o(x.to)}: a fine afternoon’s work by ${L(x.d)}.`, `A storming drive took ${L(x.d)} from ${o(x.from)} to ${o(x.to)}.`, `${L(x.d)} was the climber of the day, starting ${o(x.from)} and finishing ${o(x.to)}.`, `From ${o(x.from)} on the grid, ${L(x.d)} carved through to ${o(x.to)}.`]), [x.d]);
+  }
+  for (const d of F.firstPods) add('firstpod', 6, w('firstpod', [`${L(d)} took a first career podium in ${o(num(d))}.`, `There was a maiden podium for ${L(d)}.`, `${L(d)} stood on a Formula 1 podium for the first time.`, `${o(num(d))[0].toUpperCase() + o(num(d)).slice(1)} meant a first trip to the podium for ${L(d)}.`]), [d]);
+  // pole that came to nothing
+  if (F.pole && F.pole !== F.W) {
+    const p = F.pos(F.pole);
+    if (out_(F.pole) && !ended.has(F.pole)) { ended.add(F.pole); add('pole', 4, w('pole-out', [`Pole-sitter ${L(F.pole)} retired.`, `${L(F.pole)} started from pole but did not see the flag.`, `Pole came to nothing for ${L(F.pole)}, out of the race.`]), [F.pole]); }
+    else if (num(F.pole) >= 4) add('pole', 3, w('pole-lost', [`${L(F.pole)} could only turn pole into ${o(p)}.`, `Pole-sitter ${L(F.pole)} slipped back to ${o(p)}.`, `${L(F.pole)} started at the front but finished ${o(p)}.`]), [F.pole]);
+  }
+  // retirements: a title contender's is a story; so is a race that ate cars
+  for (const d of F.dnfs.filter(d => !ended.has(d))) {
+    if (isC(d)) add('dnf', 6.5, w('dnf-c', [`${L(d)} retired, a heavy blow to the title bid.`, `A retirement for ${L(d)} was a costly zero in the title race.`, `${L(d)} failed to finish, and the championship picture shifted with it.`]), [d]);
+    else if (mine(d)) add('dnf', 3.5, w('dnf-m', [`${L(d)} retired.`, `${L(d)}’s race ended early.`, `It was a retirement for ${L(d)}.`]), [d]);
+  }
+  if (F.dnfs.length >= 4) add('dnf', 3, w('attrition', [`It was a race of attrition: ${F.dnfs.length} cars failed to finish.`, `${F.dnfs.length} drivers retired, ${listJoin(F.dnfs.slice(0, 4).map(L))} among them.`, `Only ${F.fin.length} cars made it to the flag.`]));
+  // the sprint
+  if (F.sprW) {
+    if (F.sprW === F.W) add('sprint', 4, w('spr-dbl', [`It completed a sprint and Grand Prix double for ${L(F.W)}.`, `${L(F.W)} had won the sprint too, for a perfect weekend.`, `Add the sprint win, and it was ${L(F.W)}’s weekend from start to finish.`]), [F.W]);
+    else add('sprint', 2, w('spr', [`${L(F.sprW)} had taken the sprint.`, `The sprint had gone to ${L(F.sprW)}.`, `${L(F.sprW)} won the sprint the day before.`]), [F.sprW]);
+  }
+  // the fans' standout, when it wasn't the winner
+  if (F.dotd && F.dotd.id !== F.W && F.dotd.rating >= 9) add('dotd', 3.5, w('dotd', [`${L(F.dotd.id)}’s drive to ${o(F.dotd.finish)} was rated the best of the day.`, `Fans voted ${L(F.dotd.id)} Driver of the Day for the run to ${o(F.dotd.finish)}.`, `The drive of the day was ${L(F.dotd.id)}’s, to ${o(F.dotd.finish)}.`]), [F.dotd.id]);
+  // you, when you're not already in the story
+  const pp = F.pos(PLAYER);
+  if (pp && ![F.W, F.P2, F.P3].includes(PLAYER) && !out.some(b => b.ids.includes(PLAYER))) {
+    if (typeof pp === 'number') add('player', pp <= 10 ? 3 : 1.5, pp <= 10 ? w('player', [`${L(PLAYER)} came home ${o(pp)}.`, `${L(PLAYER)} took ${o(pp)} for ${F.team(PLAYER)?.name || 'the team'}.`, `${o(pp)[0].toUpperCase() + o(pp).slice(1)} for ${L(PLAYER)}.`, `${L(PLAYER)} brought it home in ${o(pp)}.`]) : w('player-out', [`${L(PLAYER)} finished ${o(pp)}, outside the points.`, `${L(PLAYER)} could only manage ${o(pp)}.`]), [PLAYER]);
+    else if (!ended.has(PLAYER)) add('player', 3.5, w('player-dnf', [`${L(PLAYER)} retired.`, `${L(PLAYER)}’s race ended early.`]), [PLAYER]);
+  }
+  return out;
+}
+/** How the race unfolded, for the race report: the start, safety cars, incidents, battles and the big climbs. */
+function raceNarrative(F, L, rnd, opts) {
+  const w = phrasebook(rnd);
+  const B = raceBeats(F, w, L, opts);
+  const take = (tag, n, min = 0) => B.filter(b => b.tag === tag && b.w >= min).sort((a, b) => b.w - a.w).slice(0, n);
+  const parts = [...take('lap1', 1), ...take('safety', 1), ...take('incident', 3, 3.5), ...take('battle', 2), ...take('climber', 2), ...take('firstpod', 2)];
+  return parts.map(b => b.text).join(' ');
+}
+
+/* --------------------------------------------------------- season review */
+// The season told race by race, once every round is in. Each race gets a lead line about the winner (a first win, a
+// climb from far back, a streak, a one-two, a close finish or a rout) and then the two or three things that mattered
+// most that day, by weight: the title changing hands or being settled, contenders retiring, big incidents, battles,
+// great drives, first podiums. The races are grouped into chapters named after what happened in them, and the piece
+// opens on what kind of season it was and closes with the numbers, the battles of the year and your own season.
+const _reviewCache = new WeakMap();
+function seasonReview(c, s) {
+  const rounds = activeRounds(s); const N = rounds.length;
+  if (!N || roundsDone(s) < N) return null;
+  let v = _reviewCache.get(s); if (v && v.gen === renderGen) return v.rv;
+  const rv = buildSeasonReview(c, s, rounds);
+  _reviewCache.set(s, { gen: renderGen, rv });
+  return rv;
+}
+function buildSeasonReview(c, s, rounds) {
+  const N = rounds.length; const rnd = seeded(`${s.index}-${s.year}-review`); const w = phrasebook(rnd);
+  const L = (id) => id === PLAYER_ID ? c.profile.last : lastName(dName(s, id));
+  const full = (id) => dName(s, id);
+  const facts = rounds.map((r, i) => raceFacts(c, s, i));
+  const F0 = facts.filter(Boolean); if (!F0.length) return null;
+  const st = seasonStatsCache(s); const ds = driverStandings(s, st); const cs = constructorStandings(s, st);
+  const champ = ds[0], run = ds[1]; const C = champ.id;
+  const dec = titleDecision(s, 'driver');
+  const champTeam = teamOf(s, C);
+  const year = s.year;
+  // the shape of the season
+  const leaders = F0.map(F => F.dA.rows[0]?.id);
+  const changes = F0.filter(F => F.title.change).length;
+  const leaderSet = [...new Set(leaders)];
+  const winners = F0.map(F => F.W); const winSet = [...new Set(winners)];
+  const poleSet = [...new Set(F0.map(F => F.pole).filter(Boolean))];
+  let maxDef = 0, defAt = null;
+  for (const F of F0) { const row = F.dA.rows.find(x => x.id === C); const gap = (F.dA.rows[0]?.pts || 0) - (row?.pts || 0); if (F.i >= 2 && gap > maxDef) { maxDef = gap; defAt = F; } }
+  const titles = (C === PLAYER_ID ? 0 : (D.DRIVER_BIO[C]?.titles?.length || 0)) + c.seasons.slice(0, s.index).filter(se => roundsDone(se) === activeRounds(se).length && driverStandings(se)[0]?.id === C).length + 1;
+  const prev = c.seasons[s.index - 1];
+  const defending = prev && roundsDone(prev) === activeRounds(prev).length ? driverStandings(prev)[0]?.id : Object.entries(D.DRIVER_BIO).find(([, b]) => b.titles?.includes(year - 1))?.[0];
+  const final = !!dec?.final, spare = dec ? dec.m.left.length : 0;
+  const dominant = champ.wins >= N * 0.5 && champ.pts - run.pts >= 60;
+  const character = final ? 'decider' : maxDef >= 30 ? 'comeback' : dominant ? 'dominant' : titles === 1 && !isHist(s) ? 'first' : winSet.length >= 6 ? 'open' : defending === C ? 'repeat' : 'plain';
+  const headline = w('h-' + character, {
+    decider: [`Down to the wire: the ${year} season in review`, `${year} reviewed: the title that went to the last race`, `One race to decide it all: ${year}, race by race`, `How ${L(C)} won the ${year} title at the death`],
+    comeback: [`From ${maxDef} points down: the ${year} season in review`, `${year} reviewed: ${L(C)}’s great comeback`, `The fightback: how ${L(C)} turned ${year} around`],
+    dominant: [`Untouchable: ${L(C)}’s ${year}, race by race`, `${year} in review: the season ${L(C)} made their own`, `${champ.wins} wins and a title: ${year} reviewed`, `The ${year} season, and the year nobody could stop ${L(C)}`],
+    first: [`${L(C)}’s breakthrough year: ${year} in review`, `A new champion: the ${year} season race by race`, `${year} reviewed: how ${L(C)} became world champion`],
+    open: [`${winSet.length} winners, one champion: the ${year} season reviewed`, `${year} in review: anybody’s season, ${L(C)}’s title`, `The year everyone won: ${year}, race by race`],
+    repeat: [`${L(C)} again: the ${year} season in review`, `${year} reviewed: ${L(C)} defends the crown`, `Back-to-back: how ${L(C)} won ${year} too`],
+    plain: [`The ${year} season, race by race`, `${year} in review: every Grand Prix, every twist`, `Race by race: how ${year} unfolded`, `The story of ${year}`],
+  }[character]);
+  const standfirst = w('sf', [`All ${N} rounds of the ${year} season, one by one: the wins, the flashpoints, the battles and how the title was won.`, `From ${rounds[0].name} to ${rounds[N - 1].name}: every race of ${year}, and what each one meant.`, `${N} Grands Prix, ${winSet.length === 1 ? 'one winner' : `${winSet.length} different winners`} and one champion. This is how ${year} played out.`]);
+  // the opening: what kind of season it was
+  const intro = [];
+  const shape = [];
+  const decGp = dec ? gpThe(dec.r.name) : '';
+  if (final) shape.push(w('in-dec', [`The ${year} title went all the way to ${decGp}, the last race of the year.`, `It took until the very last race, in ${decGp}, to settle the ${year} championship.`, `Nobody knew who would be champion until the flag fell in ${decGp}.`]));
+  else if (spare >= 3) shape.push(w('in-early', [`${L(C)} had the title wrapped up in ${decGp}, with ${pw(spare, 'round')} still to run.`, `The championship was settled early: ${decGp}, ${pw(spare, 'race')} before the end.`]));
+  else if (dec) shape.push(w('in-late', [`The title was decided in ${decGp}, with ${pw(spare, 'round')} to go.`, `It went late: ${cap(decGp)} settled it, ${pw(spare, 'race')} from the end.`]));
+  if (leaderSet.length === 1) shape.push(w('in-wire', [`${L(C)} led the championship from the first race to the last.`, `${L(C)} was top of the standings after every single round.`]));
+  else if (changes >= 3) shape.push(w('in-swaps', [`The lead changed hands ${nw(changes)} times between ${listJoin(leaderSet.map(L))}.`, `${listJoin(leaderSet.map(L))} all led the championship at some point, and the lead changed ${nw(changes)} times.`]));
+  else if (changes) shape.push(w('in-swap', [`${listJoin(leaderSet.map(L))} took turns at the top of the table.`, `The championship lead changed hands ${changes === 1 ? 'once' : 'twice'}.`]));
+  if (character === 'comeback' && defAt) shape.push(w('in-cb', [`After ${defAt.gp}, ${L(C)} was ${maxDef} points behind ${L(defAt.dA.rows[0].id)}. It didn’t matter in the end.`, `${L(C)} was ${maxDef} points down after ${defAt.gp}, and still came back to win it.`]));
+  if (winSet.length === 1) shape.push(`${L(winSet[0])} won every single race.`);
+  else shape.push(w('in-win', [`${numWord(winSet.length)[0].toUpperCase() + numWord(winSet.length).slice(1)} different drivers won Grands Prix${winSet.length >= 6 ? ', and on any given Sunday it could have been almost anyone' : ''}.`, `There were ${numWord(winSet.length)} different winners${poleSet.length ? ` and ${numWord(poleSet.length)} different pole-sitters` : ''}.`]));
+  intro.push(shape.join(' '));
+  intro.push(`${full(C)} took ${titles === 1 ? 'a first world title' : `a ${ordWord(titles)} world title`}${champTeam ? ` for ${champTeam.name}` : ''}${defending === C ? ', defending the crown' : ''}: ${plural(champ.wins, 'win')}, ${plural(champ.podiums, 'podium')} and ${plural(champ.poles, 'pole')} from ${plural(N, 'round')}, and ${plural(champ.pts, 'point')}, ${champ.pts - run.pts ? `${plural(champ.pts - run.pts, 'point')} clear of ${full(run.id)}` : `level with ${full(run.id)} and ahead on countback`}.`);
+  if (cs[0]) intro.push(cs[0].team.id === champTeam?.id
+    ? w('in-dbl', [`${cs[0].team.name} completed the double, taking the constructors’ title by ${plural(cs[0].pts - (cs[1]?.pts || 0), 'point')} from ${cs[1]?.team.name}.`, `It was a double for ${cs[0].team.name}: the constructors’ championship came too, ${plural(cs[0].pts - (cs[1]?.pts || 0), 'point')} ahead of ${cs[1]?.team.name}.`])
+    : w('in-cc', [`The constructors’ title went elsewhere: ${cs[0].team.name} took it, ${plural(cs[0].pts - (cs[1]?.pts || 0), 'point')} clear of ${cs[1]?.team.name}.`, `${cs[0].team.name} won the constructors’ championship on ${cs[0].pts} points, the stronger pairing over the season.`]));
+
+  // the wheel-to-wheel rivalries, so a race can say when one was born
+  const DU = duels(s);
+  const bornAt = (i) => new Set(DU.events.filter(e => e.type === 'duelStart' && e.i === i && e.key === 'R').map(e => pairKey(e.a, e.b)));
+  const onAt = (i) => new Set(duelsAt(s, i - 1).map(x => pairKey(x.a, x.b)));
+
+  // each race: the lead line, then what mattered
+  const lead = (F) => {
+    const W = L(F.W), P2 = F.P2 && L(F.P2), P3 = F.P3 && L(F.P3), gp = F.gp, GP = cap(F.gp); const tn = F.team(F.W)?.name || '';
+    const from = F.gpos(F.W); const gap = F.gap2;
+    const pod = P2 && P3 ? w('pod', [`, ahead of ${P2} and ${P3}`, `, from ${P2} and ${P3}`, `, with ${P2} and ${P3} completing the podium`, '', '']) : '';
+    if (F.firstWin) return w('w-first', [`${GP} belonged to ${W}, who finally broke through for a first Grand Prix win.`, `${W} became a Grand Prix winner for the first time in ${gp}${pod}.`, `A first career win for ${W} made ${gp} a day to remember for ${tn}.`, `${W} took a long-awaited maiden victory in ${gp}${pod}.`]);
+    if (from >= 10) return w('w-back', [`${W} won ${gp} from ${ordWord(from)} on the grid, picking off the cars ahead one by one.`, `${GP} was a comeback for the ages: ${W} went from ${ordWord(from)} to the top step.`, `Few gave ${W} a chance from ${ordWord(from)} on the grid in ${gp}, but the win came all the same.`, `From ${ordWord(from)} to first: ${W}’s drive in ${gp} will be remembered for years.`]);
+    if (from >= 5) return w('w-up', [`Starting ${ordWord(from)}, ${W} still found a way to win ${gp}${pod}.`, `${W} came from ${ordWord(from)} on the grid to win ${gp}.`, `${W} worked forward from ${ordWord(from)} and took the win in ${gp}${pod}.`, `${ordWord(from)[0].toUpperCase() + ordWord(from).slice(1)} on the grid, first at the flag: ${W} in ${gp}.`]);
+    if (F.i === 0) return w('w-open', [`The season opened in ${gp} with victory for ${W}${pod}.`, `${W} drew first blood in ${gp}${pod}.`, `${GP} kicked the year off, and ${W} won it${pod}.`, `${W} started the season the way everyone else wanted to: with a win, in ${gp}${pod}.`]);
+    if (F.oneTwo) return w('w-12', [`${tn} locked out the top two in ${gp}, ${W} leading ${P2} home.`, `A ${tn} one-two in ${gp}, with ${W} ahead of ${P2}.`, `${GP} was a ${tn} party: ${W} won, ${P2} was second.`, `${tn} were in a class of their own in ${gp}: ${W} first, ${P2} second.`]);
+    if (F.streak >= 3) return w('w-run', [`${W} made it ${nw(F.streak)} wins in a row in ${gp}.`, `The winning run went on in ${gp}: ${numWord(F.streak)} straight for ${W}.`, `${GP} brought win number ${F.streak} on the bounce for ${W}.`, `${W} kept on winning: ${gp} made it ${numWord(F.streak)} in a row.`]);
+    if (F.streak === 2 && rnd() < 0.6) return w('w-run2', [`${W} made it back-to-back wins in ${gp}${pod}.`, `${W} followed it up with another win in ${gp}${pod}.`, `Two in a row for ${W}, this time in ${gp}.`]);
+    if (gap != null && gap < 1) return w('w-close', [`${W} held off ${P2} by just ${gap.toFixed(3)}s in ${gp}.`, `${GP} went to the wire, ${W} beating ${P2} by ${gap.toFixed(3)} seconds.`, `${W} survived a late charge from ${P2} to win ${gp} by ${gap.toFixed(3)}s.`, `Only ${gap.toFixed(3)} seconds covered ${W} and ${P2} at the flag in ${gp}.`]);
+    if (gap != null && gap >= 10) return w('w-dom', [`${W} was in a race of one in ${gp}, winning by ${gap.toFixed(1)}s.`, `${GP} was a demolition job: ${W} won by ${gap.toFixed(1)} seconds.`, `Nobody could live with ${W} in ${gp}; the margin at the flag was ${gap.toFixed(1)}s.`, `${W} cruised to victory in ${gp}, ${gap.toFixed(1)} seconds clear of ${P2}.`]);
+    if (F.i === N - 1) return w('w-fin', [`The finale in ${gp} went to ${W}${pod}.`, `${W} signed off the year with victory in ${gp}${pod}.`, `${W} won the last race of the year, in ${gp}${pod}.`]);
+    if (F.pole === F.W) return w('w-pole', [`${W} converted pole into victory in ${gp}${pod}.`, `Lights to flag in ${gp}: ${W} led from pole.`, `From pole, ${W} controlled ${gp}${pod}.`]);
+    return w('w', [`${W} won ${gp}${pod}.`, `Victory in ${gp} went to ${W}${pod}.`, `${GP} fell to ${W}${pod}.`, `${W} took the honours in ${gp}${pod}.`, `${W} was the class of the field in ${gp}${pod}.`, `${GP} was ${W}’s day${pod}.`, `${W} got the job done in ${gp}${pod}.`, `It was ${W} who stood on the top step in ${gp}${pod}.`, `${W} had the measure of everyone in ${gp}${pod}.`, `${W} timed it right in ${gp} and won${pod}.`]);
+  };
+  const titleBeats = (F) => {
+    const out = []; const A0 = F.dA.rows[0], A1 = F.dA.rows[1]; const T = F.title;
+    if (T.decided) out.push({ tag: 'title', w: 12, text: F.dA.left.length
+      ? w('t-dec', [`That settled the title: ${L(A0.id)} was world champion with ${pw(F.dA.left.length, 'round')} to spare.`, `${L(A0.id)} sealed the championship there and then, ${pw(F.dA.left.length, 'race')} early.`, `And with that, the ${year} title belonged to ${L(A0.id)}.`])
+      : w('t-decF', [`${L(A0.id)} left as world champion, the title decided at the very last race.`, `It was enough: ${L(A0.id)} was champion, by ${plural(F.dA.margin, 'point')}.`, `The title, at the last, went to ${L(A0.id)}.`]) });
+    else if (T.change) out.push({ tag: 'title', w: 8, text: w('t-chg', [`The result put ${L(A0.id)} top of the standings${F.dA.margin ? `, ${plural(F.dA.margin, 'point')} clear` : ', level on points'}.`, `${L(F.dB.rows[0].id)} lost the championship lead to ${L(A0.id)}.`, `${L(A0.id)} took over at the top of the championship.`, `It was enough to lift ${L(A0.id)} into the championship lead.`]) });
+    else if (F.i > 0 && A1 && !F.dB.decided) {
+      const d = F.dA.margin - F.dB.margin;
+      if (d <= -10) out.push({ tag: 'title', w: 4 + Math.min(3, -d / 8), text: w('t-cut', [`${L(A1.id)} cut the gap at the top to ${plural(F.dA.margin, 'point')}.`, `${L(A0.id)}’s lead was down to ${plural(F.dA.margin, 'point')}.`, `The margin at the top shrank to ${plural(F.dA.margin, 'point')}.`]) });
+      else if (d >= 15) out.push({ tag: 'title', w: 3.5 + Math.min(2.5, d / 15), text: w('t-grow', [`${L(A0.id)} stretched the championship lead to ${plural(F.dA.margin, 'point')}.`, `The gap to ${L(A1.id)} grew to ${plural(F.dA.margin, 'point')}.`, `It pushed ${L(A0.id)}’s lead out to ${plural(F.dA.margin, 'point')}.`]) });
+    }
+    if (T.out.length) { const nm = listJoin(T.out.map(L)); out.push({ tag: 'title', w: 6, text: w('t-out', [`It ended ${nm}’s title hopes.`, `${nm} ${T.out.length > 1 ? 'were' : 'was'} now mathematically out of the running.`, `For ${nm}, the title was gone.`]) }); }
+    if (T.teamDecided) out.push({ tag: 'title', w: 7, text: w('t-tdec', [`${F.tA.rows[0].name} wrapped up the constructors’ championship.`, `The constructors’ title was ${F.tA.rows[0].name}’s.`, `${F.tA.rows[0].name} clinched the teams’ title.`]) });
+    else if (T.teamChange) out.push({ tag: 'title', w: 4, text: w('t-tchg', [`${F.tA.rows[0].name} took over at the top of the constructors’ table.`, `In the constructors’ race, ${F.tA.rows[0].name} moved to the front.`]) });
+    return out;
+  };
+  const ORDER = ['lap1', 'safety', 'incident', 'battle', 'climber', 'firstpod', 'pole', 'dnf', 'sprint', 'dotd', 'player', 'title'];
+  const raceText = (F) => {
+    const cands = [...raceBeats(F, w, L, { duelsNow: bornAt(F.i), duelsOn: onAt(F.i) }), ...titleBeats(F)].map(b => ({ ...b, score: b.w + rnd() * 1.5 }));
+    cands.sort((a, b) => b.score - a.score);
+    const pick = []; const per = {};
+    for (const b of cands) {
+      if (pick.length >= 3) break;
+      if (b.w < 3 && pick.length >= 1) continue;
+      if ((per[b.tag] = (per[b.tag] || 0) + 1) > (b.tag === 'title' ? 2 : 1)) continue;
+      pick.push(b);
+    }
+    pick.sort((a, b) => ORDER.indexOf(a.tag) - ORDER.indexOf(b.tag));
+    return [lead(F), ...pick.map(b => b.text)].join(' ');
+  };
+
+  // chapters: quarters of the season (thirds or halves for a short one), the final race on its own if it decided the title
+  const k = N <= 6 ? 2 : N <= 12 ? 3 : 4;
+  const cuts = Array.from({ length: k + 1 }, (_, j) => Math.round(N * j / k));
+  const segs = [];
+  for (let j = 0; j < k; j++) segs.push([cuts[j], cuts[j + 1]]);
+  if (final && N >= 8) { segs[segs.length - 1][1] = N - 1; segs.push([N - 1, N]); }
+  const decI = dec?.i ?? -1;
+  const chapters = segs.filter(([a, b]) => b > a).map(([a, b], j, all) => {
+    const Fs = facts.slice(a, b).filter(Boolean); if (!Fs.length) return null;
+    const first = Fs[0], lastF = Fs[Fs.length - 1];
+    const wins = {}; for (const F of Fs) wins[F.W] = (wins[F.W] || 0) + 1;
+    const [top, topWins] = Object.entries(wins).sort((x, y) => y[1] - x[1])[0];
+    const leadB = first.i ? first.dB.rows[0]?.id : null, leadA = lastF.dA.rows[0]?.id, second = lastF.dA.rows[1]?.id;
+    const mB = first.i ? first.dB.margin : 0, mA = lastF.dA.margin;
+    const isLast = j === all.length - 1;
+    let title;
+    if (final && isLast && b - a === 1 && N >= 8) title = w('ch-final', ['The decider', 'Down to the wire', 'One race, one title', `Showdown in ${first.gp}`]);
+    else if (decI >= a && decI < b) title = w('ch-dec', [`${L(C)} closes it out`, 'Sealing the deal', `${L(C)} gets it done`, 'Mission accomplished']);
+    else if (isLast && decI >= 0 && decI < a) title = w('ch-after', ['Playing for pride', 'After the title', 'The final act', 'Lap of honour']);
+    else if (isLast) title = w('ch-runin', ['The run-in', 'The final stretch', 'Into the closing rounds', 'Crunch time']);
+    else if (j === 0) title = topWins >= 2 && top === leadA ? w('ch-open-dom', [`${L(top)} sets the pace`, `A flying start for ${L(top)}`, `${L(top)} out of the blocks`])
+      : Object.keys(wins).length >= 3 ? w('ch-open-mix', ['An open start', 'Everyone gets a turn', 'No clear favourite']) : w('ch-open', ['The opening rounds', 'Early skirmishes', 'First impressions']);
+    else if (leadB && leadA !== leadB) title = w('ch-swap', [`${L(leadA)} takes charge`, 'A change at the top', `${L(leadA)} hits the front`]);
+    else if (topWins >= 3) title = w('ch-roll', [`${L(top)} on a roll`, `The ${L(top)} show`, `${L(top)} hits form`]);
+    else if (mA <= 10) title = w('ch-close', ['Neck and neck', 'Nothing in it', 'Trading blows']);
+    else if (mA - mB >= 20) title = w('ch-clear', [`${L(leadA)} pulls clear`, `${L(leadA)} tightens the grip`, 'Daylight at the top']);
+    else if (mA <= mB - 15) title = w('ch-back', ['The fightback', `${L(second)} hits back`, 'The gap comes down']);
+    else title = w('ch-mid', ['The middle of the season', 'Midseason', 'Settling in', 'The long middle stretch']);
+    const decided = decI >= 0 && decI < b;
+    const close = isLast ? '' : decided ? '' : mA ? w('ch-cl', [`After ${lastF.gp}, ${L(leadA)} led ${L(second)} by ${plural(mA, 'point')}.`, `That left ${L(leadA)} ${plural(mA, 'point')} clear of ${L(second)}.`, `The standings after ${lastF.gp}: ${L(leadA)} on ${lastF.dA.rows[0].pts}, ${L(second)} on ${lastF.dA.rows[1].pts}.`])
+      : `After ${lastF.gp}, ${L(leadA)} and ${L(second)} were level on points.`;
+    return { title, sub: b - a === 1 ? `Round ${a + 1}` : `Rounds ${a + 1}–${b}`, items: Fs.map(F => ({ ri: F.i, label: `R${F.i + 1} · ${F.r.name}`, text: raceText(F) })), close };
+  }).filter(Boolean);
+
+  // the numbers, the battles and the flashpoints
+  const lists = [];
+  const ids = Object.keys(st).filter(id => s.drivers[id] && st[id].starts);
+  const best = (fn) => ids.map(id => ({ id, v: fn(id) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v)[0] || null;
+  const nums = [];
+  const mw = best(id => st[id].wins); if (mw) nums.push({ id: mw.id, text: `Most wins: ${full(mw.id)}, ${mw.v}` });
+  const mp = best(id => st[id].poles); if (mp) nums.push({ id: mp.id, text: `Most poles: ${full(mp.id)}, ${mp.v}` });
+  const mpo = best(id => st[id].podiums); if (mpo) nums.push({ id: mpo.id, text: `Most podiums: ${full(mpo.id)}, ${mpo.v}` });
+  const made = {}, atFault = {};
+  for (const F of F0) { if (F.passes) for (const [d, n] of Object.entries(F.passes.made)) made[d] = (made[d] || 0) + n; for (const inc of F.incidents) if (!inc.noFault) atFault[inc.a] = (atFault[inc.a] || 0) + 1; }
+  const mo = Object.entries(made).sort((a, b) => b[1] - a[1])[0]; if (mo) nums.push({ id: mo[0], text: `Most overtakes: ${full(mo[0])}, ${mo[1]}` });
+  const climb = {}; for (const F of F0) for (const x of F.climbers) climb[x.d] = (climb[x.d] || 0) + x.g;
+  const mc = Object.entries(climb).sort((a, b) => b[1] - a[1])[0]; if (mc) nums.push({ id: mc[0], text: `Places made up in big climbs: ${full(mc[0])}, ${mc[1]}` });
+  const md = best(id => st[id].dnfs); if (md && md.v >= 2) nums.push({ id: md.id, text: `Most retirements: ${full(md.id)}, ${md.v}` });
+  const mf = Object.entries(atFault).sort((a, b) => b[1] - a[1])[0]; if (mf && mf[1] >= 2) nums.push({ id: mf[0], text: `Most incidents at fault: ${full(mf[0])}, ${mf[1]}` });
+  nums.push({ text: `${plural(winSet.length, 'different winner')}${poleSet.length ? `, ${plural(poleSet.length, 'different pole-sitter')}` : ''}${changes ? `, ${changes} changes of championship leader` : ''}` });
+  lists.push({ title: 'By the numbers', items: nums });
+  const fights = [];
+  for (const e of DU.events.filter(e => e.type === 'duelStart')) {
+    const end = DU.events.find(x => x.type === 'duelEnd' && pairKey(x.a, x.b) === pairKey(e.a, e.b) && (x.i > e.i || (x.i === e.i && x.key === 'R' && e.key === 'SPR')));
+    const bt = DU.all.filter(b => pairKey(b.a, b.b) === pairKey(e.a, e.b) && b.i >= e.battles[0].i && (!end || b.i <= end.i));
+    const sc = bt.reduce((o, b) => { o[b.ahead] = (o[b.ahead] || 0) + 1; return o; }, {}); const ahead = (sc[e.a] || 0) >= (sc[e.b] || 0) ? e.a : e.b;
+    const where = [...new Set(bt.map(b => rounds[b.i].name))];
+    fights.push({ id: ahead, w: bt.reduce((a, b) => a + b.n, 0), text: `${L(e.a)} v ${L(e.b)}: wheel to wheel in ${bt.length} races (${where.length > 3 ? `${where[0]} to ${where[where.length - 1]}` : listJoin(where)}), ${bt.reduce((a, b) => a + b.n, 0)} passes, ${sc[e.a] === sc[e.b] ? 'honours even' : `${L(ahead)} ahead ${sc[ahead]}–${bt.length - sc[ahead]}`}` });
+  }
+  for (const b of DU.all.slice().sort((x, y) => y.n - x.n).slice(0, 3)) if (!fights.some(f => f.text.startsWith(`${L(b.a)} v ${L(b.b)}`) || f.text.startsWith(`${L(b.b)} v ${L(b.a)}`)))
+    fights.push({ id: b.ahead, w: b.n, text: `${L(b.ahead)} v ${L(b.behind)}, ${rounds[b.i].name}${b.key === 'SPR' ? ' sprint' : ''}: ${b.n} changes of position` });
+  if (fights.length) lists.push({ title: 'Battles of the year', items: fights.sort((a, b) => b.w - a.w).slice(0, 5) });
+
+  // the close: Driver of the Season, your season, and next year
+  const outro = [];
+  const dots = driverOfTheSeason(s);
+  if (dots?.final) outro.push(dots.id === C ? w('o-dots', [`${L(C)} was Driver of the Season too, with ${plural(dots.dotd, 'Driver of the Day award')}.`, `The fans agreed: ${L(C)} was also their Driver of the Season.`])
+    : w('o-dots2', [`The fans’ Driver of the Season, though, was ${full(dots.id)}, with ${plural(dots.dotd, 'Driver of the Day award')}.`, `Not the champion, but the fans’ pick: ${full(dots.id)} was Driver of the Season.`]));
+  if (isPrincipal(c)) {
+    const T = cs.find(x => x.team.id === s.playerTeamId);
+    const pc = prev ? constructorStandings(prev).find(x => x.team.id === s.playerTeamId)?.pos : null;
+    if (T && T.pos !== 1) {
+      const dr = ds.filter(x => teamOf(s, x.id)?.id === s.playerTeamId);
+      outro.push(w('o-team', [`${T.team.name} finished ${ordWord(T.pos)} in the constructors’ championship with ${plural(T.pts, 'point')}${pc ? (pc > T.pos ? `, up from ${ordWord(pc)} in ${prev.year}` : pc < T.pos ? `, down from ${ordWord(pc)} in ${prev.year}` : `, the same as in ${prev.year}`) : ''}.`, `For ${T.team.name}, ${year} ended ${ordWord(T.pos)} of ${cs.length} teams, on ${plural(T.pts, 'point')}.`])
+        + (dr.length ? ` In the drivers’ standings, ${listJoin(dr.map(x => `${full(x.id)} was ${ordWord(x.pos)}`))}.` : ''));
+    }
+  }
+  const me = isPrincipal(c) ? null : ds.find(x => x.id === PLAYER);
+  if (me && me.id !== C) {
+    const pPrev = prev ? driverStandings(prev).find(x => x.id === PLAYER)?.pos : null;
+    const trend = pPrev ? (pPrev > me.pos ? `, up from ${ordWord(pPrev)} in ${prev.year}` : pPrev < me.pos ? `, down from ${ordWord(pPrev)} in ${prev.year}` : `, the same as in ${prev.year}`) : '';
+    outro.push(w('o-me', [`${full(PLAYER)} finished ${ordWord(me.pos)} in the championship with ${plural(me.pts, 'point')}${me.wins ? ` and ${plural(me.wins, 'win')}` : me.podiums ? ` and ${plural(me.podiums, 'podium')}` : ''}${trend}.`,
+      `For ${full(PLAYER)}, ${year} ended in ${ordWord(me.pos)} place, on ${plural(me.pts, 'point')}${me.wins ? `, with ${plural(me.wins, 'win')}` : ''}${trend}.`]));
+  }
+  outro.push(w('o-next', [`Roll on ${year + 1}.`, `${L(C)} carries the number one into ${year + 1}. Everyone else has a winter to work out how to stop that.`, `The ${year + 1} season can’t come soon enough.`, champ.wins >= N / 2 ? `The question for ${year + 1} is simple: can anyone stop ${L(C)}?` : `If ${year} is anything to go by, ${year + 1} will be worth watching.`]));
+  return { headline, standfirst, intro, chapters, lists, outro, n: N, champ: C };
+}
+/** The race-by-race part of a season review, as HTML. */
+function reviewHtml(c, s, RV) {
+  return `<div class="review-body">
+    ${RV.chapters.map(ch => `<section class="rv-ch"><h3>${esc(ch.title)} <span class="muted">· ${esc(ch.sub)}</span></h3>
+      ${ch.items.map(it => `<p><b class="rv-r">${esc(it.label)}</b> ${esc(it.text)}</p>`).join('')}${ch.close ? `<p class="rv-close">${esc(ch.close)}</p>` : ''}</section>`).join('')}
+    ${RV.lists.length ? `<div class="grid-2">${RV.lists.map(l => `<div class="story-sec"><h3>${esc(l.title)}</h3><ul class="ms-list">${l.items.map(o => `<li>${o.id ? avatar(c, s, o.id, 24) : ''}<span>${esc(o.text)}</span></li>`).join('')}</ul></div>`).join('')}</div>` : ''}
+    ${RV.outro.length ? `<div class="body">${RV.outro.map(p => `<p>${esc(p)}</p>`).join('')}</div>` : ''}
+  </div>`;
+}
+/** The battle of a race or sprint as a story of its own: the biggest one, when it was near the front or involved you. */
+const BATTLE_QUOTES = {
+  won: ['That was some of the best racing I’ve had. Hard, but fair.', 'We went back and forth for laps. I’m glad I came out ahead in the end.', 'Every time I got past, they came straight back. I loved it.', 'You have to respect a fight like that. It made the result feel earned.'],
+  lost: ['I gave it everything. It was fun, even if I ended up on the wrong side of it.', 'We were racing hard all afternoon. Next time it goes my way.', 'It was a proper fight. I just didn’t have quite enough at the end.', 'Great racing. A shame about the result, but I enjoyed it.'],
+  wonNeedle: ['It got a bit physical at times. I’m glad it’s over.', 'Some of those moves were on the limit. But I came out ahead.'],
+  lostNeedle: ['There was contact, and I don’t think it was all on me.', 'They made it very hard. Maybe too hard.'],
+};
+function battleStory(c, s, i, r, key, sd, h) {
+  const B = raceBattles(sd); const b = B?.[0]; if (!b) return null;
+  const mine = [b.a, b.b].some(d => d === PLAYER || teamOf(s, d)?.id === s.playerTeamId);
+  if (b.posW > 6 && !mine && b.n < 8) return null;
+  if (duels(s).events.some(e => e.type === 'duelStart' && e.i === i && e.key === key && pairKey(e.a, e.b) === pairKey(b.a, b.b))) return null; // the rivalry story tells it
+  const rnd = seeded(`${s.index}-${r.id}-${key}-battle`); const sprint = key === 'SPR';
+  const A = h.last(b.ahead), Bn = h.last(b.behind);
+  const touched = (sd.game?.incidents || []).some(x => pairKey(x.a, x.b) === pairKey(b.a, b.b));
+  const at = b.posW <= 3 ? `for ${b.posW === 1 ? 'the lead' : 'a podium place'}` : b.posW <= 10 ? 'for points' : 'deep in the pack';
+  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: sprint ? 'Battle of the sprint' : 'Battle of the race',
+    headline: choose(rnd, [`${A} v ${Bn}: ${b.n} passes ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn} after a ${b.n}-pass fight`, `${b.n} changes of position, one winner: ${A} edges ${Bn}`]),
+    standfirst: `${A} and ${Bn} swapped places ${nw(b.n)} times ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}. ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
+    body: touched ? ['It wasn’t all clean: the two made contact along the way.'] : [],
+    quotes: [[b.ahead, touched ? 'wonNeedle' : 'won'], [b.behind, touched ? 'lostNeedle' : 'lost']].filter(([d]) => d !== PLAYER).map(([d, k]) => ({ id: d, text: choose(rnd, BATTLE_QUOTES[k]) })) };
+}
+
 function buildStories(c, s) {
   const out = [];
   const rounds = activeRounds(s);
@@ -5649,6 +6166,7 @@ function buildStories(c, s) {
         });
       }
       out.push(...incidentStories(c, s, i, r, 'SPR', ses.SPR, { name, last, tName }));
+      { const bs = battleStory(c, s, i, r, 'SPR', ses.SPR, { name, last, tName }); if (bs) out.push(bs); }
     }
     if (!ses.R?.done) continue;
     // race report
@@ -5684,10 +6202,12 @@ function buildStories(c, s) {
     // penalties, when the race came from the game
     const pens = (ses.R.game?.penalties || []).filter(p => (p.type === 4 || p.type <= 1) && !COLLISION_INFR.includes(p.infr)); // collisions get their own line
     if (pens.length) notes.push(`Penalties: ${listJoin(pens.slice(0, 4).map(p => `${last(p.d)} ${p.type === 4 ? `${p.time} seconds` : `a ${PENALTY_NAMES[p.type]}`}${INFRINGEMENTS[p.infr] && !COLLISION_INFR.includes(p.infr) ? ` for ${INFRINGEMENTS[p.infr]}` : ''}${p.lap ? ` on lap ${p.lap}` : ''}`))}${pens.length > 4 ? `, and ${plural(pens.length - 4, 'more')}` : ''}.`);
-    for (const inc of (ses.R.game?.incidents || []).filter(x => x.major).slice(0, 2)) notes.push(incidentLine(inc, last));
     if (fl) notes.push(`${name(fl)} set the fastest lap${res.find(x => x.d === fl)?.lap ? ` with a ${res.find(x => x.d === fl).lap}` : ''}.`);
     const sprW = r.sprint && ses.SPR?.done ? ses.SPR.results.find(x => !OUT.includes(x.st))?.d : null;
     if (sprW) notes.push(sprW === W ? `It completes a sprint and Grand Prix double for ${last(W)}.` : `${name(sprW)} had won the sprint.`);
+    const RF = raceFacts(c, s, i);
+    const narr = RF ? raceNarrative(RF, last, seeded(rid + 'narr'), { duelsNow: new Set(duels(s).events.filter(e => e.type === 'duelStart' && e.i === i && e.key === 'R').map(e => pairKey(e.a, e.b))), duelsOn: new Set(duelsAt(s, i - 1).map(x => pairKey(x.a, x.b))) }) : '';
+    if (narr) body.push(narr);
     body.push(notes.join(' '));
     const memLine = raceMemoryLine(mem, res, W, last, name, rnd);
     if (memLine) body.push(memLine);
@@ -5719,8 +6239,11 @@ function buildStories(c, s) {
     }
     const cB0 = tB.rows[0], cA0 = tA.rows[0];
     if (cA0) champ.push(i > 0 && cA0.id !== cB0?.id ? `In the constructors’ championship, ${cA0.name} take over at the top, ${plural(tA.margin, 'point')} ahead of ${tA.rows[1].name}.` : `${cA0.name} lead the constructors’ championship by ${plural(tA.margin, 'point')} from ${tA.rows[1]?.name}.`);
-    const dropped = dB.rows.filter(x => x.alive && !dA.rows.find(y => y.id === x.id)?.alive && !dA.decided);
+    // knocked out of the title fight: named only if they were near the top (a dozen names at once is no story)
+    const droppedAll = dB.rows.filter(x => x.alive && !dA.rows.find(y => y.id === x.id)?.alive && !dA.decided);
+    const dropped = droppedAll.filter(x => x.pos <= 6);
     if (dropped.length) champ.push(`The result ends ${listJoin(dropped.map(x => last(x.id)))}’s title hopes.`);
+    else if (droppedAll.length) { const left = dA.rows.filter(x => x.alive); if (left.length <= 4) champ.push(`Only ${listJoin(left.map(x => last(x.id)))} can still win the title.`); }
     if (dA.decided && !dB.decided) champ.push(`${name(A0.id)} is the ${s.year} world champion.`);
     if (tA.decided && !tB.decided) champ.push(`${cA0.name} are the ${s.year} constructors’ champions.`);
     body.push(champ.join(' '));
@@ -5736,6 +6259,7 @@ function buildStories(c, s) {
     out.push({ id: rid + 'r', seq: i * 10 + 4, kind: 'race', i, r, subject: W, outlet: outletFor(rnd), kicker: 'Race report', headline, standfirst: `Round ${i + 1} of ${rounds.length} · ${r.venue}`, body, quotes: qs, results: res.slice(0, 10).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('R', k + 1, x.st, x.pts), gap: x.gap })) });
     if (dd) out.push(dotdStory(c, s, i, dd, mem, { name, last, tName }));
     out.push(...incidentStories(c, s, i, r, 'R', ses.R, { name, last, tName }));
+    { const bs = battleStory(c, s, i, r, 'R', ses.R, { name, last, tName }); if (bs) out.push(bs); }
     const fv = fanVoiceStory(c, s, i); if (fv) out.push(fv);
 
     // an interview with someone from the race
@@ -5800,6 +6324,12 @@ function buildStories(c, s) {
       body: [`The awards: ${dots.SR.dotd.filter(x => x.id === dots.id).map(x => `${x.r.name} (${x.rating.toFixed(1)})`).join(', ')}.`,
         (() => { const rest = Object.values(dots.SR.by).filter(o => o.id !== dots.id && o.dotd).sort((a, b) => b.dotd - a.dotd || b.avg - a.avg).slice(0, 3); return rest.length ? `Next best: ${listJoin(rest.map(o => `${dName(s, o.id)} (${plural(o.dotd, 'award')})`))}.` : ''; })()].filter(Boolean),
       quotes: dots.id === PLAYER ? [] : [{ id: dots.id, text: choose(rnd, ['It means a lot. You can only drive the car you have, and I tried to get everything out of it every weekend.', 'I’m proud of that. Some of those drives felt better than results that looked bigger.', 'The best thing is that it came over a whole season, not one good weekend.']) }] });
+  }
+  const RV = seasonReview(c, s);
+  if (RV) {
+    const rnd = seeded(`${s.index}-review-story`);
+    out.push({ id: `${s.index}-review`, seq: rounds.length * 10 + 2, kind: 'review', i: rounds.length - 1, r: rounds[rounds.length - 1], subject: RV.champ, outlet: choose(rnd, D.OUTLETS), kicker: 'Season review', massive: true,
+      headline: RV.headline, standfirst: RV.standfirst, body: RV.intro, review: RV });
   }
   // your own interviews
   for (const m of c.media) {
@@ -5978,15 +6508,16 @@ function rumourFollowUp(c, s, rm) {
   return { id: 'rmf' + rm.id, seq: ri * 10 + 8, kind: 'rumour', i: ri, r: rounds[ri], outlet, kicker: 'Rumour update', headline, standfirst: choose(rnd, report), body: lines, quotes, subject: rm.driver, t: (Date.parse(rm.createdAt) || 0) + 1 };
 }
 
-const STORY_FILTERS = [['all', 'All', null], ['races', 'Race reports', ['race', 'sprint', 'quali', 'dotd', 'preview', 'incident']], ['ratings', 'Fan Voice', ['ratings', 'dotd']], ['title', 'Championship', ['title', 'preview']], ['records', 'Records & milestones', ['record', 'milestone']], ['interviews', 'Interviews', ['interview', 'pen']], ['rivalries', 'Rivalries', ['rivalry']], ['rumours', 'Transfers & rumours', ['transfer', 'rumour']]];
+const STORY_FILTERS = [['all', 'All', null], ['races', 'Race reports', ['race', 'sprint', 'quali', 'dotd', 'preview', 'incident', 'battle', 'review']], ['ratings', 'Fan Voice', ['ratings', 'dotd']], ['title', 'Championship', ['title', 'preview', 'review']], ['records', 'Records & milestones', ['record', 'milestone']], ['interviews', 'Interviews', ['interview', 'pen']], ['rivalries', 'Rivalries', ['rivalry']], ['rumours', 'Transfers & rumours', ['transfer', 'rumour']]];
 function storyHtml(c, s, x, lead = false) {
   const when = x.r ? `R${x.i + 1} · ${esc(x.r.name)} · ${fmtDay(roundDate(s, x.r))}` : x.i < 0 ? 'Pre-season' : '';
-  const kcls = { race: 'done', title: 'next', preview: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next', rivalry: 'dnf', incident: 'dnf' }[x.kind] || '';
+  const kcls = { race: 'done', title: 'next', preview: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next', rivalry: 'dnf', incident: 'dnf', battle: 'sprint', review: 'next' }[x.kind] || '';
   const q = (x.quotes || []).filter(Boolean);
   return `<article class="article story ${lead ? 'lead' : ''} ${x.kind === 'transfer' ? 'breaking' : ''} ${x.massive ? 'massive' : ''} ${x.fanVoice ? 'fan-voice' : ''}">
     <div class="row" style="justify-content:space-between">${x.fanVoice ? fvMark(true) : `<span class="outlet">${esc(x.outlet)}</span>`}<span class="row" style="gap:8px"><span class="tag ${kcls}">${esc(x.kicker)}</span><span class="muted" style="font-size:12px">${when}</span></span></div>
     <div class="row" style="gap:14px;flex-wrap:nowrap;align-items:flex-start">${x.subject ? avatar(c, s, x.subject, lead ? 64 : 48) : ''}<div style="min-width:0;display:grid;gap:6px"><div class="headline">${esc(x.headline)}</div>${x.standfirst ? `<p class="standfirst">${esc(x.standfirst)}</p>` : ''}</div></div>
     ${x.body?.length ? `<div class="body">${x.body.map(p => `<p>${esc(p)}</p>`).join('')}</div>` : ''}
+    ${x.review ? `<details class="review-more"><summary>Read it race by race: all ${x.review.n} rounds</summary>${reviewHtml(c, s, x.review)}</details><div><button class="btn sm ghost" data-act="open-review" data-idx="${s.index}">Open the season review</button></div>` : ''}
     ${x.list ? `<ul class="ms-list">${x.list.map(o => `<li>${avatar(c, s, o.id, 26)}<span>${esc(o.text)}</span></li>`).join('')}</ul>` : ''}
     ${x.sections ? x.sections.map(sec => `<div class="story-sec"><h3>${esc(sec.title)}</h3><ul class="ms-list">${sec.items.map(o => `<li>${o.id ? avatar(c, s, o.id, 26) : ''}<span>${esc(o.text)}</span></li>`).join('')}</ul></div>`).join('') : ''}
     ${x.fanVoice ? `<div class="fv-cols"><div><span class="label">Top 10 · ${esc(x.r.name)}</span>${fvList(c, s, x.fanVoice.race)}</div><div><span class="label">Season so far · average</span>${fvList(c, s, x.fanVoice.season)}</div></div>
@@ -7012,6 +7543,14 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
       const pens = (ses.R.game?.penalties || []).filter(p => p.d === d && PENALTY_NAMES[p.type] && !COLLISION_INFR.includes(p.infr));
       if (pens.length) add('pen-' + d, 6, `${dName(s, d)} was penalised: ${listJoin(pens.map(p => `${p.type === 4 ? `${p.time} s` : PENALTY_NAMES[p.type]}${INFRINGEMENTS[p.infr] ? ` for ${INFRINGEMENTS[p.infr]}` : ''}`))}.`, [`A penalty for ${INFRINGEMENTS[pens[0].infr] || 'an infringement'}. Avoidable?`]);
       const g2 = ses.R.game; if (g2?.pits?.[d] != null && !x.out) add('strat-' + d, 3 + (g2.pits[d] >= 3 ? 2 : 0), `${dName(s, d)} made ${plural(g2.pits[d], 'stop')}: ${stintsOf(ses.R, d).map(o => (COMPOUNDS[o.c] || [])[1] || '?').join(', ')}.`, [`${plural(g2.pits[d], 'stop')} today. Did the strategy work?`, `Talk us through the tyre calls.`]);
+    }
+    for (const d of ours) for (const b of raceBattles(ses.R) || []) {
+      if (b.a !== d && b.b !== d) continue;
+      const o = b.a === d ? b.b : b.a; const won = b.ahead === d;
+      const born = duels(s).events.some(e => e.type === 'duelStart' && e.i === ri && e.key === 'R' && pairKey(e.a, e.b) === pairKey(d, o));
+      add('battle-' + d + o, 6 + Math.min(3, (b.n - 5) / 2) + (born ? 2 : 0), `${dName(s, d)} and ${dName(s, o)} swapped places ${b.n} times; ${dName(s, b.ahead)} finished ahead.${born ? ' It was their second race running wheel to wheel: they are now rivals on track.' : ''}`, born
+        ? [tp ? `${L(d)} and ${L(o)} have gone wheel to wheel two races running now. Is this a rivalry?` : `That's two races in a row you've been wheel to wheel with ${L(o)}. Is this becoming a rivalry?`, tp ? `Do you worry ${L(d)} and ${L(o)} will end up taking each other out?` : `Do you enjoy racing ${L(o)}, or is it getting personal?`]
+        : [tp ? `${L(d)} and ${L(o)} passed each other ${b.n} times. Were you enjoying it on the pit wall?` : `You and ${L(o)} swapped places ${b.n} times. What was that fight like from the cockpit?`, won ? (tp ? `${L(d)} came out on top against ${L(o)}. What made the difference?` : `You came out on top against ${L(o)} in the end. Where did you make it stick?`) : (tp ? `${L(o)} got the better of ${L(d)} in the end. What was missing?` : `${L(o)} got the better of you in the end. What was missing?`)]);
     }
     if (!tp && mate) {
       const a = at(ses.R, PLAYER), b = at(ses.R, mate);
