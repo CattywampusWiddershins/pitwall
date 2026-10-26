@@ -4964,10 +4964,60 @@ function mergeQuali(parts, n) {
   for (let p = 0; p < n; p++) if (!rows[p] && rest[k]) { rows[p] = { d: rest[k++].d, best: latest[p]?.best || 0, lock: 'place' }; }
   return rows.filter(Boolean);
 }
+/** The whole field in a three-part qualifying: Q1 has every car (later parts only the cars still running). */
+const qualiField = (s, parts) => Math.max(...Object.values(parts).map(p => p.length), parts[1] ? 0 : gridIds(s).length);
+/**
+ * A three-part qualifying's results from its parts. Whoever was knocked out keeps their place, and every driver's best
+ * lap is their quickest in any part (a Q1 lap quicker than their Q2 one counts). Places above the last part that was
+ * timed are provisional: pole improves on that part's best, the gaps follow season pace, and the starting grid later
+ * puts the drivers in order.
+ */
+function qualiFromParts(s, round, key, game) {
+  const parts = game.parts;
+  const rows = mergeQuali(parts, qualiField(s, parts));
+  game.provisional = rows.filter(x => x.lock === 'place').length;
+  if (game.provisional) {
+    // the parts after this one weren't timed: a quicker pole, and gaps from each driver's season pace
+    const latest = Math.max(...Object.keys(parts).map(Number));
+    const best = Math.min(...parts[latest].map(x => x.best).filter(Boolean));
+    if (isFinite(best) && latest < 3) {
+      game.pole = Math.round(provisionalPole(best, latest, mulberry(`${round.id}-${key}-pole-${game.key}`)));
+      const tt = provisionalTimes(s, rows.slice(0, game.provisional).map(x => x.d), game.pole, `${round.id}-${key}-merge`);
+      tt.forEach((v, i) => { rows[i].best = v; });
+    }
+  }
+  for (const x of rows) if (x.lock === 'driver') {
+    const laps = Object.values(parts).flatMap(p => p.filter(y => y.d === x.d && y.best).map(y => y.best));
+    if (laps.length) x.best = Math.min(...laps);
+  }
+  game.placeTimes = rows.slice(0, game.provisional).map(x => x.best);
+  game.locks = Object.fromEntries(rows.map(x => [x.d, x.lock]));
+  return qualiRows(rows, gridIds(s));
+}
+/**
+ * Older versions lost the drivers knocked out in Q1 and Q2 once a later part came in (they showed as DNS, with no
+ * time). The parts were always kept, so those sessions are rebuilt from them, and put in grid order again if the race
+ * already set it. Returns true if anything changed.
+ */
+function repairQualiParts(c) {
+  let changed = false;
+  for (const s of c.seasons) {
+    if (isHist(s)) continue;
+    for (const r of activeRounds(s)) for (const key of ['Q', 'SQ']) {
+      const sd = s.weekends[r.id]?.sessions?.[key]; const g = sd?.game; if (!g?.parts || !sd.done) continue;
+      const lost = Object.values(g.parts).some(p => p.some(y => y.d && y.best && sd.results.find(x => x.d === y.d)?.st === 'DNS'));
+      if (!lost) continue;
+      sd.results = qualiFromParts(s, r, key, g);
+      if (g.grid) settleQuali(s, r, key, g.grid);
+      changed = true;
+    }
+  }
+  return changed;
+}
 /** Qualifying rows in Pitwall's shape, from merged rows ({ d, best }). */
 function qualiRows(rows, grid) {
   const pole = rows.find(x => x.best)?.best;
-  const out = rows.map((x, i) => ({ d: x.d, lap: x.best ? fmtLap(x.best) : '', gap: x.best && i > 0 && pole ? '+' + ((x.best - pole) / 1000).toFixed(3) : '', st: 'FIN', laps: '' }));
+  const out = rows.map((x, i) => ({ d: x.d, lap: x.best ? fmtLap(x.best) : '', gap: x.best && i > 0 && pole ? (x.best >= pole ? '+' : '−') + (Math.abs(x.best - pole) / 1000).toFixed(3) : '', st: 'FIN', laps: '' }));
   for (const d of grid) if (!out.some(x => x.d === d)) out.push({ d, lap: '', gap: '', st: 'DNS', laps: '' });
   return out;
 }
@@ -5050,21 +5100,9 @@ function applyGameResult(c, r, place) {
     // a three-part qualifying: this part joins the ones already logged this weekend
     const old = w.sessions[key]?.game; const same = old?.parts && w.game?.weekend === r.weekendLink;
     game.parts = { ...(same ? old.parts : {}), [part]: r.cars.slice().sort((a, b) => a.position - b.position).map(x => ({ d: map[x.idx] || null, best: x.best })) };
-    const rows = mergeQuali(game.parts, r.cars.length);
-    game.provisional = rows.filter(x => x.lock === 'place').length;
-    if (game.provisional) {
-      // the parts after this one weren't timed: a quicker pole, and gaps from each driver's season pace
-      const latest = Math.max(...Object.keys(game.parts).map(Number));
-      const best = Math.min(...game.parts[latest].map(x => x.best).filter(Boolean));
-      if (isFinite(best) && latest < 3) {
-        game.pole = Math.round(provisionalPole(best, latest, mulberry(`${round.id}-${key}-pole-${r.key}`)));
-        const tt = provisionalTimes(s, rows.slice(0, game.provisional).map(x => x.d), game.pole, `${round.id}-${key}-merge`);
-        tt.forEach((v, i) => { rows[i].best = v; });
-      }
-    }
-    game.placeTimes = rows.slice(0, game.provisional).map(x => x.best);
-    game.locks = Object.fromEntries(rows.map(x => [x.d, x.lock]));
-    results = qualiRows(rows, gridIds(s));
+    // the drivers knocked out earlier aren't in this part: keep their laps, stints and tyre wear from the earlier ones
+    if (same) for (const k of ['laps', 'stints', 'pits', 'wear', 'finished']) game[k] = { ...(old[k] || {}), ...game[k] };
+    results = qualiFromParts(s, round, key, game);
   } else if ((key === 'Q' || key === 'SQ') && r.cars.every(x => !x.best)) {
     const ids = r.cars.slice().sort((a, b) => a.position - b.position).map(x => map[x.idx]).filter(Boolean);
     const ideal = Object.values(idealLaps(s, round)).map(o => o.ideal);
@@ -8937,6 +8975,8 @@ window.pitwallBack = () => {
   // the number 1 follows your career's champions (older saves had it fixed to the real 2025 champion)
   let renumbered = false;
   for (const cc of state.careers) { try { renumbered = syncNumbers(cc) || renumbered; } catch { } }
+  // qualifying sessions that lost the drivers knocked out in Q1 and Q2 (before 2.0.2): rebuilt from their parts
+  for (const cc of state.careers) { try { renumbered = repairQualiParts(cc) || renumbered; } catch (e) { console.error(e); } }
   render();
   if (renumbered || store.dirty()) store.save(); // also saves an older career that just gained its real seasons
   window.api?.onRemote?.(applyRemote);
