@@ -5408,7 +5408,7 @@ function practiceRuns(s, round, d) {
     const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
     for (const l of laps) if (l[0] && l[1]) ref = Math.min(ref, l[0]);
     for (const x of stintsOf(sd, d)) {
-      if (!DRY.includes(x.c)) continue;
+      if (!DRY.includes(x.c)) continue; // intermediates and wets depend too much on the conditions
       const run = [];
       for (let lap = x.from + 1; lap <= x.to; lap++) { const l = laps[lap - 1]; if (l?.[0]) run.push({ age: lap - x.from + 1, ms: l[0], wear: wear[lap - 1] }); }
       if (run.length < 3) continue;
@@ -5576,10 +5576,12 @@ function strategyAdvicePanel(c, s) {
 */
 const ERS_NORMAL = 1, ERS_BOOST = 3; // the game's deploy modes: 1 medium (normal), 3 overtake (boost)
 const ERS_MASS = 800; // kg, car and driver
-/** Laps in your long runs (three or more consecutive pushing laps, within 2.5% of the run's best). */
+/** Laps in your long runs on dry tyres (three or more consecutive pushing laps, within 2.5% of the run's best).
+ *  Intermediate and wet runs are left out: they depend too much on the conditions. */
 function longRunLapNos(sd, d) {
   const laps = sd?.game?.laps?.[d]; const out = new Set(); if (!laps) return out;
   for (const x of stintsOf(sd, d)) {
+    if (!DRY.includes(x.c)) continue;
     const run = []; for (let lap = x.from + 1; lap <= x.to; lap++) { const l = laps[lap - 1]; if (l?.[0]) run.push({ lap, ms: l[0] }); }
     if (run.length < 3) continue;
     const best = Math.min(...run.map(r => r.ms)); let cur = [];
@@ -5603,7 +5605,8 @@ function buildErsPlan(c, s, round) {
   for (const k of PRACTICE_KEYS) {
     const sd = w?.sessions?.[k]; const E = sd?.game?.ers; if (!E || sd.estimated) continue;
     E0 ||= E; const long = longRunLapNos(sd, E.d);
-    for (const L of E.laps) { all.push({ k, ...L }); if (long.has(L.lap)) laps.push({ k, ...L }); }
+    const dry = (lap) => { const st = stintsOf(sd, E.d).find(x => lap >= x.from && lap <= x.to); return !st || DRY.includes(st.c); }; // no inters or wets
+    for (const L of E.laps) { if (!dry(L.lap)) continue; all.push({ k, ...L }); if (long.has(L.lap)) laps.push({ k, ...L }); }
     if (!E0.map?.some(Boolean) && E.map?.some(Boolean)) E0 = E;
   }
   if (!E0) return null;
