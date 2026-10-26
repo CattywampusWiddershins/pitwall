@@ -58,8 +58,8 @@ function parseFinal(b, L) {
 const stride = (b, L, base, tail = 0) => { const n = (b.length - HEADER - tail) / L.cars; return Number.isInteger(n) && n >= base ? n : base; };
 /** Your car's position on the map (world x and z, in metres). */
 function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return o + 12 > b.length ? null : { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }; }
-/** Your car's speed (km/h), throttle and brake (0 to 1). */
-function playerTelemetry(b, L, p) { const o = HEADER + p * stride(b, L, 60, 3); return o + 14 > b.length ? null : { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10) }; }
+/** Your car's speed (km/h), throttle and brake (0 to 1), and whether DRS is open. */
+function playerTelemetry(b, L, p) { const o = HEADER + p * stride(b, L, 60, 3); return o + 19 > b.length ? null : { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10), drs: b[o + 18] > 0 }; }
 /** Your car's ERS: stored energy, deploy mode, harvested and deployed this lap (joules) and MGU-K power (watts). */
 function playerStatus(b, L, p) {
   const o = HEADER + p * stride(b, L, 55); if (o + 54 > b.length) return null;
@@ -70,7 +70,7 @@ function parseLapData(b, L) {
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: b.readUInt16LE(o + 17) + b[o + 19] * 60000 });
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: b.readUInt16LE(o + 17) + b[o + 19] * 60000, front: b.readUInt16LE(o + 14) + b[o + 16] * 60000 });
   }
   return out;
 }
@@ -139,6 +139,8 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     const o = lap.bins[Math.floor(c.dist / ERS_BIN)] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
     o.n++; o.thr += s.tel.thr; o.brk += s.tel.brk; o.spd += s.tel.spd; o.ers += s.stat.ers; o.pw += s.stat.mguk;
     o.dep = s.stat.dep; o.harv = s.stat.harv; o.modes[s.stat.mode] = (o.modes[s.stat.mode] || 0) + 1;
+    // DRS open, or within a second of the car ahead: the straight-line speed isn't yours alone (slipstream)
+    if (s.tel.drs || (c.front > 0 && c.front < 1000)) o.tow = 1;
     if (s.mot) { o.nm++; o.x += s.mot.x; o.z += s.mot.z; }
     if (c.invalid) lap.invalid = true;
   }
@@ -153,7 +155,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       laps.push({ lap: +lapNo, invalid: lap.invalid,
         thr: col(o => Math.round(o.thr / o.n * 100)), brk: col(o => Math.round(o.brk / o.n * 100)), spd: col(o => Math.round(o.spd / o.n)),
         ers: col(o => Math.round(o.ers / o.n / 1000)), dep: col(o => Math.round(o.dep / 1000)), harv: col(o => Math.round(o.harv / 1000)), pw: col(o => Math.round(o.pw / o.n / 1000)),
-        mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]) });
+        mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]), tow: col(o => o.tow ? 1 : 0) });
       for (let i = 0; i < nb; i++) { const o = lap.bins[i]; if (o?.nm) { mx[i] += o.x / o.nm; mz[i] += o.z / o.nm; mn[i]++; } }
     }
     if (!laps.length) return null;

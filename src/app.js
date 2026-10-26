@@ -5682,8 +5682,9 @@ function buildErsPlan(c, s, round) {
   for (const z of Z) {
     const share = (L) => z.bins.filter(i => L.mode[i] === ERS_BOOST).length / z.bins.length;
     const charged = (L) => z.bins.every(i => (L.ers[i] ?? 0) > 100); // a flat battery deploys nothing, boost or not
+    const clean = (L) => !L.tow || z.bins.every(i => !L.tow[i]); // DRS or a tow from the car ahead flatters the speed
     const end = z.bins[z.bins.length - 1];
-    const on = laps.filter(L => share(L) >= 0.6 && charged(L) && L.spd[end] != null), off = laps.filter(L => share(L) <= 0.1 && charged(L) && L.spd[end] != null);
+    const on = laps.filter(L => share(L) >= 0.6 && charged(L) && clean(L) && L.spd[end] != null), off = laps.filter(L => share(L) <= 0.1 && charged(L) && clean(L) && L.spd[end] != null);
     if (!on.length || !off.length) continue;
     const meas = median(on.map(L => L.spd[end])) - median(off.map(L => L.spd[end]));
     const model = gainOf(z.bins, 0).dv;
@@ -5786,7 +5787,7 @@ function ersPanel(c, s, r) {
         <div><b>${km(P.startStore)}</b><span>battery at the line, of ${km(P.storeMax)}</span></div>
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">${plural(P.laps.length, 'lap')} from ${listJoin(P.sessions.map(k => SESSION_SHORT[k] || k))}${P.fallback ? ' (no long runs yet, so every full lap)' : ', your long runs'}; at full throttle you were in normal ${m(ERS_NORMAL)}% and boost ${m(ERS_BOOST)}% of the time${m(0) + m(2) ? `, and in other modes ${m(0) + m(2)}% (left out)` : ''}. ${stints}
-        Time gained is modelled, ${P.measuredZones ? `and scaled by your own laps on ${plural(P.measuredZones, 'straight')} driven both with and without boost (×${P.factor.toFixed(2)})` : 'not yet checked against your laps: drive some straights with boost and some without and it will be'}.${P.assumed.length ? ` Assumed, not measured: ${listJoin(P.assumed)}.` : ''}</p>
+        Time gained is modelled, ${P.measuredZones ? `and scaled by your own laps on ${plural(P.measuredZones, 'straight')} driven both with and without boost (straights with DRS open or a tow from the car ahead left out) (×${P.factor.toFixed(2)})` : 'not yet checked against your laps: drive some straights with boost and some without and it will be'}.${P.assumed.length ? ` Assumed, not measured: ${listJoin(P.assumed)}.` : ''}</p>
     </div>
   </div>`;
 }
