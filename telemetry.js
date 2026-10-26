@@ -2,7 +2,8 @@
 // base's software, say), and turns each finished session into a result Pitwall can log. Packet layouts follow EA's
 // F1 25 UDP specification: packet format 2025 for the base game (22 cars), 2026 for the 2026 Season Pack (24 cars,
 // wider driver/team ids). Only what Pitwall uses is read: session, lap data (grid slots and laps), participants,
-// events, car damage (tyre wear), session history and the final classification.
+// events (penalties, warnings, collisions), car damage (tyre wear), session history (laps and sectors) and the final
+// classification.
 const dgram = require('dgram');
 
 const PACKET = { SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
@@ -11,7 +12,7 @@ const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } :
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
 
 function header(b) {
-  return { format: b.readUInt16LE(0), year: b.readUInt8(2), type: b.readUInt8(6), uid: b.readBigUInt64LE(7).toString(), player: b.readUInt8(27) };
+  return { format: b.readUInt16LE(0), year: b.readUInt8(2), type: b.readUInt8(6), uid: b.readBigUInt64LE(7).toString(), time: b.readFloatLE(15), player: b.readUInt8(27) };
 }
 const cstr = (b, from, len) => { const end = b.indexOf(0, from); return b.toString('utf8', from, end < 0 || end > from + len ? from + len : end).trim(); };
 
@@ -48,12 +49,12 @@ function parseFinal(b, L) {
   }
   return out;
 }
-/** Lap data: each car's current lap, grid slot and result status. */
+/** Lap data: each car's race position, current lap, grid slot and result status. */
 function parseLapData(b, L) {
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ lap: b[o + 33], grid: b[o + 43], status: b[o + 45] });
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45] });
   }
   return out;
 }
@@ -72,7 +73,9 @@ function parseHistory(b) {
   const laps = [];
   for (let k = 0; k < n; k++) {
     const o = HEADER + 7 + k * 14; const ms = b.readUInt32LE(o);
-    if (ms) laps.push([ms, b[o + 13] & 1]); // [lap time, lap valid]
+    const sec = (at) => b.readUInt16LE(at) + b[at + 2] * 60000;
+    // [lap time, lap valid, sector 1, sector 2, sector 3, validity flags (bit 1-3: each sector)]
+    if (ms) laps.push([ms, b[o + 13] & 1, sec(o + 4), sec(o + 7), sec(o + 10), b[o + 13]]);
   }
   const stints = [];
   for (let k = 0; k < ns; k++) { const o = HEADER + 7 + 1400 + k * 3; stints.push({ end: b[o], actual: b[o + 1], visual: b[o + 2] }); }
@@ -90,7 +93,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     let s = sessions.get(h.uid);
     if (!s) {
       s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now(),
-        curLap: [], wearNow: [], wear: {}, gridSent: false };
+        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [] };
       sessions.set(h.uid, s);
       for (const [k, v] of sessions) if (Date.now() - v.seen > 6 * 3600e3) sessions.delete(k); // forget sessions from hours ago
     }
@@ -111,7 +114,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [] };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
-      penaltyEvents: s.penalties, retirements: s.retirements });
+      penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions });
   }
   function onPacket(b) {
     if (b.length < HEADER) return;
@@ -132,7 +135,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       lap.forEach((c, i) => {
         // a new lap: note the tyre wear at the end of the one just finished
         if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
-        s.curLap[i] = c.lap;
+        s.curLap[i] = c.lap; s.pos[i] = c.pos;
       });
       // a race or sprint has started: the starting grid settles qualifying (whoever was eliminated, whatever was simulated)
       const n = s.parts?.length || 0;
@@ -144,7 +147,12 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     }
     else if (h.type === PACKET.EVENT) {
       const code = b.toString('ascii', HEADER, HEADER + 4);
-      if (code === 'PENA' && b.length >= HEADER + 11) s.penalties.push({ type: b[33], infringement: b[34], car: b[35], other: b[36], time: b[37], lap: b[38], places: b[39] });
+      if (code === 'PENA' && b.length >= HEADER + 11) s.penalties.push({ type: b[33], infringement: b[34], car: b[35], other: b[36], time: b[37], lap: b[38], places: b[39], t: h.time });
+      else if (code === 'COLL' && b.length >= HEADER + 6) {
+        // the game reports contact every frame it lasts: keep one per pair every 10 seconds, with who was ahead
+        const a = b[33], c2 = b[34]; const last = s.collisions.find(x => ((x.a === a && x.b === c2) || (x.a === c2 && x.b === a)) && h.time - x.t < 10);
+        if (!last && a !== c2) s.collisions.push({ a, b: c2, t: h.time, lap: s.curLap[a] || 0, posA: s.pos[a] || 0, posB: s.pos[c2] || 0 });
+      }
       else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34] });
     } else if (h.type === PACKET.FINAL) {
       s.final = parseFinal(b, L);
