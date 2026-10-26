@@ -5333,6 +5333,26 @@ function gridRuns(s, round) {
   }
   return out;
 }
+/**
+ * The grid's and your runs, with the fall-off made to agree. Short or broken runs (a session you retired from, say)
+ * often measure no fall-off at all, so: a compound showing +0.000 s a lap on one side takes the other side's figure.
+ * And where both have one but the grid's is more than 50% off yours, the grid's is pulled to within a tenth of yours
+ * (yours is 1 s a lap, the grid's 0.3 s: the grid's becomes 0.9 s). Each changed figure says where it came from.
+ */
+const DEG_ZERO = 0.5, DEG_NEAR = 100; // ms a lap
+function strategyRuns(s, round) {
+  const copy = (o) => JSON.parse(JSON.stringify(o)); const grid = copy(gridRuns(s, round)); const mine = copy(practiceRuns(s, round, PLAYER));
+  for (const c of DRY) {
+    const a = grid[c], p = mine[c]; if (!a || !p) continue;
+    if (p.deg < DEG_ZERO && a.deg >= DEG_ZERO) { p.deg = a.deg; p.degNote = 'from the grid’s runs'; }
+    else if (a.deg < DEG_ZERO && p.deg >= DEG_ZERO) { a.deg = p.deg; a.degNote = 'from your runs'; }
+    else if (a.deg >= DEG_ZERO && p.deg >= DEG_ZERO && Math.abs(a.deg - p.deg) > p.deg * 0.5) {
+      const was = a.deg; a.deg = Math.max(p.deg - DEG_NEAR, Math.min(p.deg + DEG_NEAR, a.deg));
+      a.degNote = `near yours; the grid measured +${(was / 1000).toFixed(3)} s`;
+    }
+  }
+  return { grid, mine };
+}
 /** The quickest plans for a race of n laps, given the runs. */
 function optimalStrategies(runs, n) {
   const comps = Object.keys(runs).map(Number); const res = [];
@@ -5375,7 +5395,7 @@ function strategyBlock(title, runs, n, note) {
   return `<div class="panel-b stack" style="gap:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><span class="label" style="margin:0">${esc(title)}</span><span class="muted" style="font-size:12px">${esc(note)}</span></div>
     ${plans.length ? `<div class="strat-bars">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const word = ['', 'one', 'two', 'three'][p.stops] + '-stopper'; const name = i === 0 ? `<b>The quickest</b> ${word}` : p.t - plans[0].t < 3000 ? `<b>Very close</b> ${word}` : p.stops > plans[0].stops ? `<b>Aggressive</b> ${word}` : p.stops < plans[0].stops ? `<b>Conservative</b> ${word}` : `<b>Alternative</b> ${word}`; return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${name}</span><small class="muted">${fmtGap(p.t - plans[0].t)}</small></div></div>`; }).join('')}</div>` : '<div class="muted" style="font-size:13px">No plan fits: on these runs the tyres would not last the distance.</div>'}
     <div class="table-wrap"><table><thead><tr><th>Tyre</th><th class="num">Pace</th><th class="num">Fall-off / lap</th><th class="num">Wear / lap</th><th class="num">Life</th></tr></thead><tbody>
-      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
+      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
     </tbody></table></div></div>`;
 }
 /** Dashboard: the best strategy for the next race, from this weekend's practice (the grid's, then yours). Each needs
@@ -5386,7 +5406,7 @@ function strategyAdvicePanel(c, s) {
   const head = `<div class="panel-h"><h2>Race strategy</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice</span></div>`;
   if (!anyPractice) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No practice logged from F1 25 for ${esc(r.name)} yet. Run practice with telemetry on and the best strategy appears here: it needs at least three consecutive laps on two dry compounds.</div></div>`;
   const n = raceLaps(s, r.id);
-  const grid = gridRuns(s, r); const mine = practiceRuns(s, r, PLAYER);
+  const { grid, mine } = strategyRuns(s, r);
   const names = (runs) => listJoin(DRY.filter(cp => runs[cp]).map(cp => COMPOUNDS[cp][1].toLowerCase()));
   const short = (title, runs, who) => `<div class="panel-b muted" style="font-size:13px;border-top:1px solid var(--line)"><span class="label">${title}</span>Not enough ${who} yet: it needs at least three consecutive laps on two dry compounds.${Object.keys(runs).length ? ` So far: ${names(runs)}.` : ''}</div>`;
   const enough = (runs) => Object.keys(runs).length >= 2;
@@ -5423,7 +5443,7 @@ function idealLaps(s, round) {
 }
 /** The race forecast: { order: [{ d, t, start, off, est }], teams: [{ team, off }], plan, n }. */
 function raceForecast(s, round) {
-  const n = raceLaps(s, round.id); const grid = gridRuns(s, round); const ideal = idealLaps(s, round);
+  const n = raceLaps(s, round.id); const grid = strategyRuns(s, round).grid; const ideal = idealLaps(s, round);
   const comps = Object.keys(grid); if (!comps.length) return null;
   const plan = comps.length >= 2 ? optimalStrategies(grid, n)[0] : null;
   const baseT = plan ? plan.t : (() => { const g = grid[comps[0]]; return n * g.base + g.deg * n * (n - 1) / 2; })();
