@@ -56,8 +56,8 @@ function parseFinal(b, L) {
 }
 /**
  * Each car's record size, worked out from the packet length. Formats add and drop fields: the 2026 format (24 cars)
- * has 54-byte motion records (60 before), 59-byte car telemetry (60: no DRS byte) and 59-byte car status (55: four
- * bytes added after the ERS fields). The fields Pitwall reads come before any of the changes. 22 and 24 cars are both
+ * has 54-byte motion records (60 before), 59-byte car telemetry (60: rearranged after the RPM, the engine temperature
+ * down to one byte) and 59-byte car status (55: a field inserted after the harvest). The fields Pitwall reads come before any of the changes. 22 and 24 cars are both
  * tried, an exact fit to the known size first.
  */
 const stride = (b, L, base, tail = 0) => {
@@ -69,7 +69,7 @@ function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return
 /** Your car's speed (km/h), throttle and brake (0 to 1), and whether DRS is open. */
 function playerTelemetry(b, L, p) {
   const w = stride(b, L, 60, 3); const o = HEADER + p * w; if (o + 19 > b.length) return null;
-  // a record without the DRS byte (the 2026 format, which has no DRS) reads it as closed
+  // the 2026 layout has no DRS where it used to be (and no DRS on the car): read it as closed
   return { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10), drs: w >= 60 && b[o + 18] > 0 };
 }
 /**
@@ -218,11 +218,11 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       s.parts = [...byIdx.values()].sort((a, b) => a.idx - b.idx);
     }
     if (ersSession(s.info) && (h.type === PACKET.MOTION || h.type === PACKET.TELEMETRY || h.type === PACKET.STATUS || h.type === PACKET.LAP)) {
-      // a few whole packets, a few seconds apart, for the diagnostics in the ERS panel
+      // a few whole packets, 20 s apart, while you're on track and flat out (not in the garage), for the diagnostics
       const D = s.diag ||= { format: h.format, player: h.player, lens: {}, raw: {}, last: {} };
       D.lens[h.type] = b.length; D.player = h.player;
       const list = D.raw[h.type] ||= [];
-      if (list.length < 4 && h.time - (D.last[h.type] ?? -99) > 15) { D.last[h.type] = h.time; list.push({ t: Math.round(h.time * 10) / 10, b64: b.toString('base64') }); }
+      if (list.length < 4 && h.time - (D.last[h.type] ?? -99) > 20 && (s.tel?.spd || 0) > 150 && !s.pit[h.player]) { D.last[h.type] = h.time; list.push({ t: Math.round(h.time * 10) / 10, b64: b.toString('base64') }); }
     }
     if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
     else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
