@@ -5603,18 +5603,21 @@ function ersPlan(c, s, round) {
   return p;
 }
 function buildErsPlan(c, s, round) {
-  const w = s.weekends[round.id]; const laps = []; let E0 = null, fallback = false; const all = [];
+  const w = s.weekends[round.id]; const laps = []; let E0 = null, fallback = false, stale = false; const all = [];
   for (const k of RUN_KEYS) { // practice and the sprint
     const sd = w?.sessions?.[k]; const E = sd?.game?.ers; if (!E || sd.estimated) continue;
+    // 2026-format data logged before 2.0.12 was read with the old record sizes: position, brake and deployment are wrong
+    if ((E.format || 0) >= 2026 && (E.v || 0) < 3) { stale = true; continue; }
     E0 ||= E; const long = longRunLapNos(sd, E.d);
     const dry = (lap) => { const st = stintsOf(sd, E.d).find(x => lap >= x.from && lap <= x.to); return !st || DRY.includes(st.c); }; // no inters or wets
     for (const L of E.laps) { if (!dry(L.lap)) continue; all.push({ k, ...L }); if (long.has(L.lap)) laps.push({ k, ...L }); }
     if (!E0.map?.some(Boolean) && E.map?.some(Boolean)) E0 = E;
   }
-  if (!E0) return null;
+  if (!E0) return stale ? { stale: true } : null;
   if (!laps.length) { laps.push(...all); fallback = true; }
   const bin = E0.bin, nb = Math.ceil(E0.length / bin);
   const warn = [];
+  if (stale) warn.push('Laps logged before 2.0.12 are left out: that version read the 2026-format packets wrongly.');
   // which modes you used (share of slices at full throttle)
   const modes = {}; let slices = 0;
   for (const L of laps) L.mode.forEach((m, i) => { if (m != null && L.thr[i] >= 95) { modes[m] = (modes[m] || 0) + 1; slices++; } });
@@ -5655,7 +5658,9 @@ function buildErsPlan(c, s, round) {
   if (pNormal >= pBoost) { pNormal = pBoost * 0.6; assumed.push('normal deployment (measured at or above boost, which can’t be right)'); }
   const harvest = median(perLap.map(x => x.harv)) || 0; // kJ a lap
   const depMax = Math.max(0, ...perLap.map(x => x.dep));
-  const depCap = Math.max(4000, depMax); // kJ a lap the rules allow (4 MJ), or more if your laps showed more
+  // kJ a lap the rules allow: what the game says (2026 format), else 4 MJ, or more if your laps showed more
+  const gameLimit = median(laps.flatMap(L => (L.limit || []).filter(x => x > 0)));
+  const depCap = gameLimit || Math.max(4000, depMax);
   const storeMax = Math.max(4000, ...allErs);
   const startStore = median(perLap.map(x => x.start)) ?? storeMax / 2;
   // the lap: typical speed, throttle and brake per slice, and the outline
@@ -5768,6 +5773,7 @@ function ersMapSvg(P, view, flip) {
 function ersPanel(c, s, r) {
   const head = (extra = '') => `<div class="panel-h"><h2>ERS: where to boost</h2>${extra}</div>`;
   const P = ersPlan(c, s, r);
+  if (P?.stale) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">The ERS data for ${esc(r.name)} was logged before 2.0.12, which read the 2026-format packets wrongly, so it isn’t used. Run another practice session (or the sprint) and the profile builds from that.</div></div>`;
   if (!P) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">No ERS data for ${esc(r.name)} yet. Do your long runs in practice (or race the sprint) with telemetry on, using normal deployment and boost as you see fit. Pitwall follows your car only, measures what boost really costs and what you harvest, and maps the best places to use it.</div></div>`;
   const view = ui.ersView || 'plan'; const tid = trackOf(r); const flip = !!c.ersFlip?.[tid];
   const m = (m) => P.modes[m] ? Math.round(P.modes[m] / P.slices * 100) : 0;
@@ -5796,7 +5802,7 @@ function ersPanel(c, s, r) {
         <div><b>${Math.round(P.pNormal)} kW</b><span>normal deployment</span></div>
         <div><b>${km(P.harvest)}</b><span>harvested a lap</span></div>
         <div><b>${km(P.normalUse)}</b><span>normal mode uses a lap</span></div>
-        <div><b>${km(P.depMax)}</b><span>most deployed in a lap${P.depCap > 4000 ? '' : ` (limit ${km(P.depCap)})`}</span></div>
+        <div><b>${km(P.depMax)}</b><span>most deployed in a lap (limit ${km(P.depCap)})</span></div>
         <div><b>${km(P.startStore)}</b><span>battery at the line, of ${km(P.storeMax)}</span></div>
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">${plural(P.laps.length, 'lap')} from ${listJoin(P.sessions.map(k => SESSION_SHORT[k] || k))}${P.fallback ? ' (no long runs yet, so every full lap)' : ', your long runs'}; at full throttle you were in normal ${m(ERS_NORMAL)}% and boost ${m(ERS_BOOST)}% of the time${m(0) + m(2) ? `, and in other modes ${m(0) + m(2)}% (left out)` : ''}. ${stints}

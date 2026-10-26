@@ -72,10 +72,15 @@ function playerTelemetry(b, L, p) {
   // a record without the DRS byte (the 2026 format, which has no DRS) reads it as closed
   return { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10), drs: w >= 60 && b[o + 18] > 0 };
 }
-/** Your car's ERS: stored energy, deploy mode, harvested and deployed this lap (joules) and MGU-K power (watts). */
+/**
+ * Your car's ERS: stored energy, deploy mode, harvested and deployed this lap (joules) and MGU-K power (watts). The
+ * 2026 format (59-byte records) inserts a field after the harvest: the energy you may deploy this lap (6.4 MJ in the
+ * garage, for one), which moves deployed-this-lap along by four bytes.
+ */
 function playerStatus(b, L, p) {
-  const o = HEADER + p * stride(b, L, 55); if (o + 54 > b.length) return null;
-  return { mguk: b.readFloatLE(o + 33), ers: b.readFloatLE(o + 37), mode: b[o + 41], harv: b.readFloatLE(o + 42) + b.readFloatLE(o + 46), dep: b.readFloatLE(o + 50) };
+  const w = stride(b, L, 55); const o = HEADER + p * w; const wide = w >= 59; if (o + (wide ? 58 : 54) > b.length) return null;
+  return { mguk: b.readFloatLE(o + 33), ers: b.readFloatLE(o + 37), mode: b[o + 41], harv: b.readFloatLE(o + 42) + b.readFloatLE(o + 46),
+    dep: b.readFloatLE(o + (wide ? 54 : 50)), limit: wide ? b.readFloatLE(o + 50) : null };
 }
 /** Lap data: each car's race position, current lap, grid slot, result status and whether it is in the pit lane. */
 function parseLapData(b, L) {
@@ -150,7 +155,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     const lap = (s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false };
     const o = lap.bins[Math.floor(c.dist / ERS_BIN)] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
     o.n++; o.thr += s.tel.thr; o.brk += s.tel.brk; o.spd += s.tel.spd; o.ers += s.stat.ers; o.pw += s.stat.mguk;
-    o.dep = s.stat.dep; o.harv = s.stat.harv; o.modes[s.stat.mode] = (o.modes[s.stat.mode] || 0) + 1;
+    o.dep = s.stat.dep; o.harv = s.stat.harv; if (s.stat.limit) o.limit = s.stat.limit; o.modes[s.stat.mode] = (o.modes[s.stat.mode] || 0) + 1;
     // DRS (or, under the 2026 rules, straight-mode aero) open, and within a second of the car ahead (the slipstream):
     // kept apart, since which one matters depends on the season's rules
     if (s.tel.drs) o.drs = 1;
@@ -168,13 +173,14 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       const col = (fn) => Array.from({ length: nb }, (_, i) => { const o = lap.bins[i]; return o ? fn(o) : null; });
       laps.push({ lap: +lapNo, invalid: lap.invalid,
         thr: col(o => Math.round(o.thr / o.n * 100)), brk: col(o => Math.round(o.brk / o.n * 100)), spd: col(o => Math.round(o.spd / o.n)),
-        ers: col(o => Math.round(o.ers / o.n / 1000)), dep: col(o => Math.round(o.dep / 1000)), harv: col(o => Math.round(o.harv / 1000)), pw: col(o => Math.round(o.pw / o.n / 1000)),
+        ers: col(o => Math.round(o.ers / o.n / 1000)), dep: col(o => Math.round(o.dep / 1000)), limit: col(o => o.limit ? Math.round(o.limit / 1000) : null), harv: col(o => Math.round(o.harv / 1000)), pw: col(o => Math.round(o.pw / o.n / 1000)),
         mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]), drs: col(o => o.drs ? 1 : 0), close: col(o => o.close ? 1 : 0) });
       for (let i = 0; i < nb; i++) { const o = lap.bins[i]; if (o?.nm) { mx[i] += o.x / o.nm; mz[i] += o.z / o.nm; mn[i]++; } }
     }
     if (!laps.length) return null;
     const diag = s.diag ? { format: s.diag.format, player: s.diag.player, lens: s.diag.lens, raw: s.diag.raw } : null;
-    return { player: s.player, bin: ERS_BIN, length: s.info.trackLength, laps, diag, map: mx.map((x, i) => mn[i] ? [r(x / mn[i], 10), r(mz[i] / mn[i], 10)] : null) };
+    // v: how this version reads the packets (3: the 2026 record sizes and status layout)
+    return { v: 3, player: s.player, bin: ERS_BIN, length: s.info.trackLength, laps, diag, map: mx.map((x, i) => mn[i] ? [r(x / mn[i], 10), r(mz[i] / mn[i], 10)] : null) };
   }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
