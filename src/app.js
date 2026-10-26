@@ -5187,7 +5187,7 @@ const tyreChip = (c, len, title = '') => { const cp = COMPOUNDS[c] || ['?', 'Unk
 const tyreIcon = (c, size = 28) => { const cp = COMPOUNDS[c] || ['?', 'Unknown', '#5E6A82']; return `<span class="tyre-ic" style="--c:${cp[2]};--sz:${size}px" title="${esc(cp[1])}"><b>${cp[0]}</b></span>`; };
 /**
  * A race strategy as one bar, the way Pirelli draws them: each stint in its compound's colour, blending into the next
- * at the stop, with the stop lap (or pit window) and the new tyre at each change and a label at the end.
+ * at the stop: the starting tyre at the left, then the stop lap (or pit window) and the new tyre at each change.
  * stints: [{ c, from, to }]; windows: per stop [lo, hi] (optional); compact for table rows.
  */
 function stintBar(stints, total, { label = '', windows = null, compact = false } = {}) {
@@ -5195,7 +5195,7 @@ function stintBar(stints, total, { label = '', windows = null, compact = false }
   const N = total || stints[stints.length - 1].to; const pc = (lap) => Math.max(0, Math.min(100, lap / N * 100));
   const col = (c) => (COMPOUNDS[c] || [])[2] || '#5E6A82';
   const blend = compact ? 1.5 : 3;
-  const stops = []; let g = `linear-gradient(90deg, rgba(0,0,0,0) 0%, ${col(stints[0].c)} ${compact ? 2 : 7}%`;
+  const stops = []; let g = `linear-gradient(90deg, ${col(stints[0].c)} 0%`;
   stints.forEach((st, k) => {
     if (k === 0) return;
     const p = pc(stints[k - 1].to);
@@ -5206,8 +5206,8 @@ function stintBar(stints, total, { label = '', windows = null, compact = false }
   const light = (c) => c === 18 || c === 17; // dark text on the white and yellow tyres
   const size = compact ? 18 : 30;
   return `<div class="stint-bar ${compact ? 'compact' : ''}" style="background:${g}">
-    ${stops.map(o => `<div class="sb-stop ${o.p < 22 ? 'flip' : ''}" style="left:${o.p.toFixed(1)}%"><span class="sb-lap ${light(o.p < 22 ? o.c : o.prev) ? 'dark' : ''}">${compact ? `L${o.lap}` : o.w && o.w[0] !== o.w[1] ? `Lap <b>${o.w[0]}</b> to <b>${o.w[1]}</b>` : `Lap <b>${o.lap}</b>`}</span>${tyreIcon(o.c, size)}</div>`).join('')}
-    ${compact ? '' : `<div class="sb-end">${tyreIcon(stints[stints.length - 1].c, size)}</div>`}
+    <div class="sb-start">${tyreIcon(stints[0].c, size)}</div>
+    ${stops.map(o => `<div class="sb-stop ${o.p < 22 ? 'flip' : ''}" style="left:max(${o.p.toFixed(1)}%, ${compact ? 30 : 56}px)"><span class="sb-lap ${light(o.p < 22 ? o.c : o.prev) ? 'dark' : ''}">${compact ? `L${o.lap}` : o.w && o.w[0] !== o.w[1] ? `Lap <b>${o.w[0]}</b> to <b>${o.w[1]}</b>` : `Lap <b>${o.lap}</b>`}</span>${tyreIcon(o.c, size)}</div>`).join('')}
   </div>`;
 }
 function strategyPanel(s, sd, key, roundId) {

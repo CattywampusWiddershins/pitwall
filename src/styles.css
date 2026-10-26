@@ -661,7 +661,8 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .sb-lap b, .sb-label b { font-weight: 800; }
 .sb-lap.dark, .sb-label.dark { color: #2b2f36; text-shadow: none; }
 .stint-bar.compact .sb-lap { font-size: 10px; right: calc(100% + 3px); }
-.sb-end { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
+.sb-start { position: absolute; left: 7px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; z-index: 1; }
+.stint-bar.compact .sb-start { left: 2px; }
 .sb-label { position: static; margin-right: 8px; text-align: right; font-size: 13px; }
 @media (max-width: 640px) { .strat-row { grid-template-columns: 1fr; gap: 4px; } .strat-name { display: flex; gap: 8px; } .sb-label { font-size: 11px; } .sb-lap { font-size: 10px; } .stint-bar { height: 38px; } }
 
