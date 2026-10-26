@@ -5395,12 +5395,15 @@ function gameDriverModal(roundId, key, d) {
    out: it affects every plan the same. Two plans are worked out: one from the whole grid's practice, one from yours. */
 const PIT_LOSS = 22000; // ms lost to a stop, pit lane included
 const PRACTICE_KEYS = ['FP1', 'FP2', 'FP3', 'FP'];
+// the sessions each forecast learns from: long runs from practice and the sprint; ideal laps from practice and the
+// sprint shootout
+const RUN_KEYS = [...PRACTICE_KEYS, 'SPR'], IDEAL_KEYS = [...PRACTICE_KEYS, 'SQ'];
 const DRY = [16, 17, 18];
 /** One driver's clean consecutive laps on each dry compound in this weekend's practice:
  *  { compound: { laps, base, deg, wear, life, ref } } (ref: their quickest practice lap, to compare drivers). */
 function practiceRuns(s, round, d) {
   const w = s.weekends[round.id]; const out = {}; let ref = Infinity;
-  for (const k of PRACTICE_KEYS) {
+  for (const k of RUN_KEYS) {
     const sd = w?.sessions?.[k]; if (!sd?.game || sd.estimated) continue;
     const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
     for (const l of laps) if (l[0] && l[1]) ref = Math.min(ref, l[0]);
@@ -5428,7 +5431,7 @@ function practiceRuns(s, round, d) {
  *  to each driver's own quickest lap (so a fast car on softs and a slow car on hards don't skew the compounds). */
 function gridRuns(s, round) {
   const w = s.weekends[round.id]; const drivers = new Set();
-  for (const k of PRACTICE_KEYS) { const g = w?.sessions?.[k]?.game; if (g?.laps && !w.sessions[k].estimated) Object.keys(g.laps).forEach(d => drivers.add(d)); }
+  for (const k of RUN_KEYS) { const g = w?.sessions?.[k]?.game; if (g?.laps && !w.sessions[k].estimated) Object.keys(g.laps).forEach(d => drivers.add(d)); }
   const per = [...drivers].map(d => practiceRuns(s, round, d)).filter(x => Object.keys(x).length);
   const med = (xs) => { const v = xs.filter(x => x != null && isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
   const ref = med(per.map(x => Object.values(x)[0].ref));
@@ -5457,7 +5460,42 @@ function strategyRuns(s, round) {
       a.degNote = `near yours; the grid measured +${(was / 1000).toFixed(3)} s`;
     }
   }
+  fillTyres(grid, mine);
   return { grid, mine };
+}
+/**
+ * Tyres with no runs. One side ran a compound the other didn't: it takes that side's fall-off, wear and life, and its
+ * pace moved by the usual gap between the two sides on the tyres both ran. Nobody ran it: it's worked out from the two
+ * that were run. A missing hard is the medium plus the soft-to-medium step (slower, but dropping off and wearing
+ * slower); a missing soft is the medium minus the medium-to-hard step (quicker, dropping off and wearing faster); a
+ * missing medium sits halfway between the soft and the hard. Each filled-in tyre says where it came from.
+ */
+function fillTyres(grid, mine) {
+  const shared = DRY.filter(c => grid[c]?.measured !== false && mine[c] && grid[c] && !grid[c].src && !mine[c].src);
+  const off = shared.length ? median(shared.map(c => mine[c].base - grid[c].base)) : 0;
+  const pick = (x) => ({ base: x.base, deg: x.deg, wear: x.wear, life: x.life });
+  for (const c of DRY) {
+    if (grid[c] && !mine[c]) mine[c] = { ...pick(grid[c]), base: grid[c].base + off, laps: 0, src: 'from the grid’s runs' };
+    else if (mine[c] && !grid[c]) grid[c] = { ...pick(mine[c]), base: mine[c].base - off, laps: 0, drivers: 0, src: 'from your runs' };
+  }
+  for (const runs of [grid, mine]) {
+    const S = runs[16], M = runs[17], H = runs[18];
+    const step = (a, b, k, f) => { const x = a[k], y = b[k]; return x == null || y == null ? null : f(x, y); };
+    const est = (o, src) => ({ ...o, laps: 0, drivers: 0, src });
+    if (S && M && !H) runs[18] = est({
+      base: M.base + Math.max(200, M.base - S.base),
+      deg: Math.min(M.deg * 0.85, Math.max(M.deg * 0.4, M.deg - Math.max(0, S.deg - M.deg))),
+      wear: step(S, M, 'wear', (s, m) => Math.min(m * 0.85, Math.max(m * 0.4, m - Math.max(0, s - m)))),
+      life: step(S, M, 'life', (s, m) => Math.max(m + 1, m + (m - s))) }, 'estimated: the medium plus the soft-to-medium step');
+    else if (M && H && !S) runs[16] = est({
+      base: M.base - Math.max(200, H.base - M.base),
+      deg: Math.max(M.deg * 1.15, M.deg + Math.max(0, M.deg - H.deg)),
+      wear: step(M, H, 'wear', (m, h) => Math.max(m * 1.15, m + Math.max(0, m - h))),
+      life: step(M, H, 'life', (m, h) => Math.max(3, Math.min(m - 1, m - (h - m)))) }, 'estimated: the medium minus the medium-to-hard step');
+    else if (S && H && !M) runs[17] = est({
+      base: (S.base + H.base) / 2, deg: (S.deg + H.deg) / 2,
+      wear: step(S, H, 'wear', (s, h) => (s + h) / 2), life: step(S, H, 'life', (s, h) => Math.round((s + h) / 2)) }, 'estimated: halfway between the soft and the hard');
+  }
 }
 /** The quickest plans for a race of n laps, given the runs. */
 function optimalStrategies(runs, n) {
@@ -5501,23 +5539,24 @@ function strategyBlock(title, runs, n, note) {
   return `<div class="panel-b stack" style="gap:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><span class="label" style="margin:0">${esc(title)}</span><span class="muted" style="font-size:12px">${esc(note)}</span></div>
     ${plans.length ? `<div class="strat-bars">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const word = ['', 'one', 'two', 'three'][p.stops] + '-stopper'; const name = i === 0 ? `<b>The quickest</b> ${word}` : p.t - plans[0].t < 3000 ? `<b>Very close</b> ${word}` : p.stops > plans[0].stops ? `<b>Aggressive</b> ${word}` : p.stops < plans[0].stops ? `<b>Conservative</b> ${word}` : `<b>Alternative</b> ${word}`; return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${name}</span><small class="muted">${fmtGap(p.t - plans[0].t)}</small></div></div>`; }).join('')}</div>` : '<div class="muted" style="font-size:13px">No plan fits: on these runs the tyres would not last the distance.</div>'}
     <div class="table-wrap"><table><thead><tr><th>Tyre</th><th class="num">Pace</th><th class="num">Fall-off / lap</th><th class="num">Wear / lap</th><th class="num">Life</th></tr></thead><tbody>
-      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
+      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}${x.src ? `<div class="muted" style="font-size:11px">${esc(x.src)}</div>` : ''}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
     </tbody></table></div></div>`;
 }
 /** Dashboard: the best strategy for the next race, from this weekend's practice (the grid's, then yours). Each needs
  *  at least two dry compounds with three or more consecutive clean laps. */
 function strategyAdvicePanel(c, s) {
   const r = nextRound(s); if (!r || isHist(s)) return '';
-  const anyPractice = PRACTICE_KEYS.some(k => s.weekends[r.id]?.sessions?.[k]?.game && !s.weekends[r.id].sessions[k].estimated);
-  const head = `<div class="panel-h"><h2>Race strategy</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice</span></div>`;
+  const anyPractice = RUN_KEYS.some(k => s.weekends[r.id]?.sessions?.[k]?.game && !s.weekends[r.id].sessions[k].estimated);
+  const head = `<div class="panel-h"><h2>Race strategy</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice${r.sprint ? " and the sprint" : ""}</span></div>`;
   if (!anyPractice) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No practice logged from F1 25 for ${esc(r.name)} yet. Run practice with telemetry on and the best strategy appears here: it needs at least three consecutive laps on two dry compounds.</div></div>`;
   const n = raceLaps(s, r.id);
   const { grid, mine } = strategyRuns(s, r);
   const names = (runs) => listJoin(DRY.filter(cp => runs[cp]).map(cp => COMPOUNDS[cp][1].toLowerCase()));
   const short = (title, runs, who) => `<div class="panel-b muted" style="font-size:13px;border-top:1px solid var(--line)"><span class="label">${title}</span>Not enough ${who} yet: it needs at least three consecutive laps on two dry compounds.${Object.keys(runs).length ? ` So far: ${names(runs)}.` : ''}</div>`;
-  const enough = (runs) => Object.keys(runs).length >= 2;
+  // a plan needs two tyres someone actually ran (a filled-in tyre can complete the set, not start it)
+  const enough = (runs) => Object.values(runs).filter(x => !x.src || x.src.startsWith('from')).length >= 2 && Object.keys(runs).length >= 2;
   return `<div class="panel">${head}
-    ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(...Object.values(grid).map(x => x.drivers)), 'driver')}`) : short('From the whole grid', grid, 'long runs from the grid')}
+    ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(0, ...Object.values(grid).map(x => x.drivers || 0)), 'driver')}`) : short('From the whole grid', grid, 'long runs from the grid')}
     ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving') : short('From your runs', mine, 'of your own running')}
     <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. Assumes ${PIT_LOSS / 1000} s per stop and a tyre is done at ${WEAR_LIMIT}% wear; fuel burn is the same for every plan, so it is left out.</div></div>`;
 }
@@ -5757,10 +5796,10 @@ function ersPanel(c, s, r) {
   starting further back costs a little in traffic. Teams and drivers are then ranked on race pace per lap.
 */
 const SECTOR_OK = [2, 4, 8]; // the game's validity flag for sector 1, 2 and 3
-/** Each driver's ideal lap from practice: { d: { ideal, best, sectors: [s1, s2, s3] } }. */
+/** Each driver's ideal lap from practice and the sprint shootout: { d: { ideal, best, sectors: [s1, s2, s3] } }. */
 function idealLaps(s, round) {
   const w = s.weekends[round.id]; const out = {};
-  for (const k of PRACTICE_KEYS) {
+  for (const k of IDEAL_KEYS) {
     const sd = w?.sessions?.[k]; if (!sd?.game?.laps || sd.estimated) continue;
     for (const [d, laps] of Object.entries(sd.game.laps)) {
       const o = out[d] ||= { best: Infinity, sectors: [Infinity, Infinity, Infinity] };
