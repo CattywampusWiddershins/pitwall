@@ -5139,7 +5139,7 @@ function applyGameResult(c, r, place) {
   if (game.ers) {
     // the ERS profile is big: keep it for this weekend only (the outline of the track is kept for good)
     for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of RUN_KEYS) if (w2.sessions?.[k]?.game?.ers) delete w2.sessions[k].game.ers;
-    if (game.ers.map?.filter(Boolean).length >= game.ers.map.length * 0.8) (c.trackMaps ||= {})[trackOf(round)] = { map: game.ers.map, length: game.ers.length };
+    if (game.ers.map?.filter(Boolean).length >= game.ers.map.length * 0.8 && mapExtent(game.ers.map) >= 200) (c.trackMaps ||= {})[trackOf(round)] = { map: game.ers.map, length: game.ers.length };
   }
   w.game = { weekend: r.weekendLink };
   if (key === 'Q' || key === 'SQ') estimatePractice(s, round, key);
@@ -5574,6 +5574,8 @@ function strategyAdvicePanel(c, s) {
   (extra power accelerates the car, drag takes some back), scaled by what your laps show where you drove the same
   straight both with and without boost.
 */
+/** How big an outline is, in metres (its longer side): a few metres means the position data didn't come through. */
+const mapExtent = (pts) => { const q = (pts || []).filter(Boolean); if (!q.length) return 0; const xs = q.map(p => p[0]), zs = q.map(p => p[1]); return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)); };
 const ERS_NORMAL = 1, ERS_BOOST = 3; // the game's deploy modes: 1 medium (normal), 3 overtake (boost)
 const ERS_MASS = 800; // kg, car and driver
 /** Laps in your long runs on dry tyres (three or more consecutive pushing laps, within 2.5% of the run's best).
@@ -5616,6 +5618,10 @@ function buildErsPlan(c, s, round) {
   // which modes you used (share of slices at full throttle)
   const modes = {}; let slices = 0;
   for (const L of laps) L.mode.forEach((m, i) => { if (m != null && L.thr[i] >= 95) { modes[m] = (modes[m] || 0) + 1; slices++; } });
+  const ftBrk = laps.flatMap(L => L.thr.map((v, i) => v >= 95 ? L.brk[i] : null).filter(x => x != null));
+  const brakeOk = !ftBrk.length || ftBrk.filter(b => b < 5).length / ftBrk.length >= 0.2;
+  if (!brakeOk) warn.push('The brake reading from the game never dropped to zero on full throttle, so it isn’t being read right in this game version: straights and braking are found from the throttle alone. Copy the diagnostics at the bottom and send them over so it can be fixed.');
+  const offBrake = (L, i) => brakeOk ? L.brk[i] < 5 : true;
   const allErs = laps.flatMap(L => L.ers.filter(x => x != null));
   if (!allErs.length || Math.max(...allErs) <= 0) warn.push('The game sent no battery data. Check that UDP telemetry is on and set to public in the game’s settings.');
   else if (Math.max(...allErs) > 12000) warn.push('The battery readings are out of range (over 12 MJ): this game version may send ERS differently, so treat the plan with care.');
@@ -5630,7 +5636,7 @@ function buildErsPlan(c, s, round) {
       const sp = L.spd[i]; if (sp == null || sp < 30) { last = null; continue; }
       const dt = bin / (sp / 3.6);
       // full throttle with charge in the battery (an empty battery deploys nothing, whatever the mode)
-      if (L.thr[i] >= 95 && L.brk[i] < 5 && acc[L.mode[i]] && last != null && L.dep[i] != null && (L.ers[i] ?? 0) > 100) {
+      if (L.thr[i] >= 95 && offBrake(L, i) && acc[L.mode[i]] && last != null && L.dep[i] != null && (L.ers[i] ?? 0) > 100) {
         const dd = L.dep[i] - last; if (dd >= 0 && dd < 300) { acc[L.mode[i]].e += dd; acc[L.mode[i]].t += dt; }
         if (L.pw[i] != null) acc[L.mode[i]].pw.push(L.pw[i]);
       }
@@ -5655,10 +5661,12 @@ function buildErsPlan(c, s, round) {
   // the lap: typical speed, throttle and brake per slice, and the outline
   const col = (f) => Array.from({ length: nb }, (_, i) => median(laps.map(L => L[f][i])));
   const spd = col('spd'), thr = col('thr'), brk = col('brk');
-  const map = E0.map?.some(Boolean) ? E0.map : c.trackMaps?.[trackOf(round)]?.map || null;
+  const ownMap = E0.map?.some(Boolean) && mapExtent(E0.map) >= 200 ? E0.map : null;
+  const map = ownMap || c.trackMaps?.[trackOf(round)]?.map || null;
+  if (E0.map?.some(Boolean) && !ownMap) warn.push('Your car’s position came through as a single spot, so this game version sends it differently: there’s no track outline from these laps. Copy the diagnostics at the bottom and send them over so it can be fixed.');
   const vOf = (i) => Math.max(8, (spd[i] || 100) / 3.6), dtOf = (i) => bin / vOf(i);
   // straights: runs of full throttle (around the lap, across the line too), 160 m or longer
-  const full = Array.from({ length: nb }, (_, i) => thr[i] >= 95 && brk[i] < 5);
+  const full = Array.from({ length: nb }, (_, i) => thr[i] >= 95 && (brakeOk ? brk[i] < 5 : true));
   for (let i = 0; i < nb; i++) if (!full[i] && full[(i - 1 + nb) % nb] && full[(i + 1) % nb]) full[i] = 'gap';
   const zones = []; const startAt = full.findIndex(x => !x);
   if (startAt >= 0) {
@@ -5713,7 +5721,7 @@ function buildErsPlan(c, s, round) {
   Z.forEach((z, zi) => { const o = chosen[zi]; z.plan = o && o.j != null ? { j: o.j, at: z.bins[o.j] * bin, len: (z.bins.length - o.j) * bin, t: o.t, e: o.e, dv: o.dv } : null; });
   // the battery over the lap with this plan: harvest under braking, normal and boost deployment on the straights; a
   // straight where it would run dry before the braking point starts its boost later
-  const brkW = brk.map((b, i) => (b || 0) * dtOf(i)); const brkSum = brkW.reduce((a, b) => a + b, 0) || 1;
+  const brkW = brk.map((b, i) => (brakeOk ? (b || 0) : thr[i] != null && thr[i] < 20 ? 100 : 0) * dtOf(i)); const brkSum = brkW.reduce((a, b) => a + b, 0) || 1;
   const reserve = storeMax * 0.02;
   const simulate = () => {
     let st = startStore; const trace = []; let dry = null;
@@ -5730,20 +5738,22 @@ function buildErsPlan(c, s, round) {
   let sim = simulate();
   for (let n = 0; sim.dry && n < 40; n++) { const z = sim.dry.z; z.plan.j++; z.plan.trimmed = true; if (z.plan.j >= z.bins.length - 2) z.plan = null; else { const g = gainOf(z.bins, z.plan.j); Object.assign(z.plan, { at: z.bins[z.plan.j] * bin, len: (z.bins.length - z.plan.j) * bin, t: g.t * factor, e: g.e, dv: g.dv * factor }); } sim = simulate(); }
   const planned = Z.filter(z => z.plan);
-  return { laps, perLap, fallback, warn, modes, slices, bin, nb, length: E0.length, spd, thr, brk, full, map, zones: Z, planned,
+  const diag = PRACTICE_KEYS.concat('SPR').map(k => w?.sessions?.[k]?.game?.ers?.diag).filter(Boolean).pop() || null;
+  return { laps, perLap, fallback, warn, modes, slices, bin, nb, length: E0.length, brakeOk, diag, spd, thr, brk, full, map, zones: Z, planned,
     pBoost, pNormal, assumed, harvest, depMax, depCap, storeMax, startStore, normalUse, budgetLap, extra, factor, measuredZones: ratios.length,
     gain: planned.reduce((a, z) => a + z.plan.t, 0), boostUse: planned.reduce((a, z) => a + z.plan.e, 0), trace: sim.trace, sessions: [...new Set(laps.map(L => L.k))] };
 }
 /** The track map, coloured: the plan (boost zones from their start to the braking point) or what your laps did. */
 function ersMapSvg(P, view, flip) {
   const pts = P.map; if (!pts || pts.filter(Boolean).length < P.nb * 0.6) return '<div class="empty">No track outline yet: it comes from your car’s position in practice.</div>';
+  if (mapExtent(pts) < 200) return '<div class="empty">No track outline: your car’s position came through as a single spot.</div>';
   const xs = pts.filter(Boolean).map(p => p[0]), zs = pts.filter(Boolean).map(p => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
   const sc = 100 / Math.max(x1 - x0, z1 - z0, 1); const W = (x1 - x0) * sc + 8, H = (z1 - z0) * sc + 8;
   const at = (i) => { const p = pts[i]; if (!p) return null; const x = (p[0] - x0) * sc + 4; return [flip ? W - x : x, (p[1] - z0) * sc + 4]; };
   const seg = (from, to, cls, color) => { const list = []; const n = ((to - from + P.nb) % P.nb) + 1; for (let k = 0; k <= n; k++) { const q = at((from + k) % P.nb); if (q) list.push(q); } return list.length > 1 ? `<polyline class="${cls}" ${color ? `style="stroke:${color}"` : ''} points="${list.map(q => q.map(v => v.toFixed(1)).join(',')).join(' ')}"/>` : ''; };
   let body = seg(0, P.nb - 1, 'em-base');
-  P.brk.forEach((b, i) => { if (b >= 30) body += seg(i, i, 'em-brake'); });
+  P.brk.forEach((b, i) => { if (P.brakeOk ? b >= 30 : P.thr[i] != null && P.thr[i] < 20) body += seg(i, i, 'em-brake'); });
   if (view === 'laps') {
     for (let i = 0; i < P.nb; i++) { const sh = P.laps.filter(L => L.mode[i] === ERS_BOOST).length / P.laps.length; if (sh > 0.05) body += seg(i, i, 'em-used', `color-mix(in srgb, var(--purple) ${Math.round(30 + sh * 70)}%, transparent)`); }
   } else {
@@ -5792,6 +5802,9 @@ function ersPanel(c, s, r) {
       <p class="muted" style="font-size:12px;margin:8px 0 0">${plural(P.laps.length, 'lap')} from ${listJoin(P.sessions.map(k => SESSION_SHORT[k] || k))}${P.fallback ? ' (no long runs yet, so every full lap)' : ', your long runs'}; at full throttle you were in normal ${m(ERS_NORMAL)}% and boost ${m(ERS_BOOST)}% of the time${m(0) + m(2) ? `, and in other modes ${m(0) + m(2)}% (left out)` : ''}. ${stints}
         Time gained is modelled, ${P.measuredZones ? `and scaled by your own laps on ${plural(P.measuredZones, 'straight')} driven both with and without boost (straights ${s.year >= 2026 ? 'within a second of the car ahead' : 'with DRS open or within a second of the car ahead'} left out) (×${P.factor.toFixed(2)})` : 'not yet checked against your laps: drive some straights with boost and some without and it will be'}.${P.assumed.length ? ` Assumed, not measured: ${listJoin(P.assumed)}.` : ''}</p>
     </div>
+    ${P.diag ? `<div class="panel-b" style="border-top:1px solid var(--line)"><details><summary class="muted" style="font-size:12px;cursor:pointer">Diagnostics</summary>
+      <p class="muted" style="font-size:12px">Packet format ${esc(String(P.diag.format))}, your car is index ${P.diag.player}. Packet sizes: ${Object.entries(P.diag.lens || {}).map(([k, v]) => `${({ 0: 'motion', 2: 'lap data', 6: 'car telemetry', 7: 'car status' })[k] || k} ${v} bytes`).join(', ')}. If the ERS readings look wrong, copy these (a few raw packets from your car) and send them over.</p>
+      <button class="btn sm" data-act="ers-diag" data-round="${r.id}">Copy diagnostics</button></details></div>` : ''}
   </div>`;
 }
 
@@ -8963,6 +8976,13 @@ Object.assign(actions, {
   'lb-scope'(el) { ui.lb.scope = el.dataset.v; render(); },
   'stories-filter'(el) { ui.stories = el.dataset.v; render(); },
   'ers-view'(el) { ui.ersView = el.dataset.v; render(); },
+  async 'ers-diag'(el) {
+    const s = latestSeason(); const w = s.weekends[el.dataset.round];
+    const d = PRACTICE_KEYS.concat('SPR').map(k => w?.sessions?.[k]?.game?.ers?.diag ? { session: k, ...w.sessions[k].game.ers.diag } : null).filter(Boolean);
+    const text = JSON.stringify({ track: el.dataset.round, diag: d });
+    try { await navigator.clipboard.writeText(text); toast('Diagnostics copied: paste them in a message'); }
+    catch { modal(`<div class="modal-h"><h2>Diagnostics</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b"><p class="muted">Copy all of this and send it over.</p><textarea readonly style="width:100%;height:260px;font-family:var(--font-mono);font-size:11px">${esc(text)}</textarea></div>`); }
+  },
   'ers-flip'(el) { const c = career(); (c.ersFlip ||= {})[el.dataset.track] = !c.ersFlip[el.dataset.track]; store.save(); render(); },
   'pic-clear'(el) {
     const { kind, id } = el.dataset; const c = career();

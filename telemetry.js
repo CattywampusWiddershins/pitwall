@@ -54,8 +54,15 @@ function parseFinal(b, L) {
   }
   return out;
 }
-/** Each car's record size, worked out from the packet length (a newer format may add fields at the end of each car). */
-const stride = (b, L, base, tail = 0) => { const n = (b.length - HEADER - tail) / L.cars; return Number.isInteger(n) && n >= base ? n : base; };
+/**
+ * Each car's record size, worked out from the packet length: a newer format may add fields at the end of each car,
+ * and the car array may hold 22 or 24 cars whatever the format says, so both are tried (an exact fit to the known size
+ * first).
+ */
+const stride = (b, L, base, tail = 0) => {
+  const fits = [...new Set([L.cars, 22, 24])].map(c => (b.length - HEADER - tail) / c).filter(n => Number.isInteger(n) && n >= base && n <= base + 64);
+  return fits.includes(base) ? base : fits[0] || base;
+};
 /** Your car's position on the map (world x and z, in metres). */
 function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return o + 12 > b.length ? null : { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }; }
 /** Your car's speed (km/h), throttle and brake (0 to 1), and whether DRS is open. */
@@ -161,7 +168,8 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       for (let i = 0; i < nb; i++) { const o = lap.bins[i]; if (o?.nm) { mx[i] += o.x / o.nm; mz[i] += o.z / o.nm; mn[i]++; } }
     }
     if (!laps.length) return null;
-    return { player: s.player, bin: ERS_BIN, length: s.info.trackLength, laps, map: mx.map((x, i) => mn[i] ? [r(x / mn[i], 10), r(mz[i] / mn[i], 10)] : null) };
+    const diag = s.diag ? { format: s.diag.format, player: s.diag.player, lens: s.diag.lens, raw: s.diag.raw } : null;
+    return { player: s.player, bin: ERS_BIN, length: s.info.trackLength, laps, diag, map: mx.map((x, i) => mn[i] ? [r(x / mn[i], 10), r(mz[i] / mn[i], 10)] : null) };
   }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
@@ -198,7 +206,14 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
       for (const p of parseParticipants(b, L)) byIdx.set(p.idx, p);
       s.parts = [...byIdx.values()].sort((a, b) => a.idx - b.idx);
     }
-    else if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
+    if (ersSession(s.info) && (h.type === PACKET.MOTION || h.type === PACKET.TELEMETRY || h.type === PACKET.STATUS || h.type === PACKET.LAP)) {
+      // a few whole packets, a few seconds apart, for the diagnostics in the ERS panel
+      const D = s.diag ||= { format: h.format, player: h.player, lens: {}, raw: {}, last: {} };
+      D.lens[h.type] = b.length; D.player = h.player;
+      const list = D.raw[h.type] ||= [];
+      if (list.length < 4 && h.time - (D.last[h.type] ?? -99) > 15) { D.last[h.type] = h.time; list.push({ t: Math.round(h.time * 10) / 10, b64: b.toString('base64') }); }
+    }
+    if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
     else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
     else if (h.type === PACKET.STATUS) s.stat = playerStatus(b, L, h.player) || s.stat;
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
