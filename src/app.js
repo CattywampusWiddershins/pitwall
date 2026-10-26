@@ -4790,7 +4790,7 @@ function placeGameResult(c, r) {
 /** Game cars → Pitwall drivers: the player car is you; then race number, then name. */
 function mapGameDrivers(c, s, r) {
   const grid = gridIds(s); const used = new Set(); const map = {}; const unmatched = [];
-  const take = (car, id) => { if (id) { used.add(id); map[car.idx] = id; } else unmatched.push(car.name || `#${car.number}`); };
+  const take = (car, id) => { if (id) { used.add(id); map[car.idx] = id; } else unmatched.push(car); };
   const cars = r.cars.slice().sort((a, b) => (b.idx === r.player) - (a.idx === r.player));
   for (const car of cars) {
     let id = car.idx === r.player && grid.includes(PLAYER_ID) && !isPrincipal(c) ? PLAYER_ID : null;
@@ -4799,7 +4799,10 @@ function mapGameDrivers(c, s, r) {
     id ||= grid.find(d => !used.has(d) && car.number && s.drivers[d]?.number === car.number);
     take(car, id);
   }
-  return { map, unmatched };
+  // one car left over and one driver left over: that's them, whatever the game called the car
+  const free = grid.filter(d => !used.has(d) && !(d === PLAYER_ID && isPrincipal(c)));
+  if (unmatched.length === 1 && free.length === 1) { map[unmatched[0].idx] = free[0]; unmatched.length = 0; }
+  return { map, unmatched: unmatched.map(car => car.name || (car.number ? `#${car.number}` : `car ${car.idx + 1}`)) };
 }
 /** The session's results in Pitwall's shape. */
 function gameRows(r, key, map, grid) {

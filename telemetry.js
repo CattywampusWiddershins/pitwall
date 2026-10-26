@@ -26,16 +26,18 @@ function parseSession(b) {
     weekend: [...b.subarray(733, 733 + b.readUInt8(732))],
   };
 }
+// Every slot is read, not just the first numActiveCars: that count drops when a car retires, but the cars keep their
+// indexes, so trusting it loses whichever car sits last in the list.
 function parseParticipants(b, L) {
-  const n = b.readUInt8(HEADER); const out = [];
-  for (let i = 0; i < Math.min(n, L.cars); i++) {
+  const out = [];
+  for (let i = 0; i < L.cars; i++) {
     const o = HEADER + 1 + i * L.part;
     if (o + L.part > b.length) break;
     out.push(L.wide
       ? { idx: i, ai: !!b[o], driver: b.readUInt16LE(o + 1), team: b.readUInt16LE(o + 5), myTeam: !!b[o + 7], number: b[o + 8], nationality: b[o + 9], name: cstr(b, o + 10, 32) }
       : { idx: i, ai: !!b[o], driver: b[o + 1], team: b[o + 3], myTeam: !!b[o + 4], number: b[o + 5], nationality: b[o + 6], name: cstr(b, o + 7, 32) });
   }
-  return out;
+  return out.filter(p => p.name || p.number);
 }
 function parseFinal(b, L) {
   const n = b.readUInt8(HEADER); const out = [];
@@ -127,7 +129,12 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     if (h.type === PACKET.SESSION) {
       const info = parseSession(b); if (!info) return;
       s.info = info; st.session = { track: info.track, sessionType: info.sessionType, gameMode: info.gameMode };
-    } else if (h.type === PACKET.PARTICIPANTS) s.parts = parseParticipants(b, L);
+    } else if (h.type === PACKET.PARTICIPANTS) {
+      // keep every car seen this session: a later packet may leave some out
+      const byIdx = new Map((s.parts || []).map(p => [p.idx, p]));
+      for (const p of parseParticipants(b, L)) byIdx.set(p.idx, p);
+      s.parts = [...byIdx.values()].sort((a, b) => a.idx - b.idx);
+    }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.DAMAGE) s.wearNow = parseWear(b, L);
     else if (h.type === PACKET.LAP) {
