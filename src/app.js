@@ -5116,7 +5116,7 @@ function applyGameResult(c, r, place) {
     wear: byId(x => x.wear || []), finished: byId(x => x.laps),
     penalties: r.penaltyEvents.filter(p => map[p.car] && (PENALTY_NAMES[p.type] || p.type === WARNING)).map(p => ({ d: map[p.car], type: p.type, infr: p.infringement, time: p.time, lap: p.lap, other: map[p.other] || null, t: p.t ?? null })),
     incidents: buildIncidents(r, map),
-    ...(key.startsWith('FP') && r.ers ? { ers: { ...r.ers, d: map[r.ers.player] || null, format: r.format } } : {}),
+    ...((key.startsWith('FP') || key === 'SPR') && r.ers ? { ers: { ...r.ers, d: map[r.ers.player] || null, format: r.format } } : {}),
     ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),
     safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } };
   let results;
@@ -5138,7 +5138,7 @@ function applyGameResult(c, r, place) {
   w.sessions[key] = { results, fl: null, done: true, game };
   if (game.ers) {
     // the ERS profile is big: keep it for this weekend only (the outline of the track is kept for good)
-    for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of PRACTICE_KEYS) if (w2.sessions?.[k]?.game?.ers) delete w2.sessions[k].game.ers;
+    for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of RUN_KEYS) if (w2.sessions?.[k]?.game?.ers) delete w2.sessions[k].game.ers;
     if (game.ers.map?.filter(Boolean).length >= game.ers.map.length * 0.8) (c.trackMaps ||= {})[trackOf(round)] = { map: game.ers.map, length: game.ers.length };
   }
   w.game = { weekend: r.weekendLink };
@@ -5562,7 +5562,7 @@ function strategyAdvicePanel(c, s) {
 }
 
 /*
-  ERS: where to use boost. In practice Pitwall follows your car alone (no AI) in 20 m slices of the lap: throttle,
+  ERS: where to use boost. In practice and the sprint Pitwall follows your car alone (no AI) in 20 m slices of the lap: throttle,
   brake, speed, the battery, the deploy mode, energy deployed and harvested so far this lap, MGU-K power, and where the
   car is. From your long runs (the same laps the strategy uses) it measures what your car really does: how fast boost
   drains the battery against normal deployment, how much you harvest a lap, how full the battery is. Only two modes
@@ -5602,7 +5602,7 @@ function ersPlan(c, s, round) {
 }
 function buildErsPlan(c, s, round) {
   const w = s.weekends[round.id]; const laps = []; let E0 = null, fallback = false; const all = [];
-  for (const k of PRACTICE_KEYS) {
+  for (const k of RUN_KEYS) { // practice and the sprint
     const sd = w?.sessions?.[k]; const E = sd?.game?.ers; if (!E || sd.estimated) continue;
     E0 ||= E; const long = longRunLapNos(sd, E.d);
     const dry = (lap) => { const st = stintsOf(sd, E.d).find(x => lap >= x.from && lap <= x.to); return !st || DRY.includes(st.c); }; // no inters or wets
@@ -5754,7 +5754,7 @@ function ersMapSvg(P, view, flip) {
 function ersPanel(c, s, r) {
   const head = (extra = '') => `<div class="panel-h"><h2>ERS: where to boost</h2>${extra}</div>`;
   const P = ersPlan(c, s, r);
-  if (!P) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">No ERS data for ${esc(r.name)} yet. Do your long runs in practice with telemetry on, using normal deployment and boost as you see fit. Pitwall follows your car only, measures what boost really costs and what you harvest, and maps the best places to use it.</div></div>`;
+  if (!P) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">No ERS data for ${esc(r.name)} yet. Do your long runs in practice (or race the sprint) with telemetry on, using normal deployment and boost as you see fit. Pitwall follows your car only, measures what boost really costs and what you harvest, and maps the best places to use it.</div></div>`;
   const view = ui.ersView || 'plan'; const tid = trackOf(r); const flip = !!c.ersFlip?.[tid];
   const m = (m) => P.modes[m] ? Math.round(P.modes[m] / P.slices * 100) : 0;
   const km = (x) => `${(x / 1000).toFixed(2)} MJ`;

@@ -3,11 +3,13 @@
 // F1 25 UDP specification: packet format 2025 for the base game (22 cars), 2026 for the 2026 Season Pack (24 cars,
 // wider driver/team ids). Only what Pitwall uses is read: session, lap data (grid slots and laps), participants,
 // events (penalties, warnings, collisions, overtakes), car damage (tyre wear), session history (laps and sectors) and the final
-// classification. In practice it also follows your own car (motion, car telemetry and car status) to profile the ERS.
+// classification. In practice and the sprint it also follows your own car (motion, car telemetry and car status) to profile the ERS.
 const dgram = require('dgram');
 
 const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
 const ERS_BIN = 20; // metres: the ERS profile is kept in slices of the lap this long
+// the sessions your ERS is profiled in: practice, and the sprint (a race on a weekend that also has a second race)
+const ersSession = (info) => !!info && ((info.sessionType >= 1 && info.sessionType <= 4) || (info.sessionType === 15 && (info.weekend || []).includes(16)));
 const HEADER = 29;
 const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } : { cars: 22, part: 57, wide: false };
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
@@ -173,7 +175,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
       overtakes: s.swaps.length ? s.swaps : s.overtakes, passSource: s.swaps.length ? 'positions' : s.overtakes.length ? 'event' : null,
-      ers: s.info.sessionType >= 1 && s.info.sessionType <= 4 ? packErs(s) : null });
+      ers: ersSession(s.info) ? packErs(s) : null });
   }
   function onPacket(b) {
     if (b.length < HEADER) return;
@@ -208,7 +210,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         if (c.status === 2 && c.lead) s.lead[i] = c.lead;
         else if (c.status === 3 && s.leadFin[i] == null) s.leadFin[i] = c.lead || s.lead[i] || null;
       });
-      if (s.info && s.info.sessionType >= 1 && s.info.sessionType <= 4) logErs(s, lap[h.player]);
+      if (ersSession(s.info)) logErs(s, lap[h.player]);
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
       const race = s.info && (s.info.sessionType === 15 || s.info.sessionType === 16);
       if (race) lap.forEach((c, i) => {
