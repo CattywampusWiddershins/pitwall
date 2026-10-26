@@ -55,18 +55,23 @@ function parseFinal(b, L) {
   return out;
 }
 /**
- * Each car's record size, worked out from the packet length: a newer format may add fields at the end of each car,
- * and the car array may hold 22 or 24 cars whatever the format says, so both are tried (an exact fit to the known size
- * first).
+ * Each car's record size, worked out from the packet length. Formats add and drop fields: the 2026 format (24 cars)
+ * has 54-byte motion records (60 before), 59-byte car telemetry (60: no DRS byte) and 59-byte car status (55: four
+ * bytes added after the ERS fields). The fields Pitwall reads come before any of the changes. 22 and 24 cars are both
+ * tried, an exact fit to the known size first.
  */
 const stride = (b, L, base, tail = 0) => {
-  const fits = [...new Set([L.cars, 22, 24])].map(c => (b.length - HEADER - tail) / c).filter(n => Number.isInteger(n) && n >= base && n <= base + 64);
+  const fits = [...new Set([L.cars, 22, 24])].map(c => (b.length - HEADER - tail) / c).filter(n => Number.isInteger(n) && n >= base - 8 && n <= base + 64);
   return fits.includes(base) ? base : fits[0] || base;
 };
 /** Your car's position on the map (world x and z, in metres). */
 function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return o + 12 > b.length ? null : { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }; }
 /** Your car's speed (km/h), throttle and brake (0 to 1), and whether DRS is open. */
-function playerTelemetry(b, L, p) { const o = HEADER + p * stride(b, L, 60, 3); return o + 19 > b.length ? null : { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10), drs: b[o + 18] > 0 }; }
+function playerTelemetry(b, L, p) {
+  const w = stride(b, L, 60, 3); const o = HEADER + p * w; if (o + 19 > b.length) return null;
+  // a record without the DRS byte (the 2026 format, which has no DRS) reads it as closed
+  return { spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10), drs: w >= 60 && b[o + 18] > 0 };
+}
 /** Your car's ERS: stored energy, deploy mode, harvested and deployed this lap (joules) and MGU-K power (watts). */
 function playerStatus(b, L, p) {
   const o = HEADER + p * stride(b, L, 55); if (o + 54 > b.length) return null;
@@ -83,9 +88,9 @@ function parseLapData(b, L) {
 }
 /** Car damage: the most worn of each car's four tyres, in percent. */
 function parseWear(b, L) {
-  const out = [];
+  const out = []; const w = stride(b, L, 46);
   for (let i = 0; i < L.cars; i++) {
-    const o = HEADER + i * 46; if (o + 16 > b.length) break;
+    const o = HEADER + i * w; if (o + 16 > b.length) break;
     out.push(Math.max(b.readFloatLE(o), b.readFloatLE(o + 4), b.readFloatLE(o + 8), b.readFloatLE(o + 12)));
   }
   return out;
