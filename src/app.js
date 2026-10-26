@@ -1711,6 +1711,7 @@ function renderWeekend() {
     </div>
 
     ${sd.estimated ? `<div class="callout">Estimated from ${key === 'FP' || key.startsWith('FP') ? 'qualifying' : ''}: this practice session wasn't logged, so Pitwall filled it in, about seven tenths off each driver's qualifying time. Edit it like any session.</div>` : ''}
+    ${isRaceKind(key) ? positionChartPanel(s, sd) : ''}
     ${key !== 'Q' && key !== 'SQ' ? strategyPanel(s, sd, key, r.id) : ''}
 
     <div class="panel">
@@ -5247,6 +5248,43 @@ function stintBar(stints, total, { label = '', windows = null, compact = false }
     <div class="sb-start">${tyreIcon(stints[0].c, size)}</div>
     ${stops.map(o => `<div class="sb-stop ${o.p < 22 ? 'flip' : ''}" style="left:max(${o.p.toFixed(1)}%, ${compact ? 30 : 56}px)"><span class="sb-lap ${light(o.p < 22 ? o.c : o.prev) ? 'dark' : ''}">${compact ? `L${o.lap}` : o.w && o.w[0] !== o.w[1] ? `Lap <b>${o.w[0]}</b> to <b>${o.w[1]}</b>` : `Lap <b>${o.lap}</b>`}</span>${tyreIcon(o.c, size)}</div>`).join('')}
   </div>`;
+}
+/**
+ * Every driver's place at the end of each lap, from the logged lap times (running order by total time; lap 0 is the
+ * grid, the last lap the official result, penalties included): { N, ids, pos: { d: [place by lap] } } or null.
+ */
+function lapPositions(sd) {
+  const g = sd?.game; if (!g?.laps || Object.keys(g.laps).length < 2) return null;
+  const cum = {}; for (const [d, laps] of Object.entries(g.laps)) { let t = 0; cum[d] = laps.map(l => (t += l[0] || 0)); }
+  const ids = Object.keys(cum).filter(d => cum[d].length); const N = Math.max(0, ...ids.map(d => cum[d].length)); if (!N) return null;
+  const pos = Object.fromEntries(ids.map(d => [d, []]));
+  if (g.grid && Object.values(g.grid).some(Boolean)) ids.slice().sort((a, b) => (g.grid[a] || 99) - (g.grid[b] || 99)).forEach((d, k) => { pos[d][0] = k + 1; });
+  for (let k = 1; k < N; k++) ids.filter(d => cum[d].length >= k).sort((a, b) => cum[a][k - 1] - cum[b][k - 1]).forEach((d, j) => { pos[d][k] = j + 1; });
+  sd.results.filter(x => !OUT.includes(x.st) && pos[x.d]).forEach((x, j) => { pos[x.d][N] = j + 1; });
+  return { N, ids, pos };
+}
+/** The race, lap by lap: a line per driver from grid to flag (team colours, the second car of a team dashed). */
+function positionChartPanel(s, sd) {
+  const P = lapPositions(sd); if (!P) return '';
+  const { N, ids, pos } = P; const n = ids.length;
+  const W = 900, H = Math.max(260, n * 17 + 36), pad = { l: 46, r: 46, t: 14, b: 22 };
+  const X = (k) => pad.l + k / N * (W - pad.l - pad.r), Y = (p) => pad.t + (p - 1) / Math.max(1, n - 1) * (H - pad.t - pad.b);
+  const seenTeam = {}; const out = new Set(sd.results.filter(x => OUT.includes(x.st)).map(x => x.d));
+  const lines = ids.map(d => {
+    const tm = teamOf(s, d)?.id; const dashed = !!seenTeam[tm]; seenTeam[tm] = 1;
+    const pts = pos[d].map((p, k) => p ? [X(k), Y(p)] : null).filter(Boolean);
+    const last = pts[pts.length - 1]; const first = pts[0];
+    return { d, color: teamColor(s, d), dashed, pts, last, first, fin: pos[d][N], start: pos[d].find(Boolean) };
+  });
+  const grid = Array.from({ length: n }, (_, k) => k + 1).filter(p => p === 1 || p % 5 === 0).map(p => `<line class="g-grid" x1="${pad.l}" x2="${W - pad.r}" y1="${Y(p)}" y2="${Y(p)}"/>`).join('');
+  const step = N > 40 ? 10 : 5; const ticks = Array.from({ length: Math.floor(N / step) + 1 }, (_, k) => k * step).map(k => `<text class="g-tick" x="${X(k)}" y="${H - 6}" text-anchor="middle">${k ? k : 'Grid'}</text>`).join('');
+  const svg = `<svg class="g-chart pos-chart" viewBox="0 0 ${W} ${H}" style="width:100%">${grid}${ticks}
+    ${lines.map(o => `<g class="pc-line ${o.d === PLAYER ? 'me' : ''}"><title>${esc(dName(s, o.d))}: P${o.start || '?'} to ${o.fin ? 'P' + o.fin : out.has(o.d) ? 'retired' : '?'}</title>
+      <polyline points="${o.pts.map(q => q.map(v => v.toFixed(1)).join(',')).join(' ')}" style="stroke:${o.color}" ${o.dashed ? 'stroke-dasharray="6 4"' : ''}/>
+      ${o.first ? `<text class="pc-lab" x="${pad.l - 6}" y="${o.first[1] + 4}" text-anchor="end" style="fill:${o.color}">${esc(dAbbr(s, o.d))}</text>` : ''}
+      ${o.fin ? `<text class="pc-lab" x="${W - pad.r + 6}" y="${o.last[1] + 4}" style="fill:${o.color}">${esc(dAbbr(s, o.d))}</text>` : o.last ? `<text class="pc-out" x="${o.last[0]}" y="${o.last[1] + 4}" text-anchor="middle">✕</text>` : ''}</g>`).join('')}
+  </svg>`;
+  return `<div class="panel"><div class="panel-h"><h2>Positions, lap by lap</h2><span class="muted" style="font-size:12px">From F1 25 lap times · ✕ retired · hover a line for the driver</span></div><div class="panel-b">${svg}</div></div>`;
 }
 function strategyPanel(s, sd, key, roundId) {
   const g = sd?.game; if (!g?.laps) return '';
