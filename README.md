@@ -48,6 +48,10 @@ Every career contains every real season from 2016, read-only, with full qualifyi
 
 Rosters and calendars are editable under **Settings**, including adding back circuits that have left the calendar.
 
+## Racing as a real driver
+
+A Driver Career can follow a real driver instead of one you create (F1 25 mods let a career start in 2016 as anyone). Pick the year, then **A real driver** under *Who you race as*, and choose from that year’s opening grid; setup shows their real path. You are that driver: Pitwall follows them as “you”, and the profile comes from them. Every season starts on the real grid, and real line-up changes happen as you log the races: Verstappen starts 2016 at Toro Rosso and swaps with Kvyat for round 5. Changes are found by comparing the real line-up race by race (drivers who stood in for three races or fewer count as the regular), and each goes on record as a transfer, so results stay with the team of the day. If real life dropped your driver mid-season, you keep the seat; if they didn’t start a season, the next-season window asks which seat they take. Real data runs to 2025; 2026 starts on F1 25’s grid, and after that the driver market runs itself.
+
 ## My Team
 
 Start a My Team career from **New career**. Its dashboard is the team's home: the next race, goals, both championships, rivalries, and tabs for identity, car development, finances and sponsors. Your rival is another team.

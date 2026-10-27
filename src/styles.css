@@ -712,3 +712,5 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .pos-chart .pc-out { fill: var(--red); font-size: 12px; font-weight: 700; }
 .ers-curve { margin-top: 10px; }
 .ers-curve table td, .ers-curve table th { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+.real-path { display: grid; gap: 6px; }
+.real-path .ms-list li { padding: 2px 0; }

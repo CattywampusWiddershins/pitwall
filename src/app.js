@@ -896,6 +896,7 @@ function baseRoster(c, index, prev) {
   // moves too. Real seasons' moves are already in the real grid. (Your own moves aren't replayed here: you are placed
   // in your seat when the season starts.)
   for (const tr of prev && !isHist(prev) ? prev.transfers || [] : []) {
+    if (tr.real && tpl) continue; // a real move: next year's real grid already has it
     if (tr.effective === 'next' || (tpl && tr.effective === 'now')) for (const m of tr.steps) if (m.driver !== PLAYER_ID) applyMove(c, out.teams, out.drivers, m);
   }
   if (c.type === 'myteam') { const t = out.teams.find(x => x.id === MYTEAM); if (t) Object.assign(t, myTeamRow(c), { drivers: t.drivers }); }
@@ -988,6 +989,7 @@ function numberOneToggle(c, id) {
 function syncPlayer() {
   const c = career();
   PLAYER = PLAYER_ID;
+  if (realDriverOf(c)) { PLAYER = c.realDriver; return; }
   if (!isPrincipal(c)) return;
   const seats = curSeason()?.teams.find(t => t.id === MYTEAM)?.drivers.filter(Boolean) || [];
   PLAYER = seats.includes(c.myTeam.lead) ? c.myTeam.lead : seats[0] || PLAYER_ID;
@@ -1008,6 +1010,85 @@ function placePlayer(season, c, teamId, seatDriverId) {
   season.playerTeamId = teamId;
 }
 
+/* ------------------------------------------------------ real-driver careers */
+// A Driver Career can follow a real driver (F1 25 mods let you start in 2016 as anyone). You are that driver: Pitwall
+// follows them as "you", every season starts on the real grid, and their real moves happen as the season reaches
+// them, along with everyone else's: Verstappen starts 2016 at Toro Rosso and swaps with Kvyat for the fifth race.
+// Real data runs to 2025; 2026 starts on F1 25's grid, and after that the driver market runs itself.
+/** Every race's real line-ups for a year (cached), and the races where any of them changed. */
+const _lineups = {};
+const realLineups = (y) => _lineups[y] ||= (H.seasons[y]?.rounds || []).map((_, k) => lineupAt(y, k));
+const realChanges = (y) => { const L = realLineups(y); const key = (x) => JSON.stringify(Object.keys(x).sort().map(t => [t, [...x[t]].sort()])); return L.map((x, k) => k && key(x) !== key(L[k - 1]) ? k : null).filter(k => k != null); };
+/** The real driver this career follows, if any. */
+const realDriverOf = (c) => c?.type === 'driver' && c.realDriver ? c.realDriver : null;
+/** A real driver's path: [{ year, team, from (round index, 0 = the start) }], from a year to 2026. */
+function realPath(id, from) {
+  const out = [];
+  for (let y = from; y <= HIST_TO; y++) {
+    const h = H.seasons[y]; if (!h) continue;
+    const at = [0, ...realChanges(y)];
+    let last = null;
+    for (const k of at) {
+      const L = realLineups(y)[k]; const tid = Object.keys(L).find(t => L[t].includes(id)) || null;
+      if (tid !== last) { out.push({ year: y, team: tid, teamName: h.teams.find(t => t.id === tid)?.name || null, from: k, round: h.rounds[k]?.name }); last = tid; }
+    }
+  }
+  const t26 = D.GRID_2026.find(t => t.drivers.includes(id));
+  if (from <= 2026) out.push({ year: 2026, team: t26?.id || null, teamName: t26?.name || null, from: 0 });
+  return out;
+}
+/**
+ * Apply the real mid-season moves a played season has reached: a move from race k happens once race k - 1 is logged.
+ * Each team's line-up at a race is the real one (drivers who stood in for three races or fewer count as the regular),
+ * and every change goes on record as a transfer, so the stories, the team history and race-by-race teams all follow.
+ * Returns true if anything moved.
+ */
+function applyRealMoves(c, s) {
+  if (!realDriverOf(c) || !s || isHist(s) || !H.seasons[s.year]) return false;
+  const y = s.year; const rs = H.seasons[y].rounds;
+  const points = realChanges(y);
+  const done = roundsDone(s); s.realMoves ||= [];
+  let moved = false;
+  for (const k of points) {
+    if (k > done || s.realMoves.includes(k)) continue;
+    s.realMoves.push(k);
+    const before = realLineups(y)[k - 1], after = realLineups(y)[k];
+    const teamIn = (L, d) => Object.keys(L).find(t => L[t].includes(d)) || null;
+    const steps = [];
+    for (const [tid, ds] of Object.entries(after)) for (const d of ds) {
+      const from = teamIn(before, d); if (from === tid) continue;
+      steps.push({ kind: 'move', driver: d, from, to: tid, replaces: (before[tid] || []).find(x => !ds.includes(x)) || null, until: null, prevUntil: null, wasPending: false });
+    }
+    for (const [tid, ds] of Object.entries(before)) for (const d of ds) if (!teamIn(after, d)) steps.push({ kind: 'move', driver: d, from: tid, to: 'free', replaces: null, until: null, prevUntil: null, wasPending: false });
+    // you are never dropped mid-season: if real life took your driver out of the car, they keep it (and whoever came
+    // in for them doesn't); they're back in step when real life puts them back
+    const me = realDriverOf(c); const out = steps.find(m => m.driver === me && m.to === 'free');
+    if (out) {
+      const myTeam = out.from; const newcomers = new Set(steps.filter(m => m.to === myTeam && !(before[myTeam] || []).includes(m.driver)).map(m => m.driver));
+      for (let x = steps.length - 1; x >= 0; x--) if (steps[x] === out || newcomers.has(steps[x].driver) && steps[x].to === myTeam) steps.splice(x, 1);
+      toast(`In real life ${dName(s, me)} lost the seat from round ${k + 1}. In your career, you keep it.`);
+    }
+    if (!steps.length) continue;
+    for (const m of steps) {
+      if (!s.drivers[m.driver]) { const e = driverEntry(c, m.driver) || (H.seasons[y].drivers[m.driver] && { id: m.driver, name: H.seasons[y].drivers[m.driver][0], abbr: H.seasons[y].drivers[m.driver][2], number: H.seasons[y].drivers[m.driver][1] }); if (e) s.drivers[m.driver] = e; }
+      applyMove(c, s.teams, s.drivers, m);
+    }
+    (s.transfers ||= []).push({ id: `realp-${y}-${k}`, at: k, effective: 'now', createdAt: new Date(Date.parse(rs[k - 1].date) + 864e5).toISOString(), steps, real: true, before: null });
+    const mine = steps.find(m => m.driver === realDriverOf(c));
+    if (mine && mine.to !== 'free') { s.playerTeamId = mine.to; toast(`${dName(s, mine.driver)} moves to ${s.teams.find(t => t.id === mine.to)?.name || mine.to} from round ${k + 1}${rs[k] ? ` (${rs[k].name})` : ''}`); }
+    moved = true;
+  }
+  return moved;
+}
+/** Put a real driver who isn't on a season's grid into a seat (they missed that season in real life). */
+function placeReal(s, c, teamId, seatDriverId) {
+  const id = realDriverOf(c); const team = s.teams.find(t => t.id === teamId) || s.teams[s.teams.length - 1];
+  let i = team.drivers.indexOf(seatDriverId); if (i < 0) i = team.drivers.findIndex(d => !d); if (i < 0) i = 1;
+  s.benched = team.drivers[i] || null; team.drivers[i] = id;
+  if (!s.drivers[id]) s.drivers[id] = driverEntry(c, id) || { id, name: anyName(id), abbr: id, number: null };
+  s.playerTeamId = team.id;
+}
+
 function newSeason(c, index, { teamId, seatDriverId, goals, practice }) {
   const prev = c.seasons[index - 1];
   const base = baseRoster(c, index, prev);
@@ -1022,6 +1103,7 @@ function newSeason(c, index, { teamId, seatDriverId, goals, practice }) {
   for (const id of gridIds(s)) { const d = s.drivers[id]; if (!d?.number) continue; if (taken[d.number] && !D.DRIVERS[id]) d.number = null; else taken[d.number] = id; }
   for (const id of gridIds(s)) { const d = s.drivers[id]; if (d && !d.number) { d.number = [...Array(98).keys()].map(k => k + 2).find(k => !taken[k] && k !== 17); taken[d.number] = id; } }
   if (isPrincipal(c)) s.playerTeamId = teamId; // you run the team; both seats are your signings
+  else if (realDriverOf(c)) { const on = s.teams.find(t => t.drivers.includes(c.realDriver)); if (on) s.playerTeamId = on.id; else placeReal(s, c, teamId, seatDriverId); }
   else placePlayer(s, c, teamId, seatDriverId);
   // a new season moves the F2 and F3 fields on: whoever reached F1 is replaced by new talent
   feederTick(c, s.year, new Set(gridIds(s)));
@@ -1311,6 +1393,8 @@ function applyTheme() {
 
 function render() {
   renderGen++;
+  // a real driver's career: the real moves the season has reached
+  { const c = career(); if (realDriverOf(c) && applyRealMoves(c, latestSeason())) { renderGen++; store.save(); } }
   syncPlayer();
   applyTheme();
   const main = $('#main');
@@ -4935,7 +5019,7 @@ function mapGameDrivers(c, s, r) {
   const take = (car, id) => { if (id) { used.add(id); map[car.idx] = id; } else unmatched.push(car); };
   const cars = r.cars.slice().sort((a, b) => (b.idx === r.player) - (a.idx === r.player));
   for (const car of cars) {
-    let id = car.idx === r.player && grid.includes(PLAYER_ID) && !isPrincipal(c) ? PLAYER_ID : null;
+    let id = car.idx === r.player && grid.includes(PLAYER_ID) && !isPrincipal(c) ? PLAYER_ID : car.idx === r.player && realDriverOf(c) && grid.includes(c.realDriver) ? c.realDriver : null;
     id ||= grid.find(d => !used.has(d) && car.number && s.drivers[d]?.number === car.number && (!car.name || sameDriver(s.drivers[d]?.name, car.name) || d === PLAYER_ID));
     id ||= grid.find(d => !used.has(d) && car.name && sameDriver(d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : s.drivers[d]?.name, car.name));
     id ||= grid.find(d => !used.has(d) && car.number && s.drivers[d]?.number === car.number);
@@ -7997,11 +8081,19 @@ function futureGridEditor(u) {
       <div class="panel-b"><select data-ch="fc-add" style="width:auto"><option value="">+ Add a circuit…</option>${Object.keys(D.TRACKS).filter(id => !onCal.has(id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div>
     </div>`;
 }
+/** A real driver's career path from a year on: the teams, and when each move came. */
+function realPathHtml(id, year) {
+  const p = realPath(id, year); if (!p.length) return '';
+  const rows = []; for (const x of p) { const lastRow = rows[rows.length - 1]; if (lastRow && lastRow.team === x.team && !x.from) { lastRow.to = x.year; continue; } rows.push({ ...x, to: x.year }); }
+  return `<div class="real-path"><span class="label">${esc(anyName(id))}’s real path from ${year}</span><ul class="ms-list">${rows.map(r => `<li><span><b>${r.year}${r.to !== r.year ? '–' + r.to : ''}</b> ${r.team ? esc(r.teamName || r.team) : '<span class="muted">not racing</span>'}${r.from ? ` <span class="muted">· from round ${r.from + 1}${r.round ? ` (${esc(r.round)})` : ''}</span>` : ''}</span></li>`).join('')}</ul>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">These moves happen on their own as you log the races. Real data runs to ${HIST_TO}; ${HIST_TO + 1} starts on F1 25’s grid, and after that the driver market runs itself.</p></div>`;
+}
 function renderSetup() {
   const u = ui.setup ||= defaultSetup();
   u.role ||= 'owner'; u.nd ||= {}; u.newDrivers ||= []; u.team.seats ||= ['PER', 'BOT']; u.year ||= 2025;
   const principal = u.type === 'myteam' && u.role === 'principal';
   const future = u.year > 2026;
+  const realAs = u.type === 'driver' && u.as === 'real' && !future;
   if (future) { u.futureGrid ||= D.GRID_2026.map(t => ({ ...t, drivers: [...t.drivers] })); u.futureCal ||= D.CAL_2026.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint })); }
   const grid = setupGrid(u);
   if (!grid.some(t => t.id === u.teamId)) { u.teamId = grid[grid.length - 1].id; u.seat = grid[grid.length - 1].drivers[1]; }
@@ -8026,11 +8118,16 @@ function renderSetup() {
       <div class="choices">${[['driver', 'Driver Career', 'Take a seat at an existing team and work your way up.'], ['myteam', 'My Team', 'Found the 11th team: you own it, run it and drive for it.']].map(([id, n, b]) => `<button class="choice ${u.type === id ? 'on' : ''}" data-act="setup-pick" data-k="type" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
     </div></div>
 
+    ${u.type === 'driver' && !future ? `<div class="panel"><div class="panel-h"><h2>Who you race as</h2><span class="muted" style="font-size:12px">F1 25 mods let a career start as any real driver</span></div><div class="panel-b stack">
+      <div class="choices">${[['own', 'Your own driver', 'Create a driver and take over a seat.'], ['real', 'A real driver', `Race as someone on the ${u.year} grid. Their real moves happen during and between seasons, as they did in real life.`]].map(([id, n, b]) => `<button class="choice ${(u.as || 'own') === id ? 'on' : ''}" data-act="setup-pick" data-k="as" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
+      ${realAs ? `<label class="field" style="max-width:360px"><span>Driver</span><select data-ch="setup" data-k="realDriver"><option value="">Pick a driver…</option>${grid.map(t => `<optgroup label="${esc(t.name)}">${t.drivers.filter(Boolean).map(d => `<option value="${d}" ${u.realDriver === d ? 'selected' : ''}>${esc(anyName(d))}</option>`).join('')}</optgroup>`).join('')}</select></label>
+        ${u.realDriver && gridDrivers.includes(u.realDriver) ? realPathHtml(u.realDriver, u.year) : ''}` : ''}
+    </div></div>` : ''}
     ${u.type === 'myteam' ? `<div class="panel"><div class="panel-h"><h2>Your role</h2></div><div class="panel-b">
       <div class="choices">${[['principal', 'Team Principal', 'You run the team and sign both drivers. This is how My Team works in F1 25.'], ['owner', 'Driver-Owner', 'You own the team and drive for it. Not in F1 25, kept for games that bring it back.']].map(([id, n, b]) => `<button class="choice ${u.role === id ? 'on' : ''}" data-act="setup-pick" data-k="role" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
     </div></div>` : ''}
 
-    <div class="panel"><div class="panel-h"><h2>${principal ? 'You, the team principal' : 'Your driver'}</h2></div><div class="panel-b stack">
+    <div class="panel" ${realAs ? 'hidden' : ''}><div class="panel-h"><h2>${principal ? 'You, the team principal' : 'Your driver'}</h2></div><div class="panel-b stack">
       <div class="form-grid">
         <label class="field"><span>First name</span><input type="text" data-ch="setup" data-k="first" value="${esc(u.first)}" placeholder="Alex"></label>
         <label class="field"><span>Last name</span><input type="text" data-ch="setup" data-k="last" value="${esc(u.last)}" placeholder="Morgan"></label>
@@ -8065,7 +8162,7 @@ function renderSetup() {
       </div>
       <p class="muted" style="font-size:13px">Signing a driver from another team frees up their seat for a reserve driver.</p>`}
     </div></div>`
-    : `<div class="panel"><div class="panel-h"><h2>${u.year} team</h2><span class="muted" style="font-size:12px">Pick the seat you took over in-game</span></div><div class="panel-b">
+    : `<div class="panel" ${realAs ? 'hidden' : ''}><div class="panel-h"><h2>${u.year} team</h2><span class="muted" style="font-size:12px">Pick the seat you took over in-game</span></div><div class="panel-b">
       <div class="choices">${teamCards}</div>
     </div></div>`}
 
@@ -8146,7 +8243,8 @@ function nextSeasonModal() {
   const base = baseRoster(c, index, s);
   // a move you signed for next season decides where you start; the seat you take is the one your chain freed up
   const myMove = (s.transfers || []).filter(tr => tr.effective === 'next').flatMap(tr => tr.steps).filter(m => m.driver === PLAYER_ID && m.kind === 'move').pop();
-  const want = myMove?.to || s.playerTeamId;
+  const realTeam = realDriverOf(c) && base.teams.find(t => t.drivers.includes(c.realDriver))?.id;
+  const want = realTeam || myMove?.to || s.playerTeamId;
   const keep = base.teams.some(t => t.id === want) ? want : base.teams.some(t => t.id === s.playerTeamId) ? s.playerTeamId : base.teams[0].id;
   const keepTeam = base.teams.find(t => t.id === keep);
   const defaultSeat = myMove && keepTeam.drivers.includes(null) ? null : keepTeam.drivers.find(d => d) || null;
@@ -8168,7 +8266,9 @@ function drawNextSeasonModal() {
       <div class="kv"><dt>${s.year} result</dt><dd><b>${myPos ? 'P' + myPos : '–'}</b> in the drivers' championship with ${st[PLAYER]?.pts || 0} points</dd><dt>Champion</dt><dd>${esc(dName(s, ds[0]?.id))}</dd></div>
       ${apxNote}
       ${extraAsk}
-      ${isPrincipal(c) ? `<div><h3 style="margin-bottom:6px">Your ${year} line-up</h3><p class="muted">${esc(m.base.teams.find(t => t.id === MYTEAM)?.drivers.filter(Boolean).map(d => m.base.drivers[d]?.name || d).join(' and ') || 'No drivers signed')}. Sign or release drivers in Transfers.</p></div>` : `<div><h3 style="margin-bottom:10px">Your ${year} seat</h3><div class="choices">${m.base.teams.map(t => `<div class="choice team-choice ${m.teamId === t.id ? 'on' : ''}" style="--c:${t.color}"><span class="bar"></span><div class="inner"><b>${esc(t.name)}</b>
+      ${realDriverOf(c) && m.base.teams.some(t => t.drivers.includes(c.realDriver)) ? `<div><h3 style="margin-bottom:6px">Your ${year} seat</h3><p class="muted" style="margin:0">${esc(m.base.drivers[c.realDriver]?.name || anyName(c.realDriver))} races for <b>${esc(m.base.teams.find(t => t.drivers.includes(c.realDriver)).name)}</b> in ${year}, as in real life${year <= HIST_TO ? ', and any moves during the season happen when they really did' : ''}.</p></div>`
+        : realDriverOf(c) ? `<div class="callout">${esc(anyName(c.realDriver))} didn’t start the ${year} season in real life${year > HIST_TO ? ' (or the real data has run out)' : ''}. Pick the seat they take below.</div>` : ''}
+      ${realDriverOf(c) && m.base.teams.some(t => t.drivers.includes(c.realDriver)) ? '' : isPrincipal(c) ? `<div><h3 style="margin-bottom:6px">Your ${year} line-up</h3><p class="muted">${esc(m.base.teams.find(t => t.id === MYTEAM)?.drivers.filter(Boolean).map(d => m.base.drivers[d]?.name || d).join(' and ') || 'No drivers signed')}. Sign or release drivers in Transfers.</p></div>` : `<div><h3 style="margin-bottom:10px">Your ${year} seat</h3><div class="choices">${m.base.teams.map(t => `<div class="choice team-choice ${m.teamId === t.id ? 'on' : ''}" style="--c:${t.color}"><span class="bar"></span><div class="inner"><b>${esc(t.name)}</b>
         <div class="row" style="gap:6px">${t.drivers.map((d, i) => `<button class="seat ${m.teamId === t.id && m.seat === d ? 'on' : ''}" data-act="next-seat" data-team="${t.id}" data-seat="${d ?? ''}" data-i="${i}">${d ? esc(m.base.drivers[d]?.name || d) : 'Empty seat'}</button>`).join('')}</div></div></div>`).join('')}</div></div>`}
       <div><h3 style="margin-bottom:10px">${year} goals</h3>${goalEditor(m.goals, 'modal')}</div>
       <p class="muted" style="font-size:13px">You can change the full roster and calendar for ${year} in Settings afterwards to match transfers in your save.</p>
@@ -8637,6 +8737,14 @@ const actions = {
   'create-career'() {
     const u = ui.setup;
     const principal = u.type === 'myteam' && u.role === 'principal';
+    const real = u.type === 'driver' && u.as === 'real' && u.year <= 2026 ? u.realDriver : null;
+    if (u.type === 'driver' && u.as === 'real' && !real) { toast('Pick the driver you race as'); return; }
+    if (real) {
+      // you are that driver: the profile comes from them
+      const grid = setupGrid(u); const tpl = templateFor(u.year, null); const nm = anyName(real); const b = D.DRIVER_BIO[real] || {};
+      const last = lastName(nm); Object.assign(u, { first: nm.slice(0, nm.length - last.length).trim() || nm, last, abbr: tpl?.drivers?.[real]?.abbr || D.DRIVERS[real]?.abbr || real, number: tpl?.nums?.[real] ?? D.DRIVERS[real]?.number ?? 27,
+        nationality: u.nationality || b.nat || '', born: u.born || b.born || null, teamId: grid.find(t => t.drivers.includes(real))?.id, seat: null });
+    }
     if (!u.first.trim() || !u.last.trim()) { toast(principal ? 'Enter your first and last name' : 'Enter your driver’s first and last name'); return; }
     if (u.type === 'myteam' && !u.team.name.trim()) { toast('Give your team a name'); return; }
     if (principal && (!u.team.seats[0] || !u.team.seats[1] || u.team.seats[0] === u.team.seats[1])) { toast('Sign two different drivers'); return; }
@@ -8648,7 +8756,7 @@ const actions = {
       profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), archetype: u.archetype, personality: u.personality, bio: u.bio.trim(), rival: '', rivalTeam: null, photo: u.photo || null, born: u.born || null },
       customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
       generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
-      startYear: u.year,
+      startYear: u.year, ...(real ? { realDriver: real } : {}),
       // the 2025 11th team: asked now for a 2025 start, when 2025 comes for an earlier one, never after
       extraTeam2025: u.year === 2025 ? (u.type === 'myteam' ? null : u.extra || null) : u.year > 2025 ? null : undefined,
     };
@@ -8672,7 +8780,7 @@ const actions = {
     ui.setup = null; ui.view = 'dashboard'; ui.seasonIdx = null;
     const first = activeRounds(latestSeason())[0];
     store.save(); render(); toast(`Career created. Good luck in ${first?.venue || 'the first race'}.`);
-    if (!c.profile.photo && !isPrincipal(c)) photoModal(PLAYER_ID);
+    if (!c.profile.photo && !isPrincipal(c) && !real) photoModal(PLAYER_ID);
   },
   'pick-season'(el) { ui.seasonIdx = +el.dataset.idx; render(); },
   'open-round'(el) { if (!el.dataset.round) return; ui.round = el.dataset.round; ui.session = null; ui.tap = null; if (ui.view !== 'weekend' && ui.view !== 'calendar') ui.seasonIdx = null; ui.view = 'weekend'; render(); },
@@ -8874,7 +8982,7 @@ const changes = {
   'fc-add'(el) { if (!el.value) return; const tr = trackGp(el.value); ui.setup.futureCal.push({ ...tr, sprint: false, ...(H.roundTrack[tr.id] ? { track: H.roundTrack[tr.id] } : {}) }); render(); },
   'season-sel'(el) { actions[el.dataset.to]({ dataset: { idx: el.value } }); },
   'switch-career'(el) { state.activeCareerId = el.value; ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render(); },
-  setup(el) { ui.setup[el.dataset.k] = el.value; },
+  setup(el) { ui.setup[el.dataset.k] = el.value; if (el.dataset.k === 'realDriver') render(); },
   'mt-seat'(el) {
     const u = ui.setup; const i = +el.dataset.i;
     if (el.value === '__new') { u.nd[i] ||= {}; } else { u.team.seats[i] = el.value; delete u.nd[i]; }
