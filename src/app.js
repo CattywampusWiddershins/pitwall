@@ -5878,8 +5878,9 @@ function buildErsPlan(c, s, round, kind = 'race') {
   // the energy to spend on boost, beyond the base mode
   let budgetLap, extra, simStart = startStore, liveInfo = null;
   if (Q) {
-    // a flying lap: what the battery starts with plus what the lap harvests (it can end the lap nearly empty)
-    budgetLap = Math.min(depCap, Math.max(0, startStore - reserve) + harvest);
+    // a flying lap: everything the battery starts with plus what the lap harvests, to cross the line empty (the
+    // in-lap recharges it), unless the per-lap deploy limit runs out first
+    budgetLap = Math.min(depCap, startStore + harvest);
     extra = Math.max(0, budgetLap - normalUse);
     if (normalUse > budgetLap + 50) warn.push(`Hotlap on every straight already uses ${(normalUse / 1000).toFixed(2)} MJ, more than the lap allows (${(budgetLap / 1000).toFixed(2)} MJ: the battery you start with and what you harvest, up to the limit). There is nothing left for boost, and the battery runs low before the end of the lap.`);
   } else {
@@ -5938,22 +5939,73 @@ function buildErsPlan(c, s, round, kind = 'race') {
     }
     return { trace, dry };
   };
-  const dryAnyway = new Set(simulate(false).dry);
-  // the boost to blame for running dry at slice i: on that straight, else the last one before it around the lap
-  const culprit = (i) => { for (let d = 0; d < nb; d++) { const z = zoneOf[(i - d + nb) % nb]; if (z?.plan) return z; } return null; };
-  let sim = simulate();
-  for (let n = 0; n < 400; n++) {
-    const i = sim.dry.find(x => !dryAnyway.has(x)); if (i == null) break;
-    const z = culprit(i); if (!z) break;
-    z.plan.trimmed = true; const k = z.plan.k - 1;
-    z.plan = k - z.plan.j >= 2 ? { ...setPlan(z, z.plan.j, k), trimmed: true } : null;
+  let sim, qGain = null, endStore = null, capHit = false, lateHarvest = 0;
+  if (!Q) {
+    const dryAnyway = new Set(simulate(false).dry);
+    // the boost to blame for running dry at slice i: on that straight, else the last one before it around the lap
+    const culprit = (i) => { for (let d = 0; d < nb; d++) { const z = zoneOf[(i - d + nb) % nb]; if (z?.plan) return z; } return null; };
     sim = simulate();
+    for (let n = 0; n < 400; n++) {
+      const i = sim.dry.find(x => !dryAnyway.has(x)); if (i == null) break;
+      const z = culprit(i); if (!z) break;
+      z.plan.trimmed = true; const k = z.plan.k - 1;
+      z.plan = k - z.plan.j >= 2 ? { ...setPlan(z, z.plan.j, k), trimmed: true } : null;
+      sim = simulate();
+    }
+  } else {
+    // A flying lap: what counts is the lap time. Charge left at the line is wasted, so the plan grows the boost until
+    // the battery crosses the line empty. Running dry earlier costs time (the deployment that can't happen, carried
+    // down the rest of the straight), so a boost that empties the battery mid-lap stays only where it is still the
+    // faster lap overall: say a big recharge zone straight after it. The per-lap deploy limit stops deployment too.
+    const gk = new Map();
+    const g = (z, j, k) => { const key = `${z.n}:${j}:${k}`; let v = gk.get(key); if (!v) gk.set(key, v = gainOf(z.bins, j, k)); return v; };
+    const simQ = (plans) => {
+      let st = simStart, dep = 0; const trace = [], short = new Float64Array(nb), flat = new Uint8Array(nb); // flat: short because the battery was empty (else the limit)
+      for (let i = 0; i < nb; i++) {
+        const z = zoneOf[i], p = z && plans[z.n]; const k = p ? z.bins.indexOf(i) : -1;
+        st = Math.min(storeMax, st + (harvest || 0) * brkW[i] / brkSum);
+        const want = (p && k >= p.j && k <= p.k ? pB[i] : full[i] === true ? pN[i] : 0) * dtOf(i);
+        const got = Math.min(want, Math.max(0, st), Math.max(0, depCap - dep));
+        if (got < want) flat[i] = st <= depCap - dep ? 1 : 0;
+        st -= got; dep += got; short[i] = (want - got) / dtOf(i) * 1000; trace.push(Math.max(0, st));
+      }
+      return { trace, short, flat, dep };
+    };
+    // the time the missing deployment costs on each straight: the speed it would have given, carried to the braking point
+    const lossOf = (short) => { let a = 0; for (const z of Z) { let dv = 0, t = 0; for (const i of z.bins) { const v = vOf(i), dt = dtOf(i); dv += (-short[i] * grip(spd[i]) / (ERS_MASS * v) - 2 * cd * v * dv / ERS_MASS) * dt; dv = Math.min(0, dv); t += dt * -dv / v; } a += t; } return a * factor; };
+    const score = (plans) => { const r0 = simQ(plans); let t = 0; for (const z of Z) { const p = plans[z.n]; if (p) t += g(z, p.j, p.k).t * factor; } return { v: t - lossOf(r0.short), sim: r0 }; };
+    let plans = Object.fromEntries(Z.map(z => [z.n, z.plan ? { j: z.plan.j, k: z.plan.k } : null]));
+    let cur = score(plans);
+    // hill-climb: lengthen, shorten, start or drop a boost, one or three slices at a time, while the lap gets faster
+    for (let n = 0; n < 600; n++) {
+      let best = null;
+      for (const z of Z) {
+        const p = plans[z.n], len = z.bins.length; const tries = [];
+        if (!p) tries.push({ j: 0, k: Math.min(2, len - 1) });
+        else {
+          for (const d of [1, 3]) { tries.push({ j: p.j, k: Math.min(len - 1, p.k + d) }, { j: Math.max(0, p.j - d), k: p.k }); if (p.k - d - p.j >= 2) tries.push({ j: p.j, k: p.k - d }); if (p.k - p.j - d >= 2) tries.push({ j: p.j + d, k: p.k }); }
+          tries.push(null);
+        }
+        for (const q of tries) {
+          if (q && p && q.j === p.j && q.k === p.k) continue;
+          const next = { ...plans, [z.n]: q }; const sc = score(next);
+          if (sc.v > (best?.sc.v ?? cur.v) + 1e-5) best = { next, sc };
+        }
+      }
+      if (!best) break;
+      plans = best.next; cur = best.sc;
+    }
+    Z.forEach(z => { const p = plans[z.n]; z.plan = p ? { ...setPlan(z, p.j, p.k), dry: z.bins.some(i => cur.sim.short[i] > 1 && cur.sim.flat[i]), capped: z.bins.some(i => cur.sim.short[i] > 1 && !cur.sim.flat[i]) } : null; });
+    sim = cur.sim; endStore = sim.trace[nb - 1]; capHit = sim.dep >= depCap - 5;
+    // what the last corners harvest after the final stretch of full throttle: too late in the lap to deploy
+    const lastFull = full.lastIndexOf(true); lateHarvest = (harvest || 0) * brkW.slice(lastFull + 1).reduce((a, b) => a + b, 0) / brkSum;
+    qGain = cur.v - score(Object.fromEntries(Z.map(z => [z.n, null]))).v; // against hotlap everywhere (which may run dry too)
   }
   const planned = Z.filter(z => z.plan);
   const diag = ERS_RACE_KEYS.concat(ERS_QUALI_KEYS).map(k => w?.sessions?.[k]?.game?.ers?.diag).filter(Boolean).pop() || live?.pack?.diag || null;
   return { kind, base: BASE, laps, perLap, fallback, warn, modes, slices, bin, nb, length: E0.length, brakeOk, diag, curve, spd, thr, brk, full, map, zones: Z, planned,
     pBoost, pNormal, assumed, harvest, depMax, depCap, storeMax, startStore, simStart, normalUse, budgetLap, extra, factor, measuredZones: ratios.length, ftTime, live: liveInfo,
-    gain: planned.reduce((a, z) => a + z.plan.t, 0), boostUse: planned.reduce((a, z) => a + z.plan.e, 0), trace: sim.trace, sessions: [...new Set(laps.map(L => L.k))] };
+    endStore, capHit, lateHarvest, gain: qGain ?? planned.reduce((a, z) => a + z.plan.t, 0), boostUse: planned.reduce((a, z) => a + z.plan.e, 0), trace: sim.trace, sessions: [...new Set(laps.map(L => L.k))] };
 }
 /** The track map, coloured: the plan (boost zones from their start to the braking point) or what your laps did. */
 function ersMapSvg(P, view, flip) {
@@ -5991,7 +6043,7 @@ function ersPanel(c, s, r, kind = 'race') {
   const m = (m) => P.modes[m] ? Math.round(P.modes[m] / P.slices * 100) : 0;
   const other = Object.keys(P.modes).map(Number).filter(x => x !== P.base && x !== ERS_BOOST).reduce((a, x) => a + m(x), 0);
   const km = (x) => `${(x / 1000).toFixed(2)} MJ`;
-  const rows = P.planned.map((z, k) => `<tr><td class="num"><b>${k + 1}</b></td><td><b>${Math.round(z.plan.at)} m</b> → ${Math.round(z.plan.to)} m <span class="muted">(${Math.round(z.plan.len)} m of the ${Math.round(z.len)} m straight)</span>${z.plan.trimmed ? ' <span class="tag" title="Cut short so the battery lasts to the end of the straight">shortened</span>' : ''}</td><td class="num">${Math.round(z.plan.e)} kJ</td><td class="num">+${z.plan.dv.toFixed(1)} km/h</td><td class="num"><b>${z.plan.t.toFixed(3)} s</b></td></tr>`).join('');
+  const rows = P.planned.map((z, k) => `<tr><td class="num"><b>${k + 1}</b></td><td><b>${Math.round(z.plan.at)} m</b> → ${Math.round(z.plan.to)} m <span class="muted">(${Math.round(z.plan.len)} m of the ${Math.round(z.len)} m straight)</span>${z.plan.trimmed ? ' <span class="tag" title="Cut short so the battery lasts to the end of the straight">shortened</span>' : ''}${z.plan.capped ? ' <span class="tag" title="The per-lap deploy limit runs out on this straight: still the faster lap, since the boost before it gains more than the deployment lost">limit</span>' : ''}${z.plan.dry ? ' <span class="tag" title="The battery empties before the end of this straight. It is still the faster lap: the boost before it gains more than the deployment lost after it, and the battery recharges in the braking zone that follows.">runs out</span>' : ''}</td><td class="num">${Math.round(z.plan.e)} kJ</td><td class="num">+${z.plan.dv.toFixed(1)} km/h</td><td class="num"><b>${z.plan.t.toFixed(3)} s</b></td></tr>`).join('');
   const stints = !Q && P.perLap.length ? (() => { const d = median(P.perLap.map(x => (x.end ?? 0) - (x.start ?? 0))); return d == null ? '' : d < -150 ? `Your laps drained the battery by about ${Math.round(-d)} kJ a lap: over a stint it runs dry.` : d > 150 ? `Your laps gained about ${Math.round(d)} kJ a lap: there was charge to spare.` : 'Your laps kept the battery about level.'; })() : '';
   const L = P.live;
   const liveStrip = L ? `<div class="panel-b ers-live" style="border-bottom:1px solid var(--line)">
@@ -6015,8 +6067,8 @@ function ersPanel(c, s, r, kind = 'race') {
         ${P.planned.length ? `<div class="table-wrap"><table><thead><tr><th class="num">#</th><th>Boost from → to</th><th class="num">Energy</th><th class="num">Speed</th><th class="num">Gain</th></tr></thead><tbody>${rows}</tbody></table></div>`
           : `<div class="muted" style="font-size:13px">${Q ? 'No boost fits: hotlap on every straight already uses all the energy the lap allows.' : L ? 'No boost fits right now: normal deployment uses everything you harvest, and there’s no charge to spare above what you need at the flag.' : 'No boost fits: on these laps normal deployment already uses everything you harvest. Boost now would only drain the battery over a stint.'}</div>`}
         <p class="muted" style="font-size:12px;margin:0">Distances are from the start line. ${Q
-          ? `Run hotlap everywhere and boost from the first distance to the second. Start the flying lap with the battery charged: the plan assumes the ${km(P.startStore)} your flying laps started with. It may end the lap nearly empty (the in-lap recharges it), but never runs dry before the braking point.`
-          : `Boost from the first distance to the second, then back to normal: the plan keeps enough charge for the rest of each straight, so you never run dry before the braking point.`} “Shortened” means a zone was cut to make sure of that.</p>
+          ? `Run hotlap everywhere and boost from the first distance to the second. Start the flying lap with the battery charged: the plan assumes the ${km(P.startStore)} your flying laps started with. It spends the lot: charge left at the line is wasted (the in-lap recharges it), so the boost grows until you cross the line ${P.endStore != null && P.endStore < 50 ? 'empty' : `with ${km(P.endStore || 0)} left: ${P.capHit ? 'the per-lap deploy limit runs out first' : P.endStore <= P.lateHarvest + 50 ? 'what the last corners harvest after the final straight, too late to use' : 'boosting more anywhere would only lose time'}`}. The battery only runs out before the end of a straight where that is still the faster lap (“runs out”): when a big recharge zone follows, say.`
+          : `Boost from the first distance to the second, then back to normal: the plan keeps enough charge for the rest of each straight, so you never run dry before the braking point. “Shortened” means a zone was cut to make sure of that.`}</p>
       </div>
     </div>
     <div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Measured on your car</span>
