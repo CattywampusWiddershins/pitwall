@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
     ack: (key) => ipcRenderer.invoke('telemetry:ack', key),
     onStatus: (cb) => ipcRenderer.on('telemetry:status', (_e, st) => cb(st)),
     onResult: (cb) => ipcRenderer.on('telemetry:result', (_e, r) => cb(r)),
+    live: () => ipcRenderer.invoke('telemetry:live'),
+    onLive: (cb) => ipcRenderer.on('telemetry:live', (_e, m) => cb(m)),
   },
   companion: {
     status: () => ipcRenderer.invoke('companion:status'),

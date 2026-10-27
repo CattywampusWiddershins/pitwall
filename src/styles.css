@@ -714,3 +714,6 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .ers-curve table td, .ers-curve table th { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
 .real-path { display: grid; gap: 6px; }
 .real-path .ms-list li { padding: 2px 0; }
+.tag.live { background: var(--red); color: #fff; border-color: transparent; animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .tag.live { animation: none; } }

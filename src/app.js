@@ -5188,6 +5188,12 @@ function estimatePractice(s, round, qk) {
     w.sessions[k] = { results: rows.map((x, i) => ({ d: x.d, lap: fmtLap(x.ms), gap: i ? '+' + ((x.ms - rows[0].ms) / 1000).toFixed(3) : '', st: 'FIN' })), fl: null, done: true, estimated: true };
   });
 }
+/** A session's ERS profile for saving: your driver, the packet format, and each lap's tyre (from your stints). */
+function ersWithTyres(r, map) {
+  const me = r.cars.find(x => x.idx === r.ers.player); const st = me?.stints || [];
+  const tyre = (lap) => (st.find(x => lap <= x.end) || st[st.length - 1])?.visual ?? null;
+  return { ...r.ers, d: map[r.ers.player] || null, format: r.format, laps: r.ers.laps.map(L => { const ty = tyre(L.lap); return ty == null ? L : { ...L, tyre: ty }; }) };
+}
 /** Log a game result into a session (keeping what was there, for undo). */
 function applyGameResult(c, r, place) {
   const { s, round, key } = place;
@@ -5200,7 +5206,7 @@ function applyGameResult(c, r, place) {
     wear: byId(x => x.wear || []), finished: byId(x => x.laps),
     penalties: r.penaltyEvents.filter(p => map[p.car] && (PENALTY_NAMES[p.type] || p.type === WARNING)).map(p => ({ d: map[p.car], type: p.type, infr: p.infringement, time: p.time, lap: p.lap, other: map[p.other] || null, t: p.t ?? null })),
     incidents: buildIncidents(r, map),
-    ...((key.startsWith('FP') || key === 'SPR') && r.ers ? { ers: { ...r.ers, d: map[r.ers.player] || null, format: r.format } } : {}),
+    ...(r.ers ? { ers: ersWithTyres(r, map) } : {}),
     ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),
     safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } };
   let results;
@@ -5211,6 +5217,9 @@ function applyGameResult(c, r, place) {
     game.parts = { ...(same ? old.parts : {}), [part]: r.cars.slice().sort((a, b) => a.position - b.position).map(x => ({ d: map[x.idx] || null, best: x.best })) };
     // the drivers knocked out earlier aren't in this part: keep their laps, stints and tyre wear from the earlier ones
     if (same) for (const k of ['laps', 'stints', 'pits', 'wear', 'finished']) game[k] = { ...(old[k] || {}), ...game[k] };
+    // and the flying laps of the earlier parts stay in the ERS profile
+    if (same && old.ers?.laps && game.ers) game.ers = { ...game.ers, laps: [...old.ers.laps.filter(L => (L.part || 1) !== part), ...game.ers.laps.map(L => ({ ...L, part }))] };
+    else if (game.ers) game.ers = { ...game.ers, laps: game.ers.laps.map(L => ({ ...L, part })) };
     results = qualiFromParts(s, round, key, game);
   } else if ((key === 'Q' || key === 'SQ') && r.cars.every(x => !x.best)) {
     const ids = r.cars.slice().sort((a, b) => a.position - b.position).map(x => map[x.idx]).filter(Boolean);
@@ -5222,7 +5231,7 @@ function applyGameResult(c, r, place) {
   w.sessions[key] = { results, fl: null, done: true, game };
   if (game.ers) {
     // the ERS profile is big: keep it for this weekend only (the outline of the track is kept for good)
-    for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of RUN_KEYS) if (w2.sessions?.[k]?.game?.ers) delete w2.sessions[k].game.ers;
+    for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of Object.keys(w2.sessions || {})) if (w2.sessions[k]?.game?.ers) delete w2.sessions[k].game.ers;
     if (game.ers.map?.filter(Boolean).length >= game.ers.map.length * 0.8 && mapExtent(game.ers.map) >= 200) (c.trackMaps ||= {})[trackOf(round)] = { map: game.ers.map, length: game.ers.length };
   }
   w.game = { weekend: r.weekendLink };
@@ -5646,7 +5655,7 @@ function strategyAdvicePanel(c, s) {
 }
 
 /*
-  ERS: where to use boost. In practice and the sprint Pitwall follows your car alone (no AI) in 20 m slices of the lap: throttle,
+  ERS: where to use boost. Through the weekend (practice, qualifying, the sprint, the race) Pitwall follows your car alone (no AI) in 20 m slices of the lap: throttle,
   brake, speed, the battery, the deploy mode, energy deployed and harvested so far this lap, MGU-K power, and where the
   car is. From your long runs (the same laps the strategy uses) it measures what your car really does: how fast boost
   drains the battery against normal deployment, how much you harvest a lap, how full the battery is. Only two modes
@@ -5679,27 +5688,81 @@ function longRunLapNos(sd, d) {
   return out;
 }
 const median = (xs) => { const v = xs.filter(x => x != null && isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
-const _ersCache = new WeakMap();
-/** Everything the ERS panel shows for this weekend, or null when there is no data. */
-function ersPlan(c, s, round) {
-  const key = round.id; let v = _ersCache.get(s);
-  if (v && v.gen === renderGen && v.key === key) return v.p;
-  const p = buildErsPlan(c, s, round); _ersCache.set(s, { gen: renderGen, key, p });
-  return p;
+const ERS_HOTLAP = 2; // the game's hotlap deploy mode
+const ERS_RACE_KEYS = [...RUN_KEYS, 'R'], ERS_QUALI_KEYS = [...PRACTICE_KEYS, 'SQ', 'Q'];
+const ERS_MODE_NAME = { 0: 'none', 1: 'normal', 2: 'hotlap', 3: 'boost' };
+/** How much of a lap's full throttle was in hotlap (hot), and in hotlap or boost (hb). */
+function hotShare(L) {
+  let n = 0, hot = 0, hb = 0;
+  L.mode.forEach((m, i) => { if (m != null && L.thr[i] >= 95) { n++; if (m === ERS_HOTLAP) hot++; if (m === ERS_HOTLAP || m === ERS_BOOST) hb++; } });
+  return n >= 10 ? { hot: hot / n, hb: hb / n } : { hot: 0, hb: 0 };
 }
-function buildErsPlan(c, s, round) {
+/** A flying lap for qualifying: mostly hotlap or boost on full throttle, some of it hotlap. */
+const flyingLap = (L) => { const x = hotShare(L); return x.hb >= 0.6 && x.hot > 0; };
+/** A lap's time from its slices (s): to tell racing laps from laps behind the safety car. */
+const binTime = (L, bin) => L.spd.reduce((a, v) => a + (v > 5 ? bin / (v / 3.6) : 0), 0);
+/** The battery at the start of a lap (kJ). */
+const lapStart = (L) => L.ers.find(x => x != null) ?? null;
+// The race you're driving now, as the game sends it: your battery every second and the ERS profile each new lap.
+// Kept in memory only: the race is saved, profile and all, when it finishes.
+let liveErs = null;
+/** The live race, if it is this round's and still running: the session key it will be logged under joins it. */
+function liveRaceFor(c, r) {
+  const L = liveErs; if (!L?.pack?.laps || GAME_TRACKS[L.track] !== trackOf(r)) return null;
+  if (Date.now() - Date.parse(L.at) > 10 * 60e3) return null; // gone quiet: the game was closed mid-race
+  if ((c.gameKeys || []).includes(`${L.uid}:${L.sessionType}`)) return null; // already logged
+  return { ...L, key: L.sessionType === 15 && (L.weekend || []).includes(16) ? 'SPR' : 'R' };
+}
+/** Your battery right now, for the live strip (updated every second without redrawing the page). */
+function liveNowHtml(L) {
+  if (!L || L.store == null) return '';
+  return `battery <b>${(L.store / 1000).toFixed(2)} MJ</b> · ${L.pit ? 'in the pit lane' : `${esc(ERS_MODE_NAME[L.mode] || 'mode ' + L.mode)} mode`} · ${L.dep ?? 0} kJ deployed this lap${L.limit ? ` of ${(L.limit / 1000).toFixed(1)} MJ` : ''}`;
+}
+const _ersCache = new WeakMap();
+/** Everything an ERS panel shows for this weekend, or null when there is no data. kind: 'race' or 'quali'. */
+function ersPlan(c, s, round, kind = 'race') {
+  const key = `${round.id}:${kind}`; let v = _ersCache.get(s);
+  if (!v || v.gen !== renderGen) { v = { gen: renderGen, p: {} }; _ersCache.set(s, v); }
+  if (!(key in v.p)) v.p[key] = buildErsPlan(c, s, round, kind);
+  return v.p[key];
+}
+/*
+  Two plans from the same measurements. The race plan: normal deployment is the base and boost is spent from what you
+  harvest, so the battery lasts the stint; it learns from practice long runs, the sprint and, as you drive it, the race
+  itself. During the race it also adapts: charge in the battery above what you need at the flag is spread over the laps
+  left, so a full battery late on goes on boost rather than to waste, and a low one means boost only from what you harvest.
+  The qualifying plan: hotlap is the base, on flying laps from practice and qualifying (laps mostly in hotlap or boost on
+  full throttle). A flying lap can empty the battery (the in-lap recharges it), so the energy is what it starts with
+  plus what the lap harvests, up to the per-lap deploy limit; the battery still has to last to the end of each straight.
+*/
+function buildErsPlan(c, s, round, kind = 'race') {
+  const Q = kind === 'quali'; const BASE = Q ? ERS_HOTLAP : ERS_NORMAL; const baseName = ERS_MODE_NAME[BASE];
   const w = s.weekends[round.id]; const laps = []; let E0 = null, fallback = false, stale = false; const all = [];
-  for (const k of RUN_KEYS) { // practice and the sprint
+  const isStale = (E, format) => (format || 0) >= 2026 && (E.v || 0) < 3; // 2026-format data logged before 2.0.12 was read with the old record sizes
+  for (const k of Q ? ERS_QUALI_KEYS : ERS_RACE_KEYS) {
     const sd = w?.sessions?.[k]; const E = sd?.game?.ers; if (!E || sd.estimated) continue;
-    // 2026-format data logged before 2.0.12 was read with the old record sizes: position, brake and deployment are wrong
-    if ((E.format || 0) >= 2026 && (E.v || 0) < 3) { stale = true; continue; }
-    E0 ||= E; const long = longRunLapNos(sd, E.d);
-    const dry = (lap) => { const st = stintsOf(sd, E.d).find(x => lap >= x.from && lap <= x.to); return !st || DRY.includes(st.c); }; // no inters or wets
-    for (const L of E.laps) { if (!dry(L.lap)) continue; all.push({ k, ...L }); if (long.has(L.lap)) laps.push({ k, ...L }); }
+    if (isStale(E, E.format)) { stale = true; continue; }
+    E0 ||= E;
+    // no inters or wets: the tyre each lap was on (kept with the lap from 2.2), else the session's stints
+    const dry = (L) => { if (L.tyre != null) return DRY.includes(L.tyre); const st = stintsOf(sd, E.d).find(x => L.lap >= x.from && L.lap <= x.to); return !st || DRY.includes(st.c); };
+    if (Q) { for (const L of E.laps) if (dry(L) && flyingLap(L)) laps.push({ k, ...L }); }
+    else {
+      const long = longRunLapNos(sd, E.d);
+      for (const L of E.laps) { if (!dry(L) || hotShare(L).hot >= 0.3) continue; all.push({ k, ...L }); if (long.has(L.lap)) laps.push({ k, ...L }); }
+    }
+    if (!E0.map?.some(Boolean) && E.map?.some(Boolean)) E0 = E;
+  }
+  // the race being driven: its racing laps so far (not the start, a stop or the safety car)
+  const live = Q ? null : liveRaceFor(c, round); let liveLaps = 0;
+  if (live && !isStale(live.pack, live.format)) {
+    const E = { ...live.pack, format: live.format }; E0 ||= E;
+    const ok = E.laps.filter(L => L.lap > 1 && !L.pit && hotShare(L).hot < 0.3); const tm = median(ok.map(L => binTime(L, E.bin)));
+    for (const L of ok) if (binTime(L, E.bin) <= tm * 1.03) { laps.push({ k: live.key, live: true, ...L }); liveLaps++; }
     if (!E0.map?.some(Boolean) && E.map?.some(Boolean)) E0 = E;
   }
   if (!E0) return stale ? { stale: true } : null;
-  if (!laps.length) { laps.push(...all); fallback = true; }
+  if (!laps.length) { if (Q) return { none: true, stale }; laps.push(...all); fallback = true; }
+  if (!laps.length) return null;
   const bin = E0.bin, nb = Math.ceil(E0.length / bin);
   const warn = [];
   if (stale) warn.push('Laps logged before 2.0.12 are left out: that version read the 2026-format packets wrongly.');
@@ -5713,10 +5776,10 @@ function buildErsPlan(c, s, round) {
   const allErs = laps.flatMap(L => L.ers.filter(x => x != null));
   if (!allErs.length || Math.max(...allErs) <= 0) warn.push('The game sent no battery data. Check that UDP telemetry is on and set to public in the game’s settings.');
   else if (Math.max(...allErs) > 12000) warn.push('The battery readings are out of range (over 12 MJ): this game version may send ERS differently, so treat the plan with care.');
-  const used = (modes[ERS_NORMAL] || 0) + (modes[ERS_BOOST] || 0);
-  if (slices && used / slices < 0.5) warn.push('Most of your running was in a deploy mode other than normal or boost. Only normal and boost laps are used, so drive your long runs in those.');
+  const used = (modes[BASE] || 0) + (modes[ERS_BOOST] || 0);
+  if (!Q && slices && used / slices < 0.5) warn.push('Most of your running was in a deploy mode other than normal or boost. Only normal and boost laps are used, so drive your long runs in those.');
   // measure: deploy rate per mode at full throttle, MGU-K power, harvest per lap, the battery
-  const acc = { [ERS_NORMAL]: { e: 0, t: 0, pw: [], band: {} }, [ERS_BOOST]: { e: 0, t: 0, pw: [], band: {} } };
+  const acc = { [BASE]: { e: 0, t: 0, pw: [], band: {} }, [ERS_BOOST]: { e: 0, t: 0, pw: [], band: {} } };
   const BAND = 20; // km/h: deployment is measured per speed band, since the game deploys differently as speed builds
   const perLap = [];
   for (const L of laps) {
@@ -5732,17 +5795,19 @@ function buildErsPlan(c, s, round) {
       last = L.dep[i];
     }
     const idx = [...L.ers.keys()].filter(i => L.ers[i] != null);
-    perLap.push({ k: L.k, lap: L.lap, start: L.ers[idx[0]], end: L.ers[idx[idx.length - 1]], dep: Math.max(0, ...L.dep.filter(x => x != null)), harv: Math.max(0, ...L.harv.filter(x => x != null)),
+    perLap.push({ k: L.k, live: !!L.live, lap: L.lap, start: L.ers[idx[0]], end: L.ers[idx[idx.length - 1]], dep: Math.max(0, ...L.dep.filter(x => x != null)), harv: Math.max(0, ...L.harv.filter(x => x != null)),
       boost: L.mode.filter((m, i) => m === ERS_BOOST && L.thr[i] >= 95).length * bin });
   }
   const fmt2026 = (E0.format || 0) >= 2026;
   const kW = (m) => acc[m].t > 5 ? acc[m].e / acc[m].t : null; // kJ per s = kW
-  let pBoost = kW(ERS_BOOST), pNormal = kW(ERS_NORMAL); const assumed = [];
+  let pBoost = kW(ERS_BOOST), pNormal = kW(BASE); const assumed = [];
   const capKW = median(acc[ERS_BOOST].pw) || Math.max(0, ...laps.flatMap(L => L.pw.filter(x => x != null)));
   if (pBoost == null) { pBoost = capKW > 50 ? capKW : 120; assumed.push('boost deployment (no boost on full throttle yet: from the MGU-K’s top power)'); }
-  if (pNormal == null) { pNormal = Math.min(pBoost * 0.5, 60); assumed.push('normal deployment (no normal-mode laps yet)'); }
-  if (pNormal >= pBoost) { pNormal = pBoost * 0.6; assumed.push('normal deployment (measured at or above boost, which can’t be right)'); }
-  const harvest = median(perLap.map(x => x.harv)) || 0; // kJ a lap
+  if (pNormal == null) { pNormal = Q ? pBoost * 0.85 : Math.min(pBoost * 0.5, 60); assumed.push(`${baseName} deployment (no ${baseName}-mode laps yet)`); }
+  if (pNormal >= pBoost) { pNormal = pBoost * (Q ? 0.85 : 0.6); assumed.push(`${baseName} deployment (measured at or above boost, which can’t be right)`); }
+  // what a race lap harvests: from racing laps (this race, the sprint) once there are a few, since you drive them differently
+  const racing = perLap.filter(x => x.k === 'R' || x.k === 'SPR');
+  const harvest = median((!Q && racing.length >= 3 ? racing : perLap).map(x => x.harv)) || 0; // kJ a lap
   const depMax = Math.max(0, ...perLap.map(x => x.dep));
   // kJ a lap the rules allow: what the game says (2026 format), else 4 MJ, or more if your laps showed more
   const gameLimit = median(laps.flatMap(L => (L.limit || []).filter(x => x > 0)));
@@ -5776,12 +5841,12 @@ function buildErsPlan(c, s, round) {
     for (let d = 0; d < 20; d++) for (const b of [b0 - d, b0 + d]) { const o = B[b]; if (o && o.t >= 1) return o.e / o.t; }
     return m === ERS_BOOST ? pBoost : pNormal;
   };
-  const pN = spd.map(v => kWat(ERS_NORMAL, v)), pB = spd.map(v => Math.max(kWat(ERS_BOOST, v), kWat(ERS_NORMAL, v)));
+  const pN = spd.map(v => kWat(BASE, v)), pB = spd.map(v => Math.max(kWat(ERS_BOOST, v), kWat(BASE, v)));
   const dPb = pB.map((b, i) => (b - pN[i]) * 1000); // W extra from boost, slice by slice
   // out of a slow corner the tyres can't put it all down: the extra power only fully counts from about 160 km/h
   const grip = (kmh) => Math.max(0.4, Math.min(1, ((kmh || 0) - 60) / 100));
-  const curve = [...new Set([...Object.keys(acc[ERS_NORMAL].band), ...Object.keys(acc[ERS_BOOST].band)].map(Number))].sort((a, b) => a - b)
-    .map(b => ({ from: b * BAND, n: acc[ERS_NORMAL].band[b]?.t >= 1 ? acc[ERS_NORMAL].band[b].e / acc[ERS_NORMAL].band[b].t : null, b: acc[ERS_BOOST].band[b]?.t >= 1 ? acc[ERS_BOOST].band[b].e / acc[ERS_BOOST].band[b].t : null }))
+  const curve = [...new Set([...Object.keys(acc[BASE].band), ...Object.keys(acc[ERS_BOOST].band)].map(Number))].sort((a, b) => a - b)
+    .map(b => ({ from: b * BAND, n: acc[BASE].band[b]?.t >= 1 ? acc[BASE].band[b].e / acc[BASE].band[b].t : null, b: acc[ERS_BOOST].band[b]?.t >= 1 ? acc[ERS_BOOST].band[b].e / acc[ERS_BOOST].band[b].t : null }))
     .filter(x => x.n != null || x.b != null);
   // boost on slices j to k of a straight (to its end if k is left out): { t (s gained), e (extra kJ), dv (km/h at the
   // end of the straight) }. The speed it gains carries on down the rest of the straight, less what drag takes back.
@@ -5807,14 +5872,37 @@ function buildErsPlan(c, s, round) {
     if (model > 1 && meas > 0) { z.measured = { dv: meas, laps: on.length + off.length }; ratios.push(meas / model); }
   }
   const factor = ratios.length ? Math.max(0.25, Math.min(3, median(ratios))) : 1;
-  // the energy to spend: what you harvest a lap (so the battery holds over a stint), less normal deployment elsewhere
   const ftTime = full.reduce((a, f, i) => a + (f === true ? dtOf(i) : 0), 0);
-  const normalUse = full.reduce((a, f, i) => a + (f === true ? pN[i] * dtOf(i) : 0), 0); // kJ a lap in normal mode on every straight
-  const budgetLap = Math.min(harvest || normalUse, depCap); // kJ a lap the battery can give
-  const extra = Math.max(0, budgetLap - normalUse);
-  // choose: for each straight, no boost or one stretch of it, 60 m or longer (knapsack on 5 kJ steps). A stretch from
+  const normalUse = full.reduce((a, f, i) => a + (f === true ? pN[i] * dtOf(i) : 0), 0); // kJ a lap in the base mode on every straight
+  const reserve = storeMax * 0.02;
+  // the energy to spend on boost, beyond the base mode
+  let budgetLap, extra, simStart = startStore, liveInfo = null;
+  if (Q) {
+    // a flying lap: what the battery starts with plus what the lap harvests (it can end the lap nearly empty)
+    budgetLap = Math.min(depCap, Math.max(0, startStore - reserve) + harvest);
+    extra = Math.max(0, budgetLap - normalUse);
+    if (normalUse > budgetLap + 50) warn.push(`Hotlap on every straight already uses ${(normalUse / 1000).toFixed(2)} MJ, more than the lap allows (${(budgetLap / 1000).toFixed(2)} MJ: the battery you start with and what you harvest, up to the limit). There is nothing left for boost, and the battery runs low before the end of the lap.`);
+  } else {
+    // a race lap: what you harvest (so the battery holds over a stint), less normal deployment
+    budgetLap = Math.min(harvest || normalUse, depCap);
+    extra = Math.max(0, budgetLap - normalUse);
+    if (live) {
+      // the race so far: from the battery at the line, spread what's above the finishing reserve over the laps left
+      const lapsLeft = Math.max(1, (live.totalLaps || 0) - (live.lap || 0) + 1);
+      const prev = live.pack.laps.find(L => L.lap === live.lap - 1);
+      const line = prev ? (prev.ers.filter(x => x != null).pop() ?? live.store) : live.store;
+      const finish = storeMax * 0.05;
+      const spare = line != null ? Math.max(0, line - finish) / lapsLeft : 0;
+      const room = Math.max(0, depCap - normalUse); const before = extra;
+      extra = Math.min(room, extra + spare);
+      if (line != null) simStart = line;
+      const trend = live.pack.laps.map(L => [L.lap, lapStart(L)]).filter(p => p[1] != null);
+      liveInfo = { lap: live.lap, totalLaps: live.totalLaps, lapsLeft, line, finish, spare: extra - before, laps: liveLaps, trend, key: live.key };
+    }
+  }
+  // choose: for each straight, no boost or one stretch of it, 60 m or longer (knapsack on energy steps). A stretch from
   // the corner exit buys the most: the speed it gains carries all the way down the straight, so long straights win
-  const STEP = 5, cap = Math.floor(extra / STEP);
+  const STEP = Q ? 10 : 5, cap = Math.floor(extra / STEP);
   const opts = Z.map(z => {
     const o = [{ j: null, t: 0, u: 0 }]; const n = z.bins.length; const step = n > 60 ? 2 : 1;
     for (let j = 0; j < n - 2; j += step) for (let k = j + 2; k < n; k += step) {
@@ -5823,24 +5911,23 @@ function buildErsPlan(c, s, round) {
     }
     return o;
   });
-  let best = [{ t: 0, pick: [] }]; // best[u] after each zone
-  best = Array.from({ length: cap + 1 }, () => ({ t: 0, pick: [] }));
+  // best time per energy budget after each straight, and which option got it (so the choice can be traced back)
+  let bestT = new Float64Array(cap + 1); const choice = [];
   for (let zi = 0; zi < Z.length; zi++) {
-    const nx = Array.from({ length: cap + 1 }, () => ({ t: -1, pick: [] }));
-    for (let u = 0; u <= cap; u++) for (const o of opts[zi]) { if (o.u > u) continue; const b = best[u - o.u]; if (b.t + o.t > nx[u].t) nx[u] = { t: b.t + o.t, pick: [...b.pick, o] }; }
-    best = nx;
+    const nt = new Float64Array(cap + 1).fill(-1), ch = new Int32Array(cap + 1);
+    for (let u = 0; u <= cap; u++) for (let oi = 0; oi < opts[zi].length; oi++) { const o = opts[zi][oi]; if (o.u > u) continue; const v = bestT[u - o.u] + o.t; if (v > nt[u]) { nt[u] = v; ch[u] = oi; } }
+    bestT = nt; choice.push(ch);
   }
-  const chosen = (best[cap] || { pick: [] }).pick;
+  const chosen = []; for (let zi = Z.length - 1, u = cap; zi >= 0; zi--) { const o = opts[zi][choice[zi][u]]; chosen[zi] = o; u -= o.u; }
   const setPlan = (z, j, k) => { const g = gainOf(z.bins, j, k); return { j, k, at: z.bins[j] * bin, to: (z.bins[k] + 1) * bin, len: (k - j + 1) * bin, t: g.t * factor, e: g.e, dv: g.dv * factor }; };
   Z.forEach((z, zi) => { const o = chosen[zi]; z.plan = o && o.j != null ? setPlan(z, o.j, o.k) : null; });
-  // the battery over the lap with this plan: harvest under braking, normal and boost deployment on the straights. If
+  // the battery over the lap with this plan: harvest under braking, base and boost deployment on the straights. If
   // it would run dry before the end of a straight (where it doesn't already without any boost), the boost that caused
   // it is shortened: the battery has to last to the braking point
   const brkW = brk.map((b, i) => (brakeOk ? (b || 0) : thr[i] != null && thr[i] < 20 ? 100 : 0) * dtOf(i)); const brkSum = brkW.reduce((a, b) => a + b, 0) || 1;
-  const reserve = storeMax * 0.02;
   const zoneOf = Array(nb).fill(null); Z.forEach(z => z.bins.forEach(i => { zoneOf[i] = z; }));
   const simulate = (withPlan = true) => {
-    let st = startStore; const trace = []; const dry = [];
+    let st = simStart; const trace = []; const dry = [];
     for (let i = 0; i < nb; i++) {
       const z = zoneOf[i]; const k = z ? z.bins.indexOf(i) : -1; const boosting = withPlan && z?.plan && k >= z.plan.j && k <= z.plan.k;
       st += (harvest || 0) * brkW[i] / brkSum;
@@ -5863,9 +5950,9 @@ function buildErsPlan(c, s, round) {
     sim = simulate();
   }
   const planned = Z.filter(z => z.plan);
-  const diag = PRACTICE_KEYS.concat('SPR').map(k => w?.sessions?.[k]?.game?.ers?.diag).filter(Boolean).pop() || null;
-  return { laps, perLap, fallback, warn, modes, slices, bin, nb, length: E0.length, brakeOk, diag, curve, spd, thr, brk, full, map, zones: Z, planned,
-    pBoost, pNormal, assumed, harvest, depMax, depCap, storeMax, startStore, normalUse, budgetLap, extra, factor, measuredZones: ratios.length,
+  const diag = ERS_RACE_KEYS.concat(ERS_QUALI_KEYS).map(k => w?.sessions?.[k]?.game?.ers?.diag).filter(Boolean).pop() || live?.pack?.diag || null;
+  return { kind, base: BASE, laps, perLap, fallback, warn, modes, slices, bin, nb, length: E0.length, brakeOk, diag, curve, spd, thr, brk, full, map, zones: Z, planned,
+    pBoost, pNormal, assumed, harvest, depMax, depCap, storeMax, startStore, simStart, normalUse, budgetLap, extra, factor, measuredZones: ratios.length, ftTime, live: liveInfo,
     gain: planned.reduce((a, z) => a + z.plan.t, 0), boostUse: planned.reduce((a, z) => a + z.plan.e, 0), trace: sim.trace, sessions: [...new Set(laps.map(L => L.k))] };
 }
 /** The track map, coloured: the plan (boost zones from their start to the braking point) or what your laps did. */
@@ -5889,49 +5976,67 @@ function ersMapSvg(P, view, flip) {
   const s0 = at(0); if (s0) body += `<circle class="em-line" cx="${s0[0].toFixed(1)}" cy="${s0[1].toFixed(1)}" r="1.8"/>`;
   return `<svg class="ers-map" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}">${body}</svg>`;
 }
-/** Current Weekend: the ERS panel. */
-function ersPanel(c, s, r) {
-  const head = (extra = '') => `<div class="panel-h"><h2>ERS: where to boost</h2>${extra}</div>`;
-  const P = ersPlan(c, s, r);
-  if (P?.stale) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">The ERS data for ${esc(r.name)} was logged before 2.0.12, which read the 2026-format packets wrongly, so it isn’t used. Run another practice session (or the sprint) and the profile builds from that.</div></div>`;
-  if (!P) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">No ERS data for ${esc(r.name)} yet. Do your long runs in practice (or race the sprint) with telemetry on, using normal deployment and boost as you see fit. Pitwall follows your car only, measures what boost really costs and what you harvest, and maps the best places to use it.</div></div>`;
-  const view = ui.ersView || 'plan'; const tid = trackOf(r); const flip = !!c.ersFlip?.[tid];
+/** Current Weekend: an ERS panel. kind 'race': where to boost in the race (live while you drive it); 'quali': the flying lap. */
+function ersPanel(c, s, r, kind = 'race') {
+  const Q = kind === 'quali';
+  const head = (extra = '') => `<div class="panel-h"><h2>${Q ? 'Qualifying deployment' : 'ERS: where to boost'}</h2>${extra}</div>`;
+  const P = ersPlan(c, s, r, kind);
+  if (P?.stale && !P.none) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">The ERS data for ${esc(r.name)} was logged before 2.0.12, which read the 2026-format packets wrongly, so it isn’t used. Run another practice session (or the sprint) and the profile builds from that.</div></div>`;
+  if (!P || P.none) return `<div class="panel">${head()}<div class="panel-b muted" style="font-size:13px">${Q
+    ? `No flying laps for ${esc(r.name)} yet. Drive flying laps in hotlap mode, with boost where you like, in practice or qualifying with telemetry on. Every lap mostly in hotlap or boost counts: Pitwall measures what each mode really deploys from your car and maps the best places to boost on top of hotlap.`
+    : `No ERS data for ${esc(r.name)} yet. Do your long runs in practice (or race the sprint) with telemetry on, using normal deployment and boost as you see fit. Pitwall follows your car only, measures what boost really costs and what you harvest, and maps the best places to use it. In the race it keeps learning from your laps and adapts the plan as you go.`}</div></div>`;
+  const vk = Q ? 'ersViewQ' : 'ersView';
+  const view = ui[vk] || 'plan'; const tid = trackOf(r); const flip = !!c.ersFlip?.[tid];
+  const base = ERS_MODE_NAME[P.base]; const Base = base[0].toUpperCase() + base.slice(1);
   const m = (m) => P.modes[m] ? Math.round(P.modes[m] / P.slices * 100) : 0;
+  const other = Object.keys(P.modes).map(Number).filter(x => x !== P.base && x !== ERS_BOOST).reduce((a, x) => a + m(x), 0);
   const km = (x) => `${(x / 1000).toFixed(2)} MJ`;
   const rows = P.planned.map((z, k) => `<tr><td class="num"><b>${k + 1}</b></td><td><b>${Math.round(z.plan.at)} m</b> → ${Math.round(z.plan.to)} m <span class="muted">(${Math.round(z.plan.len)} m of the ${Math.round(z.len)} m straight)</span>${z.plan.trimmed ? ' <span class="tag" title="Cut short so the battery lasts to the end of the straight">shortened</span>' : ''}</td><td class="num">${Math.round(z.plan.e)} kJ</td><td class="num">+${z.plan.dv.toFixed(1)} km/h</td><td class="num"><b>${z.plan.t.toFixed(3)} s</b></td></tr>`).join('');
-  const stints = P.perLap.length ? (() => { const d = median(P.perLap.map(x => (x.end ?? 0) - (x.start ?? 0))); return d == null ? '' : d < -150 ? `Your laps drained the battery by about ${Math.round(-d)} kJ a lap: over a stint it runs dry.` : d > 150 ? `Your laps gained about ${Math.round(d)} kJ a lap: there was charge to spare.` : 'Your laps kept the battery about level.'; })() : '';
-  return `<div class="panel">${head(`<div class="row" style="gap:6px"><div class="seg">${[['plan', 'Plan'], ['laps', 'Your laps']].map(([v, l]) => `<button data-act="ers-view" data-v="${v}" class="${view === v ? 'on' : ''}">${l}</button>`).join('')}</div><button class="btn sm ghost" data-act="ers-flip" data-track="${tid}" title="Mirror the map if it comes out back to front">Flip map</button></div>`)}
+  const stints = !Q && P.perLap.length ? (() => { const d = median(P.perLap.map(x => (x.end ?? 0) - (x.start ?? 0))); return d == null ? '' : d < -150 ? `Your laps drained the battery by about ${Math.round(-d)} kJ a lap: over a stint it runs dry.` : d > 150 ? `Your laps gained about ${Math.round(d)} kJ a lap: there was charge to spare.` : 'Your laps kept the battery about level.'; })() : '';
+  const L = P.live;
+  const liveStrip = L ? `<div class="panel-b ers-live" style="border-bottom:1px solid var(--line)">
+      <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · lap ${L.lap}${L.totalLaps ? ` of ${L.totalLaps}` : ''}</b><span class="muted" id="ers-live-now">${liveNowHtml(liveErs)}</span></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">The plan below is for this lap on. ${L.line != null ? `You crossed the line with ${km(L.line)} in the battery and ${plural(L.lapsLeft, 'lap')} to go: ${L.spare > 5 ? `${Math.round(L.spare)} kJ a lap above what you harvest can go on boost and still leave ${km(L.finish)} at the flag` : 'there’s no charge to spare above the finishing reserve, so boost comes only from what you harvest'}.` : ''} ${L.laps ? `${plural(L.laps, 'racing lap')} of this race measure your car so far (not the start, stops or laps behind the safety car).` : 'From the next lap your race laps join the measurements.'}</p>
+      ${L.trend.length >= 2 ? `<div class="label" style="margin-top:8px">Battery at the line, lap by lap</div>${svgChart([{ color: 'var(--green)', dots: true, pts: L.trend.map(([n, v]) => [n, v / 1000]) }, ...(L.totalLaps && L.line != null ? [{ color: 'var(--silver)', dashed: true, pts: [[L.lap, L.line / 1000], [L.totalLaps + 1, L.finish / 1000]] }] : [])], { h: 100, yFmt: (v) => v.toFixed(1) + ' MJ' })}<div class="chart-legend"><span><i style="background:var(--green)"></i>Battery starting each lap</span><span><i style="background:var(--silver)"></i>Spending what’s spare by the flag</span></div>` : ''}
+    </div>` : '';
+  const from = P.sessions.filter(k => !(L && k === L.key && !s.weekends[r.id]?.sessions?.[k]?.game?.ers)).map(k => SESSION_SHORT[k] || k);
+  return `<div class="panel">${head(`<div class="row" style="gap:6px"><div class="seg">${[['plan', 'Plan'], ['laps', 'Your laps']].map(([v, l]) => `<button data-act="ers-view" data-k="${vk}" data-v="${v}" class="${view === v ? 'on' : ''}">${l}</button>`).join('')}</div><button class="btn sm ghost" data-act="ers-flip" data-track="${tid}" title="Mirror the map if it comes out back to front">Flip map</button></div>`)}
+    ${liveStrip}
     ${P.warn.map(x => `<div class="panel-b"><div class="callout">${esc(x)}</div></div>`).join('')}
     <div class="panel-b ers-grid">
       <div>${ersMapSvg(P, view, flip)}
-        ${P.trace?.length ? `<div class="label" style="margin-top:8px">Battery over a lap with the plan</div>${svgChart([{ color: 'var(--green)', pts: P.trace.map((v, i) => [i * P.bin, v / 1000]) }], { h: 110, yFmt: (v) => v.toFixed(1) + ' MJ', xLabel: 'm' })}` : ''}
-        <div class="chart-legend">${view === 'laps' ? '<span><i style="background:var(--purple)"></i>Where you used boost (stronger: more of your laps)</span>' : '<span><i style="background:var(--green)"></i>Boost</span><span><i style="background:var(--silver)"></i>Full throttle</span>'}<span><i style="background:var(--red)"></i>Braking</span><span><i style="background:var(--fg);border-radius:50%;width:6px;height:6px"></i>Start line</span></div></div>
+        ${P.trace?.length ? `<div class="label" style="margin-top:8px">Battery over ${Q ? 'the flying lap' : 'a lap'} with the plan</div>${svgChart([{ color: 'var(--green)', pts: P.trace.map((v, i) => [i * P.bin, v / 1000]) }], { h: 110, yFmt: (v) => v.toFixed(1) + ' MJ', xLabel: 'm' })}` : ''}
+        <div class="chart-legend">${view === 'laps' ? '<span><i style="background:var(--purple)"></i>Where you used boost (stronger: more of your laps)</span>' : `<span><i style="background:var(--green)"></i>Boost</span><span><i style="background:var(--silver)"></i>Full throttle (${base})</span>`}<span><i style="background:var(--red)"></i>Braking</span><span><i style="background:var(--fg);border-radius:50%;width:6px;height:6px"></i>Start line</span></div></div>
       <div class="stack" style="gap:10px">
         <div class="tiles ers-tiles">
-          <div class="tile"><span class="label">Gain from the plan</span><span class="v">${P.gain.toFixed(2)}<small> s / lap</small></span><span class="muted" style="font-size:12px">against normal deployment everywhere</span></div>
-          <div class="tile"><span class="label">Boost energy</span><span class="v">${Math.round(P.boostUse)}<small> kJ / lap</small></span><span class="muted" style="font-size:12px">of ${Math.round(P.extra)} kJ to spare</span></div>
+          <div class="tile"><span class="label">Gain from the plan</span><span class="v">${P.gain.toFixed(2)}<small> s${Q ? '' : ' / lap'}</small></span><span class="muted" style="font-size:12px">against ${base} deployment everywhere${Q ? ', on a flying lap' : ''}</span></div>
+          <div class="tile"><span class="label">Boost energy</span><span class="v">${Math.round(P.boostUse)}<small> kJ${Q ? '' : ' / lap'}</small></span><span class="muted" style="font-size:12px">of ${Math.round(P.extra)} kJ ${Q ? 'the lap allows beyond hotlap' : 'to spare'}</span></div>
         </div>
         ${P.planned.length ? `<div class="table-wrap"><table><thead><tr><th class="num">#</th><th>Boost from → to</th><th class="num">Energy</th><th class="num">Speed</th><th class="num">Gain</th></tr></thead><tbody>${rows}</tbody></table></div>`
-          : '<div class="muted" style="font-size:13px">No boost fits: on these laps normal deployment already uses everything you harvest. Boost now would only drain the battery over a stint.</div>'}
-        <p class="muted" style="font-size:12px;margin:0">Distances are from the start line. Boost from the first distance to the second, then back to normal: the plan keeps enough charge for the rest of each straight, so you never run dry before the braking point. “Shortened” means a zone was cut to make sure of that.</p>
+          : `<div class="muted" style="font-size:13px">${Q ? 'No boost fits: hotlap on every straight already uses all the energy the lap allows.' : L ? 'No boost fits right now: normal deployment uses everything you harvest, and there’s no charge to spare above what you need at the flag.' : 'No boost fits: on these laps normal deployment already uses everything you harvest. Boost now would only drain the battery over a stint.'}</div>`}
+        <p class="muted" style="font-size:12px;margin:0">Distances are from the start line. ${Q
+          ? `Run hotlap everywhere and boost from the first distance to the second. Start the flying lap with the battery charged: the plan assumes the ${km(P.startStore)} your flying laps started with. It may end the lap nearly empty (the in-lap recharges it), but never runs dry before the braking point.`
+          : `Boost from the first distance to the second, then back to normal: the plan keeps enough charge for the rest of each straight, so you never run dry before the braking point.`} “Shortened” means a zone was cut to make sure of that.</p>
       </div>
     </div>
     <div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Measured on your car</span>
       <div class="ers-facts">
         <div><b>${Math.round(P.pBoost)} kW</b><span>boost drain on full throttle</span></div>
-        <div><b>${Math.round(P.pNormal)} kW</b><span>normal deployment</span></div>
+        <div><b>${Math.round(P.pNormal)} kW</b><span>${base} deployment</span></div>
         <div><b>${km(P.harvest)}</b><span>harvested a lap</span></div>
-        <div><b>${km(P.normalUse)}</b><span>normal mode uses a lap</span></div>
+        <div><b>${km(P.normalUse)}</b><span>${base} mode uses a lap</span></div>
         <div><b>${km(P.depMax)}</b><span>most deployed in a lap (limit ${km(P.depCap)})</span></div>
-        <div><b>${km(P.startStore)}</b><span>battery at the line, of ${km(P.storeMax)}</span></div>
+        <div><b>${km(P.startStore)}</b><span>battery ${Q ? 'starting a flying lap' : 'at the line'}, of ${km(P.storeMax)}</span></div>
       </div>
       ${P.curve?.length ? `<div class="ers-curve"><span class="label">Deployment by speed (kW, on full throttle with charge)</span><div class="table-wrap"><table><thead><tr><th>Speed</th>${P.curve.map(x => `<th class="num">${x.from}</th>`).join('')}</tr></thead><tbody>
-        <tr><td>Normal</td>${P.curve.map(x => `<td class="num">${x.n != null ? Math.round(x.n) : '–'}</td>`).join('')}</tr>
+        <tr><td>${Base}</td>${P.curve.map(x => `<td class="num">${x.n != null ? Math.round(x.n) : '–'}</td>`).join('')}</tr>
         <tr><td>Boost</td>${P.curve.map(x => `<td class="num">${x.b != null ? Math.round(x.b) : '–'}</td>`).join('')}</tr></tbody></table></div></div>` : ''}
-      <p class="muted" style="font-size:12px;margin:8px 0 0">${plural(P.laps.length, 'lap')} from ${listJoin(P.sessions.map(k => SESSION_SHORT[k] || k))}${P.fallback ? ' (no long runs yet, so every full lap)' : ', your long runs'}; at full throttle you were in normal ${m(ERS_NORMAL)}% and boost ${m(ERS_BOOST)}% of the time${m(0) + m(2) ? `, and in other modes ${m(0) + m(2)}% (left out)` : ''}. ${stints}
-        Time gained is modelled, ${P.measuredZones ? `and scaled by your own laps on ${plural(P.measuredZones, 'straight')} driven both with and without boost (straights ${s.year >= 2026 ? 'within a second of the car ahead' : 'with DRS open or within a second of the car ahead'} left out) (×${P.factor.toFixed(2)})` : 'not yet checked against your laps: drive some straights with boost and some without and it will be'}.${P.assumed.length ? ` Assumed, not measured: ${listJoin(P.assumed)}.` : ''}</p>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">${Q
+        ? `${plural(P.laps.length, 'flying lap')} from ${listJoin(from)} (laps mostly in hotlap or boost on full throttle); on them you were in hotlap ${m(ERS_HOTLAP)}% and boost ${m(ERS_BOOST)}% of the time${other ? `, and in other modes ${other}%` : ''}.`
+        : `${plural(P.laps.length - (L?.laps || 0), 'lap')}${from.length ? ` from ${listJoin(from)}` : ''}${P.fallback ? ' (no long runs yet, so every full lap)' : ', your long runs'}${L?.laps ? ` and ${plural(L.laps, 'lap')} of this race` : ''}; at full throttle you were in normal ${m(ERS_NORMAL)}% and boost ${m(ERS_BOOST)}% of the time${other ? `, and in other modes ${other}% (left out)` : ''}. ${stints}`}
+        Time gained is modelled, ${P.measuredZones ? `and scaled by your own laps on ${plural(P.measuredZones, 'straight')} driven both with and without boost (straights ${s.year >= 2026 ? 'within a second of the car ahead' : 'with DRS open or within a second of the car ahead'} left out) (×${P.factor.toFixed(2)})` : `not yet checked against your laps: drive some straights with boost and some in ${base} and it will be`}.${P.assumed.length ? ` Assumed, not measured: ${listJoin(P.assumed)}.` : ''}</p>
     </div>
-    ${P.diag ? `<div class="panel-b" style="border-top:1px solid var(--line)"><details><summary class="muted" style="font-size:12px;cursor:pointer">Diagnostics</summary>
+    ${P.diag && !Q ? `<div class="panel-b" style="border-top:1px solid var(--line)"><details><summary class="muted" style="font-size:12px;cursor:pointer">Diagnostics</summary>
       <p class="muted" style="font-size:12px">Packet format ${esc(String(P.diag.format))}, your car is index ${P.diag.player}. Packet sizes: ${Object.entries(P.diag.lens || {}).map(([k, v]) => `${({ 0: 'motion', 2: 'lap data', 6: 'car telemetry', 7: 'car status' })[k] || k} ${v} bytes`).join(', ')}. If the ERS readings look wrong, copy these (a few raw packets from your car) and send them over.</p>
       <button class="btn sm" data-act="ers-diag" data-round="${r.id}">Copy diagnostics</button></details></div>` : ''}
   </div>`;
@@ -6027,6 +6132,7 @@ function renderCurrentWeekend() {
       <div class="panel"><div class="panel-h"><h2>Predicted race pace · drivers</h2><span class="muted" style="font-size:12px">“est.” = no long run, from the ideal lap</span></div><div class="panel-b tight table-wrap">${drvBoard}</div></div>
     </div>` : ''}
     ${strategyAdvicePanel(c, s)}
+    ${ersPanel(c, s, r, 'quali')}
     ${ersPanel(c, s, r)}
   </div>`;
 }
@@ -9128,10 +9234,10 @@ Object.assign(actions, {
   'lb-sort'(el) { ui.lb.sort = el.dataset.k; render(); },
   'lb-scope'(el) { ui.lb.scope = el.dataset.v; render(); },
   'stories-filter'(el) { ui.stories = el.dataset.v; render(); },
-  'ers-view'(el) { ui.ersView = el.dataset.v; render(); },
+  'ers-view'(el) { ui[el.dataset.k || 'ersView'] = el.dataset.v; render(); },
   async 'ers-diag'(el) {
     const s = latestSeason(); const w = s.weekends[el.dataset.round];
-    const d = PRACTICE_KEYS.concat('SPR').map(k => w?.sessions?.[k]?.game?.ers?.diag ? { session: k, ...w.sessions[k].game.ers.diag } : null).filter(Boolean);
+    const d = [...new Set(ERS_RACE_KEYS.concat(ERS_QUALI_KEYS))].map(k => w?.sessions?.[k]?.game?.ers?.diag ? { session: k, ...w.sessions[k].game.ers.diag } : null).filter(Boolean);
     const text = JSON.stringify({ track: el.dataset.round, diag: d });
     try { await navigator.clipboard.writeText(text); toast('Diagnostics copied: paste them in a message'); }
     catch { modal(`<div class="modal-h"><h2>Diagnostics</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b"><p class="muted">Copy all of this and send it over.</p><textarea readonly style="width:100%;height:260px;font-family:var(--font-mono);font-size:11px">${esc(text)}</textarea></div>`); }
@@ -9273,6 +9379,16 @@ window.pitwallBack = () => {
     try { telemetryStatus = await window.api.telemetry.status(); } catch { }
     window.api.telemetry.onStatus((st) => { telemetryStatus = st; const a = document.activeElement; if (ui.view === 'settings' && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render(); });
     window.api.telemetry.onResult(handleGameResult);
+    // the race you're driving: the ERS plan redraws each new lap; your battery updates every second in place
+    try { liveErs = await window.api.telemetry.live?.() || null; } catch { }
+    window.api.telemetry.onLive?.((m) => {
+      const same = liveErs?.uid === m.uid;
+      if (m.done) { if (same) { liveErs = null; render(); } return; }
+      liveErs = { ...(same ? liveErs : {}), ...m, pack: m.pack || (same ? liveErs.pack : null) };
+      const a = document.activeElement;
+      if (m.pack) { if (ui.view === 'now' && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render(); }
+      else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
+    });
     try { for (const r of await window.api.telemetry.pending()) handleGameResult(r); } catch { }
   }
 })();

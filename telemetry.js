@@ -3,13 +3,16 @@
 // F1 25 UDP specification: packet format 2025 for the base game (22 cars), 2026 for the 2026 Season Pack (24 cars,
 // wider driver/team ids). Only what Pitwall uses is read: session, lap data (grid slots and laps), participants,
 // events (penalties, warnings, collisions, overtakes), car damage (tyre wear), session history (laps and sectors) and the final
-// classification. In practice and the sprint it also follows your own car (motion, car telemetry and car status) to profile the ERS.
+// classification. In every session of the weekend it also follows your own car (motion, car telemetry and car status) to
+// profile the ERS, and in a race it sends that profile on as you drive, so the plan can adapt lap by lap.
 const dgram = require('dgram');
 
 const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
 const ERS_BIN = 20; // metres: the ERS profile is kept in slices of the lap this long
-// the sessions your ERS is profiled in: practice, and the sprint (a race on a weekend that also has a second race)
-const ersSession = (info) => !!info && ((info.sessionType >= 1 && info.sessionType <= 4) || (info.sessionType === 15 && (info.weekend || []).includes(16)));
+// the sessions your ERS is profiled in: the whole weekend (practice, qualifying, the sprint and the race), not time trial
+const ersSession = (info) => !!info && info.sessionType >= 1 && info.sessionType <= 17;
+const raceType = (t) => t >= 15 && t <= 17;
+const LIVE_MS = 1000; // a race sends your battery this often, and the whole profile each new lap
 const HEADER = 29;
 const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } : { cars: 22, part: 57, wide: false };
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
@@ -115,7 +118,7 @@ function parseHistory(b) {
   return { car, laps, stints };
 }
 
-module.exports = function createTelemetry({ onResult, onStatus }) {
+module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {} }) {
   let sock = null; let cfg = { enabled: false, port: 20778 };
   const st = { listening: false, error: null, packets: 0, lastAt: null, format: null, session: null };
   const sessions = new Map();
@@ -148,9 +151,10 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     }
     list.push({ a, b, t, lap: s.curLap[a] || 0 });
   }
-  // Practice only, your car only: every lap data packet adds a sample (throttle, brake, speed, ERS store, mode, deployed
+  // Your car only: every lap data packet adds a sample (throttle, brake, speed, ERS store, mode, deployed
   // and harvested so far this lap, MGU-K power, position) to the 20 m slice of the lap you're in.
   function logErs(s, c) {
+    if (c?.pit && c.lap) ((s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false }).pit = true; // a stop: not a lap to measure the race on
     if (!c || !s.tel || !s.stat || c.dist < 0 || c.pit || !c.lap) return;
     const lap = (s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false };
     const o = lap.bins[Math.floor(c.dist / ERS_BIN)] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
@@ -171,7 +175,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     for (const [lapNo, lap] of Object.entries(s.ers)) {
       const have = Object.keys(lap.bins).length; if (have < nb * 0.8) continue; // a partial lap (out-lap, or the session ended)
       const col = (fn) => Array.from({ length: nb }, (_, i) => { const o = lap.bins[i]; return o ? fn(o) : null; });
-      laps.push({ lap: +lapNo, invalid: lap.invalid,
+      laps.push({ lap: +lapNo, invalid: lap.invalid, ...(lap.pit ? { pit: true } : {}),
         thr: col(o => Math.round(o.thr / o.n * 100)), brk: col(o => Math.round(o.brk / o.n * 100)), spd: col(o => Math.round(o.spd / o.n)),
         ers: col(o => Math.round(o.ers / o.n / 1000)), dep: col(o => Math.round(o.dep / 1000)), limit: col(o => o.limit ? Math.round(o.limit / 1000) : null), harv: col(o => Math.round(o.harv / 1000)), pw: col(o => Math.round(o.pw / o.n / 1000)),
         mode: col(o => +Object.entries(o.modes).sort((a, b) => b[1] - a[1])[0][0]), drs: col(o => o.drs ? 1 : 0), close: col(o => o.close ? 1 : 0) });
@@ -181,6 +185,18 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     const diag = s.diag ? { format: s.diag.format, player: s.diag.player, lens: s.diag.lens, raw: s.diag.raw } : null;
     // v: how this version reads the packets (3: the 2026 record sizes and status layout)
     return { v: 3, player: s.player, bin: ERS_BIN, length: s.info.trackLength, laps, diag, map: mx.map((x, i) => mn[i] ? [r(x / mn[i], 10), r(mz[i] / mn[i], 10)] : null) };
+  }
+  /** In a race: your battery now (every second), and the whole profile when a new lap starts. */
+  function live(s, c) {
+    if (!c || !s.info || !raceType(s.info.sessionType)) return;
+    const now = Date.now(); const newLap = c.lap !== s.liveLap;
+    if (!newLap && now - (s.liveAt || 0) < LIVE_MS) return;
+    s.liveAt = now;
+    const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, totalLaps: s.info.totalLaps,
+      lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
+      dep: s.stat ? Math.round(s.stat.dep / 1000) : null, limit: s.stat?.limit ? Math.round(s.stat.limit / 1000) : null, at: new Date().toISOString() };
+    if (newLap) { s.liveLap = c.lap; msg.pack = packErs(s); }
+    onLive(msg);
   }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
@@ -240,7 +256,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
         if (c.status === 2 && c.lead) s.lead[i] = c.lead;
         else if (c.status === 3 && s.leadFin[i] == null) s.leadFin[i] = c.lead || s.lead[i] || null;
       });
-      if (ersSession(s.info)) logErs(s, lap[h.player]);
+      if (ersSession(s.info)) { logErs(s, lap[h.player]); live(s, lap[h.player]); }
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
       const race = s.info && (s.info.sessionType === 15 || s.info.sessionType === 16);
       if (race) lap.forEach((c, i) => {
@@ -269,6 +285,7 @@ module.exports = function createTelemetry({ onResult, onStatus }) {
     } else if (h.type === PACKET.FINAL) {
       s.final = parseFinal(b, L);
       clearTimeout(s.timer); s.timer = setTimeout(() => emit(s), SETTLE_MS);
+      if (raceType(s.info?.sessionType)) onLive({ uid: s.uid, done: true });
     }
     pushStatus();
   }
