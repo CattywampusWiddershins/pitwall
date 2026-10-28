@@ -1453,7 +1453,7 @@ function renderRail() {
         : `<span class="who">${avatar(c, s, PLAYER, 26)}<span class="n">${esc(c.profile.number)}</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`}
       <span class="muted" style="font-size:12px">${esc(s?.teams.find(t => t.id === s.playerTeamId)?.name || '')} · ${s?.year || ''}</span>
     </div>` : ''}
-    ${c ? `<nav class="nav">${nav.map(([id, label, ic]) => `<button data-act="nav" data-view="${id}" class="${navActive() === id ? 'active' : ''}">${ic}<span>${label}</span></button>`).join('')}</nav>` : ''}
+    ${c ? `<nav class="nav">${nav.map(([id, label, ic]) => `<button data-act="nav" data-view="${id}" class="${navActive() === id ? 'active' : ''}">${ic}<span>${label}</span>${id === 'now' && isLive() ? '<i class="live-dot" title="Tracking a race live"></i>' : ''}</button>`).join('')}</nav>` : ''}
     <div class="rail-foot">
       ${state.careers.length > 1 ? `<label class="field"><span>Career save</span><select data-ch="switch-career">${state.careers.map(x => `<option value="${x.id}" ${x.id === state.activeCareerId ? 'selected' : ''}>${esc(x.profile.first)} ${esc(x.profile.last)} · ${x.seasons.length} season${x.seasons.length > 1 ? 's' : ''}</option>`).join('')}</select></label>` : ''}
       <button class="btn ghost sm" data-act="new-career">+ New career</button>
@@ -5294,6 +5294,358 @@ function applyGameGrid(c, r) {
   (c.gameKeys ||= []).push(r.key);
   if (settleQuali(s, round, qk, slot)) { store.save(); render(); toast(`${round.name} ${SESSION_LABEL[qk]} order set from the starting grid`); }
 }
+
+/* ------------------------------------------------------------- live race */
+/*
+  Live Race: a race dashboard while you drive the race or the sprint, fed by F1 25 every second. It shows your position
+  and gaps, a strategy that adapts as your tyres go (with a PIT THIS LAP call and your own sounds), whether to stop under
+  a safety car, where you would rejoin, who is catching whom (or the undercut threat while a stop is still to come), the
+  championship as it stands, the weather and the ERS map. Before the race you pick the strategy to follow; after it, the
+  page becomes a debrief (and a celebration when a title is decided) until the next weekend's first session.
+*/
+const LIVE_FRESH = 30e3; // ms without a message before the race counts as gone
+const isLive = () => !!liveErs && !liveErs.done && Date.now() - Date.parse(liveErs.at || 0) < LIVE_FRESH;
+/** The live race if it's this round's: { ...msg, key: 'R' | 'SPR' }. */
+function liveFor(c, r) {
+  const L = liveErs; if (!L || !isLive() || GAME_TRACKS[L.track] !== trackOf(r)) return null;
+  if ((c.gameKeys || []).includes(`${L.uid}:${L.sessionType}`)) return null;
+  return { ...L, key: L.sessionType === 15 && (L.weekend || []).includes(16) ? 'SPR' : 'R' };
+}
+/** Game car index → driver id, from the live participants. */
+function liveMap(c, s, L) {
+  const cars = (L.parts || []).map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team }));
+  return mapGameDrivers(c, s, { cars, player: L.player }).map;
+}
+// ---- the strategy for the rest of the race
+/**
+ * The quickest way to finish from here: stay on the current set for k more laps (this one included), then up to two
+ * more stints on sets you have left. usedOther: a second dry compound has already been run (the rules need two).
+ * Returns the best plan and every k within 1.5 s of it: { t, k, stints: [{ c, L, wear }], window: [kLo, kHi] }.
+ */
+function planRest({ runs, sets, cur, age, curLife, left, loss, usedOther, firstLoss = loss, onlyK = null, follow = null }) {
+  const base = (c) => runs[c]?.base, deg = (c) => runs[c]?.deg || 0;
+  const perLap = (c) => runs[c]?.wear ?? (runs[c]?.life ? WEAR_LIMIT / runs[c].life : null);
+  const life = (c) => runs[c]?.life ?? 40;
+  const T = (c, Lx, a = 0) => Lx * base(c) + deg(c) * (Lx * a + Lx * (Lx - 1) / 2);
+  const comps = DRY.filter(c => runs[c] && (sets ? sets[c]?.length : true));
+  const setOf = (c, k) => sets ? sets[c]?.[k] ?? null : 0;
+  const lifeOf = (c, wr) => Math.floor(life(c) - (wr && perLap(c) ? wr / perLap(c) : 0));
+  const a0 = (c, wr) => wr && perLap(c) ? wr / perLap(c) : 0;
+  const res = [];
+  const add = (k, stints, t) => { if (onlyK != null && k !== onlyK) return; res.push({ k, stints, t }); };
+  if (runs[cur] && (usedOther || cur == null) && left <= curLife && !follow?.length) add(left, [], T(cur, left, age));
+  for (let k = 1; k < left; k++) {
+    if (k > curLife) break;
+    const head = T(cur, k, age) + firstLoss; const rest = left - k;
+    for (const c2 of comps) {
+      if (follow?.length && c2 !== follow[0]) continue;
+      const w2 = setOf(c2, 0); if (w2 == null) continue;
+      // one more stint to the flag
+      if ((usedOther || c2 !== cur) && rest <= lifeOf(c2, w2) && !(follow?.length > 1)) add(k, [{ c: c2, L: rest, wear: w2 }], head + T(c2, rest, a0(c2, w2)));
+      // or two
+      for (const c3 of comps) {
+        if (follow?.length > 1 && c3 !== follow[1]) continue;
+        const w3 = setOf(c3, c3 === c2 ? 1 : 0); if (w3 == null) continue;
+        if (!(usedOther || c2 !== cur || c3 !== cur)) continue;
+        for (let L2 = 1; L2 < rest; L2++) {
+          const L3 = rest - L2; if (L2 > lifeOf(c2, w2) || L3 > lifeOf(c3, w3)) continue;
+          add(k, [{ c: c2, L: L2, wear: w2 }, { c: c3, L: L3, wear: w3 }], head + T(c2, L2, a0(c2, w2)) + loss + T(c3, L3, a0(c3, w3)));
+        }
+      }
+    }
+  }
+  if (!res.length) return null;
+  res.sort((a, b) => a.t - b.t); const best = res[0];
+  const ks = res.filter(x => x.t - best.t <= 1500 && x.stints.length === best.stints.length && x.stints[0]?.c === best.stints[0]?.c).map(x => x.k);
+  return { ...best, window: [Math.min(...ks), Math.max(...ks)] };
+}
+/** A driver's laps from the live lap history: [{ n, ms, valid, s1, s2, s3 }] (n: lap number). */
+function liveLaps(x) { const all = x.laps || []; const first = Math.max(1, (x.lap || all.length) - all.length); return all.map((l, k) => ({ n: first + k, ms: l[0], valid: !!l[1], s1: l[2], s2: l[3], s3: l[4] })).filter(l => l.ms); }
+/** What a driver's live race says about their strategy now. */
+function liveStrategy(c, s, r, L, me, id, w) {
+  const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - me.lap + 1);
+  const PL = pitLoss(c, trackOf(r)); const lossNow = L.sc === 1 ? PL.sc : L.sc === 2 ? PL.vsc : PL.green;
+  const mineId = id === PLAYER;
+  const runs = JSON.parse(JSON.stringify(mineId ? strategyRuns(s, r).mine : (() => { const g = strategyRuns(s, r).grid; const o = practiceRuns(s, r, id); fillTyres(g, o); return o; })()));
+  const cur = DRY.includes(me.c) ? me.c : null; const age = me.age || 0;
+  if (!cur || !runs[cur]) return { n, left, lossNow, PL, none: true, cur, age };
+  // what this stint shows: the fall-off from its laps (three or more clean ones), and the life from the wear so far
+  const stintLaps = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid);
+  if (stintLaps.length >= 3) { const fit = fitLine(stintLaps.map((l, k) => [k, l.ms])); if (fit && fit.b > 0) { runs[cur].deg = (runs[cur].deg + fit.b) / 2; runs[cur].degLive = fit.b; } }
+  const wearRate = me.wear != null && age > 1 ? me.wear / age : (runs[cur].wear ?? null);
+  const curLife = wearRate ? Math.max(1, Math.floor((WEAR_LIMIT - (me.wear ?? 0)) / wearRate)) : Math.max(1, (runs[cur].life ?? 40) - age);
+  // the sets left: the game's own data in the race, else from the weekend; the set on the car isn't one of them
+  let sets = null;
+  if (mineId) {
+    const TS = L.tyreSets?.sets; if (TS) { sets = {}; TS.forEach(x => { if (DRY.includes(x.c) && x.avail && !x.fitted) (sets[x.c] ||= []).push(x.wear); }); for (const k in sets) sets[k].sort((a, b) => a - b); }
+    else { sets = JSON.parse(JSON.stringify(setsLeft(c, s, r).sets)); const k = sets[cur]?.indexOf(0); if (k >= 0) sets[cur].splice(k, 1); }
+  }
+  // a second dry compound already run (the tyres of earlier stints), or a sprint, where no stop is needed
+  const usedOther = (L.used?.[me.i] || []).some(x => DRY.includes(x) && x !== cur) || L.key === 'SPR';
+  const follow = mineId && w.liveStrategy && L.key === 'R' ? w.liveStrategy.seq.slice((me.stops || 0) + 1) : null;
+  const args = { runs, sets, cur, age, curLife, left, loss: PL.green, usedOther };
+  const free = planRest(args); const mine = follow?.length ? planRest({ ...args, follow }) : null;
+  let plan = mine || free; let changed = false;
+  if (mine && free && free.t < mine.t - 2000) { plan = free; changed = true; }
+  // under a safety car: stopping now, at the cheaper loss
+  let scCall = null;
+  if (L.sc === 1 || L.sc === 2) {
+    const now = planRest({ ...args, firstLoss: lossNow, onlyK: 1 });
+    if (now && plan && now.t < plan.t - 500) scCall = { plan: now, extra: !plan.stints.length };
+  }
+  return { n, left, lossNow, PL, runs, cur, age, curLife, sets, plan, free, follow, changed, scCall, usedOther };
+}
+/** Where a car would rejoin after a stop costing `loss` ms now: { pos, ahead, behind, gapA, gapB }. */
+function rejoin(field, me, loss) {
+  const run = field.filter(x => x.i !== me.i && x.pos > 0 && x.st === 2);
+  const t = (me.gapL || 0) + loss;
+  const before = run.filter(x => (x.gapL || 0) < t).sort((a, b) => b.gapL - a.gapL); const after = run.filter(x => (x.gapL || 0) >= t).sort((a, b) => a.gapL - b.gapL);
+  return { pos: before.length + 1, ahead: before[0] || null, behind: after[0] || null, gapA: before[0] ? t - before[0].gapL : null, gapB: after[0] ? after[0].gapL - t : null };
+}
+/** Average lap-time gap over the last three laps both drivers completed (ms; positive: `a` is quicker). */
+function paceEdge(a, b) {
+  const la = liveLaps(a), lb = liveLaps(b); const both = la.filter(x => lb.some(y => y.n === x.n)).slice(-3);
+  if (both.length < 3) return null;
+  return avg(both.map(x => lb.find(y => y.n === x.n).ms - x.ms));
+}
+/** The last three sectors each car drove, not counting an in- or out-lap sector (S3 coming in, S1 going out): ms. */
+function lastSectors(x) {
+  const laps = liveLaps(x); const out = [];
+  for (const l of laps) for (const [k, v] of [[1, l.s1], [2, l.s2], [3, l.s3]]) if (v) out.push({ n: l.n, k, v });
+  if (x.sector >= 1 && x.s1) out.push({ n: x.lap, k: 1, v: x.s1 }); if (x.sector >= 2 && x.s2) out.push({ n: x.lap, k: 2, v: x.s2 });
+  return out;
+}
+function sectorEdge(a, b, pitLaps) {
+  const sa = lastSectors(a), sb = lastSectors(b); const skip = (x, P) => (x.k === 3 && P.includes(x.n)) || (x.k === 1 && P.includes(x.n - 1));
+  const pairs = sa.filter(x => !skip(x, pitLaps(a)) && !skip(x, pitLaps(b))).map(x => [x, sb.find(y => y.n === x.n && y.k === x.k)]).filter(p => p[1]).slice(-3);
+  if (pairs.length < 3) return null;
+  return pairs.reduce((s2, [x, y]) => s2 + (y.v - x.v), 0); // over the last three sectors: positive, `a` was quicker
+}
+// ---- pit calls and their sounds
+const liveCalls = {}; // per race: the last call made, so a sound plays once
+function soundsOf() { return state.sounds || {}; }
+function playSounds(list) {
+  const urls = list.map(k => soundsOf()[k]?.data).filter(Boolean); let i = 0;
+  const next = () => { if (i >= urls.length) return; try { const a = new Audio(urls[i++]); a.onended = next; a.play().catch(() => next()); } catch { next(); } };
+  next();
+}
+/** A call to pit: shown while it stands, the sound only when it's new, the tyre changes, or the lap moved by more than one. */
+function pitCall(uid, kind, lap, c) {
+  const last = liveCalls[uid]; const fresh = !last || last.kind !== kind || last.c !== c || lap > last.lap + 1;
+  liveCalls[uid] = { kind, lap, c };
+  if (fresh) playSounds([kind === 'sc' ? 'sc' : 'pit', 'c' + c]);
+}
+// ---- the page
+const WEATHER = { 0: ['Clear', 'sun'], 1: ['Light cloud', 'cloud-sun'], 2: ['Overcast', 'cloud'], 3: ['Light rain', 'rain'], 4: ['Heavy rain', 'rain heavy'], 5: ['Storm', 'storm'] };
+function weatherIcon(w) { const [, cls] = WEATHER[w] || WEATHER[0]; return `<span class="wx ${cls}" aria-hidden="true"><i class="wx-sun"></i><i class="wx-cloud"></i><i class="wx-drops"></i></span>`; }
+function weatherCard(L) {
+  const W = L.weather; if (!W) return '';
+  const fc = (W.forecast || []).filter(x => x.session === L.sessionType && x.at > 0).slice(0, 6);
+  return `<div class="panel live-card"><div class="panel-h"><h2>Weather</h2></div><div class="panel-b"><div class="wx-now">${weatherIcon(W.now)}<div><b>${WEATHER[W.now]?.[0] || '–'}</b><div class="muted" style="font-size:12px">Track ${W.track}°C · air ${W.air}°C</div></div></div>
+    ${fc.length ? `<div class="wx-row">${fc.map(x => `<div class="wx-step">${weatherIcon(x.w)}<b>+${x.at} min</b><small>${x.rain}% rain</small></div>`).join('')}</div>` : '<div class="muted" style="font-size:12px">No forecast from the game.</div>'}</div></div>`;
+}
+/** A battle card: the car ahead on the left, the chaser on the right. */
+function battleCard(s, idOf, ahead, behind, me, left, { title, pits, stopLeft, runs }) {
+  if (!ahead || !behind) return '';
+  const nm = (x) => esc(lastName(dName(s, idOf(x.i)) || '?'));
+  const gap = behind.gapF || 0; const meAhead = ahead.i === me.i;
+  const neutral = gap < 1000;
+  // a stop still to make: the undercut from the car behind (or yours on the car ahead) instead
+  if (stopLeft && !neutral) {
+    const edge = sectorEdge(behind, ahead, pits); // positive: the chaser is quicker over the last three sectors
+    const tyreC = meAhead ? me.c : behind.c; const age = meAhead ? me.age : behind.age;
+    const zone = Math.max(500, (runs?.[tyreC]?.deg || 80) * (age || 0) * 1.5); // what fresh tyres buy over the out-lap and one more
+    const threat = gap <= zone ? 'High' : gap <= zone + 1000 ? 'Medium' : 'Low';
+    const closing = edge != null && edge > 0 ? edge : null; const lapsTo = closing && gap > zone ? Math.round((gap - zone) / closing) : null;
+    return `<div class="panel live-card undercut ${threat.toLowerCase()}"><div class="panel-h"><h2>${meAhead ? 'Undercut threat' : 'Your undercut'}</h2><span class="tag ${threat === 'High' ? 'dnf' : threat === 'Medium' ? 'sprint' : ''}">${threat}${meAhead ? ` threat from ${nm(behind)}` : ''}</span></div>
+      <div class="panel-b uc"><div><span class="label">${nm(ahead)}</span></div><div class="uc-zone"><span class="label">Undercut zone</span><b>${(zone / 1000).toFixed(2)} s</b></div><div style="text-align:right"><span class="label">${nm(behind)}</span><b>${(gap / 1000).toFixed(2)} s</b></div></div>
+      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${gap <= zone ? `${meAhead ? `If ${nm(behind)} stops now, they come out ahead of you.` : `Stop now and you come out ahead of ${nm(ahead)}.`}` : lapsTo != null && lapsTo <= left ? `In the zone in about ${plural(lapsTo, 'lap')}, at the pace of the last three sectors.` : 'Not closing in: out of the zone for now.'}</div></div>`;
+  }
+  const edge = paceEdge(behind, ahead); // positive: the chaser is quicker
+  const show = !neutral && edge != null && edge > 0 && (() => { const L2 = Math.round(gap / edge); return L2 < left + 2; })();
+  const laps = show ? Math.max(1, Math.round(gap / edge)) : null;
+  return `<div class="panel live-card battle ${show ? '' : 'neutral'}"><div class="panel-h"><h2>Battle forecast</h2></div>
+    <div class="panel-b bf"><div class="bf-side">${neutral || !show ? '' : `<b>${nm(ahead)}</b><small class="muted">${meAhead ? 'You' : `P${ahead.pos}`}</small>`}</div>
+      <div class="bf-mid"><span class="label">${neutral ? 'Within a second' : show ? 'Striking distance' : 'No one closing'}</span>${show ? `<b>in ${laps} lap${laps === 1 ? '' : 's'}</b>` : ''}<small class="muted">${(gap / 1000).toFixed(3)} s</small></div>
+      <div class="bf-side" style="text-align:right">${neutral || !show ? '' : `<b>${nm(behind)}</b><small class="muted">${behind.i === me.i ? 'You' : `P${behind.pos}`} · ${(edge / 1000).toFixed(2)} s a lap quicker</small>`}</div></div></div>`;
+}
+/** The championship as it stands with this race's running order. */
+function liveStandings(c, s, r, L, idOf) {
+  const sprint = L.key === 'SPR'; const P = sprint ? D.SPRINT_POINTS : D.RACE_POINTS;
+  const st = seasonStatsCache(s); const pts = {}; for (const [id, o] of Object.entries(st)) if (s.drivers[id]) pts[id] = o.pts || 0;
+  const add = {}; for (const x of L.field) { const id = idOf(x.i); if (id && x.pos && (x.st === 2 || x.st === 3)) add[id] = P[x.pos - 1] || 0; }
+  const rows = Object.keys({ ...pts, ...add }).map(id => ({ id, pts: (pts[id] || 0) + (add[id] || 0), now: add[id] || 0 })).sort((a, b) => b.pts - a.pts).map((x, i) => ({ ...x, pos: i + 1 }));
+  const teams = s.teams.map(t => ({ t, pts: rows.filter(x => teamOf(s, x.id)?.id === t.id).reduce((a, x) => a + x.pts, 0) })).sort((a, b) => b.pts - a.pts).map((x, i) => ({ ...x, pos: i + 1 }));
+  // can the title be decided here? the most points left after this race, against the lead
+  // points still up for grabs once this race is over: the rest of the season (and, after a sprint, this Grand Prix)
+  const M = titleMath(s, 'driver'); const here = M.left.find(x => x.r.id === r.id);   const after = M.R - (sprint ? D.SPRINT_POINTS[0] : (here?.max || 0));
+  const gap0 = (M.rows[0]?.pts || 0) - (M.rows[1]?.pts || 0);
+  const canDecide = !!here && !M.decided && gap0 + (sprint ? D.SPRINT_POINTS[0] : D.RACE_POINTS[0]) > after;
+  const decidedNow = rows.length > 1 && rows[0].pts - rows[1].pts > after;
+  return { rows, teams, canDecide, decidedNow, after };
+}
+function champCard(c, s, r, L, idOf, mineIds) {
+  const S = liveStandings(c, s, r, L, idOf); const me = S.rows.findIndex(x => mineIds.includes(x.id));
+  const near = S.rows.slice(Math.max(0, me - 2), Math.max(5, me + 3));
+  const row = (x) => `<tr class="${mineIds.includes(x.id) ? 'me' : ''}"><td class="num">${x.pos}</td><td>${drvCell(s, x.id, { team: true })}</td><td class="num"><b>${x.pts}</b>${x.now ? ` <small class="muted">+${x.now}</small>` : ''}</td></tr>`;
+  const trow = (x) => `<tr class="${x.t.id === s.playerTeamId ? 'me' : ''}"><td class="num">${x.pos}</td><td>${esc(x.t.name)}</td><td class="num"><b>${x.pts}</b></td></tr>`;
+  const lead = S.rows[0]; const title = S.canDecide ? `<div class="callout live-title">${S.decidedNow ? `<b>${esc(dName(s, lead.id))} will be champion if the race finishes as it is.</b>` : `As it stands, the championship goes on to the next round.`}</div>` : '';
+  return `<div class="panel live-card"><div class="panel-h"><h2>Championship, as it stands</h2></div>${title}
+    <div class="panel-b tight table-wrap"><table><tbody>${near.map(row).join('')}</tbody></table></div>
+    <div class="panel-b"><details><summary class="muted" style="cursor:pointer;font-size:12px">Full tables</summary><div class="grid-2" style="margin-top:8px"><div class="table-wrap"><table><tbody>${S.rows.map(row).join('')}</tbody></table></div><div class="table-wrap"><table><tbody>${S.teams.map(trow).join('')}</tbody></table></div></div></details></div></div>`;
+}
+/** One driver's column: position, tyres, the strategy and the call, rejoin, and the battle cards. */
+function liveDriverCol(c, s, r, L, w, me, id, idOf) {
+  const ST = liveStrategy(c, s, r, L, me, id, w);
+  const byPos = L.field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
+  const ahead = byPos.find(x => x.pos === me.pos - 1), behind = byPos.find(x => x.pos === me.pos + 1);
+  const pitLaps = (x) => (L.pitLaps?.[x.i] || []);
+  const plan = ST.scCall?.plan || ST.plan; const stopLeft = !!plan?.stints?.length;
+  let call = null;
+  if (plan && plan.stints.length) {
+    let k = plan.k; let offset = null;
+    // tyre offset: leading with the gap to spare, run longer and come out just ahead
+    if (!ST.scCall && me.pos === 1 && k === 1 && behind) {
+      const need = ST.PL.green + 1600; const gapB = behind.gapF || 0; const close = paceEdge(behind, me);
+      if (gapB > need) { const extra = close && close > 50 ? Math.floor((gapB - need) / close) : ST.curLife - 1; k = Math.max(1, Math.min(1 + extra, ST.curLife)); if (k > 1) offset = { k, need }; }
+    }
+    if (k === 1) call = { kind: ST.scCall ? 'sc' : 'pit', c: plan.stints[0].c, lap: me.lap };
+    ST.offset = offset; ST.k = k;
+  }
+  // the safety-car stop that costs places: only when the pace is there to win them back
+  if (call?.kind === 'sc' && ST.scCall.extra) {
+    const RJ = rejoin(L.field, me, ST.lossNow); const m = RJ.pos - me.pos; const lapsAfter = ST.left - 1;
+    if (m > 0) {
+      const need = (m * 1000 + m * 500) / Math.max(1, lapsAfter);
+      const c2 = plan.stints[0].c; const mine = ST.runs[c2].base + ST.runs[c2].deg * lapsAfter / 2;
+      const theirs = byPos.filter(x => x.pos < me.pos && x.pos >= RJ.pos - 0).map(x => { const l = liveLaps(x).filter(y => y.valid).slice(-3); return l.length ? avg(l.map(y => y.ms)) : null; }).filter(Boolean);
+      const edge = theirs.length ? Math.min(...theirs) - mine : -1;
+      if (edge < need + 200) { call = null; ST.scHold = { m, need, edge }; }
+    }
+  }
+  if (call && id === PLAYER) pitCall(L.uid, call.kind, call.lap, call.c);
+  const RJ = rejoin(L.field, me, ST.lossNow);
+  const nm = (x) => x ? esc(lastName(dName(s, idOf(x.i)) || '?')) : '';
+  const lapsDone = me.lap - 1; const N = ST.n;
+  const stints = []; { const used = L.used?.[me.i] || []; let from = 1; (L.pitLaps?.[me.i] || []).forEach((pl, k) => { stints.push({ c: used[k] || me.c, from, to: pl }); from = pl + 1; }); stints.push({ c: me.c, from, to: me.lap + (plan ? (ST.k || plan.k) - 1 : ST.left - 1) }); if (plan) { let at = stints[stints.length - 1].to; for (const x of plan.stints) { stints.push({ c: x.c, from: at + 1, to: at + x.L }); at += x.L; } } }
+  const banner = call ? `<div class="pit-banner ${call.kind}"><b>${call.kind === 'sc' ? `PIT NOW · ${L.sc === 1 ? 'SAFETY CAR' : 'VSC'}` : 'PIT THIS LAP'}</b><span>${tyreChip(call.c)} ${COMPOUNDS[call.c][1]}${plan.stints[0].wear ? ` (used, ${plan.stints[0].wear}%)` : ''}</span></div>` : '';
+  return `<div class="live-col">
+    ${banner}
+    <div class="panel live-card"><div class="panel-h"><h2>${esc(dName(s, id))}</h2><span class="muted" style="font-size:12px">${me.pit ? 'In the pit lane' : `Lap ${me.lap} of ${N}`}</span></div>
+      <div class="panel-b live-top"><div class="live-pos">P${me.pos}</div>
+        <div><span class="label">Ahead</span><b>${ahead ? `${nm(ahead)} +${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading'}</b></div>
+        <div><span class="label">Behind</span><b>${behind ? `${nm(behind)} −${((behind.gapF || 0) / 1000).toFixed(3)}` : '–'}</b></div>
+        <div><span class="label">Tyre</span><b>${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0} laps${me.wear != null ? ` · ${me.wear}%` : ''}</b></div></div></div>
+    <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
+      <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
+        <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
+        <div class="rejoin"><span class="label">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
+    ${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft, runs: ST.runs })}
+    ${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft, runs: ST.runs })}
+  </div>`;
+}
+/** The live dashboard (or, between races, the pick of strategy and the debrief). */
+function renderLiveRace() {
+  const c = career(); const s = latestSeason(); const r = nextRound(s);
+  const tabs = nowTabs();
+  if (!r || isHist(s)) return `<div class="page">${tabs}<div class="muted">No weekend left to run this season.</div></div>`;
+  const w = weekend(s, r.id, true); const L = liveFor(c, r);
+  if (!L) return `<div class="page">${tabs}${liveIdle(c, s, r, w)}</div>`;
+  const map = liveMap(c, s, L); const idOf = (i) => map[i];
+  // the pit stops each car made so far (lap numbers), and the tyre each stint was on, tracked as the race goes
+  const mineIds = isPrincipal(c) || c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
+  const cars = L.field.filter(x => mineIds.includes(idOf(x.i)));
+  const follow = ui.liveFollow || 'player'; const meP = L.field.find(x => x.i === L.player) || cars[0];
+  const shown = mineIds.length > 1 ? (follow === 'both' ? cars : follow === 'mate' ? cars.filter(x => x.i !== L.player) : [meP]) : [meP];
+  const P = (() => { try { return buildErsPlan(c, s, r, 'live'); } catch { return null; } })();
+  return `<div class="page live-page">${tabs}
+    <div class="row live-head"><span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · ${esc(r.name)}</b>${L.sc ? `<span class="tag ${L.sc === 1 ? 'sc' : 'vsc'}">${L.sc === 1 ? 'Safety car' : 'Virtual safety car'}</span>` : ''}
+      ${mineIds.length > 1 ? `<div class="seg" style="margin-left:auto">${[['player', 'Your car'], ['mate', 'Teammate'], ['both', 'Both']].map(([v, l]) => `<button data-act="live-follow" data-v="${v}" class="${follow === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div>
+    <div id="live-root"><div class="live-grid ${shown.length > 1 ? 'split' : ''}">${shown.filter(Boolean).map(me => liveDriverCol(c, s, r, L, w, me, idOf(me.i), idOf)).join('')}
+      <div class="live-col">${champCard(c, s, r, L, idOf, mineIds)}${weatherCard(L)}
+        ${P && !P.none && P.map ? `<div class="panel live-card"><div class="panel-h"><h2>ERS: where to boost</h2><span class="muted" style="font-size:12px" id="ers-live-now">${liveNowHtml(liveErs)}</span></div><div class="panel-b">${ersMapSvg(P, 'plan', !!c.ersFlip?.[trackOf(r)])}<div class="muted" style="font-size:12px">${P.planned.length ? P.planned.map((z, k) => `${k + 1}: ${Math.round(z.plan.at)}–${Math.round(z.plan.to)} m`).join(' · ') : 'No boost fits right now.'}</div></div></div>` : ''}</div></div></div>
+  </div>`;
+}
+const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Race']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
+/** Between races: the debrief of the last one (until this weekend's first session), then the strategy to follow. */
+function liveIdle(c, s, r, w) {
+  const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
+  const any = sessionsFor(s, r).some(k => w.sessions?.[k]?.done);
+  // a sprint weekend: the sprint's debrief until qualifying is logged
+  if (r.sprint && w.sessions?.SPR?.done && !w.sessions?.Q?.done) return debrief(c, s, r, 'SPR');
+  if (!any && ri > 0) return debrief(c, s, rounds[ri - 1], 'R');
+  if (r.sprint && !w.sessions?.SPR?.done) return `<div class="panel"><div class="panel-h"><h2>Sprint</h2></div><div class="panel-b muted" style="font-size:13px">Live Race follows the sprint as soon as it starts: no stop to plan, so just the race, the battles and the ERS.</div></div>`;
+  const fp3 = r.sprint ? w.sessions?.Q?.done : (w.sessions?.FP3?.done || sessionsFor(s, r).filter(k => PRACTICE_KEYS.includes(k)).every(k => w.sessions?.[k]?.done));
+  const { mine } = strategyRuns(s, r); const n = raceLaps(s, r.id); const PL = pitLoss(c, trackOf(r));
+  const plans = Object.keys(mine).length >= 2 ? optimalStrategies(mine, n, { loss: PL.green, sets: setsLeft(c, s, r).sets }) : [];
+  const sel = w.liveStrategy;
+  return `<div class="panel"><div class="panel-h"><h2>Your race strategy</h2><span class="muted" style="font-size:12px">${fp3 ? 'Pick the one you’ll follow' : 'Practice isn’t finished yet: the list can still change'}</span></div>
+    ${plans.length ? `<div class="panel-b stack">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const on = sel && sel.seq.join() === p.seq.join(); return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${['', 'One', 'Two', 'Three'][p.stops]}-stopper${i === 0 ? ' · quickest' : ` · +${((p.t - plans[0].t) / 1000).toFixed(1)} s`}</span><button class="btn sm ${on ? 'primary' : ''}" data-act="live-pick" data-round="${r.id}" data-i="${i}">${on ? 'Following' : 'Follow this'}</button></div></div>`; }).join('')}
+      <p class="muted" style="font-size:12px;margin:0">${sel ? 'In the race, Live Race tracks your stint and moves the stops as your tyres go, and switches plan if another is now quicker.' : 'Pick none and Live Race builds the strategy from the tyre you start on.'}</p></div>`
+      : '<div class="panel-b muted" style="font-size:13px">No strategy yet: it needs long runs on two dry compounds in practice. Without one, Live Race builds it in the race from the tyre you start on.</div>'}</div>`;
+}
+/** After a race: what you did, the quickest way in hindsight, and the title if it was decided. */
+function debrief(c, s, r, key) {
+  const sd = s.weekends[r.id]?.sessions?.[key]; if (!sd?.done) return '';
+  const mineIds = c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
+  const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
+  // a title decided at this race
+  const before = titleMath(s, 'driver', ri), after = titleMath(s, 'driver', ri + 1);
+  const tBefore = titleMath(s, 'team', ri), tAfter = titleMath(s, 'team', ri + 1);
+  const crowned = [];
+  if (key === 'R' && after.decided && !before.decided) crowned.push({ kind: 'driver', id: after.champion.id, name: after.champion.name });
+  if (key === 'R' && tAfter.decided && !tBefore.decided) crowned.push({ kind: 'team', id: tAfter.champion.id, name: tAfter.champion.name });
+  const mine = (x) => x.kind === 'driver' ? mineIds.includes(x.id) : x.id === s.playerTeamId;
+  const party = crowned.length ? `<div class="celebrate ${crowned.some(mine) ? 'you' : ''}">${crowned.map(x => `<div><span class="label">${x.kind === 'driver' ? 'Drivers’ champion' : 'Constructors’ champions'} ${s.year}</span><b>${esc(x.name)}</b>${mine(x) ? `<span>${x.kind === 'driver' ? 'World champion. You did it.' : 'Your team are world champions.'}</span>` : ''}</div>`).join('')}</div>` : '';
+  const cols = mineIds.map(id => {
+    const laps = sd.game?.laps?.[id]; if (!laps?.length) return '';
+    const st = stintsOf(sd, id); const n = laps.length;
+    const runs = practiceRuns(s, r, id, [key]); orderTyres(runs); fillTyres({}, runs);
+    const PL = pitLoss(c, trackOf(r)); const best = Object.keys(runs).length >= 2 ? optimalStrategies(runs, n, { loss: PL.green })[0] : null;
+    // laps behind the safety car count the same for both, so they're left out of the comparison
+    const scLaps = new Set((sd.game.safety?.periods || []).flatMap(p => Array.from({ length: (p.to || p.from) - p.from + 1 }, (_, k) => p.from + k)));
+    const green = laps.filter((l, k) => l[0] && !scLaps.has(k + 1)); const actual = green.reduce((a, l) => a + l[0], 0);
+    const bestT = best ? best.t * green.length / n : null;
+    let lap = 0; const bst = best ? best.seq.map((cp, k) => { const from = lap + 1; lap += best.lens[k]; return { c: cp, from, to: lap }; }) : [];
+    const E = sd.game?.ers; let ersPct = null;
+    if (E?.laps?.length && mineIds.length === 1) { const dep = E.laps.reduce((a, L2) => a + Math.max(0, ...L2.dep.filter(x => x != null)), 0); const harv = E.laps.reduce((a, L2) => a + Math.max(0, ...L2.harv.filter(x => x != null)), 0); const start = E.laps[0].ers.find(x => x != null) || 0; ersPct = Math.min(100, Math.round(dep / Math.max(1, harv + start) * 100)); }
+    return `<div class="panel"><div class="panel-h"><h2>${esc(dName(s, id))}</h2><span class="muted" style="font-size:12px">${OUT.includes(sd.results.find(x => x.d === id)?.st) ? 'Did not finish' : `Finished ${ordWord(sd.results.findIndex(x => x.d === id) + 1)}`}</span></div>
+      <div class="panel-b stack"><div><span class="label">Your strategy</span>${stintBar(st, n)}</div>
+        ${best ? `<div><span class="label">Quickest in hindsight (from your race pace)</span>${stintBar(bst, n)}</div>` : ''}
+        <div class="ers-facts">${bestT ? `<div><b>${((actual - bestT) / 1000).toFixed(1)} s</b><span>off the best race on your pace${scLaps.size ? ' (safety-car laps left out)' : ''}</span></div>` : ''}
+          ${ersPct != null ? `<div><b>${ersPct}%</b><span>of the energy you had (battery and harvest) deployed</span></div>` : ''}
+          <div><b>${plural(Math.max(0, st.length - 1), 'stop')}</b><span>${best ? `the best had ${plural(best.stops, 'stop')}` : ''}</span></div></div></div></div>`;
+  }).join('');
+  return `${party}<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(r.name)}${key === 'SPR' ? ' sprint' : ''}</h2><span class="muted" style="font-size:12px">Until the next session is logged</span></div></div>${cols}`;
+}
+/** Sounds for the pit calls: uploaded in Settings, kept with your data. */
+const SOUND_SLOTS = [['pit', 'Pit this lap'], ['sc', 'Pit now under a safety car or VSC'], ['c16', 'Soft'], ['c17', 'Medium'], ['c18', 'Hard'], ['c7', 'Intermediate'], ['c8', 'Wet']];
+function soundsPanel() {
+  const S = soundsOf();
+  return `<div class="panel"><div class="panel-h"><h2>Live Race sounds</h2><span class="muted" style="font-size:12px">A pit call plays its sound, then the tyre’s</span></div><div class="panel-b stack">
+    ${SOUND_SLOTS.map(([k, l]) => `<div class="row" style="gap:8px"><span style="min-width:240px">${l}</span>${S[k] ? `<span class="muted" style="font-size:12px">${esc(S[k].name)}</span><button class="btn sm" data-act="sound-play" data-k="${k}">Play</button><button class="btn sm ghost" data-act="sound-clear" data-k="${k}">Remove</button>` : `<label class="btn sm">Upload<input type="file" accept="audio/*" data-ch="sound-upload" data-k="${k}" hidden></label>`}</div>`).join('')}
+    <p class="muted" style="font-size:12px;margin:0">Short clips work best (under 1 MB each). A call’s sound plays once: again only if the tyre changes or the stop moves on by more than a lap.</p></div></div>`;
+}
+
+const liveOpened = new Set();
+/** A message from the live race: kept (merged), each car's stops tracked, and the page redrawn. */
+function onLiveMsg(m) {
+  const same = liveErs?.uid === m.uid;
+  if (m.done) { if (same) { liveErs = { ...liveErs, done: true }; render(); } return; }
+  const prev = same ? liveErs : {};
+  liveErs = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {} };
+  // a car's stop count went up: note the lap, and the tyre it came in on
+  for (const x of m.field || []) {
+    const was = liveErs.stopsSeen[x.i] ?? 0;
+    if ((x.stops || 0) > was) { (liveErs.pitLaps[x.i] ||= []).push(Math.max(1, (x.lap || 1) - 1)); (liveErs.used[x.i] ||= []).push(liveErs.lastC[x.i] ?? x.c); }
+    liveErs.stopsSeen[x.i] = x.stops || 0; if (!x.pit && x.c != null) liveErs.lastC[x.i] = x.c;
+  }
+  // a race starting: open Live Race, once
+  if (!liveOpened.has(m.uid) && m.lap <= 1) { liveOpened.add(m.uid); ui.view = 'now'; ui.nowTab = 'live'; }
+  const a = document.activeElement;
+  if ((m.pack || (ui.view === 'now' && ui.nowTab === 'live')) && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render();
+  else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
+}
 /** A finished session arrives from the game. */
 function handleGameResult(r) {
   const c = career(); const done = () => window.api?.telemetry?.ack(r.key);
@@ -5940,7 +6292,7 @@ function buildErsPlan(c, s, round, kind = 'race') {
   const Q = kind === 'quali'; const BASE = Q ? ERS_HOTLAP : ERS_NORMAL; const baseName = ERS_MODE_NAME[BASE];
   const w = s.weekends[round.id]; const laps = []; let E0 = null, fallback = false, stale = false; const all = [];
   const isStale = (E, format) => (format || 0) >= 2026 && (E.v || 0) < 3; // 2026-format data logged before 2.0.12 was read with the old record sizes
-  for (const k of Q ? ERS_QUALI_KEYS : ERS_RACE_KEYS) {
+  for (const k of Q ? ERS_QUALI_KEYS : kind === 'live' ? ERS_RACE_KEYS : RUN_KEYS) {
     const sd = w?.sessions?.[k]; const E = sd?.game?.ers; if (!E || sd.estimated) continue;
     if (isStale(E, E.format)) { stale = true; continue; }
     E0 ||= E;
@@ -5954,7 +6306,7 @@ function buildErsPlan(c, s, round, kind = 'race') {
     if (!E0.map?.some(Boolean) && E.map?.some(Boolean)) E0 = E;
   }
   // the race being driven: its racing laps so far (not the start, a stop or the safety car)
-  const live = Q ? null : liveRaceFor(c, round); let liveLaps = 0;
+  const live = kind === 'live' ? liveRaceFor(c, round) : null; let liveLaps = 0;
   if (live && !isStale(live.pack, live.format)) {
     const E = { ...live.pack, format: live.format }; E0 ||= E;
     const ok = E.laps.filter(L => L.lap > 1 && !L.pit && hotShare(L).hot < 0.3); const tm = median(ok.map(L => binTime(L, E.bin)));
@@ -6348,8 +6700,9 @@ function paceBoard(rows, unit = 'Gap') {
   </tbody></table>`;
 }
 function renderCurrentWeekend() {
+  if (ui.nowTab === 'live') return renderLiveRace();
   const c = career(); const s = latestSeason(); const r = nextRound(s);
-  const head = (sub) => `<div class="page-head"><div><h1>Current Weekend</h1><div class="sub">${sub}</div></div></div>`;
+  const head = (sub) => `<div class="page-head"><div><h1>Current Weekend</h1><div class="sub">${sub}</div></div>${nowTabs()}</div>`;
   if (!r || isHist(s)) return `<div class="page">${head('No weekend left to run this season.')}</div>`;
   const rounds = activeRounds(s); const w = s.weekends[r.id];
   const done = sessionsFor(s, r).filter(k => w?.sessions?.[k]?.done);
@@ -8225,6 +8578,7 @@ function renderSettings() {
   return `<div class="page">
     <div class="page-head"><div><h1>Settings</h1><div class="sub">Appearance, career profile, ${s.year} roster and calendar, AI media and your data.</div></div></div>
     ${renderThemePicker(c, s)}
+    ${soundsPanel()}
 
     <div class="panel"><div class="panel-h"><h2>AI media engine</h2><span class="muted" style="font-size:12px">${settings.hasKey ? 'API key saved' : 'No API key: media sessions use built-in question templates'}</span></div>
       <div class="panel-b stack">
@@ -9076,7 +9430,7 @@ const actions = {
   },
   'companion-switch'() { window.api.changeComputer(); },
   'companion-unpair'() { confirmBox('Disconnect this device', 'Stop syncing with your computer? You can connect again with a new PIN.', 'Disconnect', () => window.api.unpair()); },
-  nav(el) { setNavOpen(false); ui.view = el.dataset.view; ui.tap = null; if (ui.view !== 'weekend') ui.seasonIdx = ui.view === 'dashboard' ? null : ui.seasonIdx; render(); },
+  nav(el) { setNavOpen(false); ui.view = el.dataset.view; ui.tap = null; if (ui.view === 'now' && isLive()) ui.nowTab = 'live'; if (ui.view !== 'weekend') ui.seasonIdx = ui.view === 'dashboard' ? null : ui.seasonIdx; render(); },
   'new-career'() { ui.setup = defaultSetup(); ui.view = 'setup'; render(); },
   'cancel-setup'() { ui.view = 'dashboard'; render(); },
   'setup-pick'(el) { ui.setup[el.dataset.k] = el.dataset.v; render(); },
@@ -9350,6 +9704,11 @@ const actions = {
 function redrawModal() { if (ui.modal?.kind === 'goals') drawGoalsModal(); else if (ui.modal?.kind === 'next') drawNextSeasonModal(); }
 
 const changes = {
+  'sound-upload'(el) {
+    const file = el.files?.[0]; if (!file) return;
+    if (file.size > 1.5e6) { toast('That sound is too big: keep it under 1 MB'); return; }
+    const fr = new FileReader(); fr.onload = () => { (state.sounds ||= {})[el.dataset.k] = { name: file.name, data: fr.result }; store.save(); render(); toast('Sound saved'); }; fr.readAsDataURL(file);
+  },
   'tyre-alloc'(el) { const c = career(); const { fmt, p, c: cp } = el.dataset; ((c.tyreAlloc ||= {})[fmt] ||= {})[p] = { ...allocOf(c, fmt, p), [cp]: Math.max(0, Math.min(13, Math.round(+el.value || 0))) }; store.save(); render(); },
   'pit-loss'(el) {
     const c = career(); const tid = el.dataset.track; const cur = pitLoss(c, tid); const v = Math.max(0, Math.min(60, +el.value || 0));
@@ -9523,6 +9882,15 @@ Object.assign(actions, {
     for (const inc of g.incidents || []) if (inc.pen && inc.a === p.d && inc.b === p.other && (inc.t == null || p.t == null || Math.abs(inc.t - p.t) < 1)) { inc.pen = null; inc.major = false; }
     renderGen++; store.save(); render(); toast(`Penalty removed for ${dName(s, p.d)}`);
   },
+  'now-tab'(el) { ui.nowTab = el.dataset.v; render(); },
+  'live-follow'(el) { ui.liveFollow = el.dataset.v; render(); },
+  'live-pick'(el) {
+    const s = latestSeason(); const r = s.calendar.find(x => x.id === el.dataset.round); const c = career(); const w = weekend(s, r.id, true);
+    const plans = optimalStrategies(strategyRuns(s, r).mine, raceLaps(s, r.id), { loss: pitLoss(c, trackOf(r)).green, sets: setsLeft(c, s, r).sets }); const p = plans[+el.dataset.i];
+    if (!p) return; w.liveStrategy = w.liveStrategy?.seq.join() === p.seq.join() ? null : { seq: p.seq, lens: p.lens }; store.save(); render();
+  },
+  'sound-play'(el) { playSounds([el.dataset.k]); },
+  'sound-clear'(el) { delete (state.sounds ||= {})[el.dataset.k]; store.save(); render(); },
   'tyre-preset'(el) { const s = curSeason(); weekend(s, el.dataset.round || ui.round, true).tyrePreset = el.dataset.v; store.save(); render(); },
   'tyre-presets'() { tyrePresetsModal(); },
   'tyre-presets-reset'() { const c = career(); delete c.tyreAlloc; store.save(); tyrePresetsModal(); render(); },
@@ -9674,14 +10042,7 @@ window.pitwallBack = () => {
     window.api.telemetry.onResult(handleGameResult);
     // the race you're driving: the ERS plan redraws each new lap; your battery updates every second in place
     try { liveErs = await window.api.telemetry.live?.() || null; } catch { }
-    window.api.telemetry.onLive?.((m) => {
-      const same = liveErs?.uid === m.uid;
-      if (m.done) { if (same) { liveErs = null; render(); } return; }
-      liveErs = { ...(same ? liveErs : {}), ...m, pack: m.pack || (same ? liveErs.pack : null) };
-      const a = document.activeElement;
-      if (m.pack) { if (ui.view === 'now' && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render(); }
-      else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
-    });
+    window.api.telemetry.onLive?.(onLiveMsg);
     try { for (const r of await window.api.telemetry.pending()) handleGameResult(r); } catch { }
   }
 })();

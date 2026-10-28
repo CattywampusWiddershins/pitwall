@@ -27,6 +27,8 @@ function parseSession(b) {
   return {
     totalLaps: b.readUInt8(32), trackLength: b.readUInt16LE(33), sessionType: b.readUInt8(35), track: b.readInt8(36),
     safetyCarNow: b.readUInt8(153), // 0 none, 1 safety car, 2 virtual safety car, 3 formation lap
+    // weather: 0 clear, 1 light cloud, 2 overcast, 3 light rain, 4 heavy rain, 5 storm; the forecast in steps of minutes
+    weather: { now: b[29], track: b.readInt8(30), air: b.readInt8(31), forecast: Array.from({ length: Math.min(64, b[155]) }, (_, k) => { const o = 156 + k * 8; return { session: b[o], at: b[o + 1], w: b[o + 2], track: b.readInt8(o + 3), air: b.readInt8(o + 5), rain: b[o + 7] }; }) },
     gameMode: b.readUInt8(694), sessionLength: b.readUInt8(700),
     seasonLink: b.readUInt32LE(670), weekendLink: b.readUInt32LE(674), sessionLink: b.readUInt32LE(678),
     safetyCars: b.readUInt8(705), virtualSafetyCars: b.readUInt8(706), redFlags: b.readUInt8(707),
@@ -86,12 +88,19 @@ function playerStatus(b, L, p) {
   return { mguk: b.readFloatLE(o + 33), ers: b.readFloatLE(o + 37), mode: b[o + 41], harv: b.readFloatLE(o + 42) + b.readFloatLE(o + 46),
     dep: b.readFloatLE(o + (wide ? 54 : 50)), limit: wide ? b.readFloatLE(o + 50) : null };
 }
+/** Every car's tyre: visual compound and its age in laps. */
+function allTyres(b, L) {
+  const out = []; const w = stride(b, L, 55);
+  for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 28 > b.length) break; out.push({ c: b[o + 26], age: b[o + 27] }); }
+  return out;
+}
 /** Lap data: each car's race position, current lap, grid slot, result status and whether it is in the pit lane. */
 function parseLapData(b, L) {
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: b.readUInt16LE(o + 17) + b[o + 19] * 60000, front: b.readUInt16LE(o + 14) + b[o + 16] * 60000 });
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: b.readUInt16LE(o + 17) + b[o + 19] * 60000, front: b.readUInt16LE(o + 14) + b[o + 16] * 60000,
+      last: b.readUInt32LE(o), cur: b.readUInt32LE(o + 4), s1: b.readUInt16LE(o + 8) + b[o + 10] * 60000, s2: b.readUInt16LE(o + 11) + b[o + 13] * 60000, sector: b[o + 36], stops: b[o + 35] });
   }
   return out;
 }
@@ -218,6 +227,12 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
       dep: s.stat ? Math.round(s.stat.dep / 1000) : null, limit: s.stat?.limit ? Math.round(s.stat.limit / 1000) : null, at: new Date().toISOString() };
     if (newLap) { s.liveLap = c.lap; msg.pack = packErs(s); }
+    // the whole field: running order, gaps, tyres, sectors and each car's recent laps (from the lap history)
+    const n = s.parts?.length ? Math.max(...s.parts.map(p => p.idx)) + 1 : 0;
+    msg.parts = (s.parts || []).map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, driver: p.driver, myTeam: p.myTeam, ai: p.ai }));
+    msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
+      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6) }));
+    msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
     onLive(msg);
   }
   function emit(s) {
@@ -282,7 +297,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     }
     if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
     else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
-    else if (h.type === PACKET.STATUS) s.stat = playerStatus(b, L, h.player) || s.stat;
+    else if (h.type === PACKET.STATUS) { s.stat = playerStatus(b, L, h.player) || s.stat; s.tyres = allTyres(b, L); }
     else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.DAMAGE) {
@@ -292,7 +307,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       s.body = body;
     }
     else if (h.type === PACKET.LAP) {
-      const lap = parseLapData(b, L);
+      const lap = parseLapData(b, L); s.field = lap;
       const before = s.pos.slice();
       lap.forEach((c, i) => {
         // a new lap: note the tyre wear at the end of the one just finished
