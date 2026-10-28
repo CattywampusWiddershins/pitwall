@@ -717,3 +717,6 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .tag.live { background: var(--red); color: #fff; border-color: transparent; animation: live-pulse 1.6s ease-in-out infinite; }
 @keyframes live-pulse { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .tag.live { animation: none; } }
+.pen-item { white-space: nowrap; }
+.pen-x { margin-left: 4px; padding: 0 5px; border: 1px solid var(--line); border-radius: 3px; background: none; color: var(--muted); cursor: pointer; font-size: 11px; line-height: 1.4; }
+.pen-x:hover { color: var(--red); border-color: var(--red); }

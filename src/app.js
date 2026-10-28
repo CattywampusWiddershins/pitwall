@@ -1395,6 +1395,7 @@ function render() {
   renderGen++;
   // a real driver's career: the real moves the season has reached
   { const c = career(); if (realDriverOf(c) && applyRealMoves(c, latestSeason())) { renderGen++; store.save(); } }
+  { const c = career(); if (c && settleRumours(c)) { renderGen++; store.save(); } }
   syncPlayer();
   applyTheme();
   const main = $('#main');
@@ -1659,7 +1660,7 @@ function renderDashboard() {
           <div class="panel-h"><h2>Drivers' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
           <div class="panel-b tight"><table><tbody>${top.map(x => `<tr class="${x.id === PLAYER ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div>
         </div>
-        ${rivalryPanel(c, s)}
+        ${rivalryPanel(c, s, { mineOnly: true })}
         <div class="panel">
           <div class="panel-h"><h2>Teammate battle</h2><button class="btn sm ghost" data-act="nav" data-view="h2h">Details</button></div>
           <div class="panel-b stack">
@@ -4495,7 +4496,8 @@ function replayRivalries(c, seasons, from) {
         }
         for (const p of Object.values(st[kind])) if (p.active && !live.has(pairKey(p.a, p.b))) {
           p.active = false;
-          if (!m.decided) out.events.push({ type: 'end', kind, a: p.a, b: p.b, si, ri: i, gap: (m.rows.find(x => idOf(x) === p.a)?.pts ?? 0) - (m.rows.find(x => idOf(x) === p.b)?.pts ?? 0) });
+          const rb = m.rows.find(x => idOf(x) === p.b);
+          if (!m.decided) out.events.push({ type: 'end', kind, a: p.a, b: p.b, si, ri: i, gap: (m.rows.find(x => idOf(x) === p.a)?.pts ?? 0) - (rb?.pts ?? 0), out: !!rb && !rb.alive, swap: p.a !== lead });
         }
         // archrivals: rivals for 70% of the season; with several at once, the closest in the championship first
         const pos = Object.fromEntries(m.rows.map(x => [idOf(x), x.pos]));
@@ -4570,8 +4572,29 @@ function rivalryStories(c, s) {
     if (e.kind === 'driver') return [e.a, e.b].filter(id => id !== PLAYER).map((id, k) => ({ id, text: choose(rnd, RIVAL_QUOTES[id === e.a ? 'lead' : 'chase'][tier]) })).slice(0, 2);
     return [e.a, e.b].map(id => team('team', id)).filter(Boolean).map(tid => ({ team: tid, role: principalOf(c, tid) ? `Team principal ${principalOf(c, tid)}` : 'Team principal', text: choose(rnd, RIVAL_QUOTES.boss[tier]) }));
   };
+  const groupable = (e) => (e.type === 'start' && !e.rematch && !e.again) || e.type === 'hot' || e.type === 'cool' || (e.type === 'end' && !e.swap);
+  const gkey = (e) => `${e.ri}|${e.kind}|${e.type}|${e.a}`;
+  const groups = {}; for (const e of R.events) if (e.si === s.index && groupable(e)) (groups[gkey(e)] ||= []).push(e);
+  const told = new Set();
+  // how far back a chaser has dropped, in race wins (drivers) or points
+  const behind = (e, B, A) => e.kind === 'driver' && e.gap > 25 ? `${B} drops ${e.gap > 75 ? 'more than three race wins' : e.gap > 50 ? 'more than two race wins' : 'beyond a race win'} behind ${A}` : `${B} drops ${plural(e.gap, 'point')} behind ${A}`;
   for (const e of R.events) {
     if (e.si !== s.index || e.type === 'archGone') continue;
+    if (e.type === 'end' && e.swap) continue; // the lead passed to someone else: the fight goes on, with a new leader
+    const grp = groupable(e) ? groups[gkey(e)] : null;
+    if (grp?.length > 1) {
+      if (told.has(gkey(e))) continue; told.add(gkey(e));
+      const r = rounds[e.ri]; const rnd = seeded(`rivg-${s.index}-${gkey(e)}`); const gp = r?.name || '';
+      const A = short(e.kind, e.a); const Bs = grp.map(x => short(e.kind, x.b)); const who = listJoin(Bs); const all = listJoin([A, ...Bs]);
+      const cup = e.kind === 'team' ? 'constructors’ title' : 'title';
+      const gaps = listJoin(grp.map(x => `${short(e.kind, x.b)} ${x.gap ? plural(x.gap, 'point') + ' back' : 'level'}`));
+      const base = { id: `rivg-${s.index}-${e.ri}-${e.type}-${e.kind}-${e.a}`, seq: e.ri * 10 + 5, kind: 'rivalry', i: e.ri, r, outlet: choose(rnd, D.OUTLETS), subject: null, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals' };
+      if (e.type === 'start') out.push({ ...base, headline: choose(rnd, [`A ${cup} battle takes shape between ${all}`, `${all}: the ${cup} fight is on`]), standfirst: `After ${gp}, a ${cup} battle seems to be developing between ${all}: ${gaps} of ${A}.`, body: [] });
+      else if (e.type === 'hot') out.push({ ...base, headline: choose(rnd, [`${who} close in on ${A}`, `${A} under pressure from ${who}`]), standfirst: `${gp} brings ${who} right up to ${A}: ${gaps}. Nobody can afford a slip now.`, body: [] });
+      else if (e.type === 'cool') out.push({ ...base, headline: choose(rnd, [`${who} slip back`, `${A} pulls clear of ${who}`]), standfirst: `After ${gp}, ${listJoin(grp.map(x => behind(x, short(e.kind, x.b), A)))}. They need something to change, and soon.`, body: [] });
+      else out.push({ ...base, kicker: 'Championship', headline: choose(rnd, [`${who}: challenges fade`, `${A} shakes off ${who}`]), standfirst: `After ${gp}, ${listJoin(grp.map(x => x.out ? `${short(e.kind, x.b)} can no longer catch ${A}` : behind(x, short(e.kind, x.b), A)))}.`, body: [] });
+      continue;
+    }
     const r = rounds[e.ri]; const rnd = seeded(`riv-${s.index}-${e.ri}-${e.type}-${e.a}-${e.b}`);
     const A = short(e.kind, e.a), B = short(e.kind, e.b), gp = r?.name || '';
     const cup = e.kind === 'team' ? 'constructors’ title' : 'title';
@@ -4602,10 +4625,10 @@ function rivalryStories(c, s) {
     } else if (e.type === 'cool') {
       out.push({ ...base, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals',
         headline: choose(rnd, [`${A} pulls clear of ${B}`, `The ${A}–${B} fight cools`]),
-        standfirst: `The gap is ${plural(e.gap, 'point')} after ${gp}. ${B} needs something to change, and soon.`, body: [], quotes: quotes(e, rnd).slice(0, 1) });
+        standfirst: `After ${gp}, ${behind(e, B, A)}. ${B} needs something to change, and soon.`, body: [], quotes: quotes(e, rnd).slice(0, 1) });
     } else if (e.type === 'end') {
       out.push({ ...base, kicker: 'Championship', headline: choose(rnd, [`${B}’s challenge fades`, `${A} shakes off ${B}`]),
-        standfirst: e.gap >= RIVAL_BANDS[e.kind].off ? `With ${plural(e.gap, 'point')} between them after ${gp}, ${B} is no longer a real threat to ${A}.` : `After ${gp}, ${B} can no longer catch ${A}.`, body: [] });
+        standfirst: e.out ? `After ${gp}, ${B} can no longer catch ${A}: the ${cup} is out of reach.` : `After ${gp}, ${behind(e, B, A)}, and is no longer a real threat.`, body: [] });
     } else if (e.type === 'arch') {
       const was = e.replaced.map(x => `${short(e.kind, x.id)}’s rivalry with ${short(e.kind, x.old)} from ${x.year}`);
       out.push({ ...base, massive: true, kicker: 'Archrivals',
@@ -4672,8 +4695,14 @@ function raceBattles(sd) {
   const fin = (d) => { const k = sd.results.findIndex(x => x.d === d); return k < 0 || OUT.includes(sd.results[k].st) ? 99 : k + 1; };
   return Object.values(P).filter(o => o.n >= BATTLE_SWAPS && (o.by[o.a] || 0) >= BATTLE_EACH && (o.by[o.b] || 0) >= BATTLE_EACH)
     .map(o => { const [w, l] = fin(o.a) <= fin(o.b) ? [o.a, o.b] : [o.b, o.a]; return { ...o, from: Math.min(...o.laps), to: Math.max(...o.laps), ahead: w, behind: l, posW: fin(w), posL: fin(l) }; })
-    .map(o => ({ ...o, forLead: forTheLead(sd, o) }))
+    .map(o => ({ ...o, forLead: forTheLead(sd, o), leadN: leadChanges(sd, o) }))
     .sort((x, y) => (y.forLead - x.forLead) || y.n - x.n || x.posW - y.posW);
+}
+/** How many times the lead changed hands between a battle's two drivers: their passes on laps they ran first and second. */
+function leadChanges(sd, b) {
+  const P = lapPositions(sd); if (!P) return 0;
+  const top = (k) => { const pa = P.pos[b.a]?.[k], pb = P.pos[b.b]?.[k]; return pa && pb && Math.min(pa, pb) === 1 && Math.max(pa, pb) === 2; };
+  return b.laps.filter(k => top(k) || top(k - 1)).length;
 }
 /** Was a battle for the lead? The two ran first and second at some point while it lasted. */
 function forTheLead(sd, b) {
@@ -4771,8 +4800,8 @@ function duelStories(c, s) {
       out.push({ ...base, kicker: e.again ? 'Wheel to wheel · Round two' : 'Wheel to wheel',
         headline: e.again ? choose(rnd, [`${A} and ${B} are at it again`, `${A} v ${B}: the on-track war is back on`, `They can’t stay apart: ${A} and ${B} renew hostilities`])
           : touched ? choose(rnd, [`${A} v ${B}: a rivalry born in contact`, `${A} and ${B}: elbows out, again`, `Bumping and barging: ${A} and ${B} make it personal`])
-          : choose(rnd, [`${A} v ${B}: a rivalry born wheel to wheel`, `${A} and ${B} can’t stay away from each other`, `${A} and ${B}, the battle that keeps on giving`, `Two races, ${last2.reduce((a, b) => a + b.n, 0)} passes: ${A} v ${B} is the fight to watch`]),
-        standfirst: `${A} and ${B} swapped places ${pw(last2[0].n, 'time')} in ${gpOf(last2[0])} and ${pw(last2[1].n, 'time')} in ${gpOf(last2[1])}. Two races running, the same fight: the pair are now rivals on track.`,
+          : choose(rnd, [`${A} and ${B} can’t stay away from each other`, `${A} and ${B}, the battle that keeps on giving`, `${A} v ${B} is the fight to watch`]),
+        standfirst: choose(rnd, [`${A} and ${B} battled hard in ${gpOf(last2[0])}, and again in ${gpOf(last2[1])}. We’re excited to see the next fight between these two.`, `First ${gpOf(last2[0])}, then ${gpOf(last2[1])}: wherever ${A} and ${B} meet on track, sparks fly. Bring on the next one.`, `The two rivals battled on track in ${gpOf(last2[0])} and again in ${gpOf(last2[1])}, and neither looks ready to give an inch.`]),
         body: [last2[0].ahead === last2[1].ahead ? `${L(last2[1].ahead)} came out ahead both times, and ${L(last2[1].ahead === e.a ? e.b : e.a)} will want to turn that around.` : `They have one each: ${L(last2[0].ahead)} had the final say first time, ${L(last2[1].ahead)} the second.`,
           touched ? 'The two have already made contact along the way, and neither looks in the mood to back down.' : choose(rnd, ['It has been hard, clean racing so far. Long may it continue.', 'So far it has stayed clean. With these two, that may not last.'])],
         quotes: [e.a, e.b].filter(id => id !== PLAYER).map(id => ({ id, text: choose(rnd, DUEL_QUOTES[touched ? 'needle' : 'respect']) })) });
@@ -4855,7 +4884,8 @@ function archRetireLine(c, s, id, at) {
     : `The rivalry with ${L(a.rival)} was a defining part of ${L(id)}’s career.`;
 }
 /** Dashboard panel: the title fights right now, archrivals that matter to you, and your running feuds. */
-function rivalryPanel(c, s) {
+/** The rivalries panel. mineOnly: wheel-to-wheel and bad-blood rivalries only where your driver (or team) is one side. */
+function rivalryPanel(c, s, { mineOnly = false } = {}) {
   const st = rivalsAt(c, s, roundsDone(s) - 1);
   const nm = (kind, id) => kind === 'team' ? (s.teams.find(t => teamRoot(t.id) === id) || teamMeta(c, id))?.name || id : dName(s, id);
   const mine = new Set([PLAYER, ...(s.teams.find(t => t.id === s.playerTeamId)?.drivers || [])]);
@@ -4864,8 +4894,9 @@ function rivalryPanel(c, s) {
   const arch = [];
   for (const id of mine) { const a = st.arch.driver[id]; if (id && a) arch.push(`${nm('driver', id)} v ${nm('driver', a.rival)} (since ${a.year})`); }
   if (st.arch.team[myRoot]) arch.push(`${nm('team', myRoot)} v ${nm('team', st.arch.team[myRoot].rival)} (since ${st.arch.team[myRoot].year})`);
-  const feuds = feudsAt(c, s, roundsDone(s));
-  const w2w = duelsAt(s, roundsDone(s) - 1).slice().sort((a, b) => (mine.has(b.a) || mine.has(b.b)) - (mine.has(a.a) || mine.has(a.b)) || b.battles.length - a.battles.length).slice(0, 5);
+  const ours = (x) => mine.has(x.a) || mine.has(x.b);
+  const feuds = feudsAt(c, s, roundsDone(s)).filter(x => !mineOnly || ours(x));
+  const w2w = duelsAt(s, roundsDone(s) - 1).filter(x => !mineOnly || ours(x)).slice().sort((a, b) => (mine.has(b.a) || mine.has(b.b)) - (mine.has(a.a) || mine.has(a.b)) || b.battles.length - a.battles.length).slice(0, 5);
   const rows = live.map(x => `<div class="goal"><div><div style="font-weight:600">${esc(nm(x.kind, x.a))} v ${esc(nm(x.kind, x.b))}</div><div class="muted" style="font-size:12px">${x.kind === 'team' ? 'Constructors' : 'Drivers'} · ${x.gap ? plural(x.gap, 'point') : 'level'}</div></div>
     <span class="tag ${x.heat >= 0.8 ? 'dnf' : x.heat >= 0.55 ? 'sprint' : ''}">${x.heat >= 0.8 ? 'White hot' : x.heat >= 0.55 ? 'Heated' : 'Simmering'}</span>
     <div class="bar-track"><div class="bar-fill" style="width:${Math.round(x.heat * 100)}%;background:var(--red)"></div></div></div>`).join('');
@@ -4922,11 +4953,13 @@ const WARNING = 5;
  */
 function buildIncidents(r, map) {
   const out = [];
+  // what a contact between two cars led to: { dmg: [ids damaged], out: id retired } (from 3.0; older races have neither)
+  const effect = (A, B, t) => { const x = (r.collisions || []).find(o => ((map[o.a] === A && map[o.b] === B) || (map[o.a] === B && map[o.b] === A)) && (t == null || Math.abs(o.t - t) < 20)); return x?.dmg ? { dmg: x.dmg.map(i => map[i]).filter(Boolean), out: map[x.out] || null } : {}; };
   for (const p of r.penaltyEvents || []) {
     if (!COLLISION_INFR.includes(p.infringement) || !map[p.car] || !map[p.other] || p.car === p.other) continue;
     const major = p.infringement === 3 || p.type !== WARNING;
     if (out.some(x => x.a === map[p.car] && x.b === map[p.other] && Math.abs((x.t ?? -99) - (p.t ?? 99)) < 20)) continue;
-    out.push({ lap: p.lap || 0, a: map[p.car], b: map[p.other], major, pen: p.type === WARNING ? 'a warning' : p.type === 4 ? `a ${p.time}-second penalty` : `a ${PENALTY_NAMES[p.type] || 'penalty'}`, t: p.t ?? null });
+    out.push({ lap: p.lap || 0, a: map[p.car], b: map[p.other], major, pen: p.type === WARNING ? 'a warning' : p.type === 4 ? `a ${p.time}-second penalty` : `a ${PENALTY_NAMES[p.type] || 'penalty'}`, t: p.t ?? null, ...effect(map[p.car], map[p.other], p.t) });
   }
   for (const x of r.collisions || []) {
     const A = map[x.a], B = map[x.b]; if (!A || !B) continue;
@@ -4935,7 +4968,7 @@ function buildIncidents(r, map) {
     if (out.some(o => !o.pen && ((o.a === A && o.b === B) || (o.a === B && o.b === A)) && Math.abs(o.lap - x.lap) <= 1)) continue;
     const known = x.posA && x.posB && x.posA !== x.posB;
     const [a, b] = known && x.posA < x.posB ? [B, A] : [A, B]; // the car behind
-    out.push({ lap: x.lap || 0, a, b, major: false, pen: null, noFault: !known, t: x.t });
+    out.push({ lap: x.lap || 0, a, b, major: false, pen: null, noFault: !known, t: x.t, ...(x.dmg ? { dmg: x.dmg.map(i => map[i]).filter(Boolean), out: map[x.out] || null } : {}) });
   }
   return out.sort((p, q) => p.lap - q.lap);
 }
@@ -4953,7 +4986,7 @@ const INCIDENT_QUOTES = {
 };
 /** Both drivers' reactions to an incident. The player's own words never get made up: only an AI driver speaks. */
 function incidentQuotes(c, inc, last, rnd) {
-  const out = []; const k = inc.major ? 1 : 0;
+  const out = []; const k = inc.major || inc.dmg?.length || inc.out ? 1 : 0;
   const fill = (txt, me, other) => txt.replace('{V}', last(other)).replace('{O}', last(other)).replace('{X}', last(other))
     .replace('{PEN}', inc.pen && inc.pen !== 'a warning' ? `The penalty is fair. ` : '').replace('{PEN2}', inc.pen && inc.pen !== 'a warning' ? 'The penalty is right, but it ' : 'It ').replace(/ It doesn’t/, ' It doesn’t').replace('right, but it It', 'right, but it');
   if (inc.noFault) { for (const [me, other] of [[inc.a, inc.b], [inc.b, inc.a]]) if (me !== PLAYER_ID) out.push({ id: me, text: fill(choose(rnd, INCIDENT_QUOTES.even), me, other) }); return out; }
@@ -4981,7 +5014,7 @@ function incidentStories(c, s, i, r, key, sd, h) {
     const headline = inc.noFault ? choose(rnd, [`Contact between ${h.last(inc.a)} and ${h.last(inc.b)} in ${gp}`, `${h.last(inc.a)} and ${h.last(inc.b)} tangle${sprint ? ' in the sprint' : ''}`])
       : inc.pen && inc.pen !== 'a warning' ? choose(rnd, [`${h.last(inc.a)} penalised for clash with ${h.last(inc.b)}`, `Stewards hand ${h.last(inc.a)} ${inc.pen} after contact with ${h.last(inc.b)}`])
       : inc.major ? `${h.last(inc.a)} and ${h.last(inc.b)} collide in ${gp}` : choose(rnd, [`${h.last(inc.a)} and ${h.last(inc.b)} touch in ${gp}`, `A brush between ${h.last(inc.a)} and ${h.last(inc.b)}${sprint ? ' in the sprint' : ''}`]);
-    const after = [inc.a, inc.b].map(d => `${h.last(d)} ${pos(d) && OUT.includes(pos(d)) ? 'did not finish' : `finished ${pos(d)}`}`);
+    const after = [inc.a, inc.b].map(d => `${h.last(d)} ${pos(d) && OUT.includes(pos(d)) ? (inc.out === d ? 'retired with the damage' : 'did not finish') : `${inc.dmg?.includes(d) ? 'carried the damage home to ' : 'finished '}${pos(d)}`}`);
     return { id: `${s.index}-${r.id}${key}inc${n}`, seq: i * 10 + (sprint ? 2 : 4) + 0.5, kind: 'incident', i, r, subject: inc.b, outlet: choose(rnd, D.OUTLETS), kicker: inc.major ? 'Stewards' : 'Contact',
       headline, standfirst: incidentLine(inc, h.last) + ` ${listJoin(after)}.`, body: [], quotes: incidentQuotes(c, inc, h.last, rnd) };
   });
@@ -5208,7 +5241,7 @@ function applyGameResult(c, r, place) {
     incidents: buildIncidents(r, map),
     ...(r.ers ? { ers: ersWithTyres(r, map) } : {}),
     ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),
-    safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags } };
+    safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags, ...(r.scPeriods?.length ? { periods: r.scPeriods } : {}) } };
   let results;
   const part = QUALI_PARTS[r.sessionType];
   if (part) {
@@ -5411,7 +5444,7 @@ function strategyPanel(s, sd, key, roundId) {
     <div class="panel-b tight table-wrap"><table><thead><tr><th>Pos</th><th>Driver</th><th>${race ? 'Strategy' : 'Tyres (laps)'}</th>${race ? '<th class="num">Stops</th><th>Penalties</th>' : '<th class="num">Laps</th>'}<th class="num">${race ? 'Clean-lap pace' : 'Best'}</th></tr></thead><tbody>
       ${sd.results.filter(x => g.laps[x.d]?.length).map((x, i) => { const p = race ? cleanLapPace(sd, x.d) : Math.min(...g.laps[x.d].map(l => l[0]).filter(Boolean)); return `<tr class="${x.d === PLAYER ? 'me' : ''}" data-act="gd-open" data-round="${roundId}" data-key="${key}" data-d="${x.d}" style="cursor:pointer"><td class="num">${OUT.includes(x.st) ? x.st : i + 1}</td><td>${drvCell(s, x.d, { team: true })}</td>
         <td style="${race ? 'min-width:260px;width:40%' : ''}">${race ? stintBar(stintsOf(sd, x.d), Math.max(...Object.keys(g.laps).map(d => stintsOf(sd, d).at(-1)?.to || 0)), { compact: true }) : `<div class="row" style="gap:4px;flex-wrap:nowrap">${stintsOf(sd, x.d).map(st => tyreChip(st.c, st.to - st.from + 1, `${(COMPOUNDS[st.c] || [])[1] || 'Tyre'}, laps ${st.from}–${st.to}`)).join('')}</div>`}</td>
-        ${race ? `<td class="num">${g.pits?.[x.d] ?? '–'}</td><td class="muted" style="font-size:12px">${pens(x.d).map(q => `${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${INFRINGEMENTS[q.infr] ? ` for ${INFRINGEMENTS[q.infr]}` : ''}${q.lap ? ` (lap ${q.lap})` : ''}`).join(', ') || '–'}</td>` : `<td class="num">${g.laps[x.d].length}</td>`}
+        ${race ? `<td class="num">${g.pits?.[x.d] ?? '–'}</td><td class="muted" style="font-size:12px">${pens(x.d).map(q => `<span class="pen-item">${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${INFRINGEMENTS[q.infr] ? ` for ${INFRINGEMENTS[q.infr]}` : ''}${q.lap ? ` (lap ${q.lap})` : ''}<button class="pen-x" data-act="pen-remove" data-round="${roundId}" data-key="${key}" data-i="${g.penalties.indexOf(q)}" title="Remove this penalty (say you undid it with a flashback)" aria-label="Remove penalty">×</button></span>`).join(', ') || '–'}</td>` : `<td class="num">${g.laps[x.d].length}</td>`}
         <td class="num mono">${p && isFinite(p) ? fmtLap(p) : '–'}</td></tr>`; }).join('')}
     </tbody></table></div>${race ? battlesFooter(s, sd) : ''}</div>`;
 }
@@ -5782,6 +5815,10 @@ function buildErsPlan(c, s, round, kind = 'race') {
   const acc = { [BASE]: { e: 0, t: 0, pw: [], band: {} }, [ERS_BOOST]: { e: 0, t: 0, pw: [], band: {} } };
   const BAND = 20; // km/h: deployment is measured per speed band, since the game deploys differently as speed builds
   const perLap = [];
+  // harvest per unit of braking, only where the battery had room: a full battery can't take any more, so laps that ran
+  // full under braking show less than a lap can really harvest (from empty, a big braking zone refills it)
+  const brakeW = (L, i) => brakeOk ? (L.brk[i] || 0) : L.thr[i] != null && L.thr[i] < 20 ? 100 : 0;
+  const fullAt = Math.max(4000, ...allErs) * 0.95; let hE = 0, hW = 0;
   for (const L of laps) {
     let last = null;
     for (let i = 0; i < nb; i++) {
@@ -5793,6 +5830,7 @@ function buildErsPlan(c, s, round, kind = 'race') {
         if (L.pw[i] != null) acc[L.mode[i]].pw.push(L.pw[i]);
       }
       last = L.dep[i];
+      if (i > 0 && L.harv[i] != null && L.harv[i - 1] != null && (L.ers[i] ?? fullAt) < fullAt) { const dh = L.harv[i] - L.harv[i - 1]; const bw = brakeW(L, i) * dt; if (dh >= 0 && dh < 300 && bw > 0) { hE += dh; hW += bw; } }
     }
     const idx = [...L.ers.keys()].filter(i => L.ers[i] != null);
     perLap.push({ k: L.k, live: !!L.live, lap: L.lap, start: L.ers[idx[0]], end: L.ers[idx[idx.length - 1]], dep: Math.max(0, ...L.dep.filter(x => x != null)), harv: Math.max(0, ...L.harv.filter(x => x != null)),
@@ -5807,11 +5845,11 @@ function buildErsPlan(c, s, round, kind = 'race') {
   if (pNormal >= pBoost) { pNormal = pBoost * (Q ? 0.85 : 0.6); assumed.push(`${baseName} deployment (measured at or above boost, which can’t be right)`); }
   // what a race lap harvests: from racing laps (this race, the sprint) once there are a few, since you drive them differently
   const racing = perLap.filter(x => x.k === 'R' || x.k === 'SPR');
-  const harvest = median((!Q && racing.length >= 3 ? racing : perLap).map(x => x.harv)) || 0; // kJ a lap
+  const harvLogged = median((!Q && racing.length >= 3 ? racing : perLap).map(x => x.harv)) || 0; // kJ a lap, as logged
   const depMax = Math.max(0, ...perLap.map(x => x.dep));
   // kJ a lap the rules allow: what the game says (2026 format), else 4 MJ, or more if your laps showed more
   const gameLimit = median(laps.flatMap(L => (L.limit || []).filter(x => x > 0)));
-  const depCap = gameLimit || Math.max(4000, depMax);
+  const depCap = Math.max(gameLimit || 4000, depMax); // what you actually deployed overrides a lower limit
   const storeMax = Math.max(4000, ...allErs);
   const startStore = median(perLap.map(x => x.start)) ?? storeMax / 2;
   // the lap: typical speed, throttle and brake per slice, and the outline
@@ -5821,6 +5859,9 @@ function buildErsPlan(c, s, round, kind = 'race') {
   const map = ownMap || c.trackMaps?.[trackOf(round)]?.map || null;
   if (E0.map?.some(Boolean) && !ownMap) warn.push('Your car’s position came through as a single spot, so this game version sends it differently: there’s no track outline from these laps. Copy the diagnostics at the bottom and send them over so it can be fixed.');
   const vOf = (i) => Math.max(8, (spd[i] || 100) / 3.6), dtOf = (i) => bin / vOf(i);
+  // what a lap can harvest: as logged, or more where the battery was full and turned some away
+  const harvRoom = hW > 0 ? hE / hW * brk.reduce((a, b, i) => a + (brakeOk ? (b || 0) : thr[i] != null && thr[i] < 20 ? 100 : 0) * dtOf(i), 0) : 0;
+  const harvest = Math.max(harvLogged, harvRoom);
   // straights: runs of full throttle (around the lap, across the line too), 160 m or longer
   const full = Array.from({ length: nb }, (_, i) => thr[i] >= 95 && (brakeOk ? brk[i] < 5 : true));
   for (let i = 0; i < nb; i++) if (!full[i] && full[(i - 1 + nb) % nb] && full[(i + 1) % nb]) full[i] = 'gap';
@@ -5874,7 +5915,6 @@ function buildErsPlan(c, s, round, kind = 'race') {
   const factor = ratios.length ? Math.max(0.25, Math.min(3, median(ratios))) : 1;
   const ftTime = full.reduce((a, f, i) => a + (f === true ? dtOf(i) : 0), 0);
   const normalUse = full.reduce((a, f, i) => a + (f === true ? pN[i] * dtOf(i) : 0), 0); // kJ a lap in the base mode on every straight
-  const reserve = storeMax * 0.02;
   // the energy to spend on boost, beyond the base mode
   let budgetLap, extra, simStart = startStore, liveInfo = null;
   if (Q) {
@@ -5927,36 +5967,14 @@ function buildErsPlan(c, s, round, kind = 'race') {
   // it is shortened: the battery has to last to the braking point
   const brkW = brk.map((b, i) => (brakeOk ? (b || 0) : thr[i] != null && thr[i] < 20 ? 100 : 0) * dtOf(i)); const brkSum = brkW.reduce((a, b) => a + b, 0) || 1;
   const zoneOf = Array(nb).fill(null); Z.forEach(z => z.bins.forEach(i => { zoneOf[i] = z; }));
-  const simulate = (withPlan = true) => {
-    let st = simStart; const trace = []; const dry = [];
-    for (let i = 0; i < nb; i++) {
-      const z = zoneOf[i]; const k = z ? z.bins.indexOf(i) : -1; const boosting = withPlan && z?.plan && k >= z.plan.j && k <= z.plan.k;
-      st += (harvest || 0) * brkW[i] / brkSum;
-      st -= boosting ? pB[i] * dtOf(i) : full[i] === true ? pN[i] * dtOf(i) : 0;
-      st = Math.min(storeMax, st);
-      if (z && st < reserve) dry.push(i);
-      trace.push(Math.max(0, st));
-    }
-    return { trace, dry };
-  };
   let sim, qGain = null, endStore = null, capHit = false, lateHarvest = 0;
-  if (!Q) {
-    const dryAnyway = new Set(simulate(false).dry);
-    // the boost to blame for running dry at slice i: on that straight, else the last one before it around the lap
-    const culprit = (i) => { for (let d = 0; d < nb; d++) { const z = zoneOf[(i - d + nb) % nb]; if (z?.plan) return z; } return null; };
-    sim = simulate();
-    for (let n = 0; n < 400; n++) {
-      const i = sim.dry.find(x => !dryAnyway.has(x)); if (i == null) break;
-      const z = culprit(i); if (!z) break;
-      z.plan.trimmed = true; const k = z.plan.k - 1;
-      z.plan = k - z.plan.j >= 2 ? { ...setPlan(z, z.plan.j, k), trimmed: true } : null;
-      sim = simulate();
-    }
-  } else {
-    // A flying lap: what counts is the lap time. Charge left at the line is wasted, so the plan grows the boost until
-    // the battery crosses the line empty. Running dry earlier costs time (the deployment that can't happen, carried
-    // down the rest of the straight), so a boost that empties the battery mid-lap stays only where it is still the
-    // faster lap overall: say a big recharge zone straight after it. The per-lap deploy limit stops deployment too.
+  {
+    // What counts is the lap time. Running dry costs time (the deployment that can't happen, carried down the rest of
+    // the straight), so a boost that empties the battery before the end of a straight stays only where it is still the
+    // faster lap overall: say a big recharge zone straight after it refills the battery for the next straight. A flying
+    // lap spends the lot (charge left at the line is wasted); a race lap has to cross the line with what it started
+    // with (less what the race can spare), so the battery lasts the stint. The per-lap deploy limit stops deployment too.
+    const endMin = Q ? -Infinity : simStart - (liveInfo?.spare || 0) - 20;
     const gk = new Map();
     const g = (z, j, k) => { const key = `${z.n}:${j}:${k}`; let v = gk.get(key); if (!v) gk.set(key, v = gainOf(z.bins, j, k)); return v; };
     const simQ = (plans) => {
@@ -5973,9 +5991,10 @@ function buildErsPlan(c, s, round, kind = 'race') {
     };
     // the time the missing deployment costs on each straight: the speed it would have given, carried to the braking point
     const lossOf = (short) => { let a = 0; for (const z of Z) { let dv = 0, t = 0; for (const i of z.bins) { const v = vOf(i), dt = dtOf(i); dv += (-short[i] * grip(spd[i]) / (ERS_MASS * v) - 2 * cd * v * dv / ERS_MASS) * dt; dv = Math.min(0, dv); t += dt * -dv / v; } a += t; } return a * factor; };
-    const score = (plans) => { const r0 = simQ(plans); let t = 0; for (const z of Z) { const p = plans[z.n]; if (p) t += g(z, p.j, p.k).t * factor; } return { v: t - lossOf(r0.short), sim: r0 }; };
+    const score = (plans) => { const r0 = simQ(plans); if (r0.trace[nb - 1] < endMin) return { v: -Infinity, sim: r0 }; let t = 0; for (const z of Z) { const p = plans[z.n]; if (p) t += g(z, p.j, p.k).t * factor; } return { v: t - lossOf(r0.short), sim: r0 }; };
     let plans = Object.fromEntries(Z.map(z => [z.n, z.plan ? { j: z.plan.j, k: z.plan.k } : null]));
     let cur = score(plans);
+    if (cur.v === -Infinity) { plans = Object.fromEntries(Z.map(z => [z.n, null])); cur = score(plans); }
     // hill-climb: lengthen, shorten, start or drop a boost, one or three slices at a time, while the lap gets faster
     for (let n = 0; n < 600; n++) {
       let best = null;
@@ -5992,6 +6011,14 @@ function buildErsPlan(c, s, round, kind = 'race') {
           if (sc.v > (best?.sc.v ?? cur.v) + 1e-5) best = { next, sc };
         }
       }
+      // a race lap has a fixed amount to spend: move it from one straight to another (60 m at a time)
+      if (!Q) for (const a of Z) for (const b of Z) {
+        const pa = plans[a.n], pb = plans[b.n]; if (a === b || !pb) continue;
+        const na = pa ? { j: pa.j, k: Math.min(a.bins.length - 1, pa.k + 3) } : { j: 0, k: Math.min(2, a.bins.length - 1) };
+        if (pa && na.k === pa.k) continue;
+        const next = { ...plans, [a.n]: na, [b.n]: pb.k - pb.j - 3 >= 2 ? { j: pb.j, k: pb.k - 3 } : null }; const sc = score(next);
+        if (sc.v > (best?.sc.v ?? cur.v) + 1e-5) best = { next, sc };
+      }
       if (!best) break;
       plans = best.next; cur = best.sc;
     }
@@ -5999,12 +6026,12 @@ function buildErsPlan(c, s, round, kind = 'race') {
     sim = cur.sim; endStore = sim.trace[nb - 1]; capHit = sim.dep >= depCap - 5;
     // what the last corners harvest after the final stretch of full throttle: too late in the lap to deploy
     const lastFull = full.lastIndexOf(true); lateHarvest = (harvest || 0) * brkW.slice(lastFull + 1).reduce((a, b) => a + b, 0) / brkSum;
-    qGain = cur.v - score(Object.fromEntries(Z.map(z => [z.n, null]))).v; // against hotlap everywhere (which may run dry too)
+    qGain = cur.v + lossOf(simQ(Object.fromEntries(Z.map(z => [z.n, null]))).short); // against the base mode everywhere (which may run dry too)
   }
   const planned = Z.filter(z => z.plan);
   const diag = ERS_RACE_KEYS.concat(ERS_QUALI_KEYS).map(k => w?.sessions?.[k]?.game?.ers?.diag).filter(Boolean).pop() || live?.pack?.diag || null;
   return { kind, base: BASE, laps, perLap, fallback, warn, modes, slices, bin, nb, length: E0.length, brakeOk, diag, curve, spd, thr, brk, full, map, zones: Z, planned,
-    pBoost, pNormal, assumed, harvest, depMax, depCap, storeMax, startStore, simStart, normalUse, budgetLap, extra, factor, measuredZones: ratios.length, ftTime, live: liveInfo,
+    pBoost, pNormal, assumed, harvest, harvLogged, depMax, depCap, storeMax, startStore, simStart, normalUse, budgetLap, extra, factor, measuredZones: ratios.length, ftTime, live: liveInfo,
     endStore, capHit, lateHarvest, gain: qGain ?? planned.reduce((a, z) => a + z.plan.t, 0), boostUse: planned.reduce((a, z) => a + z.plan.e, 0), trace: sim.trace, sessions: [...new Set(laps.map(L => L.k))] };
 }
 /** The track map, coloured: the plan (boost zones from their start to the braking point) or what your laps did. */
@@ -6068,14 +6095,14 @@ function ersPanel(c, s, r, kind = 'race') {
           : `<div class="muted" style="font-size:13px">${Q ? 'No boost fits: hotlap on every straight already uses all the energy the lap allows.' : L ? 'No boost fits right now: normal deployment uses everything you harvest, and there’s no charge to spare above what you need at the flag.' : 'No boost fits: on these laps normal deployment already uses everything you harvest. Boost now would only drain the battery over a stint.'}</div>`}
         <p class="muted" style="font-size:12px;margin:0">Distances are from the start line. ${Q
           ? `Run hotlap everywhere and boost from the first distance to the second. Start the flying lap with the battery charged: the plan assumes the ${km(P.startStore)} your flying laps started with. It spends the lot: charge left at the line is wasted (the in-lap recharges it), so the boost grows until you cross the line ${P.endStore != null && P.endStore < 50 ? 'empty' : `with ${km(P.endStore || 0)} left: ${P.capHit ? 'the per-lap deploy limit runs out first' : P.endStore <= P.lateHarvest + 50 ? 'what the last corners harvest after the final straight, too late to use' : 'boosting more anywhere would only lose time'}`}. The battery only runs out before the end of a straight where that is still the faster lap (“runs out”): when a big recharge zone follows, say.`
-          : `Boost from the first distance to the second, then back to normal: the plan keeps enough charge for the rest of each straight, so you never run dry before the braking point. “Shortened” means a zone was cut to make sure of that.`}</p>
+          : `Boost from the first distance to the second, then back to normal. Over the lap you harvest what you spend${L ? ' (plus what the race can spare)' : ''}, so the battery lasts the stint, but it may run out before the end of a straight where that is still the faster lap (“runs out”): when a big recharge zone follows and refills it for the next straight, say.`}</p>
       </div>
     </div>
     <div class="panel-b" style="border-top:1px solid var(--line)"><span class="label">Measured on your car</span>
       <div class="ers-facts">
         <div><b>${Math.round(P.pBoost)} kW</b><span>boost drain on full throttle</span></div>
         <div><b>${Math.round(P.pNormal)} kW</b><span>${base} deployment</span></div>
-        <div><b>${km(P.harvest)}</b><span>harvested a lap</span></div>
+        <div><b>${km(P.harvest)}</b><span>a lap can harvest${P.harvest > P.harvLogged + 50 ? ` (${km(P.harvLogged)} logged: a full battery turns the rest away)` : ''}</span></div>
         <div><b>${km(P.normalUse)}</b><span>${base} mode uses a lap</span></div>
         <div><b>${km(P.depMax)}</b><span>most deployed in a lap (limit ${km(P.depCap)})</span></div>
         <div><b>${km(P.startStore)}</b><span>battery ${Q ? 'starting a flying lap' : 'at the line'}, of ${km(P.storeMax)}</span></div>
@@ -6779,12 +6806,12 @@ function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) 
   const ended = new Set();
   const incs = F.incidents.map(inc => {
     const big = isC(inc.a) || isC(inc.b) || [inc.a, inc.b].some(d => num(d) && num(d) <= 3);
-    const bOut = out_(inc.b);
-    return { inc, wt: (inc.major ? 6 : 2.5) + (big ? 3 : 0) + (bOut ? 2 : 0) + ([inc.a, inc.b].some(mine) ? 1.5 : 0), bOut };
+    const bOut = inc.out === inc.b; const hurt = !bOut && inc.dmg?.includes(inc.b);
+    return { inc, wt: (inc.major ? 6 : 2.5) + (big ? 3 : 0) + (bOut ? 2 : hurt ? 1 : 0) + ([inc.a, inc.b].some(mine) ? 1.5 : 0), bOut, hurt };
   }).sort((a, b) => b.wt - a.wt).slice(0, 3);
-  for (const { inc, wt, bOut } of incs) {
+  for (const { inc, wt, bOut, hurt } of incs) {
     const A = L(inc.a), B = L(inc.b); const lp = onLap(inc.lap);
-    const end = bOut ? w('inc-end', [`, ending ${B}’s race`, `, and ${B} did not make it to the flag`, `, which put ${B} out`]) : '';
+    const end = bOut ? w('inc-end', [`, ending ${B}’s race`, `, and ${B} did not make it to the flag`, `, which put ${B} out`]) : hurt ? w('inc-dmg', [`, damaging ${B}’s car`, `, and ${B} came away with damage`, `, leaving ${B} nursing a damaged car`]) : '';
     if (bOut) ended.add(inc.b);
     const text = inc.noFault ? w('inc-even', [`${A} and ${B} tangled${lp}${end}, a racing incident in the stewards’ eyes.`, `${A} and ${B} made contact${lp}${end}; nobody was blamed.`, inc.lap ? `Lap ${inc.lap} brought contact between ${A} and ${B}${end}, put down as a racing incident.` : null])
       : inc.pen && inc.pen !== 'a warning' ? w('inc-pen', [`${A} was handed ${inc.pen} for hitting ${B}${lp}${end}.`, `Contact with ${B}${lp} earned ${A} ${inc.pen}${end}.`, `The stewards hit ${A} with ${inc.pen} after a clash with ${B}${lp}${end}.`, `${A} went for a gap that wasn’t there${lp}, hit ${B} and collected ${inc.pen}${end}.`])
@@ -6797,9 +6824,12 @@ function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) 
     const A = L(b.ahead), B = L(b.behind); const k = pairKey(b.a, b.b);
     const span = b.to > b.from ? ` between laps ${b.from} and ${b.to}` : b.from ? ` on lap ${b.from}` : '';
     const where = b.posW < 99 ? ` in ${o(b.posW)}` : '';
-    let t = b.forLead ? w('battle-lead', [`${A} and ${B} fought over the lead${span}, swapping places ${nw(b.n)} times before ${A} came out in front.`, `The battle for the lead between ${A} and ${B} saw ${nw(b.n)} changes of position${span}; ${A} had the final say.`, `Up front, ${A} and ${B} traded the lead ${nw(b.n)} times${span}, ${A} ending up ahead.`]) : w('battle', [`${A} and ${B} swapped places ${nw(b.n)} times${span}, ${A} coming out on top${where}.`, `The fight of the race was ${A} against ${B}: ${nw(b.n)} changes of position${span}, and ${A} had the last word.`, `${B} and ${A} went at it wheel to wheel${span}, trading places ${nw(b.n)} times before ${A} made it stick.`, `${A} and ${B} put on a show${span}, passing each other ${nw(b.n)} times; ${A} finished ahead.`, `With ${nw(b.n)} passes between them${span}, ${A} and ${B} produced the duel of the day, and it went ${A}’s way.`, `${A} and ${B} could not shake each other off${span}: ${nw(b.n)} changes of position, ${A} ahead at the end.`, `Lap after lap, ${A} and ${B} traded places${span}, ${nw(b.n)} times in all, before ${A} came out in front.`]);
-    if (duelsNow.has(k)) t += ' ' + w('duel-born', ['It was the second race running they had gone wheel to wheel, and a rivalry was born.', 'Two races in a row now: these two are rivals on track.', 'That made it two races running, and the paddock started calling it a rivalry.']);
-    else if (duelsOn.has(k)) t += ' ' + w('duel-on', ['Another chapter in their running duel.', 'Their on-track rivalry shows no sign of cooling.', 'These two just keep finding each other.']);
+    const times = (n) => n === 1 ? 'once' : n === 2 ? 'twice' : `${nw(n)} times`;
+    let t = b.forLead && b.posW === 1 ? w('battle-lead', [`${A} and ${B} fought over the lead${span}, the lead changing hands ${times(b.leadN || 1)} before ${A} came out in front.`, `Up front, ${A} and ${B} traded the lead ${times(b.leadN || 1)}${span}, ${A} ending up ahead.`, `The battle for the lead between ${A} and ${B}${span} went ${A}’s way in the end, after the lead changed hands ${times(b.leadN || 1)}.`])
+      : b.forLead ? w('battle-lead-lost', [`${A} and ${B} fought over the lead${span}, but the fight may have cost them both the win: ${A} finished ${o(b.posW)}${b.posL < 99 ? `, ${B} ${o(b.posL)}` : ''}.`, `${A} and ${B} went toe to toe for first${span}, yet slipped down the order: ${A} ended up ${o(b.posW)}${b.posL < 99 ? ` and ${B} ${o(b.posL)}` : ''}.`, `For a while, ${A} and ${B} were fighting for the win${span}. It didn’t last: ${A} came home ${o(b.posW)}.`])
+      : w('battle', [`${A} and ${B} had a great battle${span}, ${A} coming out on top${where}.`, `The fight of the race was ${A} against ${B}${span}, and ${A} had the last word${where}.`, `${B} and ${A} went at it wheel to wheel${span} before ${A} made it stick${where}.`, `${A} and ${B} put on a show${span}; ${A} finished ahead${where}.`, `${A} and ${B} could not shake each other off${span}, ${A} ahead at the end${where}.`, `Lap after lap, ${A} and ${B} fought it out${span} before ${A} came out in front${where}.`]);
+    if (duelsNow.has(k)) t += ' ' + w('duel-born', ['They had gone wheel to wheel last time out too, and we can’t wait for the next round.', 'It’s becoming a habit: the two were at it again, as they were a race ago.', 'Another fight between them, and already we’re looking forward to the next one.']);
+    else if (duelsOn.has(k)) t += ' ' + w('duel-on', ['The two rivals battled on track once more.', 'These two just keep finding each other.', 'Another chapter between two drivers who never give an inch to each other.']);
     add('battle', 3.5 + Math.min(4, (b.n - 8) / 2) + (b.forLead ? 4 : b.posW <= 5 ? 2 : 0) + (duelsNow.has(k) ? 3 : 0) + (isC(b.a) || isC(b.b) ? 2 : 0) + ([b.a, b.b].some(mine) ? 1.5 : 0), t, [b.a, b.b]);
   }
   // great drives: the climbers (the winner's climb belongs to the winner's line)
@@ -7084,11 +7114,13 @@ function battleStory(c, s, i, r, key, sd, h) {
   const rnd = seeded(`${s.index}-${r.id}-${key}-battle`); const sprint = key === 'SPR';
   const A = h.last(b.ahead), Bn = h.last(b.behind);
   const touched = (sd.game?.incidents || []).some(x => pairKey(x.a, x.b) === pairKey(b.a, b.b));
+  // a fight for the lead that didn't end in the win is told as one that cost them
+  const lost = b.forLead && b.posW > 1; const times = (n) => n === 1 ? 'once' : n === 2 ? 'twice' : `${nw(n)} times`;
   const at = b.forLead ? 'for the lead' : b.posW <= 3 ? 'for a podium place' : b.posW <= 10 ? 'for points' : 'deep in the pack';
   const LP = key === 'R' && b.forLead ? lateWinPass(sd, sd.results.find(x => !OUT.includes(x.st))?.d) : null; const late = LP && pairKey(LP.prev, b.ahead) === pairKey(b.a, b.b);
-  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: b.forLead ? (sprint ? 'Battle for the sprint win' : 'Battle for the win') : sprint ? 'Battle of the sprint' : 'Battle of the race', massive: !!late,
-    headline: choose(rnd, [`${A} v ${Bn}: ${b.n} passes ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn} after a ${b.n}-pass fight`, `${b.n} changes of position, one winner: ${A} edges ${Bn}`]),
-    standfirst: `${A} and ${Bn} swapped places ${nw(b.n)} times ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}. ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
+  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: b.forLead && !lost ? (sprint ? 'Battle for the sprint win' : 'Battle for the win') : lost ? (sprint ? 'Battle of the sprint' : 'Battle of the race') : sprint ? 'Battle of the sprint' : 'Battle of the race', massive: !!late,
+    headline: lost ? choose(rnd, [`${A} and ${Bn} fight for the lead, and both lose out`, `Did ${A} and ${Bn} fight each other out of the win?`]) : choose(rnd, [`${A} v ${Bn}: a fight ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn}`, `${A} edges ${Bn} in a great battle ${at}`]),
+    standfirst: `${b.forLead ? `${A} and ${Bn} fought ${at}${b.to > b.from ? ` between laps ${b.from} and ${b.to}` : ` on lap ${b.from}`}, the lead changing hands ${times(b.leadN || 1)}${lost ? ', but the fight may have cost them both the win' : ''}.` : `${A} and ${Bn} had a great battle ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}.`} ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
     body: touched ? ['It wasn’t all clean: the two made contact along the way.'] : [],
     quotes: [[b.ahead, touched ? 'wonNeedle' : 'won'], [b.behind, touched ? 'lostNeedle' : 'lost']].filter(([d]) => d !== PLAYER).map(([d, k]) => ({ id: d, text: choose(rnd, BATTLE_QUOTES[k]) })) };
 }
@@ -7431,11 +7463,34 @@ function rumourStory(c, s, rm) {
   return { id: 'rm' + rm.id, seq: ri * 10 + 8, kind: 'rumour', i: ri, r: rounds[ri] || null, outlet, kicker: rm.status === 'confirmed' ? 'Confirmed' : rm.status === 'denied' ? 'Denied' : strong ? 'Transfer talk' : 'Rumour', headline, standfirst: body[0], body: body.slice(1), quotes, rumour: rm, subject: rm.driver };
 }
 /** What the source is said to claim, in a few words. */
+/**
+ * Rumours settled by what really happened: once a transfer moves a driver somewhere a rumour didn't say (re-signing
+ * when they were meant to retire or move, say), the rumour is false and is marked denied. A transfer that fits it
+ * confirms it. Undo the transfer and the rumour opens again. Returns true if anything changed.
+ */
+function settleRumours(c) {
+  const all = c.seasons.flatMap(s => (s.transfers || []).map(tr => ({ tr, si: s.index })));
+  const ids = new Set(all.map(x => x.tr.id)); let changed = false;
+  for (const rm of c.rumours || []) {
+    if (rm.autoBy && !ids.has(rm.autoBy)) { rm.status = 'open'; delete rm.autoBy; changed = true; }
+    if (rm.status !== 'open') continue;
+    const fits = (st) => rm.kind === 'retire' ? st.to === 'retire' : st.to === rm.team || (st.to && rm.team && teamRoot(st.to) === teamRoot(rm.team));
+    for (const { tr, si } of all) {
+      if (si < rm.seasonIdx || !(tr.createdAt > (rm.createdAt || ''))) continue;
+      const st = tr.steps.find(x => x.driver === rm.driver && x.to !== 'pending'); if (!st) continue;
+      rm.status = fits(st) ? 'confirmed' : 'denied'; rm.autoBy = tr.id; changed = true; break;
+    }
+  }
+  return changed;
+}
 function rumourClaim(rm, L, tgt, cur, s) {
   const strong = rm.strength === 'strong';
   if (rm.kind === 'retire') return strong ? `${L} has told the team of a decision to stop` : `${L} has been weighing up the future`;
   if (rm.kind === 'stay') return strong ? `the two sides have agreed terms` : `early talks about a new deal have taken place`;
-  return strong ? `${tgt.name} have made ${L} an offer${rm.timing === 'now' ? ' to join mid-season' : ` for ${s.year + 1}`}` : `${tgt.name} have asked about ${L}’s availability`;
+  // leaving before the contract is up: say so
+  const until = career()?.contracts?.[rm.driver]; const early = rm.kind === 'move' && cur && until != null && until >= (rm.timing === 'now' ? s.year : s.year + 1);
+  const breakIt = early ? `, even though ${L}’s contract with ${cur.name} runs until the end of ${until}` : '';
+  return strong ? `${tgt.name} have made ${L} an offer${rm.timing === 'now' ? ' to join mid-season' : ` for ${s.year + 1}`}${breakIt}` : `${tgt.name} have asked about ${L}’s availability${breakIt}`;
 }
 /**
  * The paddock's reaction to a rumour: a vague answer from the driver or a team, and for a move, a word from the
@@ -8577,9 +8632,9 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
       if (b.a !== d && b.b !== d) continue;
       const o = b.a === d ? b.b : b.a; const won = b.ahead === d;
       const born = duels(s).events.some(e => e.type === 'duelStart' && e.i === ri && e.key === 'R' && pairKey(e.a, e.b) === pairKey(d, o));
-      add('battle-' + d + o, 6 + Math.min(3, (b.n - 8) / 2) + (b.forLead ? 3 : 0) + (born ? 2 : 0), `${dName(s, d)} and ${dName(s, o)} swapped places ${b.n} times; ${dName(s, b.ahead)} finished ahead.${born ? ' It was their second race running wheel to wheel: they are now rivals on track.' : ''}`, born
+      add('battle-' + d + o, 6 + Math.min(3, (b.n - 8) / 2) + (b.forLead ? 3 : 0) + (born ? 2 : 0), `${dName(s, d)} and ${dName(s, o)} had a great battle${b.forLead ? ` for the lead (it changed hands ${b.leadN || 1} times)` : ''}; ${dName(s, b.ahead)} finished ahead.${born ? ' They had fought hard in the previous race too.' : ''}`, born
         ? [tp ? `${L(d)} and ${L(o)} have gone wheel to wheel two races running now. Is this a rivalry?` : `That's two races in a row you've been wheel to wheel with ${L(o)}. Is this becoming a rivalry?`, tp ? `Do you worry ${L(d)} and ${L(o)} will end up taking each other out?` : `Do you enjoy racing ${L(o)}, or is it getting personal?`]
-        : [tp ? `${L(d)} and ${L(o)} passed each other ${b.n} times. Were you enjoying it on the pit wall?` : `You and ${L(o)} swapped places ${b.n} times. What was that fight like from the cockpit?`, won ? (tp ? `${L(d)} came out on top against ${L(o)}. What made the difference?` : `You came out on top against ${L(o)} in the end. Where did you make it stick?`) : (tp ? `${L(o)} got the better of ${L(d)} in the end. What was missing?` : `${L(o)} got the better of you in the end. What was missing?`)]);
+        : [tp ? `${L(d)} and ${L(o)} had a real battle out there. Were you enjoying it on the pit wall?` : `You and ${L(o)} had a real battle out there. What was that fight like from the cockpit?`, won ? (tp ? `${L(d)} came out on top against ${L(o)}. What made the difference?` : `You came out on top against ${L(o)} in the end. Where did you make it stick?`) : (tp ? `${L(o)} got the better of ${L(d)} in the end. What was missing?` : `${L(o)} got the better of you in the end. What was missing?`)]);
     }
     if (!tp && mate) {
       const a = at(ses.R, PLAYER), b = at(ses.R, mate);
@@ -9286,6 +9341,14 @@ Object.assign(actions, {
   'lb-sort'(el) { ui.lb.sort = el.dataset.k; render(); },
   'lb-scope'(el) { ui.lb.scope = el.dataset.v; render(); },
   'stories-filter'(el) { ui.stories = el.dataset.v; render(); },
+  // a penalty the game reported that didn't stand (a flashback undid it): off the record, and off any incident it made
+  'pen-remove'(el) {
+    const s = curSeason() || latestSeason(); const sd = s.weekends[el.dataset.round]?.sessions?.[el.dataset.key]; const g = sd?.game; const i = +el.dataset.i;
+    const p = g?.penalties?.[i]; if (!p) return;
+    g.penalties.splice(i, 1);
+    for (const inc of g.incidents || []) if (inc.pen && inc.a === p.d && inc.b === p.other && (inc.t == null || p.t == null || Math.abs(inc.t - p.t) < 1)) { inc.pen = null; inc.major = false; }
+    renderGen++; store.save(); render(); toast(`Penalty removed for ${dName(s, p.d)}`);
+  },
   'ers-view'(el) { ui[el.dataset.k || 'ersView'] = el.dataset.v; render(); },
   async 'ers-diag'(el) {
     const s = latestSeason(); const w = s.weekends[el.dataset.round];

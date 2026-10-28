@@ -26,6 +26,7 @@ function parseSession(b) {
   if (b.length < 753) return null;
   return {
     totalLaps: b.readUInt8(32), trackLength: b.readUInt16LE(33), sessionType: b.readUInt8(35), track: b.readInt8(36),
+    safetyCarNow: b.readUInt8(153), // 0 none, 1 safety car, 2 virtual safety car, 3 formation lap
     gameMode: b.readUInt8(694), sessionLength: b.readUInt8(700),
     seasonLink: b.readUInt32LE(670), weekendLink: b.readUInt32LE(674), sessionLink: b.readUInt32LE(678),
     safetyCars: b.readUInt8(705), virtualSafetyCars: b.readUInt8(706), redFlags: b.readUInt8(707),
@@ -94,6 +95,12 @@ function parseLapData(b, L) {
   }
   return out;
 }
+/** Car damage: each car's bodywork damage (front wings, rear wing, floor, diffuser, sidepods), in percent points added up. */
+function parseBodyDamage(b, L) {
+  const out = []; const w = stride(b, L, 46);
+  for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 34 > b.length) break; out.push(b[o + 28] + b[o + 29] + b[o + 30] + b[o + 31] + b[o + 32] + b[o + 33]); }
+  return out;
+}
 /** Car damage: the most worn of each car's four tyres, in percent. */
 function parseWear(b, L) {
   const out = []; const w = stride(b, L, 46);
@@ -129,7 +136,8 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     let s = sessions.get(h.uid);
     if (!s) {
       s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now(),
-        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [], pit: [], live: [], overtakes: [], swaps: [], lead: [], leadFin: [] };
+        curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [], pit: [], live: [], overtakes: [], swaps: [], lead: [], leadFin: [],
+        body: null, damage: [], sc: { now: 0, sc: 0, vsc: 0, periods: [] } };
       sessions.set(h.uid, s);
       for (const [k, v] of sessions) if (Date.now() - v.seen > 6 * 3600e3) sessions.delete(k); // forget sessions from hours ago
     }
@@ -139,9 +147,9 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
   // Every pass as it happens, anywhere on the lap: two cars swapping places between one lap data packet and the next
   // (the game sends them many times a second). The game's own overtake event stands in if a session never shows a
   // swap. Passes in or out of the pit lane, or of a car that has stopped, don't count. A pass counts once it has held
-  // for 0.25 s: retaken sooner, it was the timing flickering and both cancel out; retaken later, the two are racing
+  // for 2 s: retaken sooner, it was the timing flickering and both cancel out; retaken later, the two are racing
   // wheel to wheel and both count.
-  const FLICKER = 0.25;
+  const FLICKER = 2;
   function pass(s, list, a, b, t) {
     if (a === b || a == null || b == null || s.pit[a] || s.pit[b] || s.live[a] === false || s.live[b] === false) return;
     for (let k = list.length - 1; k >= 0 && t - list[k].t < FLICKER; k--) {
@@ -204,6 +212,14 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     const parts = s.parts || [];
     // the lap that was running at the end
     s.curLap.forEach((lap, i) => { if (lap && s.wearNow[i] != null && (s.wear[i] ||= [])[lap - 1] == null) s.wear[i][lap - 1] = Math.round(s.wearNow[i] * 10) / 10; });
+    // contact and what came of it: damage within a second of it, a retirement within a lap of it
+    for (const x of s.collisions) {
+      x.dmg = [...new Set(s.damage.filter(d => (d.car === x.a || d.car === x.b) && d.t >= x.t - 0.2 && d.t <= x.t + 1).map(d => d.car))];
+      x.out = null;
+    }
+    // a retirement is put down to the last contact that car had, if it came within a lap of it
+    for (const r of s.retirements) { if (r.t == null) continue; const x = s.collisions.filter(o => (o.a === r.car || o.b === r.car) && o.t <= r.t && r.lap <= o.lap + 1).pop(); if (x) x.out = r.car; }
+    const open = s.sc.periods[s.sc.periods.length - 1]; if (open && open.to == null) open.to = s.curLap[s.player] || null;
     const cars = s.final.filter(x => x.position > 0).map(x => {
       const p = parts.find(q => q.idx === x.idx) || {};
       // the stint still running at the flag (or when the car stopped) ends on lap 255: it really ends on the car's last lap
@@ -213,6 +229,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
+      safetyCars: Math.max(s.info.safetyCars || 0, s.sc.sc), virtualSafetyCars: Math.max(s.info.virtualSafetyCars || 0, s.sc.vsc), scPeriods: s.sc.periods,
       overtakes: s.swaps.length ? s.swaps : s.overtakes, passSource: s.swaps.length ? 'positions' : s.overtakes.length ? 'event' : null,
       ers: ersSession(s.info) ? packErs(s) : null });
   }
@@ -227,6 +244,14 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     if (h.type === PACKET.SESSION) {
       const info = parseSession(b); if (!info) return;
       s.info = info; st.session = { track: info.track, sessionType: info.sessionType, gameMode: info.gameMode };
+      // safety cars, counted as they come out (the game's own count at the end has been seen to stay at zero)
+      const sc = info.safetyCarNow === 1 || info.safetyCarNow === 2 ? info.safetyCarNow : 0;
+      if (sc !== s.sc.now) {
+        const lap = s.curLap[h.player] || 0; const open = s.sc.periods[s.sc.periods.length - 1];
+        if (open && open.to == null) open.to = lap;
+        if (sc) { s.sc[sc === 1 ? 'sc' : 'vsc']++; s.sc.periods.push({ kind: sc === 1 ? 'sc' : 'vsc', from: lap, to: null }); }
+        s.sc.now = sc;
+      }
     } else if (h.type === PACKET.PARTICIPANTS) {
       // keep every car seen this session: a later packet may leave some out
       const byIdx = new Map((s.parts || []).map(p => [p.idx, p]));
@@ -244,7 +269,12 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
     else if (h.type === PACKET.STATUS) s.stat = playerStatus(b, L, h.player) || s.stat;
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
-    else if (h.type === PACKET.DAMAGE) s.wearNow = parseWear(b, L);
+    else if (h.type === PACKET.DAMAGE) {
+      s.wearNow = parseWear(b, L);
+      const body = parseBodyDamage(b, L);
+      if (s.body) body.forEach((v, i) => { if (v - (s.body[i] || 0) >= 2) s.damage.push({ car: i, t: h.time }); });
+      s.body = body;
+    }
     else if (h.type === PACKET.LAP) {
       const lap = parseLapData(b, L);
       const before = s.pos.slice();
@@ -281,7 +311,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
         if (!last && a !== c2) s.collisions.push({ a, b: c2, t: h.time, lap: s.curLap[a] || 0, posA: s.pos[a] || 0, posB: s.pos[c2] || 0 });
       }
       else if (code === 'OVTK' && b.length >= HEADER + 6) pass(s, s.overtakes, b[33], b[34], h.time);
-      else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34] });
+      else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34], t: h.time, lap: s.curLap[b[33]] || 0 });
     } else if (h.type === PACKET.FINAL) {
       s.final = parseFinal(b, L);
       clearTimeout(s.timer); s.timer = setTimeout(() => emit(s), SETTLE_MS);
