@@ -720,3 +720,20 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .pen-item { white-space: nowrap; }
 .pen-x { margin-left: 4px; padding: 0 5px; border: 1px solid var(--line); border-radius: 3px; background: none; color: var(--muted); cursor: pointer; font-size: 11px; line-height: 1.4; }
 .pen-x:hover { color: var(--red); border-color: var(--red); }
+/* tyre allocation, like the game's screen */
+.ta-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: var(--panel-2, rgba(127,127,127,.08)); border-radius: 6px; font-family: var(--font-display); }
+.ta-name { font-weight: 700; }
+.ta-count { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }
+.ta-dot { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--tc); font-style: normal; font-size: 10px; font-weight: 700; }
+.ta-cols { display: flex; gap: 0; overflow-x: auto; margin-top: 10px; }
+.ta-col { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 12px; min-width: 84px; border-left: 1px solid var(--line); }
+.ta-col:first-child { border-left: none; }
+.ta-col.left { background: rgba(127,127,127,.05); border-radius: 6px; }
+.ta-h { font-family: var(--font-display); font-weight: 700; font-size: 13px; }
+.ta-sub { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.tset { width: 58px; height: 58px; border-radius: 50%; border: 5px solid var(--tc); display: grid; place-content: center; text-align: center; background: radial-gradient(circle, rgba(0,0,0,.35) 55%, transparent 56%); }
+.tset b { font-size: 13px; line-height: 1.1; }
+.tset small { font-size: 10px; color: var(--muted); }
+.tset.empty { border-color: var(--line); opacity: .4; }
+.strat-sets { display: block; grid-column: 1 / -1; font-size: 11px; }
+.ta-sets { display: grid; grid-template-rows: repeat(2, auto); grid-auto-flow: column; gap: 8px; }

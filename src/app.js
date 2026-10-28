@@ -1745,6 +1745,7 @@ function renderWeekend() {
       <div class="row">
         <div class="seg" title="Race distance you run in the game. Race pace is worked out per lap at this distance.">${RACE_LENGTHS.map(p => `<button data-act="race-length" data-v="${p}" class="${raceLength(s, r.id) === p ? 'on' : ''}">${p}%</button>`).join('')}</div>
         <span class="muted">${raceLaps(s, r.id)} laps</span>
+        <div class="seg" title="The tyre allocation preset you picked in F1 25 for this weekend">${TYRE_PRESETS.map(p => `<button data-act="tyre-preset" data-round="${r.id}" data-v="${p}" class="${tyrePreset(s, r.id) === p ? 'on' : ''}">${PRESET_NAME[p]}</button>`).join('')}</div>
         ${media.length ? `<span class="muted">${media.length} media session${media.length > 1 ? 's' : ''}</span>` : ''}
         ${D.TRACKS[trackOf(r)] ? `<button class="btn" data-act="open-track" data-track="${trackOf(r)}">${ICON.track} Circuit guide</button>` : ''}
         ${Object.values(w.sessions).some(x => x.done) ? `<button class="btn" data-act="weekend-card" data-round="${r.id}">${ICON.camera} Weekend summary</button>` : ''}
@@ -5239,6 +5240,7 @@ function applyGameResult(c, r, place) {
     wear: byId(x => x.wear || []), finished: byId(x => x.laps),
     penalties: r.penaltyEvents.filter(p => map[p.car] && (PENALTY_NAMES[p.type] || p.type === WARNING)).map(p => ({ d: map[p.car], type: p.type, infr: p.infringement, time: p.time, lap: p.lap, other: map[p.other] || null, t: p.t ?? null })),
     incidents: buildIncidents(r, map),
+    ...(r.tyreSets ? { tyreSets: r.tyreSets } : {}),
     ...(r.ers ? { ers: ersWithTyres(r, map) } : {}),
     ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),
     safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags, ...(r.scPeriods?.length ? { periods: r.scPeriods } : {}) } };
@@ -5527,9 +5529,30 @@ const RUN_KEYS = [...PRACTICE_KEYS, 'SPR'], IDEAL_KEYS = [...PRACTICE_KEYS, 'SQ'
 const DRY = [16, 17, 18];
 /** One driver's clean consecutive laps on each dry compound in this weekend's practice:
  *  { compound: { laps, base, deg, wear, life, ref } } (ref: their quickest practice lap, to compare drivers). */
-function practiceRuns(s, round, d) {
+/**
+ * The sessions the strategy learns from. A session whose tyre wear doesn't match a later one's (any compound you ran in
+ * both more than 1.5 points a lap apart: say FP1 was run on a different tyre-wear setting) is left out, along with
+ * everything before it, for you and the AI alike: the latest data wins. { keys, dropped: [{ k, c, a, b, j }] }
+ */
+const _skCache = new Map();
+function strategyKeys(s, round) {
+  const ck = `${s.index}:${round.id}`; const hit = _skCache.get(ck); if (hit?.gen === renderGen) return hit.v;
+  const w = s.weekends[round.id];
+  const have = RUN_KEYS.filter(k => { const sd = w?.sessions?.[k]; return sd?.game?.laps?.[PLAYER] && !sd.estimated; });
+  const per = Object.fromEntries(have.map(k => [k, practiceRuns(s, round, PLAYER, [k])]));
+  const keep = []; let cut = null;
+  for (let i = have.length - 1; i >= 0 && !cut; i--) {
+    const k = have[i];
+    for (const j of keep) for (const c of DRY) { const a = per[k][c]?.wear, b = per[j][c]?.wear; if (!cut && a != null && b != null && Math.abs(a - b) > 1.5) cut = { k, c, a, b, j }; }
+    keep.push(k);
+  }
+  const at = cut ? RUN_KEYS.indexOf(cut.k) : -1;
+  const v = { keys: RUN_KEYS.filter((k, i) => i > at), dropped: cut ? RUN_KEYS.filter((k, i) => i <= at && w?.sessions?.[k]?.game).map(k => ({ ...cut, k })) : [] };
+  _skCache.set(ck, { gen: renderGen, v }); return v;
+}
+function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
   const w = s.weekends[round.id]; const out = {}; let ref = Infinity;
-  for (const k of RUN_KEYS) {
+  for (const k of keys) {
     const sd = w?.sessions?.[k]; if (!sd?.game || sd.estimated) continue;
     const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
     for (const l of laps) if (l[0] && l[1]) ref = Math.min(ref, l[0]);
@@ -5557,7 +5580,7 @@ function practiceRuns(s, round, d) {
  *  to each driver's own quickest lap (so a fast car on softs and a slow car on hards don't skew the compounds). */
 function gridRuns(s, round) {
   const w = s.weekends[round.id]; const drivers = new Set();
-  for (const k of RUN_KEYS) { const g = w?.sessions?.[k]?.game; if (g?.laps && !w.sessions[k].estimated) Object.keys(g.laps).forEach(d => drivers.add(d)); }
+  for (const k of strategyKeys(s, round).keys) { const g = w?.sessions?.[k]?.game; if (g?.laps && !w.sessions[k].estimated) Object.keys(g.laps).forEach(d => drivers.add(d)); }
   const per = [...drivers].map(d => practiceRuns(s, round, d)).filter(x => Object.keys(x).length);
   const med = (xs) => { const v = xs.filter(x => x != null && isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
   const ref = med(per.map(x => Object.values(x)[0].ref));
@@ -5586,12 +5609,35 @@ function strategyRuns(s, round) {
       a.degNote = `near yours; the grid measured +${(was / 1000).toFixed(3)} s`;
     }
   }
+  for (const runs of [grid, mine]) orderTyres(runs);
   fillTyres(grid, mine);
   return { grid, mine };
 }
 /**
+ * A harder tyre measured as dropping off (or wearing) faster than a softer one can't be right: the run was probably
+ * spoiled (traffic, a mistake, a different fuel load). Its measurement is kept, but the fall-off or wear the plans use is
+ * rebuilt from the other two compounds, as for a tyre nobody ran. Needs all three measured.
+ */
+function orderTyres(runs) {
+  const S = runs[16], M = runs[17], H = runs[18]; if (!S || !M || !H || S.src || M.src || H.src) return;
+  for (const k of ['deg', 'wear']) {
+    if ([S, M, H].some(x => x[k] == null)) continue;
+    const note = k + 'Note'; const fmt = (v) => k === 'deg' ? `+${(v / 1000).toFixed(3)} s` : `${v.toFixed(1)}%`;
+    if (H[k] > M[k] || H[k] > S[k]) {
+      const was = H[k]; H[k] = Math.min(M[k] * 0.85, Math.max(M[k] * 0.4, M[k] - Math.max(0, S[k] - M[k])));
+      H[note] = `measured ${fmt(was)}, worse than a softer tyre: estimated from the soft and medium`;
+      if (k === 'wear' && H.life && was > 0) H.life = Math.round(H.life * was / H[k]);
+    } else if (M[k] > S[k]) {
+      const was = M[k]; M[k] = (S[k] + H[k]) / 2;
+      M[note] = `measured ${fmt(was)}, worse than the soft: estimated halfway between the soft and hard`;
+      if (k === 'wear' && M.life && was > 0) M.life = Math.round(M.life * was / M[k]);
+    }
+  }
+}
+/**
  * Tyres with no runs. One side ran a compound the other didn't: it takes that side's fall-off, wear and life, and its
- * pace moved by the usual gap between the two sides on the tyres both ran. Nobody ran it: it's worked out from the two
+ * pace moved by the usual gap between the two sides on the tyres both ran. Your own tyres come first, though: with two or more of
+ * your own compounds, a missing one is worked out from them rather than taken from the grid. Nobody ran it: it's worked out from the two
  * that were run. A missing hard is the medium plus the soft-to-medium step (slower, but dropping off and wearing
  * slower); a missing soft is the medium minus the medium-to-hard step (quicker, dropping off and wearing faster); a
  * missing medium sits halfway between the soft and the hard. Each filled-in tyre says where it came from.
@@ -5600,8 +5646,9 @@ function fillTyres(grid, mine) {
   const shared = DRY.filter(c => grid[c]?.measured !== false && mine[c] && grid[c] && !grid[c].src && !mine[c].src);
   const off = shared.length ? median(shared.map(c => mine[c].base - grid[c].base)) : 0;
   const pick = (x) => ({ base: x.base, deg: x.deg, wear: x.wear, life: x.life });
+  const own = DRY.filter(c => mine[c] && !mine[c].src).length;
   for (const c of DRY) {
-    if (grid[c] && !mine[c]) mine[c] = { ...pick(grid[c]), base: grid[c].base + off, laps: 0, src: 'from the grid’s runs' };
+    if (grid[c] && !mine[c] && own < 2) mine[c] = { ...pick(grid[c]), base: grid[c].base + off, laps: 0, src: 'from the grid’s runs' };
     else if (mine[c] && !grid[c]) grid[c] = { ...pick(mine[c]), base: mine[c].base - off, laps: 0, drivers: 0, src: 'from your runs' };
   }
   for (const runs of [grid, mine]) {
@@ -5623,19 +5670,138 @@ function fillTyres(grid, mine) {
       wear: step(S, H, 'wear', (s, h) => (s + h) / 2), life: step(S, H, 'life', (s, h) => Math.round((s + h) / 2)) }, 'estimated: halfway between the soft and the hard');
   }
 }
-/** The quickest plans for a race of n laps, given the runs. */
-function optimalStrategies(runs, n) {
+/*
+  Pit stops and tyre sets. A stop costs what the pit lane costs at that track (green flag), and less under a virtual
+  safety car or a safety car, when the field is slow anyway. The defaults are typical figures per track; you can set
+  your own. Tyre sets: F1 25 hands you a weekend allocation by preset (softer, balanced, harder; sprint weekends have
+  their own), returns two dry sets after each practice session, and the plans can only use sets you still have. The
+  game's own tyre-set data (each set's wear, and whether it's still yours) wins whenever a session sent it; before
+  that, the preset stands in.
+*/
+// seconds lost to a green-flag stop, pit lane in and out
+const PIT_GREEN = { aus: 19, chn: 23, jpn: 22, bhr: 23, sau: 20, mia: 20, emi: 27, mon: 20, esp: 22, can: 18, aut: 20, gbr: 20, bel: 20, hun: 21, ned: 21, ita: 24, aze: 20, sgp: 28, usa: 21, mex: 23, bra: 21, lvg: 20, qat: 25, abu: 22, mad: 22, fra: 22, ger: 21, rus: 26, por: 22, tur: 22, mal: 21, kor: 22, ind: 21, eur: 22 };
+const PIT_VSC = 0.62, PIT_SC = 0.48; // share of the green-flag loss under a virtual safety car and a safety car
+/** A track's pit loss in ms: { green, vsc, sc, own } (own: you set it). */
+function pitLoss(c, track) {
+  const o = c?.pitLoss?.[track]; const g = (o?.green ?? PIT_GREEN[track] ?? 22) * 1000;
+  return { green: g, vsc: (o?.vsc ?? g / 1000 * PIT_VSC) * 1000, sc: (o?.sc ?? g / 1000 * PIT_SC) * 1000, own: !!o };
+}
+const TYRE_PRESETS = ['softer', 'balanced', 'harder'];
+const PRESET_NAME = { softer: 'Softer', balanced: 'Balanced', harder: 'Harder' };
+// dry sets per compound (soft, medium, hard), a best guess at F1 25's allocations: correct them in the app
+const TYRE_ALLOC = {
+  normal: { softer: { 16: 8, 17: 3, 18: 2 }, balanced: { 16: 7, 17: 4, 18: 2 }, harder: { 16: 6, 17: 4, 18: 3 } },
+  sprint: { softer: { 16: 6, 17: 4, 18: 2 }, balanced: { 16: 5, 17: 4, 18: 3 }, harder: { 16: 4, 17: 5, 18: 3 } },
+};
+const allocOf = (c, fmt, p) => ({ ...TYRE_ALLOC[fmt][p], ...(c?.tyreAlloc?.[fmt]?.[p] || {}) });
+/** A weekend's tyre preset: its own, else the latest one set before it (earlier seasons too), else balanced. */
+function tyrePreset(s, roundId) {
+  const c = career(), rounds = activeRounds(s);
+  for (let k = rounds.findIndex(r => r.id === roundId); k >= 0; k--) { const v = s.weekends[rounds[k].id]?.tyrePreset; if (v) return v; }
+  for (let i = s.index - 1; i >= 0; i--) { const p = c?.seasons[i]; if (!p) continue; const rs = activeRounds(p); for (let k = rs.length - 1; k >= 0; k--) { const v = p.weekends[rs[k].id]?.tyrePreset; if (v) return v; } }
+  return 'balanced';
+}
+/**
+ * Your tyre sets this weekend, session by session. From the game where a session sent its tyre-set data: each set's
+ * wear and whether it's still yours. Otherwise from the preset: each stint you ran used a fresh set (worn as much as the
+ * laps wore it), and after each practice session the two most-used sets go back.
+ * { source: 'game' | 'preset', cols: [{ k, used: [set], returned: [set] }], left: [{ c, wear, n, of }] } (dry sets)
+ */
+function tyreSetsFor(c, s, round) {
+  const w = s.weekends[round.id]; const keys = sessionsFor(s, round).filter(k => w?.sessions?.[k]?.game);
+  const fmt = round.sprint ? 'sprint' : 'normal'; const alloc = allocOf(c, fmt, tyrePreset(s, round.id));
+  const label = (sets) => { const seen = {}; return sets.map(x => ({ ...x, n: (seen[x.c] = (seen[x.c] || 0) + 1), of: sets.filter(y => y.c === x.c).length })); };
+  const withGame = keys.filter(k => w.sessions[k].game.tyreSets?.sets);
+  if (withGame.length) {
+    const cols = []; let prev = null;
+    for (const k of withGame) {
+      const sets = label(w.sessions[k].game.tyreSets.sets.map((x, i) => ({ ...x, i })).filter(x => DRY.includes(x.c)));
+      const was = (x) => prev?.find(y => y.i === x.i);
+      cols.push({ k, used: sets.filter(x => x.wear > (was(x)?.wear ?? 0)), returned: sets.filter(x => !x.avail && (was(x)?.avail ?? true)) });
+      prev = sets;
+    }
+    return { source: 'game', cols, left: prev.filter(x => x.avail), alloc };
+  }
+  // from the preset
+  const sets = label(DRY.flatMap(cp => Array.from({ length: alloc[cp] || 0 }, () => ({ c: cp, wear: 0, avail: true })))).map((x, i) => ({ ...x, i }));
+  const cols = [];
+  for (const k of keys) {
+    const sd = w.sessions[k]; const used = [];
+    for (const st of stintsOf(sd, PLAYER)) {
+      if (!DRY.includes(st.c)) continue;
+      const set = sets.find(x => x.c === st.c && x.avail && x.wear === 0); if (!set) continue;
+      const wr = sd.game.wear?.[PLAYER]?.[st.to - 1]; set.wear = Math.max(1, Math.round(wr ?? (st.to - st.from + 1) * 2)); used.push({ ...set });
+    }
+    const returned = [];
+    if (PRACTICE_KEYS.includes(k)) for (let n = 0; n < 2; n++) {
+      const pickSet = sets.filter(x => x.avail).sort((a, b) => b.wear - a.wear)[0]; if (!pickSet) break;
+      pickSet.avail = false; returned.push({ ...pickSet });
+    }
+    cols.push({ k, used, returned });
+  }
+  return { source: 'preset', cols, left: sets.filter(x => x.avail), alloc };
+}
+/** The sets a plan can use: per compound, the wear of each set left, freshest first. Null when nothing is known. */
+function setsLeft(c, s, round) {
+  const T = tyreSetsFor(c, s, round); const out = {};
+  for (const x of T.left) (out[x.c] ||= []).push(x.wear || 0);
+  for (const k in out) out[k].sort((a, b) => a - b);
+  return { sets: out, source: T.source };
+}
+/** One set in the tracker: its compound ring, which of the compound's sets it is, and its wear. */
+function tyreSetHtml(x, mark = '') {
+  const col = COMPOUNDS[x.c]?.[2] || '#888';
+  return `<div class="tset" style="--tc:${col}" title="${esc(COMPOUNDS[x.c]?.[1] || 'Tyre')} ${x.n}/${x.of}${x.wear ? `, ${x.wear}% worn` : ', new'}"><b>${mark}${x.n}/${x.of}</b><small>${x.wear ? `${x.wear}%` : 'new'}</small></div>`;
+}
+/** Current Weekend: the tyre allocation, like the game's own screen: the preset, then each session's sets and what's left. */
+function tyreAllocPanel(c, s, r) {
+  const p = tyrePreset(s, r.id); const fmt = r.sprint ? 'sprint' : 'normal'; const T = tyreSetsFor(c, s, r); const A = T.alloc;
+  const i = TYRE_PRESETS.indexOf(p);
+  const counts = DRY.map(cp => `<span class="ta-count"><i class="ta-dot" style="--tc:${COMPOUNDS[cp][2]}">${COMPOUNDS[cp][0]}</i>×${A[cp] || 0}</span>`).join('');
+  const cols = T.cols.map(x => `<div class="ta-col"><span class="ta-h">${esc(SESSION_SHORT[x.k] || x.k)}</span><div class="ta-sets">${x.used.map(y => tyreSetHtml(y)).join('') || '<div class="tset empty"></div>'}${x.returned.map(y => tyreSetHtml(y, '↺ ')).join('')}</div></div>`).join('');
+  const left = T.left.slice().sort((a, b) => a.c - b.c || a.wear - b.wear);
+  return `<div class="panel"><div class="panel-h"><h2>Tyre allocation</h2><div class="row" style="gap:6px"><span class="muted" style="font-size:12px">${T.source === 'game' ? 'Sets from F1 25' : `From the ${PRESET_NAME[p].toLowerCase()} preset, until a session sends the game’s tyre data`}</span><button class="btn sm ghost" data-act="tyre-presets">Edit presets</button></div></div>
+    <div class="panel-b"><div class="ta-head"><span class="ta-name">${PRESET_NAME[p]}</span><span>Tyre allocation</span>
+      <button class="icon-btn sm" data-act="tyre-preset" data-round="${r.id}" data-v="${TYRE_PRESETS[(i + 2) % 3]}" title="Previous preset">${ICON.left}</button><button class="icon-btn sm" data-act="tyre-preset" data-round="${r.id}" data-v="${TYRE_PRESETS[(i + 1) % 3]}" title="Next preset">${ICON.right}</button>
+      ${counts}<span class="muted" style="font-size:12px">${fmt === 'sprint' ? 'sprint weekend' : 'normal weekend'}</span></div>
+      <div class="ta-cols">${cols}<div class="ta-col left"><span class="ta-h">Left</span><div class="ta-sets">${left.map(y => tyreSetHtml(y)).join('') || '<span class="muted" style="font-size:12px">none</span>'}</div></div></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">↺: returned to the game. The race strategy only uses sets you still have, and a used set starts its stint already worn. ${T.source === 'game' ? '' : 'Without the game’s tyre data, each stint is taken to use a fresh set and the two most-used sets go back after each practice session.'}</p></div></div>`;
+}
+/** The presets editor: three for a normal weekend, three for a sprint weekend. */
+function tyrePresetsModal() {
+  const c = career();
+  const row = (fmt, p) => `<tr><td><b>${PRESET_NAME[p]}</b></td>${DRY.map(cp => `<td><input type="number" min="0" max="13" value="${allocOf(c, fmt, p)[cp]}" data-ch="tyre-alloc" data-fmt="${fmt}" data-p="${p}" data-c="${cp}" style="width:64px"></td>`).join('')}</tr>`;
+  const table = (fmt, title) => `<span class="label">${title}</span><div class="table-wrap"><table><thead><tr><th>Preset</th>${DRY.map(cp => `<th>${tyreChip(cp)} ${COMPOUNDS[cp][1]}</th>`).join('')}</tr></thead><tbody>${TYRE_PRESETS.map(p => row(fmt, p)).join('')}</tbody></table></div>`;
+  modal(`<div class="modal-h"><h2>Tyre allocation presets</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+    <div class="modal-b stack">${table('normal', 'Normal weekend')}${table('sprint', 'Sprint weekend')}
+    <p class="muted" style="font-size:12px;margin:0">Dry sets per compound. These are a best guess at F1 25’s allocations: match them to the game’s Tyre Allocation screen. Once a session sends the game’s tyre data, Pitwall uses that instead.</p>
+    <div class="row"><button class="btn sm ghost" data-act="tyre-presets-reset">Back to the defaults</button></div></div>`);
+}
+
+/**
+ * The quickest plans for a race of n laps, given the runs. loss: ms a stop costs. sets: the sets you have left, per
+ * compound (their wear, freshest first): a plan can't use more sets of a compound than you have, and a used set starts
+ * its stint as old as its wear makes it (so it is slower and has less life left).
+ */
+function optimalStrategies(runs, n, { loss = PIT_LOSS, sets = null } = {}) {
   const comps = Object.keys(runs).map(Number); const res = [];
   const life = (c) => Math.max(3, Math.min(n, runs[c].life ?? Math.round(n * 0.7)));
-  const stint = (c, L) => L * runs[c].base + runs[c].deg * L * (L - 1) / 2;
+  const perLap = (c) => runs[c].wear ?? (runs[c].life ? WEAR_LIMIT / runs[c].life : null); // % wear a lap
+  const age0 = (c, wr) => wr && perLap(c) ? wr / perLap(c) : 0; // laps a set's wear is worth
+  const stint = (c, L, a = 0) => L * runs[c].base + runs[c].deg * (L * a + L * (L - 1) / 2);
   const seqs = (len) => len === 1 ? comps.map(c => [c]) : seqs(len - 1).flatMap(q => comps.map(c => [...q, c]));
   for (let stops = 1; stops <= 3; stops++) {
     if (stops === 3 && res.length) break;
     for (const seq of seqs(stops + 1)) {
       if (new Set(seq).size < 2) continue; // two different dry compounds, as the rules require
+      // each stint's set: the next freshest of its compound, in order of use
+      const occ = seq.map((c, i) => seq.slice(0, i).filter(x => x === c).length);
+      if (sets && seq.some((c, i) => occ[i] >= (sets[c]?.length || 0))) continue; // not enough sets of it left
+      const wears = seq.map((c, i) => sets?.[c]?.[occ[i]] ?? 0); const a0 = seq.map((c, i) => age0(c, wears[i]));
+      const lifeAt = (i) => Math.max(1, Math.floor(life(seq[i]) - a0[i]));
       let best = null;
       const step = stops === 3 ? 2 : 1;
-      const tryLens = (lens) => { if (lens.some((L, i) => L < 1 || L > life(seq[i]))) return; const tt = lens.reduce((a, L, i) => a + stint(seq[i], L), 0) + stops * PIT_LOSS; if (!best || tt < best.t) best = { t: tt, lens: [...lens] }; };
+      const tryLens = (lens) => { if (lens.some((L, i) => L < 1 || L > lifeAt(i))) return; const tt = lens.reduce((a, L, i) => a + stint(seq[i], L, a0[i]), 0) + stops * loss; if (!best || tt < best.t) best = { t: tt, lens: [...lens] }; };
       if (stops === 1) for (let a = 1; a < n; a++) tryLens([a, n - a]);
       else if (stops === 2) for (let a = 1; a < n - 1; a++) for (let b = 1; a + b < n; b++) tryLens([a, b, n - a - b]);
       else for (let a = 1; a < n - 2; a += step) for (let b = 1; a + b < n - 1; b += step) for (let c = 1; a + b + c < n; c += step) tryLens([a, b, c, n - a - b - c]);
@@ -5644,13 +5810,13 @@ function optimalStrategies(runs, n) {
           const at = best.lens.slice(0, j + 1).reduce((a, b) => a + b, 0); let lo = at, hi = at;
           for (let d = -20; d <= 20; d++) {
             const L2 = [...best.lens]; L2[j] += d; L2[j + 1] -= d;
-            if (L2.some((L, i) => L < 1 || L > life(seq[i]))) continue;
-            const tt = L2.reduce((a, L, i) => a + stint(seq[i], L), 0) + stops * PIT_LOSS;
+            if (L2.some((L, i) => L < 1 || L > lifeAt(i))) continue;
+            const tt = L2.reduce((a, L, i) => a + stint(seq[i], L, a0[i]), 0) + stops * loss;
             if (tt - best.t <= 2500) { lo = Math.min(lo, at + d); hi = Math.max(hi, at + d); }
           }
           return [lo, hi];
         });
-        res.push({ stops, seq, ...best });
+        res.push({ stops, seq, ...best, wears });
       }
     }
   }
@@ -5659,13 +5825,13 @@ function optimalStrategies(runs, n) {
   return res.sort((a, b) => a.t - b.t).filter(p => { const k = p.seq.map((c, i) => c + ':' + p.lens[i]).sort().join(); return !seen.has(k) && seen.add(k); }).slice(0, 3);
 }
 /** One strategy block: the quickest plans and the numbers behind them. */
-function strategyBlock(title, runs, n, note) {
-  const plans = optimalStrategies(runs, n);
+function strategyBlock(title, runs, n, note, opts = {}) {
+  const plans = optimalStrategies(runs, n, opts);
   const fmtGap = (ms) => ms < 50 ? 'Fastest' : `+${(ms / 1000).toFixed(1)} s`;
   return `<div class="panel-b stack" style="gap:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><span class="label" style="margin:0">${esc(title)}</span><span class="muted" style="font-size:12px">${esc(note)}</span></div>
-    ${plans.length ? `<div class="strat-bars">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const word = ['', 'one', 'two', 'three'][p.stops] + '-stopper'; const name = i === 0 ? `<b>The quickest</b> ${word}` : p.t - plans[0].t < 3000 ? `<b>Very close</b> ${word}` : p.stops > plans[0].stops ? `<b>Aggressive</b> ${word}` : p.stops < plans[0].stops ? `<b>Conservative</b> ${word}` : `<b>Alternative</b> ${word}`; return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${name}</span><small class="muted">${fmtGap(p.t - plans[0].t)}</small></div></div>`; }).join('')}</div>` : '<div class="muted" style="font-size:13px">No plan fits: on these runs the tyres would not last the distance.</div>'}
+    ${plans.length ? `<div class="strat-bars">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const word = ['', 'one', 'two', 'three'][p.stops] + '-stopper'; const name = i === 0 ? `<b>The quickest</b> ${word}` : p.t - plans[0].t < 3000 ? `<b>Very close</b> ${word}` : p.stops > plans[0].stops ? `<b>Aggressive</b> ${word}` : p.stops < plans[0].stops ? `<b>Conservative</b> ${word}` : `<b>Alternative</b> ${word}`; const used = opts.sets && p.wears.some(x => x > 0) ? `<small class="muted strat-sets">${p.seq.map((cp, k) => `${p.wears[k] ? `used ${COMPOUNDS[cp][1].toLowerCase()} (${p.wears[k]}%)` : `new ${COMPOUNDS[cp][1].toLowerCase()}`}`).join(' → ')}</small>` : ''; return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${name}</span><small class="muted">${fmtGap(p.t - plans[0].t)}</small></div>${used}</div>`; }).join('')}</div>` : '<div class="muted" style="font-size:13px">No plan fits: on these runs the tyres would not last the distance.</div>'}
     <div class="table-wrap"><table><thead><tr><th>Tyre</th><th class="num">Pace</th><th class="num">Fall-off / lap</th><th class="num">Wear / lap</th><th class="num">Life</th></tr></thead><tbody>
-      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}${x.src ? `<div class="muted" style="font-size:11px">${esc(x.src)}</div>` : ''}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
+      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}${x.src ? `<div class="muted" style="font-size:11px">${esc(x.src)}</div>` : ''}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}${x.wearNote ? `<div class="muted" style="font-size:11px">${esc(x.wearNote)}</div>` : ''}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
     </tbody></table></div></div>`;
 }
 /** Dashboard: the best strategy for the next race, from this weekend's practice (the grid's, then yours). Each needs
@@ -5675,16 +5841,18 @@ function strategyAdvicePanel(c, s) {
   const anyPractice = RUN_KEYS.some(k => s.weekends[r.id]?.sessions?.[k]?.game && !s.weekends[r.id].sessions[k].estimated);
   const head = `<div class="panel-h"><h2>Race strategy</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice${r.sprint ? " and the sprint" : ""}</span></div>`;
   if (!anyPractice) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No practice logged from F1 25 for ${esc(r.name)} yet. Run practice with telemetry on and the best strategy appears here: it needs at least three consecutive laps on two dry compounds.</div></div>`;
-  const n = raceLaps(s, r.id);
-  const { grid, mine } = strategyRuns(s, r);
+  const n = raceLaps(s, r.id); const tid = trackOf(r); const PL = pitLoss(c, tid); const SL = setsLeft(c, s, r);
+  const { grid, mine } = strategyRuns(s, r); const SK = strategyKeys(s, r);
   const names = (runs) => listJoin(DRY.filter(cp => runs[cp]).map(cp => COMPOUNDS[cp][1].toLowerCase()));
   const short = (title, runs, who) => `<div class="panel-b muted" style="font-size:13px;border-top:1px solid var(--line)"><span class="label">${title}</span>Not enough ${who} yet: it needs at least three consecutive laps on two dry compounds.${Object.keys(runs).length ? ` So far: ${names(runs)}.` : ''}</div>`;
   // a plan needs two tyres someone actually ran (a filled-in tyre can complete the set, not start it)
   const enough = (runs) => Object.values(runs).filter(x => !x.src || x.src.startsWith('from')).length >= 2 && Object.keys(runs).length >= 2;
   return `<div class="panel">${head}
-    ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(0, ...Object.values(grid).map(x => x.drivers || 0)), 'driver')}`) : short('From the whole grid', grid, 'long runs from the grid')}
-    ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving') : short('From your runs', mine, 'of your own running')}
-    <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. Assumes ${PIT_LOSS / 1000} s per stop and a tyre is done at ${WEAR_LIMIT}% wear; fuel burn is the same for every plan, so it is left out.</div></div>`;
+    ${SK.dropped.length ? `<div class="panel-b"><div class="callout">${esc(listJoin(SK.dropped.map(x => SESSION_SHORT[x.k] || x.k)))} left out: your ${COMPOUNDS[SK.dropped[0].c][1].toLowerCase()}s wore ${SK.dropped[0].a.toFixed(1)}% a lap there against ${SK.dropped[0].b.toFixed(1)}% in ${SESSION_SHORT[SK.dropped[0].j] || SK.dropped[0].j}, so the tyre-wear setting probably changed. Only the later sessions count, for you and the grid.</div></div>` : ''}
+    ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(0, ...Object.values(grid).map(x => x.drivers || 0)), 'driver')}`, { loss: PL.green }) : short('From the whole grid', grid, 'long runs from the grid')}
+    ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving, the sets you have left', { loss: PL.green, sets: SL.sets }) : short('From your runs', mine, 'of your own running')}
+    <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. A tyre is done at ${WEAR_LIMIT}% wear; fuel burn is the same for every plan, so it is left out.
+      <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div></div></div>`;
 }
 
 /*
@@ -6150,7 +6318,7 @@ function idealLaps(s, round) {
 function raceForecast(s, round) {
   const n = raceLaps(s, round.id); const grid = strategyRuns(s, round).grid; const ideal = idealLaps(s, round);
   const comps = Object.keys(grid); if (!comps.length) return null;
-  const plan = comps.length >= 2 ? optimalStrategies(grid, n)[0] : null;
+  const plan = comps.length >= 2 ? optimalStrategies(grid, n, { loss: pitLoss(career(), trackOf(round)).green })[0] : null;
   const baseT = plan ? plan.t : (() => { const g = grid[comps[0]]; return n * g.base + g.deg * n * (n - 1) / 2; })();
   const idealMed = (() => { const v = Object.values(ideal).map(o => o.ideal).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; })();
   const q = s.weekends[round.id]?.sessions?.Q;
@@ -6210,6 +6378,7 @@ function renderCurrentWeekend() {
       <div class="panel"><div class="panel-h"><h2>Predicted race pace · teams</h2><span class="muted" style="font-size:12px">Long runs against the grid, per lap</span></div><div class="panel-b tight table-wrap">${teamBoard}</div></div>
       <div class="panel"><div class="panel-h"><h2>Predicted race pace · drivers</h2><span class="muted" style="font-size:12px">“est.” = no long run, from the ideal lap</span></div><div class="panel-b tight table-wrap">${drvBoard}</div></div>
     </div>` : ''}
+    ${tyreAllocPanel(c, s, r)}
     ${strategyAdvicePanel(c, s)}
     ${ersPanel(c, s, r, 'quali')}
     ${ersPanel(c, s, r)}
@@ -9181,6 +9350,11 @@ const actions = {
 function redrawModal() { if (ui.modal?.kind === 'goals') drawGoalsModal(); else if (ui.modal?.kind === 'next') drawNextSeasonModal(); }
 
 const changes = {
+  'tyre-alloc'(el) { const c = career(); const { fmt, p, c: cp } = el.dataset; ((c.tyreAlloc ||= {})[fmt] ||= {})[p] = { ...allocOf(c, fmt, p), [cp]: Math.max(0, Math.min(13, Math.round(+el.value || 0))) }; store.save(); render(); },
+  'pit-loss'(el) {
+    const c = career(); const tid = el.dataset.track; const cur = pitLoss(c, tid); const v = Math.max(0, Math.min(60, +el.value || 0));
+    c.pitLoss ||= {}; c.pitLoss[tid] = { green: cur.green / 1000, vsc: cur.vsc / 1000, sc: cur.sc / 1000, [el.dataset.k]: v }; store.save(); render();
+  },
   'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
   'tm-sort-sel'(el) { ui.tms.sort = el.value; render(); },
   'setup-year'(el) { setupYear(Math.max(2027, Math.min(2060, +el.value || 2027))); },
@@ -9349,6 +9523,10 @@ Object.assign(actions, {
     for (const inc of g.incidents || []) if (inc.pen && inc.a === p.d && inc.b === p.other && (inc.t == null || p.t == null || Math.abs(inc.t - p.t) < 1)) { inc.pen = null; inc.major = false; }
     renderGen++; store.save(); render(); toast(`Penalty removed for ${dName(s, p.d)}`);
   },
+  'tyre-preset'(el) { const s = curSeason(); weekend(s, el.dataset.round || ui.round, true).tyrePreset = el.dataset.v; store.save(); render(); },
+  'tyre-presets'() { tyrePresetsModal(); },
+  'tyre-presets-reset'() { const c = career(); delete c.tyreAlloc; store.save(); tyrePresetsModal(); render(); },
+  'pit-loss-reset'(el) { const c = career(); delete c.pitLoss?.[el.dataset.track]; store.save(); render(); },
   'ers-view'(el) { ui[el.dataset.k || 'ersView'] = el.dataset.v; render(); },
   async 'ers-diag'(el) {
     const s = latestSeason(); const w = s.weekends[el.dataset.round];

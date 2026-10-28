@@ -7,7 +7,7 @@
 // profile the ERS, and in a race it sends that profile on as you drive, so the plan can adapt lap by lap.
 const dgram = require('dgram');
 
-const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11 };
+const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11, TYRE_SETS: 12 };
 const ERS_BIN = 20; // metres: the ERS profile is kept in slices of the lap this long
 // the sessions your ERS is profiled in: the whole weekend (practice, qualifying, the sprint and the race), not time trial
 const ersSession = (info) => !!info && info.sessionType >= 1 && info.sessionType <= 17;
@@ -109,6 +109,20 @@ function parseWear(b, L) {
     out.push(Math.max(b.readFloatLE(o), b.readFloatLE(o + 4), b.readFloatLE(o + 8), b.readFloatLE(o + 12)));
   }
   return out;
+}
+/**
+ * Tyre sets: one car's 20 sets (13 dry, 7 wet) as the game tracks them: compound, wear (%), still available (or
+ * returned), the session the game meant it for, its life, the lap time it gives up to a new set (ms), and whether it is
+ * on the car. Each record is 10 bytes; the size is worked out from the packet length in case a format changes it.
+ */
+function parseTyreSets(b) {
+  if (b.length < HEADER + 1 + 20 * 10) return null;
+  const w = Math.floor((b.length - HEADER - 2) / 20); const sets = [];
+  for (let k = 0; k < 20; k++) {
+    const o = HEADER + 1 + k * w;
+    sets.push({ c: b[o + 1], actual: b[o], wear: b[o + 2], avail: !!b[o + 3], rec: b[o + 4], life: b[o + 5], usable: b[o + 6], delta: b.readInt16LE(o + 7), fitted: !!b[o + 9] });
+  }
+  return { car: b[HEADER], sets, fitted: b[HEADER + 1 + 20 * w] };
 }
 function parseHistory(b) {
   if (b.length < 1460) return null;
@@ -229,6 +243,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
+      tyreSets: s.tyreSets || null,
       safetyCars: Math.max(s.info.safetyCars || 0, s.sc.sc), virtualSafetyCars: Math.max(s.info.virtualSafetyCars || 0, s.sc.vsc), scPeriods: s.sc.periods,
       overtakes: s.swaps.length ? s.swaps : s.overtakes, passSource: s.swaps.length ? 'positions' : s.overtakes.length ? 'event' : null,
       ers: ersSession(s.info) ? packErs(s) : null });
@@ -268,6 +283,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
     else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
     else if (h.type === PACKET.STATUS) s.stat = playerStatus(b, L, h.player) || s.stat;
+    else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.DAMAGE) {
       s.wearNow = parseWear(b, L);
