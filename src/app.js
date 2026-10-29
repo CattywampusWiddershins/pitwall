@@ -868,15 +868,8 @@ function baseRoster(c, index, prev) {
       if (i >= 0) t.drivers[i] = prev.benched && drivers[prev.benched] ? prev.benched : null;
     }
     out = { teams, drivers, calendar: clone(prev.calendar).map(r => ({ ...r })) };
-    // past the real data the rest of the market moves on its own: retirements, top teams signing drivers who beat
-    // their car, rookies from F2 and F3. The same moves every time for the same career and year.
-    if (year > 2026) {
-      const w = simWinter(c, prev, year, Object.fromEntries(teams.map(t => [t.id, [...t.drivers]])), null, mulberry(`${c.id}-${year}`));
-      for (const t of teams) t.drivers = w.lineup[t.id];
-      const used = new Set(Object.values(drivers).map(d => d.number));
-      for (const d of teams.flatMap(t => t.drivers)) if (d && !drivers[d]) drivers[d] = simEntry(c, d, used);
-      out.aiSteps = w.steps;
-    }
+    // past the real data nothing is predicted: the grid carries over with the moves you confirmed (applied below), as
+    // the Next Season tab shows it
   } else {
     // real life: that year's real grid (F1 25's for 2025 and 2026)
     const teams = tpl.grid.map(t => ({ ...t, drivers: [...t.drivers] }));
@@ -1015,7 +1008,7 @@ function placePlayer(season, c, teamId, seatDriverId) {
 // A Driver Career can follow a real driver (F1 25 mods let you start in 2016 as anyone). You are that driver: Pitwall
 // follows them as "you", every season starts on the real grid, and their real moves happen as the season reaches
 // them, along with everyone else's: Verstappen starts 2016 at Toro Rosso and swaps with Kvyat for the fifth race.
-// Real data runs to 2025; 2026 starts on F1 25's grid, and after that the driver market runs itself.
+// Real data runs to 2025; 2026 starts on F1 25's grid, and after that each season starts with the confirmed transfers only.
 /** Every race's real line-ups for a year (cached), and the races where any of them changed. */
 const _lineups = {};
 const realLineups = (y) => _lineups[y] ||= (H.seasons[y]?.rounds || []).map((_, k) => lineupAt(y, k));
@@ -5788,6 +5781,18 @@ function nextBase(c, s) {
   const v = _nextBase.get(s); if (v?.gen === renderGen) return v.b;
   const b = baseRoster(c, s.index + 1, s); _nextBase.set(s, { gen: renderGen, b }); return b;
 }
+/**
+ * Next season's line-up for the Next Season tab: today's grid with only the moves you've confirmed for next season
+ * (re-signings, moves, departures), in the order they were made. Nothing is predicted: no market moves, no rookies.
+ */
+const _nextLineup = new WeakMap();
+function nextLineup(c, s) {
+  const v = _nextLineup.get(s); if (v?.gen === renderGen) return v.b;
+  let teams, drivers;
+  if (templateFor(s.year + 1, c)) ({ teams, drivers } = nextBase(c, s)); // a real season: its real grid, with your moves on top
+  else { teams = clone(s.teams); drivers = clone(s.drivers); for (const tr of s.transfers || []) if (tr.effective === 'next') for (const m of tr.steps) applyMove(c, teams, drivers, m); }
+  const b = { teams, drivers }; _nextLineup.set(s, { gen: renderGen, b }); return b;
+}
 /** Next season's calendar: yours if you've changed it, else the one it would start with. */
 const nextCal = (c, s) => c.nextCal?.[s.year + 1] || nextBase(c, s).calendar.filter(r => !r.off);
 /** A track's history in this career: the winners there, latest first: [{ year, d, s }]. */
@@ -5808,7 +5813,7 @@ function lastHeld(c, tid, before) {
   return y;
 }
 function renderNextSeason(c, s) {
-  const year = s.year + 1; const base = nextBase(c, s); const cal = nextCal(c, s);
+  const year = s.year + 1; const base = nextLineup(c, s); const cal = nextCal(c, s);
   const onNow = new Set(activeRounds(s).map(roundTrackId));
   const own = !!c.nextCal?.[year]; const ann = c.calAnnounced?.[year];
   const changedSince = ann && JSON.stringify(ann.cal.map(r => [r.id, !!r.sprint])) !== JSON.stringify(cal.map(r => [r.id, !!r.sprint]));
@@ -5824,7 +5829,7 @@ function renderNextSeason(c, s) {
   }).join('');
   return `<div class="stack">
     <div class="panel"><div class="panel-h"><h2>${year} line-up, as it stands</h2><button class="btn sm primary" data-act="tr-new-next">New transfer for ${year}</button></div>
-      <div class="panel-b"><div class="ns-grid">${teams}</div><p class="muted" style="font-size:12px;margin:8px 0 0">This season’s grid with every move signed for ${year}${year > HIST_TO + 1 ? ' and the market’s own moves' : ''}. Transfers made here take effect from ${year}, never mid-season.</p></div></div>
+      <div class="panel-b"><div class="ns-grid">${teams}</div><p class="muted" style="font-size:12px;margin:8px 0 0">This season’s grid with only the moves confirmed for ${year}: nothing is predicted. Transfers made here take effect from ${year}, never mid-season.</p></div></div>
     <div class="panel"><div class="panel-h"><h2>The ${year} calendar</h2><div class="row" style="gap:6px">${own ? `<button class="btn sm ghost" data-act="nc-reset">Back to the default</button>` : ''}<button class="btn sm ${ann && !changedSince ? '' : 'primary'}" data-act="nc-announce">${ann ? (changedSince ? 'Announce the changes' : 'Announced') : 'Announce'}</button></div></div>
       <div class="panel-b tight table-wrap"><table><thead><tr><th class="num">#</th><th>Grand Prix</th><th></th><th>Contract</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
       <div class="panel-b row" style="gap:8px"><select data-ch="nc-add"><option value="">+ Add a track…</option>${addable.map(tid => `<option value="${tid}">${esc(trackGp(tid).name)}${D.TRACKS[tid]?.circuit ? ` · ${esc(D.TRACKS[tid].circuit)}` : ''}</option>`).join('')}</select><span class="muted" style="font-size:12px">${plural(cal.length, 'round')} · ${cal.filter(r => r.sprint).length} sprints</span></div>
@@ -8996,7 +9001,7 @@ function setupBlurb(y) {
   if (y === 2025) return 'Starts in 2025 with the F1 25 grid, plus APXGP or Konnersport if you added one. From season two the grid moves to 2026: Audi takes over Sauber and Cadillac joins.';
   if (y === 2026) return 'Starts in 2026 with the F1 25 2026 Season Pack grid: Audi takes over Sauber and Cadillac joins as the 11th team.';
   if (y > 2026) return `Starts in ${y} on a grid and calendar you lay out. Every real season to ${HIST_TO} is in your career, and the years after it are simulated.`;
-  return `Starts in ${y} on the real grid and calendar. Each season after follows real life (the real line-ups and calendar) with your career’s moves on top, up to 2026; after that the driver market runs itself.`;
+  return `Starts in ${y} on the real grid and calendar. Each season after follows real life (the real line-ups and calendar) with your career’s moves on top, up to 2026; after that each season starts with the grid you confirm on the Next Season tab.`;
 }
 /** A circuit's Grand Prix name and venue, for adding it to a calendar. */
 function trackGp(tid) {
@@ -9061,7 +9066,7 @@ function realPathHtml(id, year) {
   const p = realPath(id, year); if (!p.length) return '';
   const rows = []; for (const x of p) { const lastRow = rows[rows.length - 1]; if (lastRow && lastRow.team === x.team && !x.from) { lastRow.to = x.year; continue; } rows.push({ ...x, to: x.year }); }
   return `<div class="real-path"><span class="label">${esc(anyName(id))}’s real path from ${year}</span><ul class="ms-list">${rows.map(r => `<li><span><b>${r.year}${r.to !== r.year ? '–' + r.to : ''}</b> ${r.team ? esc(r.teamName || r.team) : '<span class="muted">not racing</span>'}${r.from ? ` <span class="muted">· from round ${r.from + 1}${r.round ? ` (${esc(r.round)})` : ''}</span>` : ''}</span></li>`).join('')}</ul>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">These moves happen on their own as you log the races. Real data runs to ${HIST_TO}; ${HIST_TO + 1} starts on F1 25’s grid, and after that the driver market runs itself.</p></div>`;
+    <p class="muted" style="font-size:12px;margin:6px 0 0">These moves happen on their own as you log the races. Real data runs to ${HIST_TO}; ${HIST_TO + 1} starts on F1 25’s grid, and after that each season starts with the grid you confirm on the Next Season tab.</p></div>`;
 }
 function renderSetup() {
   const u = ui.setup ||= defaultSetup();
@@ -9234,7 +9239,7 @@ function drawNextSeasonModal() {
   const extraAsk = year === 2025 && c.type !== 'myteam' && c.startYear < 2025 ? `<div><h3 style="margin-bottom:6px">11th team in 2025</h3><p class="muted" style="margin:0 0 10px">Did your F1 25 career add APXGP or Konnersport? They race in 2025 only.</p>${extraPicker(m.extra ?? c.extraTeam2025, 'next-extra')}</div>` : '';
   const apxNote = year === 2026 ? '<div class="callout">The grid moves to the 2026 regulations: Audi replaces Kick Sauber and Cadillac joins as the 11th team. Madrid replaces Imola on the calendar.</div>'
     : templateFor(year) ? `<div class="callout">The ${year} grid and calendar follow real life, with the moves made in your career on top.</div>`
-    : '<div class="callout">Past the real data: the grid carries over from last season with every transfer, and the rest of the market moves on its own. Check the moves in Transfers.</div>';
+    : '<div class="callout">Past the real data: the season starts with the grid and calendar on the Next Season tab, this season’s grid with only the transfers you confirmed. Nothing is added for you.</div>';
   modal(`<div class="modal-h"><h2>Start the ${year} season</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b">
       ${remaining ? `<div class="callout">${remaining} round${remaining > 1 ? 's' : ''} of ${s.year} still unlogged. You can come back and log them later.</div>` : ''}
