@@ -790,3 +790,14 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 @keyframes sun-glow { 50% { box-shadow: 0 0 0 6px rgba(245,197,24,.15); } }
 @keyframes rain { from { transform: translateY(-3px); opacity: 1; } to { transform: translateY(4px); opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .wx-sun, .wx-drops { animation: none; } }
+button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
+.tset.gone { opacity: .45; border-style: dashed; }
+.ns-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.ns-team { position: relative; display: grid; gap: 2px; padding: 8px 10px 8px 14px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.ns-team .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 6px 0 0 6px; background: var(--c); }
+.pos-chart .pc-line.dim polyline { opacity: .35; }
+.pos-chart .pc-line.me polyline { stroke-width: 3.6; }
+.debrief-grid { display: grid; gap: 14px; }
+.debrief-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .debrief-grid.two { grid-template-columns: 1fr; } }
+.pace-table td { padding-top: 4px; padding-bottom: 4px; }
