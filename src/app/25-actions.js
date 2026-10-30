@@ -506,6 +506,7 @@ Object.assign(actions, {
   'fv-open'(el) { ui.view = 'performance'; ui.perfView = 'drivers'; ui.fvRound = +el.dataset.ri; render(); },
   'lb-sort'(el) { ui.lb.sort = el.dataset.k; render(); },
   'lb-scope'(el) { ui.lb.scope = el.dataset.v; render(); },
+  'add-scope'(el) { state.addScope = el.dataset.v; store.save(); render(); },
   'standings-detail'(el) { ui.standingsDetail = el.dataset.v; render(); },
   'stories-filter'(el) { ui.stories = el.dataset.v; render(); },
   // a penalty the game reported that didn't stand (a flashback undid it): off the record, and off any incident it made

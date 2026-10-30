@@ -178,12 +178,12 @@ function renderStats() {
     const rec = driverRecord(c, id, ctx);
     const t = full ? rec.tot : Object.fromEntries(['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'].map(k => [k, rec.tot[k] - rec.base[k]]));
     const titles = full ? rec.tot.titles.length : rec.seasons.filter(x => x.complete && x.pos === 1 && !isHist(x.s)).length;
-    return { id, name: id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id].name, team: teamOf(latest, id), ...t, titles, base: rec.base };
+    return { id, name: id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id].name, team: teamOf(latest, id), ...t, titles, from: rec.from };
   });
   const lk = ui.lb.sort;
   board.sort((a, b) => (b[lk] - a[lk]) || b.wins - a.wins || b.pts - a.pts || a.name.localeCompare(b.name));
   const lth = (key, label) => `<th class="num sortable ${lk === key ? 'on' : ''}" data-act="lb-sort" data-k="${key}">${label}</th>`;
-  const lbAdd = (x, k, fmt) => full ? plus(x[k] - x.base[k], fmt) : '';
+  const lbAdd = (x, k, fmt) => full ? plus(x[k] - x.from[k], fmt) : '';
 
   const wins = [];
   for (const s of played) {
@@ -210,7 +210,7 @@ function renderStats() {
         <td><span class="tnum">${r.h.q[0]}–${r.h.q[1]} / ${r.h.r[0]}–${r.h.r[1]}</span> <span class="muted">vs ${esc(dAbbr(r.s, r.mate))}</span></td></tr>`).join('')}</tbody>
     </table></div></div>
     <div class="panel"><div class="panel-h"><div><h2>All-time leaderboard</h2><span class="muted" style="font-size:12px">${full ? `Entire F1 careers: real records up to ${firstPlayed(c).year - 1} plus your career (shown in green)` : `Only what each driver has done since ${firstPlayed(c).year} in your career`}. The ${latest.year} grid plus everyone who has raced since ${c.seasons[0].year}. Click a column to sort.</span></div>
-      <div class="seg">${[['full', 'Entire careers'], ['career', 'This career only']].map(([v, l]) => `<button data-act="lb-scope" data-v="${v}" class="${ui.lb.scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      ${full ? addScopeSeg() : ''}<div class="seg">${[['full', 'Entire careers'], ['career', 'This career only']].map(([v, l]) => `<button data-act="lb-scope" data-v="${v}" class="${ui.lb.scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="panel-b tight table-wrap"><table>
         <thead><tr><th>#</th><th>Driver</th><th>${latest.year} team</th>${lth('titles', 'Titles')}${lth('starts', 'Starts')}${lth('wins', 'Wins')}${lth('podiums', 'Podiums')}${lth('poles', 'Poles')}${lth('pts', 'Points')}</tr></thead>
         <tbody>${board.map((x, i) => `<tr class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}"><td class="muted num">${i + 1}</td><td>${drvCell(latest, x.id, { name: x.name })}</td>
@@ -331,7 +331,10 @@ function renderReview() {
 /* ---------------------------------------------------------------- drivers */
 const refName = (id) => D.DRIVERS[id]?.name || D.HIST_DRIVERS[id] || id;
 const fmtPts = (v) => Number.isInteger(v) ? String(v) : v.toFixed(1);
-const plus = (n, fmt = String) => n > 0 ? ` <small class="plus" title="Added in this career">+${fmt(n)}</small>` : '';
+/** What the green numbers count: everything added in this career, or just this season (a setting). */
+const addSeason = () => state.addScope === 'season';
+const plus = (n, fmt = String) => n > 0 ? ` <small class="plus" title="${addSeason() ? 'Added this season' : 'Added in this career'}">+${fmt(n)}</small>` : '';
+const addScopeSeg = () => `<div class="seg" title="What the green numbers count">${[['career', 'Added in career'], ['season', 'Added this season']].map(([v, l]) => `<button data-act="add-scope" data-v="${v}" class="${(state.addScope || 'career') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 
 /** careerCtx as it stood after `at` rounds of season s: for stories, which only know what had happened by then. */
 const _ctxCache = new WeakMap();
@@ -358,13 +361,13 @@ function driverRecord(c, id, ctx = careerCtx(c)) {
   const KEYS = ['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'];
   const base = Object.fromEntries(KEYS.map(k => [k, bio?.[k] || 0]));
   const tot = { ...base, titles: [...(bio?.titles || [])], bestChamp: bio?.bestChamp ?? null, bestFinish: bio?.bestFinish ?? null, dnfs: 0 };
-  const seasons = [];
+  const seasons = []; const cur = c.seasons[c.seasons.length - 1]; const before = { ...base }; // before: everything but this season
   for (const { s, st, ds, complete } of ctx) {
     const o = st[id];
     if (!o || !s.drivers[id]) continue;
     const pos = ds.find(x => x.id === id)?.pos ?? null;
     seasons.push({ s, o, pos, team: teamOf(s, id), complete });
-    for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; }
+    for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; if (s !== cur) before[k] += o[k]; }
     tot.dnfs += o.dnfs;
     if (o.best != null) tot.bestFinish = tot.bestFinish == null ? o.best : Math.min(tot.bestFinish, o.best);
     if (complete && pos != null) {
@@ -372,7 +375,8 @@ function driverRecord(c, id, ctx = careerCtx(c)) {
       if (pos === 1) tot.titles.push(s.year);
     }
   }
-  return { bio, base, tot, seasons };
+  // from: what the green numbers count from (the real totals before the career, or everything before this season)
+  return { bio, base, tot, seasons, from: addSeason() ? before : base };
 }
 
 function renderDrivers() {
@@ -388,8 +392,8 @@ function renderDrivers() {
   const val = (r) => k === 'titles' ? r.tot.titles.length : k === 'winPct' ? (r.tot.starts ? r.tot.wins / r.tot.starts : -1) : r.tot[k];
   rows.sort((a, b) => k === 'name' ? name(a.id).localeCompare(name(b.id)) : (val(b) - val(a)) || name(a.id).localeCompare(name(b.id)));
   return `<div class="page">
-    <div class="page-head"><div><h1>Drivers</h1><div class="sub">Real F1 career totals, plus every race logged in your career (shown in green).</div></div>
-      <div class="row">${sortSel('drv-sort-sel', k, [['wins', 'Wins'], ['titles', 'Titles'], ['podiums', 'Podiums'], ['poles', 'Poles'], ['starts', 'Starts'], ['pts', 'Points'], ['fls', 'Fastest laps'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All drivers']].map(([v, l]) => `<button data-act="drv-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="page-head"><div><h1>Drivers</h1><div class="sub">Real F1 career totals, plus every race logged in your career (in green: added in the career, or this season).</div></div>
+      <div class="row">${addScopeSeg()}${sortSel('drv-sort-sel', k, [['wins', 'Wins'], ['titles', 'Titles'], ['podiums', 'Podiums'], ['poles', 'Poles'], ['starts', 'Starts'], ['pts', 'Points'], ['fls', 'Fastest laps'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All drivers']].map(([v, l]) => `<button data-act="drv-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
     <div class="cards">${rows.map(r => driverCard(c, s, r, name(r.id), known[r.id])).join('')}</div>
   </div>`;
 }
@@ -397,7 +401,7 @@ const sortSel = (ch, v, opts) => `<label class="row muted" style="gap:6px;font-s
 /** A driver as a card: team colour, photo, number, flag and the career totals. */
 function driverCard(c, s, r, nm, entry) {
   const t = teamOf(s, r.id); const col = t?.color || '#5E6A82';
-  const add = (key, fmt) => plus(r.tot[key] - r.base[key], fmt);
+  const add = (key, fmt) => plus(r.tot[key] - r.from[key], fmt);
   const nat = r.id === PLAYER_ID ? c.profile.nationality : r.bio?.nat;
   const stat = (label, v, extra = '') => `<div><span class="label">${label}</span><b>${v}</b>${extra}</div>`;
   return `<button class="dcard ${r.id === PLAYER ? 'me' : ''}" style="--c:${col}" data-act="open-driver" data-id="${r.id}">
@@ -413,7 +417,7 @@ function renderDriver() {
   const known = allKnownDrivers(c, s);
   const d = s.drivers[id] || known[id];
   if (!d) { ui.view = 'drivers'; return renderDrivers(); }
-  const { bio, base, tot, seasons } = driverRecord(c, id);
+  const { bio, base, tot, seasons, from } = driverRecord(c, id);
   const isMe = id === PLAYER; // the driver the pages follow
   const isYou = id === PLAYER_ID; // the driver you created
   const team = teamOf(s, id);
@@ -423,7 +427,7 @@ function renderDriver() {
   const born = bornOf(c, id);
   const age = ageNow(c, id);
   const editableDob = isYou || c.customDrivers?.some(x => x.id === id);
-  const add = (k) => tot[k] - base[k];
+  const add = (k) => tot[k] - from[k];
   const inCareer = c.seasons.some(x => gridIds(x).includes(id));
   const titles = tot.titles;
   const me = seasons.find(x => x.s === s)?.o;
@@ -453,6 +457,7 @@ function renderDriver() {
     </section>
     ${numberOneToggle(c, id)}
 
+    <div class="row add-scope-row">${addScopeSeg()}</div>
     <div class="tiles">
       <div class="tile"><span class="label">Starts</span><span class="v">${tot.starts}${plus(add('starts'))}</span></div>
       <div class="tile"><span class="label">Wins</span><span class="v">${tot.wins}${plus(add('wins'))}</span></div>
@@ -515,7 +520,7 @@ function teamRecord(c, id, ctx = careerCtx(c)) {
   const KEYS = ['starts', 'wins', 'poles', 'podiums', 'fls'];
   const base = Object.fromEntries(KEYS.map(k => [k, src?.[k] || 0]));
   const tot = { ...base, pts: 0, conTitles: [...(src?.conTitles || [])], drvTitles: src?.drvTitles || 0, drvYears: [], bestFinish: src?.bestFinish ?? (src?.wins ? 1 : null), bestCon: src?.conTitles?.length ? 1 : null };
-  const seasons = [];
+  const seasons = []; const cur = c.seasons[c.seasons.length - 1]; const before = { ...base, pts: 0 };
   for (const { s, st, ds, cs, done, complete } of ctx) {
     const t = s.teams.find(x => ids.includes(x.id)); if (!t) continue;
     const row = cs.find(x => x.team.id === t.id);
@@ -526,8 +531,8 @@ function teamRecord(c, id, ctx = careerCtx(c)) {
       o.wins += x.wins; o.poles += x.poles; o.podiums += x.podiums; o.fls += x.fls;
       if (x.best != null) o.best = o.best == null ? x.best : Math.min(o.best, x.best);
     }
-    for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; }
-    tot.pts += o.pts;
+    for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; if (s !== cur) before[k] += o[k]; }
+    tot.pts += o.pts; if (s !== cur) before.pts += o.pts;
     if (o.best != null) tot.bestFinish = tot.bestFinish == null ? o.best : Math.min(tot.bestFinish, o.best);
     if (complete && row) {
       tot.bestCon = tot.bestCon == null ? row.pos : Math.min(tot.bestCon, row.pos);
@@ -536,7 +541,8 @@ function teamRecord(c, id, ctx = careerCtx(c)) {
     }
     seasons.push({ s, t, o, pos: row?.pos ?? null, drivers, complete, done });
   }
-  return { bio, src, base, tot, seasons };
+  const titlesAdded = addSeason() ? tot.drvYears.filter(y => y === cur.year).length : tot.drvYears.length;
+  return { bio, src, base, tot, seasons, from: addSeason() ? before : { ...base, pts: 0 }, titlesAdded };
 }
 
 function renderTeams() {
@@ -553,15 +559,15 @@ function renderTeams() {
   const val = (r) => k === 'conTitles' ? r.tot.conTitles.length * 1000 + r.tot.drvTitles : k === 'drvTitles' ? r.tot.drvTitles : k === 'winPct' ? (r.tot.starts ? r.tot.wins / r.tot.starts : -1) : r.tot[k];
   rows.sort((a, b) => k === 'name' ? a.meta.name.localeCompare(b.meta.name) : (val(b) - val(a)) || b.tot.wins - a.tot.wins || a.meta.name.localeCompare(b.meta.name));
   return `<div class="page">
-    <div class="page-head"><div><h1>Teams</h1><div class="sub">Real F1 team records, plus every race logged in your career (shown in green).</div></div>
-      <div class="row">${sortSel('tm-sort-sel', k, [['conTitles', 'Constructors’ titles'], ['drvTitles', 'Drivers’ titles'], ['wins', 'Wins'], ['poles', 'Poles'], ['podiums', 'Podiums'], ['starts', 'Starts'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All teams']].map(([v, l]) => `<button data-act="tm-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="page-head"><div><h1>Teams</h1><div class="sub">Real F1 team records, plus every race logged in your career (in green: added in the career, or this season).</div></div>
+      <div class="row">${addScopeSeg()}${sortSel('tm-sort-sel', k, [['conTitles', 'Constructors’ titles'], ['drvTitles', 'Drivers’ titles'], ['wins', 'Wins'], ['poles', 'Poles'], ['podiums', 'Podiums'], ['starts', 'Starts'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All teams']].map(([v, l]) => `<button data-act="tm-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
     <div class="cards">${rows.map(r => teamCard(c, s, r)).join('')}</div>
   </div>`;
 }
 /** A team as a card: colours, logo, this season's drivers and the record. */
 function teamCard(c, s, r) {
   const t = s.teams.find(x => x.id === r.id);
-  const add = (key) => plus(r.tot[key] - r.base[key]);
+  const add = (key) => plus(r.tot[key] - r.from[key]);
   const bio = D.TEAM_BIO[r.id];
   const country = (bio?.base || '').split(',').pop().trim();
   const stat = (label, v, extra = '') => `<div><span class="label">${label}</span><b>${v}</b>${extra}</div>`;
@@ -578,9 +584,9 @@ function renderTeam() {
   if (!id) { ui.view = 'teams'; return renderTeams(); }
   const meta = s.teams.find(t => t.id === id) || teamMeta(c, id);
   const isMine = id === MYTEAM && c.myTeam;
-  const { src, base, tot, seasons } = teamRecord(c, id);
+  const { src, base, tot, seasons, from, titlesAdded } = teamRecord(c, id);
   const bio = D.TEAM_BIO[id] || {};
-  const add = (k) => tot[k] - base[k];
+  const add = (k) => tot[k] - from[k];
   const onGrid = s.teams.find(t => t.id === id);
   const st = seasonStats(s); const cs = constructorStandings(s, st);
   const cur = cs.find(x => x.team.id === id);
@@ -607,13 +613,14 @@ function renderTeam() {
       </div>
     </section>
 
+    <div class="row add-scope-row">${addScopeSeg()}</div>
     <div class="tiles">
       <div class="tile"><span class="label">Starts</span><span class="v">${tot.starts}${plus(add('starts'))}</span></div>
       <div class="tile"><span class="label">Wins</span><span class="v">${tot.wins}${plus(add('wins'))}</span></div>
       <div class="tile"><span class="label">Poles</span><span class="v">${tot.poles}${plus(add('poles'))}</span></div>
       <div class="tile"><span class="label">Podiums</span><span class="v">${tot.podiums}${plus(add('podiums'))}</span></div>
       <div class="tile"><span class="label">Fastest laps</span><span class="v" style="color:var(--purple)">${tot.fls}${plus(add('fls'))}</span></div>
-      <div class="tile"><span class="label">Drivers’ titles</span><span class="v">${tot.drvTitles}${plus(tot.drvYears.length)}</span></div>
+      <div class="tile"><span class="label">Drivers’ titles</span><span class="v">${tot.drvTitles}${plus(titlesAdded)}</span></div>
     </div>
 
     <div class="panel"><div class="panel-h"><h2>Record by season</h2><span class="muted" style="font-size:12px">Green figures are what the team has added in your career</span></div><div class="panel-b tight table-wrap"><table>
