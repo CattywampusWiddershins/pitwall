@@ -322,7 +322,8 @@ const changes = {
   'font-local'(el) {
     const v = el.value.trim(); if (!v) return;
     const hit = sysFonts?.find(x => x.full.toLowerCase() === v.toLowerCase() || x.family.toLowerCase() === v.toLowerCase());
-    (state.fonts ||= {})[el.dataset.k] = { local: hit?.full || v, family: hit?.family || v }; store.save(); render(); toast('Font set');
+    const k = el.dataset.k; (state.fonts ||= {})[k] = { local: hit?.full || v, family: hit?.family || v }; store.save(); render();
+    localFontData(hit?.full || v).then(data => { if (data && state.fonts[k]?.local === (hit?.full || v)) { state.fonts[k].data = data; store.save(); render(); toast('Font set, and copied with your data so your phone shows it too'); } else toast('Font set (on this PC only: its file couldn’t be copied)'); });
   },
   'font-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
@@ -531,6 +532,11 @@ Object.assign(actions, {
     const s = latestSeason(); const r = s.calendar.find(x => x.id === el.dataset.round); const c = career(); const w = weekend(s, r.id, true);
     const plans = optimalStrategies(strategyRuns(s, r).mine, raceLaps(s, r.id), { loss: pitLoss(c, trackOf(r)).green, sets: setsLeft(c, s, r).sets }); const p = plans[+el.dataset.i];
     if (!p) return; w.liveStrategy = w.liveStrategy?.seq.join() === p.seq.join() ? null : { seq: p.seq, lens: p.lens }; store.save(); render();
+  },
+  async 'font-embed'(el) {
+    const F = state.fonts?.[el.dataset.k]; if (!F?.local) return;
+    const data = await localFontData(F.local); if (!data) { toast('Couldn’t read that font’s file: upload it instead'); return; }
+    F.data = data; store.save(); render(); toast('Copied: your phone shows it once it syncs');
   },
   async 'font-list'() {
     try {

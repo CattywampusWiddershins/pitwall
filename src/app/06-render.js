@@ -28,14 +28,24 @@ const THEME_VARS = ['--bg', '--panel', '--panel-2', '--panel-3', '--line', '--ra
 /** Your uploaded fonts: a display face (headings, numbers; regular and bold) and a body face. */
 const FONT_SLOTS = [['display', 'Display (headings and numbers)', 400], ['displayBold', 'Display, bold', 700], ['body', 'Body text', 400]];
 let sysFonts = null; // fonts installed on this PC, once listed: [{ full, family }]
+/** A copy of an installed font's file, as a data URL (for devices that don't have it): null where it can't be read. */
+async function localFontData(name) {
+  try {
+    const list = await window.queryLocalFonts(); const n = name.toLowerCase();
+    const f = list.find(x => x.fullName.toLowerCase() === n) || list.find(x => x.family.toLowerCase() === n && /regular|book|normal/i.test(x.style)) || list.find(x => x.family.toLowerCase() === n);
+    const blob = f && await f.blob(); if (!blob || blob.size > 3e6) return null;
+    return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(null); fr.readAsDataURL(blob); });
+  } catch { return null; }
+}
 function applyFonts() {
-  const F = state.fonts || {}; const key = FONT_SLOTS.map(([k]) => F[k]?.name || F[k]?.local || '').join('|');
+  const F = state.fonts || {}; const key = FONT_SLOTS.map(([k]) => (F[k]?.name || F[k]?.local || '') + (F[k]?.data ? '+' : '')).join('|');
   let el = document.getElementById('user-fonts'); if (el?.dataset.key === key) return;
   if (!el) { el = document.createElement('style'); el.id = 'user-fonts'; document.head.appendChild(el); }
   el.dataset.key = key;
-  // an uploaded file, or a font installed on this PC (by its full name; its family name works as a fallback)
+  // an uploaded file, or a font installed on this PC (by its full name; its family name works as a fallback). An
+  // installed font also carries a copy of its file, so a phone or tablet without it installed still shows it.
   const q = (n) => n.replace(/["\\]/g, '');
-  const face = (fam, k, w) => !F[k] ? '' : `@font-face { font-family: "${fam}"; src: ${F[k].local ? `local("${q(F[k].local)}")` : `url("${F[k].data}")`}; font-weight: ${w}; font-display: swap; }`;
+  const face = (fam, k, w) => !F[k] ? '' : `@font-face { font-family: "${fam}"; src: ${[F[k].local ? `local("${q(F[k].local)}")` : '', F[k].data ? `url("${F[k].data}")` : ''].filter(Boolean).join(', ')}; font-weight: ${w}; font-display: swap; }`;
   const fallback = (k) => F[k]?.local ? `"${q(F[k].family || F[k].local)}", ` : '';
   const disp = F.display || F.displayBold; const bodyF = F.body;
   el.textContent = [face('PW Display', 'display', '100 599'), face('PW Display', 'displayBold', '600 900'), face('PW Body', 'body', '100 900'),
@@ -44,10 +54,10 @@ function applyFonts() {
 function fontsPanel() {
   const F = state.fonts || {};
   return `<div class="panel"><div class="panel-h"><h2>Fonts</h2><span class="muted" style="font-size:12px">Use your own, such as F1’s fonts</span></div><div class="panel-b stack">
-    ${FONT_SLOTS.map(([k, l]) => `<div class="row" style="gap:8px"><span style="min-width:240px">${l}</span>${F[k] ? `<span class="muted" style="font-size:12px;font-family:${k === 'body' ? 'var(--font-body)' : 'var(--font-display)'};${k === 'displayBold' ? 'font-weight:700' : ''}">${esc(F[k].local ? `${F[k].local} (installed)` : F[k].name)}</span><button class="btn sm ghost" data-act="font-clear" data-k="${k}">Remove</button>` : `<label class="btn sm">Upload<input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" data-ch="font-upload" data-k="${k}" hidden></label><span class="muted" style="font-size:12px">or</span><input type="text" list="sys-fonts" placeholder="An installed font…" data-ch="font-local" data-k="${k}" style="width:240px">`}</div>`).join('')}
+    ${FONT_SLOTS.map(([k, l]) => `<div class="row" style="gap:8px"><span style="min-width:240px">${l}</span>${F[k] ? `<span class="muted" style="font-size:12px;font-family:${k === 'body' ? 'var(--font-body)' : 'var(--font-display)'};${k === 'displayBold' ? 'font-weight:700' : ''}">${esc(F[k].local ? `${F[k].local} (installed${F[k].data ? ', copied for your phone' : ''})` : F[k].name)}</span>${F[k].local && !F[k].data ? `<button class="btn sm" data-act="font-embed" data-k="${k}">Copy for your phone</button>` : ''}<button class="btn sm ghost" data-act="font-clear" data-k="${k}">Remove</button>` : `<label class="btn sm">Upload<input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" data-ch="font-upload" data-k="${k}" hidden></label><span class="muted" style="font-size:12px">or</span><input type="text" list="sys-fonts" placeholder="An installed font…" data-ch="font-local" data-k="${k}" style="width:240px">`}</div>`).join('')}
     <datalist id="sys-fonts">${(sysFonts || []).map(x => `<option value="${esc(x.full)}">${esc(x.family)}</option>`).join('')}</datalist>
     <div class="row" style="gap:8px">${sysFonts ? `<span class="muted" style="font-size:12px">${plural(sysFonts.length, 'installed font')} listed: start typing a name to pick one</span>` : `<button class="btn sm ghost" data-act="font-list">List my installed fonts</button><span class="muted" style="font-size:12px">or type a font’s name</span>`}</div>
-    <p class="muted" style="font-size:12px;margin:0">F1’s fonts belong to Formula 1, so they can’t come with Pitwall: if you have them, upload the files here (TTF, OTF or WOFF). For the F1 look, use Formula1 Display Regular for display, Formula1 Display Bold for bold, and Titillium Web (free) or Formula1 Display Regular for body text. Uploaded fonts are kept with your data; an installed font has to stay installed on this PC.</p></div></div>`;
+    <p class="muted" style="font-size:12px;margin:0">F1’s fonts belong to Formula 1, so they can’t come with Pitwall: if you have them, upload the files here (TTF, OTF or WOFF). For the F1 look, use Formula1 Display Regular for display, Formula1 Display Bold for bold, and Titillium Web (free) or Formula1 Display Regular for body text. Fonts are kept with your data, so a paired phone or tablet shows them too (an installed font is copied in when you pick it).</p></div></div>`;
 }
 function applyTheme() {
   applyFonts();
