@@ -5309,6 +5309,7 @@ function applyGameResult(c, r, place) {
   const game = { key: r.key, at: r.at, sessionType: r.sessionType, totalLaps: r.totalLaps,
     laps: byId(x => x.lapTimes), stints: byId(x => x.stints.map(t => [t.visual, Math.min(t.end, x.laps || t.end)])), pits: byId(x => x.pits), grid: byId(x => x.grid),
     wear: byId(x => x.wear || []), finished: byId(x => x.laps),
+    ...(r.cars.some(x => x.fuel?.length) ? { fuel: byId(x => x.fuel || []), ersDep: byId(x => x.ersDep || []) } : {}),
     penalties: r.penaltyEvents.filter(p => map[p.car] && (PENALTY_NAMES[p.type] || p.type === WARNING)).map(p => ({ d: map[p.car], type: p.type, infr: p.infringement, time: p.time, lap: p.lap, other: map[p.other] || null, t: p.t ?? null })),
     incidents: buildIncidents(r, map),
     ...(r.tyreSets ? { tyreSets: r.tyreSets } : {}),
@@ -5432,6 +5433,15 @@ function planRest({ runs, sets, cur, age, curLife, left, loss, usedOther, firstL
 }
 /** A driver's laps from the live lap history: [{ n, ms, valid, s1, s2, s3 }] (n: lap number, counted from the history itself so a late history packet can't shift them). */
 function liveLaps(x) { const all = x.laps || []; const first = x.nLaps != null ? x.nLaps - all.length + 1 : Math.max(1, (x.lap || all.length) - all.length); return all.map((l, k) => ({ n: first + k, ms: l[0], valid: !!l[1], s1: l[2], s2: l[3], s3: l[4] })).filter(l => l.ms); }
+/** A car's fuel in the live race: kg during lap n (end-of-lap reading plus half a lap's burn), and the burn a lap. */
+function liveFuel(x) {
+  const F = x.fuelLaps || []; const off = (x.fuelN ?? F.length) - F.length;
+  const drops = F.map((v, k) => k && F[k - 1] != null && v != null ? F[k - 1] - v : null).filter(v => v != null && v > 0.2 && v < 5); const burn = median(drops) || 0;
+  const at = (n) => { const v = F[n - 1 - off]; return v == null ? (x.fuel != null && n >= (x.lap || 0) ? x.fuel : null) : v + burn / 2; };
+  at.burn = burn; return at;
+}
+/** The lap time a tyre gives in the race: its normalised pace and fall-off at that age, plus the fuel on board. */
+const livePace = (runs, c, age, fuelKg) => runs[c] ? runs[c].base + runs[c].deg * Math.max(0, age - 1) + (fuelKg || 0) * FUEL_MS : null;
 /** What a driver's live race says about their strategy now. */
 function liveStrategy(c, s, r, L, me, id, w) {
   const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - me.lap + 1);
@@ -5441,7 +5451,9 @@ function liveStrategy(c, s, r, L, me, id, w) {
   const cur = DRY.includes(me.c) ? me.c : null; const age = me.age || 0;
   if (!cur || !runs[cur]) return { n, left, lossNow, PL, none: true, cur, age };
   // what this stint shows: the fall-off from its laps (three or more clean ones), and the life from the wear so far
-  const stintLaps = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid);
+  // its laps put on an empty tank (the car gets lighter every lap, which would hide the fall-off)
+  const fuelAt = liveFuel(me);
+  const stintLaps = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid).map(l => ({ ...l, ms: l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS }));
   if (stintLaps.length >= 3) { const fit = fitLine(stintLaps.map((l, k) => [k, l.ms])); if (fit && fit.b > 0) { runs[cur].deg = (runs[cur].deg + fit.b) / 2; runs[cur].degLive = fit.b; } }
   const wearRate = me.wear != null && age > 1 ? me.wear / age : (runs[cur].wear ?? null);
   const curLife = wearRate ? Math.max(1, Math.floor((WEAR_LIMIT - (me.wear ?? 0)) / wearRate)) : Math.max(1, (runs[cur].life ?? 40) - age);
@@ -6178,16 +6190,38 @@ function strategyKeys(s, round) {
   const v = { keys: RUN_KEYS.filter((k, i) => i > at), dropped: cut ? RUN_KEYS.filter((k, i) => i <= at && w?.sessions?.[k]?.game).map(k => ({ ...cut, k })) : [] };
   _skCache.set(ck, { gen: renderGen, v }); return v;
 }
+/*
+  Normalising lap times. Laps run on different fuel loads and with different amounts of boost don't compare as they
+  stand, so every lap used for pace is put on the same footing first: as if the tank were empty (FUEL_MS a kg, from
+  the fuel the game reports at the end of each lap plus half a lap's burn), and as if the driver had used no more
+  energy than on their most frugal laps of the session (ERS_MS a kJ over that). Both need F1 25 data from 3.4 on;
+  older sessions are used as they are. A plan then adds the fuel back lap by lap where it matters (Live Race), but
+  between plans it cancels out.
+*/
+const FUEL_MS = 35; // ms a lap per kg of fuel
+const ERS_MS = 1.1; // ms a lap per kJ of extra ERS deployment
+/** One driver's laps in a session, normalised: [ms] by lap (null where there's no time). Also the fuel burn a lap. */
+function normLaps(sd, d) {
+  const laps = sd.game.laps?.[d] || []; const fuel = sd.game.fuel?.[d] || []; const dep = sd.game.ersDep?.[d] || [];
+  const drops = fuel.map((v, k) => k && fuel[k - 1] != null && v != null ? fuel[k - 1] - v : null).filter(x => x != null && x > 0.2 && x < 5);
+  const burn = median(drops) || 0;
+  const used = dep.filter(x => x > 0).sort((a, b) => a - b); const base = used.length >= 3 ? used[Math.floor(used.length * 0.2)] : null;
+  return { burn, laps: laps.map((l, k) => { if (!l?.[0]) return null; let ms = l[0];
+    if (fuel[k] != null) ms -= (fuel[k] + burn / 2) * FUEL_MS;
+    if (base != null && dep[k] > base) ms += (dep[k] - base) * ERS_MS;
+    return ms; }) };
+}
 function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
   const w = s.weekends[round.id]; const out = {}; let ref = Infinity;
   for (const k of keys) {
     const sd = w?.sessions?.[k]; if (!sd?.game || sd.estimated) continue;
     const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
-    for (const l of laps) if (l[0] && l[1]) ref = Math.min(ref, l[0]);
+    const N = normLaps(sd, d).laps; // fuel- and ERS-normalised times
+    laps.forEach((l, k) => { if (l[0] && l[1] && N[k]) ref = Math.min(ref, N[k]); });
     for (const x of stintsOf(sd, d)) {
       if (!DRY.includes(x.c)) continue; // intermediates and wets depend too much on the conditions
       const run = [];
-      for (let lap = x.from + 1; lap <= x.to; lap++) { const l = laps[lap - 1]; if (l?.[0]) run.push({ age: lap - x.from + 1, ms: l[0], wear: wear[lap - 1] }); }
+      for (let lap = x.from + 1; lap <= x.to; lap++) { const ms = N[lap - 1]; if (ms) run.push({ age: lap - x.from + 1, ms, wear: wear[lap - 1] }); }
       if (run.length < 3) continue;
       // pushing laps: within 2.5% of the run's best (cool-down and traffic laps break the run)
       const best = Math.min(...run.map(r => r.ms)); let cur = [], longest = [];
@@ -6196,9 +6230,12 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
       if (longest.length < 3) continue;
       const pace = fitLine(longest.map(r => [r.age, r.ms])); const wr = fitLine(longest.filter(r => r.wear != null).map(r => [r.age, r.wear]));
       const deg = Math.max(0, pace?.b || 0);
-      const life = wr && wr.b > 0.05 ? Math.floor((WEAR_LIMIT - wr.a) / wr.b) : null;
+      // a set that was already worn when the run began: its wear says how many laps old it really was, so the pace and
+      // the life are what a new set would give
+      const a0 = wr && wr.b > 0.05 && wr.a > wr.b * 1.5 ? wr.a / wr.b : 0;
+      const life = wr && wr.b > 0.05 ? Math.floor((WEAR_LIMIT - (a0 ? 0 : wr.a)) / wr.b) : null;
       const prev = out[x.c];
-      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, base: (pace?.a ?? avg(longest.map(r => r.ms))) + deg, deg, wear: wr?.b ?? null, life, session: k };
+      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, base: (pace?.a ?? avg(longest.map(r => r.ms))) + deg - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
     }
   }
   for (const c in out) out[c].ref = isFinite(ref) ? ref : Math.min(...Object.values(out).map(x => x.base));
@@ -6508,7 +6545,7 @@ function strategyAdvicePanel(c, s) {
     ${SK.dropped.length ? `<div class="panel-b"><div class="callout">${esc(listJoin(SK.dropped.map(x => SESSION_SHORT[x.k] || x.k)))} left out: your ${COMPOUNDS[SK.dropped[0].c][1].toLowerCase()}s wore ${SK.dropped[0].a.toFixed(1)}% a lap there against ${SK.dropped[0].b.toFixed(1)}% in ${SESSION_SHORT[SK.dropped[0].j] || SK.dropped[0].j}, so the tyre-wear setting probably changed. Only the later sessions count, for you and the grid.</div></div>` : ''}
     ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(0, ...Object.values(grid).map(x => x.drivers || 0)), 'driver')}`, { loss: PL.green }) : short('From the whole grid', grid, 'long runs from the grid')}
     ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving, the sets you have left', { loss: PL.green, sets: SL.sets }) : short('From your runs', mine, 'of your own running')}
-    <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. A tyre is done at ${WEAR_LIMIT}% wear; fuel burn is the same for every plan, so it is left out.
+    <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. A tyre is done at ${WEAR_LIMIT}% wear. Pace is on an empty tank and without extra boost (sessions logged from 3.4 on), so runs on different fuel loads compare fairly; a run on a set that was already worn counts as the new set it was. Fuel burn is the same for every plan, so it is left out of the totals.
       <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div></div></div>`;
 }
 

@@ -88,10 +88,13 @@ function playerStatus(b, L, p) {
   return { mguk: b.readFloatLE(o + 33), ers: b.readFloatLE(o + 37), mode: b[o + 41], harv: b.readFloatLE(o + 42) + b.readFloatLE(o + 46),
     dep: b.readFloatLE(o + (wide ? 54 : 50)), limit: wide ? b.readFloatLE(o + 50) : null };
 }
-/** Every car's tyre: visual compound and its age in laps. */
+/** Every car's status: tyre (visual compound, age in laps), fuel in the tank (kg) and ERS deployed this lap (J). */
 function allTyres(b, L) {
-  const out = []; const w = stride(b, L, 55);
-  for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 28 > b.length) break; out.push({ c: b[o + 26], age: b[o + 27] }); }
+  const out = []; const w = stride(b, L, 55); const wide = w >= 59;
+  for (let i = 0; i < L.cars; i++) {
+    const o = HEADER + i * w; if (o + (wide ? 58 : 54) > b.length) break;
+    out.push({ c: b[o + 26], age: b[o + 27], fuel: b.readFloatLE(o + 5), dep: b.readFloatLE(o + (wide ? 54 : 50)), mode: b[o + 41] });
+  }
   return out;
 }
 /** Lap data: each car's race position, current lap, grid slot, result status and whether it is in the pit lane. */
@@ -160,7 +163,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     if (!s) {
       s = { uid: h.uid, format: h.format, info: null, parts: null, laps: {}, stints: {}, penalties: [], retirements: [], final: null, timer: null, sent: false, seen: Date.now(),
         curLap: [], wearNow: [], wear: {}, gridSent: false, pos: [], collisions: [], pit: [], live: [], overtakes: [], swaps: [], lead: [], leadFin: [],
-        body: null, damage: [], sc: { now: 0, sc: 0, vsc: 0, periods: [] } };
+        body: null, damage: [], sc: { now: 0, sc: 0, vsc: 0, periods: [] }, fuel: {}, dep: {}, depMax: [] };
       sessions.set(h.uid, s);
       for (const [k, v] of sessions) if (Date.now() - v.seen > 6 * 3600e3) sessions.delete(k); // forget sessions from hours ago
     }
@@ -231,7 +234,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     const n = s.parts?.length ? Math.max(...s.parts.map(p => p.idx)) + 1 : 0;
     msg.parts = (s.parts || []).map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, driver: p.driver, myTeam: p.myTeam, ai: p.ai }));
     msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
-      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length }));
+      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length }));
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
     onLive(msg);
   }
@@ -254,7 +257,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       // the stint still running at the flag (or when the car stopped) ends on lap 255: it really ends on the car's last lap
       const stints = (s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints).map(t => ({ ...t, end: Math.min(t.end, x.laps || t.end) }));
       return { ...x, name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
-        lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
+        lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [], fuel: s.fuel[x.idx] || [], ersDep: s.dep[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
@@ -297,7 +300,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     }
     if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
     else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
-    else if (h.type === PACKET.STATUS) { s.stat = playerStatus(b, L, h.player) || s.stat; s.tyres = allTyres(b, L); }
+    else if (h.type === PACKET.STATUS) { s.stat = playerStatus(b, L, h.player) || s.stat; s.tyres = allTyres(b, L); s.tyres.forEach((x, i) => { if (isFinite(x.dep)) s.depMax[i] = Math.max(s.depMax[i] || 0, x.dep); }); }
     else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.DAMAGE) {
@@ -312,6 +315,11 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       lap.forEach((c, i) => {
         // a new lap: note the tyre wear at the end of the one just finished
         if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
+        if (s.curLap[i] && c.lap > s.curLap[i] && s.tyres?.[i]) {
+          const T = s.tyres[i]; if (isFinite(T.fuel) && T.fuel >= 0 && T.fuel < 200) (s.fuel[i] ||= [])[s.curLap[i] - 1] = Math.round(T.fuel * 100) / 100;
+          if (s.depMax[i]) (s.dep[i] ||= [])[s.curLap[i] - 1] = Math.round(s.depMax[i] / 1000);
+          s.depMax[i] = 0;
+        }
         s.curLap[i] = c.lap; s.pos[i] = c.pos; s.pit[i] = c.pit; s.live[i] = c.status === 2;
         // the gap to the leader as the car takes the flag (the game's own interval, so a lapped car has one too)
         if (c.status === 2 && c.lead) s.lead[i] = c.lead;
