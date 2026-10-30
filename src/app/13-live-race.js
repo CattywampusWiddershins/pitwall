@@ -441,12 +441,13 @@ function beatsOdds(A, B) { let tot = 0, below = 0; for (let i = 1; i < A.dist.le
 function raceGaps(field) {
   const run = field.filter(x => x.pos > 0 && (x.st === 2 || x.st === 3)).sort((a, b) => a.pos - b.pos);
   const lapMs = median(run.map(x => x.last).filter(v => v > 30e3 && v < 300e3)) || 90e3;
-  const len = Math.max(1000, ...run.map(x => x.dist || 0)); const round = (x) => (x.lap || 1) - 1 + Math.max(0, x.dist || 0) / len;
-  const lead = run[0] && run[0].lap != null ? round(run[0]) : null;
+  // laps down from the lap counts: a lap behind on the count but further round the lap than the leader isn't lapped
+  const lead = run[0]?.lap != null ? run[0] : null;
   const out = {}; let prev = 0;
   for (const x of run) {
-    let down = lead != null && x.lap != null ? Math.max(0, Math.floor(lead - round(x))) : 0; let g = (x.gapL || 0) + down * lapMs;
-    while (g < prev - 1500 && down < 5) { g += lapMs; down++; }
+    let down = lead && x.lap != null ? Math.max(0, lead.lap - x.lap - ((x.dist || 0) > (lead.dist || 0) ? 1 : 0)) : 0; let g = (x.gapL || 0) + down * lapMs;
+    // no gap from the game yet (the start, just out of the pits): right behind the car ahead
+    if (!x.gapL && x !== lead) g = prev;
     out[x.i] = { g, down }; prev = Math.max(prev, g);
   }
   return out;

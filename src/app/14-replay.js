@@ -14,7 +14,7 @@ let replayList = null; // the recordings, once listed
 /** A race just ended: the recordings are listed again once the recorder has written the last of it, so the race shows as recorded (not lap by lap). */
 function replayRelist() { setTimeout(() => { replayList = null; storyReplay.asked = false; if (ui.view === 'replay' && !RP) render(); }, 3000); }
 let RP = null; // the replay open
-const RP_H = 680; // px: the height of the gap view
+const RP_H = 760; // px: the height of the gap view
 /** The recordings that belong to this career, newest first: [{ x (recording), s, r, k (session) }]. */
 function replaysHere(c) {
   const out = []; const recorded = new Set((replayList || []).map(x => x.key));
@@ -164,7 +164,7 @@ function replayDash() {
   them, so the replay moves smoothly at any speed instead of a step a second. The scale eases a quarter of the way to
   its target each second, carried from one second to the next so it never jumps.
 */
-const RP_ROW = 17;
+const RP_ROW = 23;
 const rpIsOut = (x) => x.st !== 2 && x.st !== 3;
 /** The scale (px a second) the gaps in this field would ideally get. */
 function replayScaleFor(field) {
@@ -311,18 +311,19 @@ function replayTrack() {
       node.style.display = vis ? '' : 'none'; node.dataset.on = vis ? '1' : '0'; node.classList.toggle('pit', !!x.pit);
     }
   }
-  // the filter: presets, then every car (in team order, so the buttons stay put while the order changes)
+  // the filter: presets, then every car in running order
   const F = RP.flt;
   if (+fl.dataset.n !== field.length) {
-    const tix = (x) => { const t = teamOf(s, RP.idOf(x.i)); const k = t ? s.teams.indexOf(t) : -1; return k < 0 ? 99 : k; };
-    const byTeam = field.slice().sort((a, b) => tix(a) - tix(b) || a.i - b.i);
+    const byPos = field.slice().sort((a, b) => a.pos - b.pos);
     fl.innerHTML = `<div class="seg rp-flt-modes">${[['all', 'Everyone'], ['top10', 'Top 10'], ['near', 'Around me']].map(([v, l]) => `<button data-act="rp-flt-mode" data-v="${v}">${l}</button>`).join('')}</div>
-      <div class="rp-flt-cars">${byTeam.map(x => `<button class="rp-chip${x.i === me ? ' me' : ''}" data-act="rp-flt" data-i="${x.i}" style="--c:${col(x)}"><span class="rp-chip-p"></span>${esc(ab(x))}</button>`).join('')}</div>`;
+      <div class="rp-flt-cars">${byPos.map(x => `<button class="rp-chip${x.i === me ? ' me' : ''}" data-act="rp-flt" data-i="${x.i}" style="--c:${col(x)}"><span class="rp-chip-p"></span>${esc(ab(x))}</button>`).join('')}</div>`;
     fl.dataset.n = field.length;
   }
   fl.querySelectorAll('[data-act="rp-flt-mode"]').forEach(b => b.classList.toggle('on', b.dataset.v === F.mode));
   const pos = Object.fromEntries(field.map(x => [x.i, x.pos]));
-  fl.querySelectorAll('.rp-chip').forEach(b => { const i = +b.dataset.i; b.classList.toggle('off', !shown.has(i)); b.querySelector('.rp-chip-p').textContent = pos[i] ? 'P' + pos[i] : ''; });
+  const box2 = fl.querySelector('.rp-flt-cars'); const chips = [...box2.children]; const order = chips.slice().sort((a, b) => (pos[+a.dataset.i] || 99) - (pos[+b.dataset.i] || 99));
+  if (order.some((b, k) => b !== chips[k])) order.forEach(b => box2.appendChild(b)); // moved only when the order changes
+  chips.forEach(b => { const i = +b.dataset.i; b.classList.toggle('off', !shown.has(i)); b.querySelector('.rp-chip-p').textContent = pos[i] ? 'P' + pos[i] : ''; });
   replayFrame(); // a car just shown goes straight to its spot
 }
 /** The position chart up to where the replay is. */
