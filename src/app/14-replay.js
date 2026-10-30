@@ -11,6 +11,8 @@
 const replayMem = {}; // recordings held in memory where there's no desktop app (the browser copy)
 const replayApi = () => window.api?.replays || { list: async () => Object.values(replayMem).map(x => ({ ...x.meta, bytes: 0, samples: x.samples.length })), load: async (k) => replayMem[k] || null, remove: async (k) => { delete replayMem[k]; return true; } };
 let replayList = null; // the recordings, once listed
+/** A race just ended: the recordings are listed again once the recorder has written the last of it, so the race shows as recorded (not lap by lap). */
+function replayRelist() { setTimeout(() => { replayList = null; storyReplay.asked = false; if (ui.view === 'replay' && !RP) render(); }, 3000); }
 let RP = null; // the replay open
 const RP_H = 680; // px: the height of the gap view
 /** The recordings that belong to this career, newest first: [{ x (recording), s, r, k (session) }]. */

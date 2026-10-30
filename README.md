@@ -128,6 +128,8 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 
 **3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
 
+**3.10.4:** a race recorded while Pitwall was open shows as recorded straight away. The list of recordings was read once per run, so a race finished after Race Replay or a story link had been opened was listed as rebuilt lap by lap until Pitwall was restarted; it's now read again a few seconds after each race ends.
+
 **3.10.3:** on the track map, cars in a race rebuilt lap by lap no longer jump back to the line a while after crossing it. Those races measure each lap as 5000 m, so on a track with your own (shorter) outline the cars ran on past the line and snapped back when the next lap began; the lap is now stretched to the outline.
 
 **3.10.2:** smoother replays. The recording has a sample a second; the replay now draws every frame, sliding each car between the samples either side of the moment shown, on the gap view (the gaps count along too) and on the track map (over the line as well), at any speed. A window left in the background doesn't skip ahead when you come back.

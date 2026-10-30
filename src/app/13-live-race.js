@@ -804,7 +804,7 @@ function mergeLive(prev, m, now) {
 }
 function onLiveMsg(m) {
   const same = liveErs?.uid === m.uid;
-  if (m.done) { if (same) { liveErs = { ...liveErs, done: true }; render(); } return; }
+  if (m.done) { replayRelist(); if (same) { liveErs = { ...liveErs, done: true }; render(); } return; }
   const before = same ? liveErs.passTally?.f || 0 : 0;
   liveErs = mergeLive(same ? liveErs : {}, m, Date.now());
   // what the fights say about passing here, kept per race for the overtaking slider
