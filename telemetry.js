@@ -231,7 +231,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     const n = s.parts?.length ? Math.max(...s.parts.map(p => p.idx)) + 1 : 0;
     msg.parts = (s.parts || []).map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, driver: p.driver, myTeam: p.myTeam, ai: p.ai }));
     msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
-      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6) }));
+      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length }));
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
     onLive(msg);
   }

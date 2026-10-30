@@ -801,3 +801,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .debrief-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 1000px) { .debrief-grid.two { grid-template-columns: 1fr; } }
 .pace-table td { padding-top: 4px; padding-bottom: 4px; }
+.battle .bf-mid { background: var(--line); color: var(--fg); }
+.battle.closing .bf-mid { background: #1F9D55; color: #fff; }
+.battle.growing .bf-mid { background: #F5C518; color: #111; }
+.battle .bf-mid small { opacity: .85; }
