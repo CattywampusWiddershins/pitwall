@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('api', {
     live: () => ipcRenderer.invoke('telemetry:live'),
     onLive: (cb) => ipcRenderer.on('telemetry:live', (_e, m) => cb(m)),
   },
+  // backups kept on this PC
+  backups: {
+    list: () => ipcRenderer.invoke('backup:list'),
+    now: (kind) => ipcRenderer.invoke('backup:now', kind),
+    read: (file) => ipcRenderer.invoke('backup:read', file),
+    folder: () => ipcRenderer.invoke('backup:folder'),
+  },
   // recorded races (Race Replay)
   replays: {
     list: () => ipcRenderer.invoke('replay:list'),

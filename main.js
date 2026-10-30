@@ -34,6 +34,28 @@ function backupOnce() {
     while (files.length > 14) fs.unlinkSync(path.join(dir, files.shift()));
   } catch (e) { console.error('backup failed', e); }
 }
+// Backups made on an event (a race logged, before an import, a new season or a restore, or by hand): the last 20.
+const EVENT_KEEP = 20;
+function backupEvent(kind) {
+  try {
+    if (!fs.existsSync(dataFile())) return false;
+    const dir = path.join(dataDir(), 'backups'); fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    fs.copyFileSync(dataFile(), path.join(dir, `career-data-${stamp}-${String(kind).replace(/[^a-z]/g, '') || 'manual'}.json`));
+    const events = fs.readdirSync(dir).filter(f => /^career-data-\d{4}-\d\d-\d\dT.*\.json$/.test(f)).sort();
+    while (events.length > EVENT_KEEP) fs.unlinkSync(path.join(dir, events.shift()));
+    return true;
+  } catch (e) { console.error('backup failed', e); return false; }
+}
+function listBackups() {
+  const dir = path.join(dataDir(), 'backups');
+  try {
+    return fs.readdirSync(dir).filter(f => /^career-data-.*\.json$/.test(f)).map(f => {
+      const st = fs.statSync(path.join(dir, f)); const m = f.match(/T[\d-]+-([a-z]+)\.json$/);
+      return { file: f, at: st.mtime.toISOString(), kind: m ? m[1] : 'daily', bytes: st.size };
+    }).sort((a, b) => b.at.localeCompare(a.at));
+  } catch { return []; }
+}
 
 function getSettings() {
   const s = readJson(settingsFile(), {});
@@ -94,6 +116,10 @@ function createWindow() {
 ipcMain.handle('data:load', () => { backupOnce(); return { state: readJson(dataFile(), null), rev: companion.rev() }; });
 ipcMain.handle('data:save', (_e, { state, baseRev }) => companion.commit(state, baseRev));
 ipcMain.handle('data:location', () => dataFile());
+ipcMain.handle('backup:list', () => listBackups());
+ipcMain.handle('backup:now', (_e, kind) => backupEvent(kind));
+ipcMain.handle('backup:read', (_e, file) => { const f = path.basename(String(file || '')); return /^career-data-.*\.json$/.test(f) ? readJson(path.join(dataDir(), 'backups', f), null) : null; });
+ipcMain.handle('backup:folder', () => shell.openPath(path.join(dataDir(), 'backups')));
 
 ipcMain.handle('data:export', async (_e, state) => {
   const { canceled, filePath } = await dialog.showSaveDialog({

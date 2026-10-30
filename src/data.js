@@ -67,7 +67,7 @@ const GRID_2026 = [
 ];
 
 // 2026 driver numbers that changed from 2025 (Verstappen's choice once he no longer had the number 1).
-// The number 1 itself is not here: it goes to whoever won the title in your career (see syncNumbers in app.js).
+// The number 1 itself is not here: it goes to whoever won the title in your career (see syncNumbers in app/).
 const NUMBERS_2026 = { VER: 3 };
 
 const CAL_2025 = [
@@ -125,7 +125,7 @@ const CAL_2026 = [
 ];
 
 // Grand Prix days (MM-DD) from the real calendars. Most are Sundays; Las Vegas and Baku 2026 race on a Saturday.
-// Later seasons move each race to the same weekend of their year (see raceDate in app.js).
+// Later seasons move each race to the same weekend of their year (see raceDate in app/).
 const RACE_DATES = {
   2025: { aus: '03-16', chn: '03-23', jpn: '04-06', bhr: '04-13', sau: '04-20', mia: '05-04', emi: '05-18', mon: '05-25', esp: '06-01', can: '06-15', aut: '06-29', gbr: '07-06', bel: '07-27', hun: '08-03', ned: '08-31', ita: '09-07', aze: '09-21', sgp: '10-05', usa: '10-19', mex: '10-26', bra: '11-09', lvg: '11-22', qat: '11-30', abu: '12-07' },
   2026: { aus: '03-08', chn: '03-15', jpn: '03-29', bhr: '04-12', sau: '04-19', mia: '05-03', can: '05-24', mon: '06-07', esp: '06-14', aut: '06-28', gbr: '07-05', bel: '07-19', hun: '07-26', ned: '08-23', ita: '09-06', mad: '09-13', aze: '09-26', sgp: '10-11', usa: '10-25', mex: '11-01', bra: '11-08', lvg: '11-21', qat: '11-29', abu: '12-06' },

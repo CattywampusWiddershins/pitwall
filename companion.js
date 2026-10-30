@@ -12,7 +12,6 @@ const STATIC = {
   '/': ['src/index.html', 'text/html; charset=utf-8'],
   '/index.html': ['src/index.html', 'text/html; charset=utf-8'],
   '/styles.css': ['src/styles.css', 'text/css; charset=utf-8'],
-  '/app.js': ['src/app.js', 'text/javascript; charset=utf-8'],
   '/data.js': ['src/data.js', 'text/javascript; charset=utf-8'],
   '/reference.js': ['src/reference.js', 'text/javascript; charset=utf-8'],
   '/history.js': ['src/history.js', 'text/javascript; charset=utf-8'],
@@ -36,10 +35,12 @@ const newPin = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
 const newRev = () => crypto.randomBytes(9).toString('base64url');
 // The interface files bundled into the Android app; their hash tells the app whether it matches this computer.
 // android/build.ps1 hashes the same files in the same order.
-const BUNDLE = ['src/app.js', 'src/data.js', 'src/reference.js', 'src/history.js', 'src/assets.js', 'src/pool.js', 'src/styles.css', 'src/remote.js', 'src/index.html'];
+// the renderer's files (src/app/, in name order) come first
+const appFiles = (root) => { try { return fs.readdirSync(path.join(root, 'src', 'app')).filter(f => f.endsWith('.js')).sort().map(f => 'src/app/' + f); } catch { return []; } };
+const BUNDLE = ['src/data.js', 'src/reference.js', 'src/history.js', 'src/assets.js', 'src/pool.js', 'src/styles.css', 'src/remote.js', 'src/index.html'];
 function bundleHash(root) {
   const h = crypto.createHash('sha256');
-  for (const f of BUNDLE) { try { h.update(fs.readFileSync(path.join(root, f))); } catch { } }
+  for (const f of [...appFiles(root), ...BUNDLE]) { try { h.update(fs.readFileSync(path.join(root, f))); } catch { } }
   return h.digest('hex').slice(0, 16);
 }
 
@@ -125,6 +126,8 @@ module.exports = function createCompanion({ root, configFile, readState, writeSt
   async function handle(req, res) {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
+    // the renderer's own files
+    if (req.method === 'GET' && /^\/app\/[\w-]+\.js$/.test(p) && fs.existsSync(path.join(root, 'src', p))) return send(res, 200, fs.readFileSync(path.join(root, 'src', p)), 'text/javascript; charset=utf-8');
     if (req.method === 'GET' && STATIC[p]) {
       const [file, type] = STATIC[p];
       let body;
