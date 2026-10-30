@@ -76,6 +76,19 @@ function liveFuel(x) {
 }
 /** The lap time a tyre gives in the race: its normalised pace and fall-off at that age, plus the fuel on board. */
 const livePace = (runs, c, age, fuelKg) => runs[c] ? runs[c].base + runs[c].deg * Math.max(0, age - 1) + (fuelKg || 0) * FUEL_MS : null;
+/**
+ * The laps a car's tyres have left before the wear limit, counted from the start of the lap it's on (as the laps left
+ * in the race are). The wear rate is the wear so far over the laps driven on the set, the part of this lap included:
+ * the tyre age only goes up at the line while the wear climbs all through the lap, so wear over age alone would make
+ * the tyres look worse and worse until the line, and a plan that just fits would come and go every lap.
+ */
+function tyreLifeLeft(x, run, field) {
+  const age = x.age || 0; const len = Math.max(1000, ...(field || []).map(y => y.dist || 0));
+  const frac = Math.min(1, Math.max(0, (x.dist || 0) / len)); const driven = age + frac;
+  const rate = x.wear != null && driven > 1.5 ? x.wear / driven : (run?.wear ?? null);
+  if (!rate) return Math.max(1, (run?.life ?? 40) - age);
+  return Math.max(1, Math.floor((WEAR_LIMIT - (x.wear ?? 0)) / rate + frac));
+}
 /** What a driver's live race says about their strategy now. */
 function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - me.lap + 1);
@@ -89,8 +102,7 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const fuelAt = liveFuel(me);
   const stintLaps = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid).map(l => ({ ...l, ms: l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS }));
   if (stintLaps.length >= 3) { const fit = fitLine(stintLaps.map((l, k) => [k, l.ms])); if (fit && fit.b > 0) { runs[cur].deg = (runs[cur].deg + fit.b) / 2; runs[cur].degLive = fit.b; } }
-  const wearRate = me.wear != null && age > 1 ? me.wear / age : (runs[cur].wear ?? null);
-  const curLife = wearRate ? Math.max(1, Math.floor((WEAR_LIMIT - (me.wear ?? 0)) / wearRate)) : Math.max(1, (runs[cur].life ?? 40) - age);
+  const curLife = tyreLifeLeft(me, runs[cur], L.field);
   // the sets left: the game's own data in the race, else from the weekend; the set on the car isn't one of them
   let sets = null;
   if (mineId) {
@@ -166,7 +178,7 @@ function rivalPlan(s, r, L, x, idOf) {
   if (id && DRY.includes(x.c)) {
     const runs = runsFor(s, r, id); const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - x.lap + 1);
     if (runs[x.c]) {
-      const wr = x.wear != null && x.age > 1 ? x.wear / x.age : runs[x.c].wear; const curLife = wr ? Math.max(1, Math.floor((WEAR_LIMIT - (x.wear ?? 0)) / wr)) : Math.max(1, (runs[x.c].life ?? 40) - (x.age || 0));
+      const curLife = tyreLifeLeft(x, runs[x.c], L.field);
       const usedOther = (L.used?.[x.i] || []).some(c2 => DRY.includes(c2) && c2 !== x.c) || L.key === 'SPR';
       const pl = planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: pitLoss(career(), trackOf(r)).green, usedOther });
       if (pl) p = { stops: pl.stints.length, next: pl.stints[0]?.c ?? null, k: pl.k, t: pl.t, stints: pl.stints };
@@ -752,8 +764,17 @@ const liveOpened = new Set();
  */
 function mergeLive(prev, m, now) {
   const L = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {},
-    order: prev.order || [], pitEntries: prev.pitEntries || [], wasPit: prev.wasPit || {}, fight: prev.fight || {}, held: prev.held || {}, fights: prev.fights || {}, passTally: prev.passTally || { f: 0, p: 0 } };
+    order: prev.order || [], pitEntries: prev.pitEntries || [], wasPit: prev.wasPit || {}, fight: prev.fight || {}, held: prev.held || {}, fights: prev.fights || {}, passTally: prev.passTally || { f: 0, p: 0 }, ageSeen: { ...(prev.ageSeen || {}) } };
   const liveErs = L; // (the steps below were written against the live state)
+  // the game's tyre age goes up a moment after the lap does: a car that's just crossed the line on the same set gets it now
+  if (m.field) L.field = m.field = m.field.map(x => {
+    const was = L.ageSeen[x.i]; let y = x;
+    const same = was && x.age != null && (x.stops || 0) === was.stops && !x.pit;
+    if (same && x.lap === was.lap + 1 && x.age === was.age) y = { ...x, age: x.age + 1 };
+    else if (same && x.lap === was.lap && x.age < was.age) y = { ...x, age: was.age };
+    if (y.age != null) L.ageSeen[x.i] = { lap: y.lap, age: y.age, stops: y.stops || 0 };
+    return y;
+  });
   if (m.field) {
     const pos = Object.fromEntries(m.field.filter(x => x.pos > 0).map(x => [x.i, x.pos])); const stops = Object.fromEntries(m.field.map(x => [x.i, x.stops || 0]));
     liveErs.order = [...liveErs.order.filter(o => now - o.t < 15e3), { t: now, pos, stops }];
