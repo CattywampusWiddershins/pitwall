@@ -70,7 +70,8 @@ Copy-Item "$out\base.apk" "$out\unsigned.apk"
 $zip = [IO.Compression.ZipFile]::Open("$out\unsigned.apk", 'Update')
 [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, "$out\dex\classes.dex", 'classes.dex')
 # assets go in here rather than through aapt2 -A, which writes Windows backslashes into nested entry names
-foreach ($f in Get-ChildItem $www -File) { [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $f.FullName, "assets/www/$($f.Name)") }
+$wwwFull = (Get-Item $www).FullName.TrimEnd('\')
+foreach ($f in Get-ChildItem $www -File -Recurse) { $rel = $f.FullName.Substring($wwwFull.Length + 1).Replace('\', '/'); [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $f.FullName, "assets/www/$rel") }
 $zip.Dispose()
 Run "$bt\zipalign.exe" @('-f', '-p', '4', "$out\unsigned.apk", "$out\aligned.apk")
 
