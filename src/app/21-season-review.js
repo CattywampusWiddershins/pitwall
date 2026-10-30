@@ -716,8 +716,9 @@ const REPLAY_KINDS = new Set(['race', 'sprint', 'incident', 'battle', 'pen', 'do
 function storyReplay(s, x) {
   if (!x.r || !REPLAY_KINDS.has(x.kind)) return '';
   if (replayList == null) { if (!storyReplay.asked) { storyReplay.asked = true; replayApi().list().then(l => { replayList = l || []; render(); }).catch(() => { replayList = []; }); } return ''; }
-  const k = x.replay?.k || (x.kind === 'sprint' ? 'SPR' : 'R'); const key = s.weekends[x.r.id]?.sessions?.[k]?.game?.key;
-  if (!key || !replayList.some(y => y.key === key)) return '';
+  const k = x.replay?.k || (x.kind === 'sprint' ? 'SPR' : 'R'); const g = s.weekends[x.r.id]?.sessions?.[k]?.game;
+  const key = g?.key && replayList.some(y => y.key === g.key) ? g.key : g?.laps && Object.values(g.laps).some(L => L?.length > 1) && !isHist(s) ? `lap:${s.index}:${x.r.id}:${k}` : null;
+  if (!key) return '';
   const lap = x.replay?.lap; return `<div><button class="btn sm ghost" data-act="rp-story" data-k="${esc(key)}" data-lap="${lap || ''}">${ICON.play} ${lap > 1 ? `Watch from lap ${lap}` : 'Watch the replay'}</button></div>`;
 }
 function storyHtml(c, s, x, lead = false) {

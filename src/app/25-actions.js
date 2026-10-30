@@ -559,11 +559,11 @@ Object.assign(actions, {
   'rp-close'() { if (RP) clearInterval(RP.timer); RP = null; render(); },
   'rp-play'() { if (!RP) return; if (RP.T >= RP.dur) RP.T = 0; RP.playing = !RP.playing; replayLoop(); replayShow(); },
   async 'rp-del-season'(el) {
-    const xs = replaysHere(career()).filter(x => String(x.s.year) === el.dataset.y); if (!xs.length || !confirm(`Delete all ${xs.length} recordings from ${el.dataset.y}? It can’t be undone.`)) return;
+    const xs = replaysHere(career()).filter(x => !x.x.rebuilt && String(x.s.year) === el.dataset.y); if (!xs.length || !confirm(`Delete all ${xs.length} recordings from ${el.dataset.y}? It can’t be undone.`)) return;
     for (const x of xs) await replayApi().remove(x.x.key); replayList = null; render();
   },
   async 'rp-orphans'() {
-    const owned = new Set(state.careers.flatMap(cc => replaysHere(cc).map(x => x.x.key))); const xs = (replayList || []).filter(x => !owned.has(x.key));
+    const owned = new Set(state.careers.flatMap(cc => replaysHere(cc).filter(x => !x.x.rebuilt).map(x => x.x.key))); const xs = (replayList || []).filter(x => !owned.has(x.key));
     if (!xs.length || !confirm(`Delete ${plural(xs.length, 'recording')} that belong to no career here (deleted careers, or sessions never logged)? It can’t be undone.`)) return;
     for (const x of xs) await replayApi().remove(x.key); replayList = null; render();
   },

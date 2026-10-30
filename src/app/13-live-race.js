@@ -384,14 +384,22 @@ function raceOdds(s, r, L, me, idOf, ST, plans) {
 function beatsOdds(A, B) { let tot = 0, below = 0; for (let i = 1; i < A.dist.length; i++) { below = 0; for (let j = i + 1; j < B.dist.length; j++) below += B.dist[j]; tot += A.dist[i] * below; } return tot; }
 
 /**
- * Each running car's real gap to the leader: { [i]: { g (ms), down (laps) } }. The game's gap to the leader only counts
- * within a lap, so a lapped car would look closer than the cars ahead of it; walking the order, it's put back a lap at a time.
+ * Each car's real gap to the leader (racing, or across the line at the finish): { [i]: { g (ms), down (laps) } }. The
+ * game's gap to the leader only counts within a lap, so a lapped car would look closer than the cars ahead of it. The
+ * laps it's down come from how far round each car is (its lap and the distance into it); where that's missing, a gap
+ * smaller than the one of the car ahead means another lap.
  */
 function raceGaps(field) {
-  const run = field.filter(x => x.pos > 0 && x.st === 2).sort((a, b) => a.pos - b.pos);
+  const run = field.filter(x => x.pos > 0 && (x.st === 2 || x.st === 3)).sort((a, b) => a.pos - b.pos);
   const lapMs = median(run.map(x => x.last).filter(v => v > 30e3 && v < 300e3)) || 90e3;
+  const len = Math.max(1000, ...run.map(x => x.dist || 0)); const round = (x) => (x.lap || 1) - 1 + Math.max(0, x.dist || 0) / len;
+  const lead = run[0] && run[0].lap != null ? round(run[0]) : null;
   const out = {}; let prev = 0;
-  for (const x of run) { let g = x.gapL || 0; let down = 0; while (g < prev - 1500 && down < 5) { g += lapMs; down++; } out[x.i] = { g, down }; prev = Math.max(prev, g); }
+  for (const x of run) {
+    let down = lead != null && x.lap != null ? Math.max(0, Math.floor(lead - round(x))) : 0; let g = (x.gapL || 0) + down * lapMs;
+    while (g < prev - 1500 && down < 5) { g += lapMs; down++; }
+    out[x.i] = { g, down }; prev = Math.max(prev, g);
+  }
   return out;
 }
 /** Where a car would rejoin after a stop costing `loss` ms now: { pos, ahead, behind, gapA, gapB }. */
