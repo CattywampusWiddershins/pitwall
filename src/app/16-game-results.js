@@ -188,7 +188,7 @@ function fitLine(pts) {
   const b = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / sxx;
   return { a: my - b * mx, b };
 }
-const WEAR_LIMIT = 70; // % wear at which a tyre is considered done
+const WEAR_LIMIT = 75; // % wear at which a tyre is considered done
 /** One driver's session from the game: every lap, the lap-time graph and tyre wear by stint (with where practice
  *  runs were heading). */
 function gameDriverModal(roundId, key, d) {

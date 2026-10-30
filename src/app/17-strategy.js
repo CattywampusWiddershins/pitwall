@@ -190,10 +190,10 @@ function fillTyres(grid, mine) {
 // seconds lost to a green-flag stop, pit lane in and out
 const PIT_GREEN = { aus: 19, chn: 23, jpn: 22, bhr: 23, sau: 20, mia: 20, emi: 27, mon: 20, esp: 22, can: 18, aut: 20, gbr: 20, bel: 20, hun: 21, ned: 21, ita: 24, aze: 20, sgp: 28, usa: 21, mex: 23, bra: 21, lvg: 20, qat: 25, abu: 22, mad: 22, fra: 22, ger: 21, rus: 26, por: 22, tur: 22, mal: 21, kor: 22, ind: 21, eur: 22 };
 const PIT_VSC = 0.62, PIT_SC = 0.48; // share of the green-flag loss under a virtual safety car and a safety car
-/** A track's pit loss in ms: { green, vsc, sc, own } (own: you set it). */
+/** A track's pit loss in ms: { green, vsc, sc, own, learned } (own: set by you or saved from your last race there, learned: { stops, at } when saved). */
 function pitLoss(c, track) {
   const o = c?.pitLoss?.[track]; const g = (o?.green ?? PIT_GREEN[track] ?? 22) * 1000;
-  return { green: g, vsc: (o?.vsc ?? g / 1000 * PIT_VSC) * 1000, sc: (o?.sc ?? g / 1000 * PIT_SC) * 1000, own: !!o };
+  return { green: g, vsc: (o?.vsc ?? g / 1000 * PIT_VSC) * 1000, sc: (o?.sc ?? g / 1000 * PIT_SC) * 1000, own: !!o, learned: o?.learned || null };
 }
 const TYRE_PRESETS = ['softer', 'balanced', 'harder'];
 const PRESET_NAME = { softer: 'Softer', balanced: 'Balanced', harder: 'Harder' };
@@ -389,6 +389,6 @@ function strategyAdvicePanel(c, s) {
     ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(0, ...Object.values(grid).map(x => x.drivers || 0)), 'driver')}`, { loss: PL.green }) : short('From the whole grid', grid, 'long runs from the grid')}
     ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving, the sets you have left', { loss: PL.green, sets: SL.sets }) : short('From your runs', mine, 'of your own running')}
     <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. A tyre is done at ${WEAR_LIMIT}% wear. Pace is on an empty tank and without extra boost (sessions logged from 3.4 on), so runs on different fuel loads compare fairly; a run on a set that was already worn counts as the new set it was. Fuel burn is the same for every plan, so it is left out of the totals.
-      <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div>
+      <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.learned ? ` (from your last race here, ${plural(PL.learned.stops, 'stop')})` : PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div>
       ${overtakeRow(c, tid)}</div></div>`;
 }
