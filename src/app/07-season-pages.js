@@ -13,7 +13,6 @@ function renderDashboard() {
   const nr = nextRound(s);
   const done = roundsDone(s);
   const total = activeRounds(s).length;
-  const arch = D.ARCHETYPES.find(a => a.id === c.profile.archetype);
   const leader = ds[0];
   const gap = myRow && leader ? leader.pts - myRow.pts : 0;
   const h = h2hCompare([s], PLAYER, mate);
@@ -23,12 +22,12 @@ function renderDashboard() {
 
   return `<div class="page">
     <section class="hero">
-      <div class="stripes"></div>
+      <div class="stripes"></div>${carPhoto(c, team?.id) ? `<img class="hero-car" src="${esc(carPhoto(c, team.id))}" alt="">` : ''}
       <div class="hero-pic">${avatar(c, s, PLAYER, 96)}<div class="big-num">${esc(s.drivers[PLAYER]?.number ?? c.profile.number)}</div></div>
       <div style="position:relative;z-index:1;min-width:0">
         <span class="label">${s.year} season · ${esc(team?.name)}${isPrincipal(c) ? ' · lead driver' : ''}</span>
         <div class="name">${esc(dName(s, PLAYER))}</div>
-        <div class="meta">${isPrincipal(c) ? `<span>Team principal: ${esc(c.profile.first)} ${esc(c.profile.last)}</span>` : `<span>${esc(arch?.name || '')}</span>`}<span>Teammate: ${esc(dName(s, mate))}</span>${(() => { const a = !isPrincipal(c) && archRivalOf(c, s); return a ? `<span>Archrival: ${esc(dName(s, a))}</span>` : ''; })()}</div>
+        <div class="meta">${isPrincipal(c) ? `<span>Team principal: ${esc(c.profile.first)} ${esc(c.profile.last)}</span>` : ''}<span>Teammate: ${esc(dName(s, mate))}</span>${(() => { const a = !isPrincipal(c) && archRivalOf(c, s); return a ? `<span>Archrival: ${esc(dName(s, a))}</span>` : ''; })()}</div>
       </div>
       <div class="next-card">
         ${nr ? `<span class="label">Next up · Round ${activeRounds(s).indexOf(nr) + 1} of ${total}</span>
@@ -43,12 +42,17 @@ function renderDashboard() {
 
     <div class="tiles">
       <div class="tile"><span class="label">Championship</span><span class="v">${myRow && done ? 'P' + myRow.pos : '–'}<small> / ${ds.length}</small></span></div>
-      ${(() => { try { const m = titleMath(s, 'driver'); if (!m.left.length || !done) return ''; const Pj = projection(c, s, m); if (!Pj.hasForm) return ''; const k = Pj.rows.findIndex(x => x.id === PLAYER); return k < 0 ? '' : `<div class="tile" data-act="nav" data-view="forecast" style="cursor:pointer" title="From the title forecast, on current form"><span class="label">Predicted finish</span><span class="v">P${k + 1}<small> on form</small></span></div>`; } catch { return ''; } })()}
+      ${(() => { const fl = `<div class="tile"><span class="label">Fastest laps</span><span class="v">${me.fls}</span></div>`; try { const m = titleMath(s, 'driver'); if (!m.left.length || !done) return fl; const Pj = projection(c, s, m); if (!Pj.hasForm) return fl; const k = Pj.rows.findIndex(x => x.id === PLAYER); return k < 0 ? fl : `<div class="tile" data-act="nav" data-view="forecast" style="cursor:pointer" title="From the title forecast, on current form"><span class="label">Predicted finish</span><span class="v">P${k + 1}<small> on form</small></span></div>`; } catch { return fl; } })()}
       <div class="tile"><span class="label">Points</span><span class="v">${me.pts}<small>${gap > 0 ? ` −${gap}` : ''}</small></span></div>
       <div class="tile"><span class="label">Wins</span><span class="v">${me.wins}</span></div>
       <div class="tile"><span class="label">Podiums</span><span class="v">${me.podiums}</span></div>
       <div class="tile"><span class="label">Poles</span><span class="v">${me.poles}</span></div>
       <div class="tile"><span class="label">Rounds</span><span class="v">${done}<small> / ${total}</small></span></div>
+      <div class="tile"><span class="label">Avg finish</span><span class="v">${me.finPos.length ? 'P' + fmtAvg(avg(me.finPos)) : '–'}<small>${me.best ? ' best P' + me.best : ''}</small></span></div>
+      <div class="tile"><span class="label">Avg qualifying</span><span class="v">${me.qPos.length ? 'P' + fmtAvg(avg(me.qPos)) : '–'}<small>${me.bestQ ? ' best P' + me.bestQ : ''}</small></span></div>
+      ${(() => { const g = Object.values(me.byRound).filter(b => typeof b.q === 'number' && typeof b.r === 'number').reduce((a, b) => a + b.q - b.r, 0); return `<div class="tile" title="Places gained from the grid to the flag, in races you finished"><span class="label">Positions gained</span><span class="v" style="color:${g > 0 ? 'var(--green)' : g < 0 ? 'var(--red)' : 'inherit'}">${g > 0 ? '+' + g : g}</span></div>`; })()}
+      <div class="tile"><span class="label">DNFs</span><span class="v">${me.dnfs}</span></div>
+      ${(() => { const f = activeRounds(s).map(r => me.byRound[r.id]?.r).filter(v => v != null && v !== 'DNS').slice(-5); return `<div class="tile" title="Your last five races, oldest first"><span class="label">Form</span><span class="form-row">${f.length ? f.map(v => typeof v === 'number' ? `<span class="form-chip ${v === 1 ? 'p1' : v <= 3 ? 'pod' : v <= 10 ? 'pts' : ''}">${v}</span>` : `<span class="form-chip out">${esc(v)}</span>`).join('') : '<span class="v">–</span>'}</span></div>`; })()}
     </div>
 
     <div class="grid-main">
