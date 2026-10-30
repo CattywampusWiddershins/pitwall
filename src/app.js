@@ -1372,7 +1372,26 @@ function activeTheme() {
   return D.THEMES[pref] || D.THEMES.classic;
 }
 const THEME_VARS = ['--bg', '--panel', '--panel-2', '--panel-3', '--line', '--rail'];
+/** Your uploaded fonts: a display face (headings, numbers; regular and bold) and a body face. */
+const FONT_SLOTS = [['display', 'Display (headings and numbers)', 400], ['displayBold', 'Display, bold', 700], ['body', 'Body text', 400]];
+function applyFonts() {
+  const F = state.fonts || {}; const key = FONT_SLOTS.map(([k]) => F[k]?.name || '').join('|');
+  let el = document.getElementById('user-fonts'); if (el?.dataset.key === key) return;
+  if (!el) { el = document.createElement('style'); el.id = 'user-fonts'; document.head.appendChild(el); }
+  el.dataset.key = key;
+  const face = (fam, k, w) => F[k] ? `@font-face { font-family: "${fam}"; src: url("${F[k].data}"); font-weight: ${w}; font-display: swap; }` : '';
+  const disp = F.display || F.displayBold; const bodyF = F.body;
+  el.textContent = [face('PW Display', 'display', '100 599'), face('PW Display', 'displayBold', '600 900'), face('PW Body', 'body', '100 900'),
+    `:root { ${disp ? '--font-display: "PW Display", "Bahnschrift", "Barlow Condensed", sans-serif;' : ''} ${bodyF ? '--font-body: "PW Body", "Segoe UI", system-ui, sans-serif;' : ''} }`].join('\n');
+}
+function fontsPanel() {
+  const F = state.fonts || {};
+  return `<div class="panel"><div class="panel-h"><h2>Fonts</h2><span class="muted" style="font-size:12px">Use your own, such as F1’s fonts</span></div><div class="panel-b stack">
+    ${FONT_SLOTS.map(([k, l]) => `<div class="row" style="gap:8px"><span style="min-width:240px">${l}</span>${F[k] ? `<span class="muted" style="font-size:12px">${esc(F[k].name)}</span><button class="btn sm ghost" data-act="font-clear" data-k="${k}">Remove</button>` : `<label class="btn sm">Upload<input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" data-ch="font-upload" data-k="${k}" hidden></label>`}</div>`).join('')}
+    <p class="muted" style="font-size:12px;margin:0">F1’s fonts belong to Formula 1, so they can’t come with Pitwall: if you have them, upload the files here (TTF, OTF or WOFF). For the F1 look, use Formula1 Display Regular for display, Formula1 Display Bold for bold, and Titillium Web (free) or Formula1 Display Regular for body text. They’re kept with your data.</p></div></div>`;
+}
 function applyTheme() {
+  applyFonts();
   const th = activeTheme();
   const st = document.documentElement.style;
   st.setProperty('--team', th.accent);
@@ -1558,6 +1577,9 @@ function readImage(file, { max = 256, square = false, type = 'image/png' } = {})
 }
 const readLogo = (file) => readImage(file, { max: 256 });
 const readPhoto = (file) => readImage(file, { max: 220, square: true, type: 'image/webp' });
+const readCar = (file) => readImage(file, { max: 1000, type: 'image/webp' });
+/** A team's car picture: for the profile banners and the undercut graphic. */
+const carPhoto = (c, id) => !id ? null : id === MYTEAM ? c?.myTeam?.car || null : state.images?.cars?.[id] || state.images?.cars?.[teamRoot(id)] || null;
 
 /** Upload / remove controls for a driver photo or team logo. kind: driver | team | setup */
 function pictureControls(kind, id, has, label = kind === 'team' ? 'logo' : 'photo') {
@@ -2542,7 +2564,7 @@ function renderDriver() {
   return `<div class="page">
     <div class="row"><button class="btn sm ghost" data-act="nav" data-view="drivers">${ICON.left} All drivers</button></div>
     <section class="hero" style="--team:${col}">
-      <div class="stripes"></div>
+      <div class="stripes"></div>${carPhoto(c, team?.id) ? `<img class="hero-car" src="${esc(carPhoto(c, team.id))}" alt="">` : ''}
       <div class="hero-pic">${avatar(c, s, id, 104)}<div class="big-num">${esc(d.number || '–')}</div></div>
       <div style="position:relative;z-index:1;min-width:0">
         <span class="label">${team ? `<button data-act="open-team" data-id="${team.id}" class="link-btn">${esc(team.name)}</button> · ${s.year}` : `Not on the ${s.year} grid`}</span>
@@ -2697,7 +2719,7 @@ function renderTeam() {
   return `<div class="page">
     <div class="row"><button class="btn sm ghost" data-act="nav" data-view="teams">${ICON.left} All teams</button></div>
     <section class="hero" style="--team:${meta.color};--team-2:${col2}">
-      <div class="stripes"></div>
+      <div class="stripes"></div>${carPhoto(c, id) ? `<img class="hero-car" src="${esc(carPhoto(c, id))}" alt="">` : ''}
       ${teamLogo(c, meta, 92)}
       <div style="position:relative;z-index:1;min-width:0">
         <span class="label">${onGrid ? `${s.year} constructors · ${cur && roundsDone(s) ? 'P' + cur.pos : 'season not started'}` : `Not on the ${s.year} grid`}</span>
@@ -2708,7 +2730,7 @@ function renderTeam() {
         <span class="label">Constructors’ championships</span>
         <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${tot.conTitles.length}</div>
         <span class="muted" style="font-size:13px;max-width:260px">${tot.conTitles.length ? esc(tot.conTitles.join(', ')) : tot.bestCon ? `Best: P${tot.bestCon}` : 'No titles yet'}</span>
-        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}</div>
+        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}</div>
       </div>
     </section>
 
@@ -6671,7 +6693,9 @@ function buildErsPlan(c, s, round, kind = 'race') {
   const zones = []; const startAt = full.findIndex(x => !x);
   if (startAt >= 0) {
     let cur = null;
-    for (let n = 1; n <= nb; n++) { const i = (startAt + n) % nb; if (full[i]) (cur ||= []).push(i); else if (cur) { zones.push(cur); cur = null; } }
+    // a flying lap ends at the line: a straight across it is two (the end of this lap, and the start), and nothing gained
+    // after the line counts
+    for (let n = 1; n <= nb; n++) { const i = (startAt + n) % nb; if (Q && i === 0 && cur) { zones.push(cur); cur = null; } if (full[i]) (cur ||= []).push(i); else if (cur) { zones.push(cur); cur = null; } }
     if (cur) zones.push(cur);
   }
   const Z = zones.filter(z => z.length * bin >= 160).map((bins, n) => ({ n, bins, from: bins[0] * bin, to: (bins[bins.length - 1] + 1) * bin, len: bins.length * bin, vIn: spd[bins[0]], vOut: spd[bins[bins.length - 1]] }));
@@ -6713,9 +6737,12 @@ function buildErsPlan(c, s, round, kind = 'race') {
     if (!on.length || !off.length) continue;
     const meas = median(on.map(L => L.spd[end])) - median(off.map(L => L.spd[end]));
     const model = gainOf(z.bins, 0).dv;
-    if (model > 1 && meas > 0) { z.measured = { dv: meas, laps: on.length + off.length }; ratios.push(meas / model); }
+    if (model > 1 && meas > 0) { z.measured = { dv: meas, laps: on.length + off.length }; z.ratio = meas / model; ratios.push(meas / model); }
   }
   const factor = ratios.length ? Math.max(0.25, Math.min(3, median(ratios))) : 1;
+  // each straight on its own measurement where your laps have one (boost does more on some straights than the model
+  // says, less on others), else the lap's
+  for (const z of Z) z.factor = z.ratio ? Math.max(0.25, Math.min(3, z.ratio)) : factor;
   const ftTime = full.reduce((a, f, i) => a + (f === true ? dtOf(i) : 0), 0);
   const normalUse = full.reduce((a, f, i) => a + (f === true ? pN[i] * dtOf(i) : 0), 0); // kJ a lap in the base mode on every straight
   // the energy to spend on boost, beyond the base mode
@@ -6751,7 +6778,7 @@ function buildErsPlan(c, s, round, kind = 'race') {
     const o = [{ j: null, t: 0, u: 0 }]; const n = z.bins.length; const step = n > 60 ? 2 : 1;
     for (let j = 0; j < n - 2; j += step) for (let k = j + 2; k < n; k += step) {
       const g = gainOf(z.bins, j, k); const u = Math.ceil(g.e / STEP); if (u > cap) break;
-      o.push({ j, k, t: g.t * factor, u, e: g.e, dv: g.dv * factor });
+      o.push({ j, k, t: g.t * z.factor, u, e: g.e, dv: g.dv * z.factor });
     }
     return o;
   });
@@ -6763,7 +6790,7 @@ function buildErsPlan(c, s, round, kind = 'race') {
     bestT = nt; choice.push(ch);
   }
   const chosen = []; for (let zi = Z.length - 1, u = cap; zi >= 0; zi--) { const o = opts[zi][choice[zi][u]]; chosen[zi] = o; u -= o.u; }
-  const setPlan = (z, j, k) => { const g = gainOf(z.bins, j, k); return { j, k, at: z.bins[j] * bin, to: (z.bins[k] + 1) * bin, len: (k - j + 1) * bin, t: g.t * factor, e: g.e, dv: g.dv * factor }; };
+  const setPlan = (z, j, k) => { const g = gainOf(z.bins, j, k); return { j, k, at: z.bins[j] * bin, to: (z.bins[k] + 1) * bin, len: (k - j + 1) * bin, t: g.t * z.factor, e: g.e, dv: g.dv * z.factor }; };
   Z.forEach((z, zi) => { const o = chosen[zi]; z.plan = o && o.j != null ? setPlan(z, o.j, o.k) : null; });
   // the battery over the lap with this plan: harvest under braking, base and boost deployment on the straights. If
   // it would run dry before the end of a straight (where it doesn't already without any boost), the boost that caused
@@ -6794,7 +6821,7 @@ function buildErsPlan(c, s, round, kind = 'race') {
     };
     // the time the missing deployment costs on each straight: the speed it would have given, carried to the braking point
     const lossOf = (short) => { let a = 0; for (const z of Z) { let dv = 0, t = 0; for (const i of z.bins) { const v = vOf(i), dt = dtOf(i); dv += (-short[i] * grip(spd[i]) / (ERS_MASS * v) - 2 * cd * v * dv / ERS_MASS) * dt; dv = Math.min(0, dv); t += dt * -dv / v; } a += t; } return a * factor; };
-    const score = (plans) => { const r0 = simQ(plans); if (r0.trace[nb - 1] < endMin) return { v: -Infinity, sim: r0 }; let t = 0; for (const z of Z) { const p = plans[z.n]; if (p) t += g(z, p.j, p.k).t * factor; } return { v: t - lossOf(r0.short), sim: r0 }; };
+    const score = (plans) => { const r0 = simQ(plans); if (r0.trace[nb - 1] < endMin) return { v: -Infinity, sim: r0 }; let t = 0; for (const z of Z) { const p = plans[z.n]; if (p) t += g(z, p.j, p.k).t * z.factor; } return { v: t - lossOf(r0.short), sim: r0 }; };
     let plans = Object.fromEntries(Z.map(z => [z.n, z.plan ? { j: z.plan.j, k: z.plan.k } : null]));
     let cur = score(plans);
     if (cur.v === -Infinity) { plans = Object.fromEntries(Z.map(z => [z.n, null])); cur = score(plans); }
@@ -8870,6 +8897,7 @@ function renderSettings() {
   return `<div class="page">
     <div class="page-head"><div><h1>Settings</h1><div class="sub">Appearance, career profile, ${s.year} roster and calendar, AI media and your data.</div></div></div>
     ${renderThemePicker(c, s)}
+    ${fontsPanel()}
     ${soundsPanel()}
 
     <div class="panel"><div class="panel-h"><h2>AI media engine</h2><span class="muted" style="font-size:12px">${settings.hasKey ? 'API key saved' : 'No API key: media sessions use built-in question templates'}</span></div>
@@ -10012,6 +10040,11 @@ const changes = {
     }
     store.save(); render();
   },
+  'font-upload'(el) {
+    const file = el.files?.[0]; if (!file) return;
+    if (file.size > 3e6) { toast('That font file is too big: keep it under 3 MB'); return; }
+    const fr = new FileReader(); fr.onload = () => { (state.fonts ||= {})[el.dataset.k] = { name: file.name, data: fr.result }; store.save(); render(); toast('Font saved'); }; fr.readAsDataURL(file);
+  },
   'sound-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
     if (file.size > 1.5e6) { toast('That sound is too big: keep it under 1 MB'); return; }
@@ -10147,7 +10180,10 @@ Object.assign(changes, {
     const file = el.files?.[0]; if (!file) return;
     const { kind, id } = el.dataset; const c = career();
     try {
-      if (kind === 'team') {
+      if (kind === 'car') {
+        const url = await readCar(file);
+        if (id === MYTEAM) c.myTeam.car = url; else (imgStore().cars ||= {})[id] = url;
+      } else if (kind === 'team') {
         const url = await readLogo(file);
         if (id === MYTEAM) { c.myTeam.logo = url; syncMyTeam(c); } else imgStore().teams[id] = url;
       } else {
@@ -10158,7 +10194,7 @@ Object.assign(changes, {
       if (kind !== 'setup' && kind !== 'newdriver') store.save();
       if (ui.modal?.kind === 'transfer') drawTransferModal(); else render();
       if (ui.modal?.kind === 'photo') drawPhotoModal();
-      toast(kind === 'team' ? 'Logo saved' : 'Photo saved');
+      toast(kind === 'team' ? 'Logo saved' : kind === 'car' ? 'Car picture saved' : 'Photo saved');
     } catch (e) { toast(e.message); }
   },
   'rm-field'(el) { ui.modal[el.dataset.k] = el.value; drawRumourModal(); },
@@ -10208,6 +10244,7 @@ Object.assign(actions, {
     const plans = optimalStrategies(strategyRuns(s, r).mine, raceLaps(s, r.id), { loss: pitLoss(c, trackOf(r)).green, sets: setsLeft(c, s, r).sets }); const p = plans[+el.dataset.i];
     if (!p) return; w.liveStrategy = w.liveStrategy?.seq.join() === p.seq.join() ? null : { seq: p.seq, lens: p.lens }; store.save(); render();
   },
+  'font-clear'(el) { delete (state.fonts ||= {})[el.dataset.k]; store.save(); render(); },
   'sound-play'(el) { playSounds([el.dataset.k]); },
   'sound-clear'(el) { delete (state.sounds ||= {})[el.dataset.k]; store.save(); render(); },
   'tyre-preset'(el) { const s = curSeason(); weekend(s, el.dataset.round || ui.round, true).tyrePreset = el.dataset.v; store.save(); render(); },
@@ -10237,6 +10274,7 @@ Object.assign(actions, {
     const { kind, id } = el.dataset; const c = career();
     if (kind === 'setup') ui.setup.photo = null;
     else if (kind === 'team') { if (id === MYTEAM) { c.myTeam.logo = null; syncMyTeam(c); } else delete imgStore().teams[id]; }
+    else if (kind === 'car') { if (id === MYTEAM) c.myTeam.car = null; else delete imgStore().cars?.[id]; }
     else setDriverPhoto(c, id, null);
     if (kind !== 'setup') store.save();
     render(); if (ui.modal?.kind === 'photo') drawPhotoModal();

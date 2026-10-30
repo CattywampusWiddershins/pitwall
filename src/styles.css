@@ -805,3 +805,5 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .battle.closing .bf-mid { background: #1F9D55; color: #fff; }
 .battle.growing .bf-mid { background: #F5C518; color: #111; }
 .battle .bf-mid small { opacity: .85; }
+.hero-car { position: absolute; right: 270px; bottom: -6px; height: 115%; max-width: 46%; object-fit: contain; opacity: .5; pointer-events: none; filter: drop-shadow(0 6px 12px rgba(0,0,0,.5)); z-index: 0; }
+@media (max-width: 900px) { .hero-car { right: 0; opacity: .25; } }
