@@ -159,16 +159,26 @@ function replayDash() {
 function replayVis() {
   const box = document.getElementById('rp-vis'); const L = RP.L; const s = RP.s; const field = L.field || [];
   const G = raceGaps(field); const ab = (x) => { const id = RP.idOf(x.i); return id ? dAbbr(s, id) : (RP.data.meta.parts?.find(p => p.idx === x.i)?.name || '?').slice(0, 3).toUpperCase(); };
+  // the cars on the lead lap by their gaps; below them, a row each for the lapped cars and then those out of the race
+  const isOut = (x) => x.st !== 2 && x.st !== 3;
   const running = field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
-  const onLap = running.filter(x => (G[x.i]?.down || 0) === 0 && x.st === 2);
+  const onLap = running.filter(x => !isOut(x) && !G[x.i]?.down), lapped = running.filter(x => !isOut(x) && G[x.i]?.down), out = running.filter(isOut);
+  const rest = lapped.length + out.length; const ROW = 17;
   const maxGap = Math.max(5000, ...onLap.map(x => G[x.i]?.g || 0));
-  const target = Math.max(3, Math.min(60, (RP_H - 60) / (maxGap / 1000))); RP.scale = RP.scale + (target - RP.scale) * 0.25;
+  const room = Math.max(120, RP_H - 40 - rest * ROW - (rest ? 28 : 0) - Math.max(0, onLap.length - 8) * 4);
+  const target = Math.max(2, Math.min(60, room / (maxGap / 1000))); RP.scale = RP.scale + (target - RP.scale) * 0.25;
   const dur = Math.min(1, 1 / RP.speed);
-  // the second markers
+  // where each car goes: by its gap, never closer than a row to the car ahead
+  const Y = {}; let y0 = -99;
+  for (const x of onLap) { y0 = Math.max(12 + (G[x.i]?.g || 0) / 1000 * RP.scale, y0 + ROW); Y[x.i] = y0; }
+  const split = rest ? y0 + 30 : null; let yr = (split ?? y0) + 10;
+  for (const x of [...lapped, ...out]) { Y[x.i] = yr; yr += ROW; }
+  const H = Math.max(RP_H, (rest ? yr : y0 + ROW) + 14); box.style.height = `${H}px`;
+  // the second markers (over the lead lap), and the line above the lapped cars
   const step = [1, 2, 5, 10, 15, 30, 60, 120].find(v => v * RP.scale >= 48) || 120; let ticks = '';
-  for (let v = step; v * RP.scale < RP_H - 30; v += step) ticks += `<div class="rp-tick" style="top:${12 + v * RP.scale}px"><span>+${v} s</span></div>`;
+  for (let v = step; 12 + v * RP.scale < (split ?? H) - 14; v += step) ticks += `<div class="rp-tick" style="top:${12 + v * RP.scale}px"><span>+${v} s</span></div>`;
+  if (split != null) ticks += `<div class="rp-tick rp-split" style="top:${split}px"><span>${lapped.length ? 'Lapped' : ''}${lapped.length && out.length ? ' · ' : ''}${out.length ? 'Out' : ''}</span></div>`;
   let tk = box.querySelector('.rp-ticks'); if (!tk) { tk = document.createElement('div'); tk.className = 'rp-ticks'; box.appendChild(tk); } tk.innerHTML = ticks;
-  let y0 = -99;
   running.forEach(x => {
     let node = box.querySelector(`.rp-car[data-i="${x.i}"]`);
     if (!node) {
@@ -177,9 +187,7 @@ function replayVis() {
       node.innerHTML = `<span class="rp-p"></span><span class="rp-t"></span>${img ? `<img src="${esc(img)}" alt="">` : '<i class="rp-shape"></i>'}<b>${esc(ab(x))}</b><small class="rp-g"></small>`;
       box.appendChild(node);
     }
-    const g = G[x.i]; const out = x.st !== 2 && x.st !== 3; let y;
-    if (out) y = RP_H - 22; else if (g?.down) y = RP_H - 44; else y = 12 + (g?.g || 0) / 1000 * RP.scale;
-    y = Math.min(RP_H - 22, Math.max(y, y0 + 16)); y0 = y;
+    const g = G[x.i]; const out = isOut(x); const y = Y[x.i];
     node.style.transition = `transform ${dur}s linear`; node.style.transform = `translateY(${y}px)`; node.classList.toggle('out', out); node.classList.toggle('pit', !!x.pit);
     node.querySelector('.rp-p').textContent = x.pos; node.querySelector('.rp-t').innerHTML = x.c != null ? tyreChip(x.c) : '';
     node.querySelector('.rp-g').textContent = out ? 'OUT' : x.pit ? 'PIT' : x.pos === 1 ? 'Leader' : g?.down ? `+${g.down} LAP${g.down > 1 ? 'S' : ''}` : `+${((g?.g || 0) / 1000).toFixed(1)}`;

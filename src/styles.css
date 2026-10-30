@@ -837,3 +837,6 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .rp-car.me b { color: var(--red); }
 .rp-car.pit small { color: var(--yellow); }
 .rp-car.out { opacity: .4; }
+.rp-split { border-top: 1px solid var(--line); }
+.rp-split span { left: 8px; right: auto; text-transform: uppercase; letter-spacing: .06em; }
+.rp-vis { transition: height .4s; }
