@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('api', {
     live: () => ipcRenderer.invoke('telemetry:live'),
     onLive: (cb) => ipcRenderer.on('telemetry:live', (_e, m) => cb(m)),
   },
+  // recorded races (Race Replay)
+  replays: {
+    list: () => ipcRenderer.invoke('replay:list'),
+    load: (key) => ipcRenderer.invoke('replay:load', key),
+    remove: (key) => ipcRenderer.invoke('replay:remove', key),
+  },
   companion: {
     status: () => ipcRenderer.invoke('companion:status'),
     enable: (on) => ipcRenderer.invoke('companion:enable', on),

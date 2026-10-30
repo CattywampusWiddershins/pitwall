@@ -78,6 +78,7 @@ function contrastInk(hex) {
 }
 
 const ICON = {
+  play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>',
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
   flag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg>',
   trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/></svg>',
@@ -1410,6 +1411,36 @@ function applyTheme() {
   THEME_VARS.forEach((v, i) => st.setProperty(v, vals[i]));
 }
 
+/*
+  F1-style capitals: drivers' surnames, countries and race names show in capitals wherever they appear. It's done on
+  the page as it's drawn (text only, never form fields), so the data keeps its normal spelling.
+*/
+let _caps = { key: null, re: null };
+function capsRe() {
+  const c = career(); const S = c?.seasons || [];
+  const key = `${c?.id}|${S.length}|${S.reduce((a, s) => a + Object.keys(s.drivers || {}).length + (s.calendar || []).length, 0)}|${Object.keys(c?.generated || {}).length}|${c?.customDrivers?.length}|${c?.profile?.last}`;
+  if (_caps.key === key) return _caps.re;
+  const words = new Set();
+  const addName = (n) => { const l = lastName(n); if (l && l.length >= 3 && /^\p{Lu}/u.test(l.replace(/^(de|van|von|di|da|del|der) /, ''))) words.add(l); };
+  Object.values(D.DRIVERS || {}).forEach(d => addName(d.name));
+  for (const s of S) { Object.values(s.drivers || {}).forEach(d => addName(d.name)); (s.calendar || []).forEach(r => r.name && words.add(r.name)); }
+  Object.values(c?.generated || {}).forEach(d => addName(d.name)); (c?.customDrivers || []).forEach(d => addName(d.name));
+  if (c?.profile?.last?.length >= 3) words.add(c.profile.last);
+  Object.values(D.TRACKS || {}).forEach(x => x.country && words.add(x.country));
+  const list = [...words].sort((a, b) => b.length - a.length).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  _caps = { key, re: list.length ? new RegExp(`(?<![\\p{L}])(${list.join('|')})(?![\\p{L}])`, 'gu') : null };
+  return _caps.re;
+}
+const CAPS_SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT']);
+function capsNode(n, re) {
+  if (n.nodeType === 3) { const p = n.parentNode; if (!p || CAPS_SKIP.has(p.nodeName) || p.closest?.('.no-caps,[contenteditable]')) return; re.lastIndex = 0; const v = n.nodeValue.replace(re, m => m.toUpperCase()); if (v !== n.nodeValue) n.nodeValue = v; return; }
+  if (n.nodeType !== 1 || CAPS_SKIP.has(n.nodeName) || n.matches('.no-caps,[contenteditable]')) return;
+  const w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT); const all = []; while (w.nextNode()) all.push(w.currentNode); all.forEach(x => capsNode(x, re));
+}
+if (typeof MutationObserver !== 'undefined') new MutationObserver((muts) => {
+  if (state.caps === false) return; let re; try { re = capsRe(); } catch { return; } if (!re) return;
+  for (const m of muts) { if (m.type === 'characterData') capsNode(m.target, re); else m.addedNodes.forEach(x => capsNode(x, re)); }
+}).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 function render() {
   renderGen++;
   // a real driver's career: the real moves the season has reached
@@ -1433,6 +1464,7 @@ const NAV = [
   ['calendar', 'Season', 'flag'],
   ['standings', 'Standings', 'trophy'],
   ['now', 'Current Weekend', 'flag'],
+  ['replay', 'Race Replay', 'play'],
   ['performance', 'Performance', 'gauge'],
   ['stories', 'Stories', 'news'],
   ['transfers', 'Transfers', 'swap'],
@@ -1492,6 +1524,7 @@ function renderView() {
     case 'team': return renderTeam();
     case 'forecast': ui.view = 'standings'; ui.standingsTab = 'forecast'; return renderForecast();
     case 'now': return renderCurrentWeekend();
+    case 'replay': return renderReplay();
     case 'performance': return renderPerformance();
     case 'stories': return renderStories();
     case 'transfers': return renderTransfers();
@@ -5477,18 +5510,36 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const free = planRest(args); const mine = follow?.length ? planRest({ ...args, follow }) : null;
   let plan = mine || free; let changed = false;
   if (mine && free && free.t < mine.t - 2000) { plan = free; changed = true; }
-  // the plan that finishes highest, not just the quickest: rivals' own plans, and half a second for every car to pass
-  let posNote = null;
-  if (idOf && free?.alts?.length) {
-    const P = byPosition(s, r, L, me, idOf, [...free.alts, mine]); const cur = byPosition(s, r, L, me, idOf, [plan]);
-    if (P && cur && P.pos < cur.pos && P.p !== plan) { posNote = { from: cur.pos, to: P.pos, stops: P.p.stints.length }; plan = { ...P.p, window: [P.p.k, P.p.k] }; changed = !!mine; }
-    else if (cur) posNote = { to: cur.pos };
-  }
-  // under a safety car: stopping now, at the cheaper loss
-  let scCall = null;
-  if (L.sc === 1 || L.sc === 2) {
-    const now = planRest({ ...args, firstLoss: lossNow, onlyK: 1 });
-    if (now && plan && now.t < plan.t - 500) scCall = { plan: now, extra: !plan.stints.length };
+  // the plan with the best odds of finishing higher, not just the quickest: every car on its own plan, and a pass on
+  // track only as likely as the track allows. Against the quickest plan, another one has to be likelier to finish
+  // ahead of it than behind; when the two are even, the one with the better best case (the gamble that might come off)
+  // The plan in hand is kept unless another beats it clearly (10 points more likely to finish ahead than behind), so
+  // the call doesn't flip from one update to the next. Under a safety car or VSC, stopping now at the cheaper loss is
+  // one of the plans, judged the same way (the odds are worked out again every five seconds).
+  let posNote = null; let scCall = null;
+  const sc = L.sc === 1 || L.sc === 2 ? L.sc : 0;
+  if (idOf && plan) {
+    const mem = L.mem || liveErs || {}; const HM = (mem.held ||= {}); let H = HM[me.i];
+    if (H && (H.uid !== L.uid || H.stops !== (me.stops || 0) || (H.seq.length && H.lap < me.lap))) H = null;
+    const ks = [1, 2, 3, plan.k - 2, plan.k - 1, plan.k + 1, plan.k + 2].filter(k => k >= 1 && k < left && k <= curLife);
+    const atK = (k, fol) => planRest({ ...args, onlyK: k, follow: fol, firstLoss: sc && k === 1 ? lossNow : PL.green });
+    const cand = [plan, ...(free?.alts || []), mine, ...ks.map(k => atK(k, mine ? follow : null)), sc ? atK(1, null) : null,
+      H?.seq.length ? atK(H.lap - me.lap + 1, H.seq) : null].filter(Boolean);
+    const seen = new Set(); const uniq = cand.filter(p => { const k = p.k + ':' + p.stints.map(x => x.c + x.L).join(','); if (seen.has(k)) return false; seen.add(k); return true; });
+    const O = raceOdds(s, r, L, me, idOf, { left, runs, cur, age, PL, sc, lossNow }, uniq);
+    let pick = O[0];
+    for (const o of O.slice(1)) { const a = beatsOdds(o, pick), b = beatsOdds(pick, o); if (a > b + 0.03 || (Math.abs(a - b) <= 0.03 && o.best < pick.best)) pick = o; }
+    const absSig = (p) => `${p.stints.length ? me.lap + p.k - 1 : 0}:${p.stints.map(x => x.c).join(',')}`;
+    const heldO = H && O.find(o => absSig(o.p) === H.sig);
+    if (heldO && pick !== heldO && beatsOdds(pick, heldO) - beatsOdds(heldO, pick) < 0.10) pick = heldO;
+    HM[me.i] = { uid: L.uid, stops: me.stops || 0, sig: absSig(pick.p), lap: me.lap + pick.p.k - 1, seq: pick.p.stints.map(x => x.c) };
+    const OV = overtakeOf(c, trackOf(r)); const sum = (o) => ({ mode: o.mode, pMode: o.pMode, best: o.best, worst: o.worst });
+    posNote = { ...sum(pick), pass: OV.p, hard: OV.hard, sc };
+    if (pick !== O[0]) {
+      Object.assign(posNote, { from: sum(O[0]), win: beatsOdds(pick, O[0]), lose: beatsOdds(O[0], pick), stops: pick.p.stints.length, fromStops: O[0].p.stints.length, k: pick.p.k, fromK: O[0].p.k });
+      plan = { ...pick.p, window: [pick.p.k, pick.p.k] }; changed = !!mine;
+    }
+    if (sc && plan.stints.length && plan.k === 1) scCall = { plan, extra: false };
   }
   return { n, left, lossNow, PL, runs, cur, age, curLife, sets, plan, free, follow, changed, scCall, usedOther, posNote };
 }
@@ -5524,7 +5575,7 @@ function rivalPlan(s, r, L, x, idOf) {
       const wr = x.wear != null && x.age > 1 ? x.wear / x.age : runs[x.c].wear; const curLife = wr ? Math.max(1, Math.floor((WEAR_LIMIT - (x.wear ?? 0)) / wr)) : Math.max(1, (runs[x.c].life ?? 40) - (x.age || 0));
       const usedOther = (L.used?.[x.i] || []).some(c2 => DRY.includes(c2) && c2 !== x.c) || L.key === 'SPR';
       const pl = planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: pitLoss(career(), trackOf(r)).green, usedOther });
-      if (pl) p = { stops: pl.stints.length, next: pl.stints[0]?.c ?? null, k: pl.k, t: pl.t };
+      if (pl) p = { stops: pl.stints.length, next: pl.stints[0]?.c ?? null, k: pl.k, t: pl.t, stints: pl.stints };
     }
   }
   _rivalPlan.set(k, { gen: renderGen, p }); if (_rivalPlan.size > 400) _rivalPlan.clear(); return p;
@@ -5555,7 +5606,7 @@ function fightCards(c, s, r, L, me, idOf, ST) {
   const byPos = field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
   const realAhead = byPos.find(x => x.pos === me.pos - 1), realBehind = byPos.find(x => x.pos === me.pos + 1);
   const pits = (x) => L.pitLaps?.[x.i] || [];
-  const ctx = fightContext(L, me); const T = (liveErs.fight ||= {})[me.i] ||= {};
+  const ctx = fightContext(L, me); const T = ((L.mem || liveErs).fight ||= {})[me.i] ||= {};
   const PL = ST.PL; const myStops = ST.plan?.stints?.length || 0; const myNext = ST.plan?.stints?.[0]?.c ?? null;
   const myRuns = runsFor(s, r, idOf(me.i)); const fuel = (x) => liveFuel(x)(x.lap) ?? x.fuel ?? 0;
   const stoppedSince = (x) => ctx && (x.stops || 0) > (ctx.stops[x.i] ?? x.stops ?? 0);
@@ -5573,6 +5624,7 @@ function fightCards(c, s, r, L, me, idOf, ST) {
     return `<div class="panel live-card ucard"><div class="panel-h"><h2>${title}</h2><span class="muted" style="font-size:12px">${sub}</span></div>
       <div class="panel-b">${ucGraphic(c, s, idOf, mid, other, gap, good)}<div class="uc-num"><b>${gap > 0 ? `${(gap / 1000).toFixed(2)} s behind` : gap < 0 ? `${(-gap / 1000).toFixed(2)} s ahead` : 'level'}</b> <span class="muted">${note}</span></div></div></div>`;
   };
+  const OV = overtakeOf(c, trackOf(r)); const hardPass = OV.p < 0.3 ? ` Passing here comes off ${Math.round(OV.p * 100)}% of the time, so the stop is the way by.` : '';
   const out = [];
   // the car ahead: your undercut on them
   if (A) {
@@ -5580,10 +5632,14 @@ function fightCards(c, s, r, L, me, idOf, ST) {
     if (myStops && (rpA?.stops ?? 0) > 0 && !stoppedSince(me) && !stoppedSince(A) && myNext != null) {
       const theirOld = livePace(runsFor(s, r, idOf(A.i)), A.c, (A.age || 0) + 1, fuel(A)), myNew = livePace(myRuns, myNext, 1, fuel(me)) + OUTLAP_MS;
       const after = theirOld != null && myNew != null ? gapNow - (theirOld - myNew) : null;
-      if (after != null) out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if you stop this lap and ${nm(A)} the next: ${after < 0 ? 'you come out ahead' : 'still behind'}`));
+      // the cars further up it would clear too (each stopping the lap after you)
+      const more = byPos.filter(x => x.pos < A.pos && x.pos >= A.pos - 3 && x.st === 2 && !stoppedSince(x)).filter(x => (rivalPlan(s, r, L, x, idOf)?.stops ?? 0) > 0).filter(x => {
+        const old = livePace(runsFor(s, r, idOf(x.i)), x.c, (x.age || 0) + 1, fuel(x)); return old != null && myNew != null && (me.gapL || 0) - (x.gapL || 0) - (old - myNew) < 0; }).map(x => `${nm(x)} (P${x.pos})`);
+      const alsoTxt = more.length && after < 0 ? ` It would also clear ${listJoin(more.reverse())}.` : '';
+      if (after != null) out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if you stop this lap and ${nm(A)} the next: ${after < 0 ? 'you come out ahead' : 'still behind'}.${alsoTxt}${hardPass}`));
     } else if (stoppedSince(me) && !stoppedSince(A) && (rpA?.stops ?? 0) > 0) {
       const after = (me.gapL || 0) - ((A.gapL || 0) + PL.green);
-      out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if ${nm(A)} stopped now: ${after < 0 ? 'you’d be ahead' : 'they’d stay ahead'}`));
+      out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if ${nm(A)} stopped now: ${after < 0 ? 'you’d be ahead' : 'they’d stay ahead'}.${hardPass}`));
     } else if (stoppedSince(A) && !stoppedSince(me) && myStops) {
       // they stopped first: your overcut on them, live
       const after = ((me.gapL || 0) + PL.green) - (A.gapL || 0);
@@ -5595,7 +5651,7 @@ function fightCards(c, s, r, L, me, idOf, ST) {
     const edge = paceEdge(me, A, pits); const gap = Math.max(0, (me.gapL || 0) - (A.gapL || 0)); const left = ST.left;
     const catching = edge != null && edge > 0 && Math.round(gap / edge) < left + 2;
     if (T.lap !== me.lap) { T.lap = me.lap; T.noCatch = catching ? 0 : (T.noCatch || 0) + 1; if (T.noCatch >= 5 && ctx && A !== realAhead) T.dropAhead = ctx.entry.t; }
-    out.push(battleCard(s, idOf, A, { ...me, gapF: gap }, me, left, { pits, stopLeft: false, extra: stopsTxt(rpA) }));
+    out.push(battleCard(s, idOf, A, { ...me, gapF: gap }, me, left, { pits, stopLeft: false, extra: [stopsTxt(rpA), `passing ${Math.round(OV.p * 100)}%`].filter(Boolean).join(' · ') }));
   }
   // the car behind: their undercut on you (your overcut)
   if (B) {
@@ -5616,28 +5672,141 @@ function fightCards(c, s, r, L, me, idOf, ST) {
   }
   return out.join('');
 }
-/**
- * Plans for the rest of the race, judged by where they'd finish: each rival's own plan gives their time to the flag,
- * and every car you'd have to pass on track costs half a second. The fastest plan isn't always the one that finishes
- * highest. Returns the plan that finishes highest (the quickest of those), with its projected position.
- */
-function byPosition(s, r, L, me, idOf, plans) {
-  const rivals = L.field.filter(x => x.i !== me.i && x.st === 2 && x.pos > 0).map(x => ({ x, t: (x.gapL || 0) + (rivalPlan(s, r, L, x, idOf)?.t ?? Infinity) }));
-  const posOf = (p) => {
-    let mine = (me.gapL || 0) + p.t;
-    for (let k = 0; k < 2; k++) { const passes = rivals.filter(o => o.x.pos < me.pos && o.t > mine).length; mine = (me.gapL || 0) + p.t + passes * 500; }
-    return 1 + rivals.filter(o => o.t < mine).length;
-  };
-  const scored = plans.filter(Boolean).map(p => ({ p, pos: posOf(p) })).sort((a, b) => a.pos - b.pos || a.p.t - b.p.t);
-  return scored[0] || null;
+/*
+  Overtaking. Every track has an overtaking difficulty (set per circuit beside the pit loss): at 90%, a driver who
+  catches the car ahead gets by one time in ten. The live strategy runs the rest of the race a few hundred times with
+  every car on its own plan, lap by lap: a car that pits is placed by its time (the pit lane passes for it), while one
+  that catches the car ahead on track gets one go at it. A pass that fails leaves it stuck behind until one of them
+  stops. That gives each plan its odds of every finishing position, so where passing is hard, track position and the
+  undercut count for more.
+*/
+const OVERTAKE_HARD = { mon: 97, hun: 90, sgp: 88, emi: 85, ned: 85, esp: 75, jpn: 70, abu: 65, aus: 65, mex: 65, qat: 60, mad: 60, fra: 60, por: 60, eur: 60,
+  gbr: 55, mia: 55, ger: 55, rus: 55, kor: 55, chn: 50, can: 50, usa: 50, tur: 50, mal: 50, ind: 50, aut: 45, sau: 45, lvg: 45, bhr: 40, bel: 40, ita: 40, aze: 40, bra: 40 };
+/** What your races at a track say about passing there: { f (chances), p (passes), hard (suggested difficulty) }. */
+function passLearned(c, tid) {
+  const all = Object.values(c?.passStats?.[tid] || {}); const f = all.reduce((a, x) => a + x.f, 0), p = all.reduce((a, x) => a + x.p, 0);
+  return { f, p, hard: f >= 8 ? Math.max(0, Math.min(100, Math.round((1 - p / f) * 20) * 5)) : null };
 }
+/** The overtaking difficulty slider for a track. */
+function overtakeRow(c, tid) {
+  const OV = overtakeOf(c, tid); const PS = passLearned(c, tid);
+  return `<div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span>Overtaking difficulty${OV.own ? ' (yours)' : ''}:</span><input type="range" min="0" max="100" step="5" value="${OV.hard}" data-ch="overtake" data-track="${tid}" style="width:180px"><b>${OV.hard}%</b><span class="muted" style="font-size:12px">a driver who catches the car ahead gets by ${Math.round(OV.p * 100)}% of the time; the live strategy weighs track position with it</span>${OV.own ? `<button class="btn sm ghost" data-act="overtake-reset" data-track="${tid}">Default</button>` : ''}</div>${PS.f ? `<div class="muted" style="font-size:12px;margin-top:4px">From your races here: ${PS.p} pass${PS.p === 1 ? '' : 'es'} from ${plural(PS.f, 'chance')} (a car within a second of the one ahead, a go every three laps)${PS.hard != null ? `, which suggests ${PS.hard}%. ${PS.hard !== OV.hard ? `<button class="btn sm ghost" data-act="overtake-use" data-track="${tid}" data-v="${PS.hard}">Use ${PS.hard}%</button>` : ''}` : ': a few more races here and it can suggest a value.'}</div>` : ''}`;
+}
+/** A track's overtaking difficulty (%), and the chance a driver who catches the car ahead gets by. */
+function overtakeOf(c, track) { const v = c?.overtake?.[track]; const hard = v ?? OVERTAKE_HARD[track] ?? 60; return { hard, p: (100 - hard) / 100, own: v != null }; }
+const SIM_RUNS = 300;
+const PASS_GAIN = 300, STUCK_GAP = 400; // ms: what a pass costs the passed car; how far back a car that can't pass sits
+/** A plan's laps from now to the flag: { laps: [ms], pits: Set of lap indexes it pits on (the pit loss is on that lap) }. */
+function planLaps(runs, cur, age, p, left, loss, firstLoss = loss) {
+  const lt = (c, a) => runs[c].base + (runs[c].deg || 0) * a;
+  const perLap = (c) => runs[c]?.wear ?? (runs[c]?.life ? WEAR_LIMIT / runs[c].life : null);
+  const laps = []; const pits = new Set(); const st = p?.stints || [];
+  const k = st.length ? p.k : left;
+  for (let j = 0; j < Math.min(k, left); j++) laps.push(lt(cur, age + j));
+  for (const x of st) {
+    if (laps.length >= left || !runs[x.c]) break;
+    laps[laps.length - 1] += pits.size ? loss : firstLoss; pits.add(laps.length - 1);
+    const a0 = x.wear && perLap(x.c) ? x.wear / perLap(x.c) : 0;
+    for (let j = 0; j < x.L && laps.length < left; j++) laps.push(lt(x.c, a0 + j));
+  }
+  while (laps.length < left) laps.push(laps[laps.length - 1] ?? 90e3);
+  return { laps, pits };
+}
+// a rival's next stop is a guess: each run moves it by up to two laps either way (lap offset, weight)
+const RIVAL_JITTER = [[-2, 0.1], [-1, 0.2], [0, 0.4], [1, 0.2], [2, 0.1]];
+const RETRY_LAPS = 3; // a car that failed to pass has another go this many laps later
+const _odds = new Map();
+/**
+ * The odds of each finishing position for each of your plans: [{ p, dist: [prob by position (index 1 = P1)], best, worst, mode, pMode }].
+ * The other cars run their own plans, their next stop a lap or two either way; lapped cars behind you are left out.
+ * A pass is likelier the more pace the car behind has (the track's chance is for half a second a lap), and a car that
+ * fails tries again three laps later. Under a safety car, nobody passes on track, the cars due to stop soon take the
+ * cheap stop, and the field bunches up for the restart (within a second of each other nine times in ten).
+ */
+function raceOdds(s, r, L, me, idOf, ST, plans) {
+  const sc = ST.sc || 0; const tick = Math.floor((L.simT ?? Date.now()) / 5000);
+  const sig = (p) => `${p.k}:${p.stints.map(x => x.c + x.L + '/' + (x.wear || 0)).join(',')}`;
+  const key = `${L.uid}:${me.i}:${me.lap}:${me.stops}:${ST.cur}:${sc}:${tick}:${plans.map(sig).join('|')}:${(ST.runs[ST.cur]?.deg || 0).toFixed(1)}`;
+  const hit = _odds.get(key); if (hit) return hit;
+  const pass = overtakeOf(career(), trackOf(r)).p; const G = raceGaps(L.field); const left = ST.left; const loss = ST.PL.green; const lossNow = ST.lossNow ?? loss;
+  const meDown = G[me.i]?.down || 0;
+  const cars = L.field.filter(x => x.i !== me.i && x.st === 2 && x.pos > 0 && G[x.i] && G[x.i].down <= meDown).map(x => {
+    const id = idOf(x.i); const rp = id ? rivalPlan(s, r, L, x, idOf) : null; let V = [];
+    if (rp?.stints && DRY.includes(x.c)) {
+      const runs = runsFor(s, r, id); const age = x.age || 0;
+      if (runs[x.c]) {
+        if (rp.stops) for (const [dk, w] of RIVAL_JITTER) { const k2 = rp.k + dk; const st = rp.stints.map((y, n) => n === 0 ? { ...y, L: y.L - dk } : y); if (k2 >= 1 && k2 < left && st[0].L >= 1) V.push({ w, ...planLaps(runs, x.c, age, { k: k2, stints: st }, left, loss) }); }
+        if (!V.length) V.push({ w: 1, ...planLaps(runs, x.c, age, rp, left, loss) });
+        if (sc && rp.stops) { // the cheap stop under the safety car, likelier the sooner it was due
+          const q = (rp.k <= 3 ? 0.9 : rp.k <= 12 ? 0.6 : 0.3) * (sc === 2 ? 0.75 : 1); const tot = V.reduce((a, v) => a + v.w, 0);
+          V.forEach(v => { v.w = v.w / tot * (1 - q); });
+          V.push({ w: q, ...planLaps(runs, x.c, age, { k: 1, stints: rp.stints.map((y, n) => n === 0 ? { ...y, L: y.L + rp.k - 1 } : y) }, left, loss, lossNow) });
+        }
+      }
+    }
+    if (!V.length) { // no plan for this car: its recent clean laps, on an empty tank, to the flag
+      const l = liveLaps(x).filter(y => y.valid).slice(-3); if (!l.length) return null; const F = liveFuel(x);
+      V = [{ w: 1, laps: Array(left).fill(avg(l.map(y => y.ms - (F(y.n) ?? 0) * FUEL_MS))), pits: new Set() }];
+    }
+    const tot = V.reduce((a, v) => a + v.w, 0); let acc = 0; V.forEach(v => { acc += v.w / tot; v.cum = acc; });
+    return { g: G[x.i].g, V };
+  }).filter(Boolean);
+  const out = plans.map(p => {
+    const mine = { g: G[me.i]?.g ?? (me.gapL || 0), ...planLaps(ST.runs, ST.cur, ST.age, p, left, loss, sc && p.k === 1 ? lossNow : loss) };
+    const n = cars.length + 1; const dist = Array(n + 1).fill(0);
+    for (let run = 0; run < SIM_RUNS; run++) {
+      const rnd = mulberry(`odds-${run}`);
+      const all = [mine, ...cars.map(x => { const u = rnd(); const v = x.V.find(v => u <= v.cum) || x.V[x.V.length - 1]; return { g: x.g, laps: v.laps, pits: v.pits }; })];
+      const t = all.map(x => x.g); const lastPit = all.map(() => -1); const failed = new Map();
+      const order = all.map((_, k) => k).sort((a, b) => t[a] - t[b]);
+      for (let j = 0; j < left; j++) {
+        for (let k = 0; k < n; k++) t[k] += all[k].laps[j];
+        const pits = (k) => all[k].pits.has(j);
+        for (let a = 1; a < n; a++) {
+          let k = a;
+          while (k > 0) {
+            const X = order[k], Y = order[k - 1]; if (t[X] >= t[Y]) break;
+            if (pits(X) || pits(Y)) { order[k] = Y; order[k - 1] = X; k--; continue; } // through the pit lane: no fight
+            if (sc && j === 0) { t[X] = t[Y] + 200; break; } // no passing behind the safety car
+            const f = `${X}:${Y}:${lastPit[X]}:${lastPit[Y]}`; const at = failed.get(f); const go = at == null || j - at >= RETRY_LAPS;
+            const pe = 1 - Math.pow(1 - pass, Math.max(0.4, Math.min(3, (all[Y].laps[j] - all[X].laps[j]) / 500)));
+            if (go && rnd() < pe) { order[k] = Y; order[k - 1] = X; t[Y] = Math.max(t[Y], t[X] + PASS_GAIN); k--; }
+            else { if (go) failed.set(f, j); t[X] = t[Y] + STUCK_GAP; break; }
+          }
+        }
+        for (let k = 0; k < n; k++) if (pits(k)) lastPit[k] = j;
+        if (sc === 1 && j === 0) for (let k = 1; k < n; k++) t[order[k]] = t[order[k - 1]] + (rnd() < 0.9 ? 300 + rnd() * 700 : 1000 + rnd() * 1000); // the restart
+      }
+      dist[order.indexOf(0) + 1]++;
+    }
+    const D = dist.map(v => v / SIM_RUNS); const seen = D.map((v, k) => v >= 0.01 ? k : null).filter(v => v);
+    const mode = D.indexOf(Math.max(...D));
+    return { p, dist: D, best: Math.min(...seen), worst: Math.max(...seen), mode, pMode: D[mode] };
+  });
+  _odds.set(key, out); if (_odds.size > 60) _odds.delete(_odds.keys().next().value);
+  return out;
+}
+/** The chance plan A finishes ahead of plan B (taking the two as independent). */
+function beatsOdds(A, B) { let tot = 0, below = 0; for (let i = 1; i < A.dist.length; i++) { below = 0; for (let j = i + 1; j < B.dist.length; j++) below += B.dist[j]; tot += A.dist[i] * below; } return tot; }
 
+/**
+ * Each running car's real gap to the leader: { [i]: { g (ms), down (laps) } }. The game's gap to the leader only counts
+ * within a lap, so a lapped car would look closer than the cars ahead of it; walking the order, it's put back a lap at a time.
+ */
+function raceGaps(field) {
+  const run = field.filter(x => x.pos > 0 && x.st === 2).sort((a, b) => a.pos - b.pos);
+  const lapMs = median(run.map(x => x.last).filter(v => v > 30e3 && v < 300e3)) || 90e3;
+  const out = {}; let prev = 0;
+  for (const x of run) { let g = x.gapL || 0; let down = 0; while (g < prev - 1500 && down < 5) { g += lapMs; down++; } out[x.i] = { g, down }; prev = Math.max(prev, g); }
+  return out;
+}
 /** Where a car would rejoin after a stop costing `loss` ms now: { pos, ahead, behind, gapA, gapB }. */
 function rejoin(field, me, loss) {
+  const G = raceGaps(field); const gap = (x) => G[x.i]?.g ?? (x.gapL || 0);
   const run = field.filter(x => x.i !== me.i && x.pos > 0 && x.st === 2);
-  const t = (me.gapL || 0) + loss;
-  const before = run.filter(x => (x.gapL || 0) < t).sort((a, b) => b.gapL - a.gapL); const after = run.filter(x => (x.gapL || 0) >= t).sort((a, b) => a.gapL - b.gapL);
-  return { pos: before.length + 1, ahead: before[0] || null, behind: after[0] || null, gapA: before[0] ? t - before[0].gapL : null, gapB: after[0] ? after[0].gapL - t : null };
+  const t = gap(me) + loss;
+  const before = run.filter(x => gap(x) < t).sort((a, b) => gap(b) - gap(a)); const after = run.filter(x => gap(x) >= t).sort((a, b) => gap(a) - gap(b));
+  return { pos: before.length + 1, ahead: before[0] || null, behind: after[0] || null, gapA: before[0] ? t - gap(before[0]) : null, gapB: after[0] ? gap(after[0]) - t : null };
 }
 /** Average lap-time gap over the last three laps both drivers completed (ms; positive: `a` is quicker). */
 function paceEdge(a, b, pits = null) {
@@ -5717,6 +5886,15 @@ function champCard(c, s, r, L, idOf, mineIds) {
     <div class="panel-b tight table-wrap"><table><tbody>${near.map(row).join('')}</tbody></table></div>
     <div class="panel-b"><details><summary class="muted" style="cursor:pointer;font-size:12px">Full tables</summary><div class="grid-2" style="margin-top:8px"><div class="table-wrap"><table><tbody>${S.rows.map(row).join('')}</tbody></table></div><div class="table-wrap"><table><tbody>${S.teams.map(trow).join('')}</tbody></table></div></div></details></div></div>`;
 }
+/** The odds line under the strategy: where this plan should finish, and why it beat the quickest one. */
+function posNoteHtml(P, me) {
+  const range = P.best === P.worst ? `P${P.best}` : `P${P.best}–P${P.worst}`;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const what = (stops, k) => stops ? (k === 1 ? 'stopping this lap' : `stopping on lap ${me.lap + k - 1}`) : 'staying out to the flag';
+  const why = P.from ? `<div style="font-size:12px"><b>Chosen for track position:</b> ${what(P.stops, P.k)} beats ${what(P.fromStops, P.fromK)} (quicker on paper, most likely P${P.from.mode}) ${pct(P.win)} of the time and loses to it ${pct(P.lose)}.</div>` : '';
+  const scTxt = P.sc ? ` Under the ${P.sc === 1 ? 'safety car' : 'VSC'}: a stop costs less now${P.sc === 1 ? ', and the field bunches up for the restart' : ''}; the odds count both.` : '';
+  return `${why}<div class="muted" style="font-size:12px">Projected finish: most likely <b>P${P.mode}</b> (${pct(P.pMode)}), ${range}. Overtaking here is ${P.hard}% hard: ${pct(P.pass)} chance a move comes off.${scTxt}</div>`;
+}
 /** One driver's column: position, tyres, the strategy and the call, rejoin, and the battle cards. */
 function liveDriverCol(c, s, r, L, w, me, id, idOf) {
   const ST = liveStrategy(c, s, r, L, me, id, w, idOf);
@@ -5735,18 +5913,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     if (k === 1) call = { kind: ST.scCall ? 'sc' : 'pit', c: plan.stints[0].c, lap: me.lap };
     ST.offset = offset; ST.k = k;
   }
-  // the safety-car stop that costs places: only when the pace is there to win them back
-  if (call?.kind === 'sc' && ST.scCall.extra) {
-    const RJ = rejoin(L.field, me, ST.lossNow); const m = RJ.pos - me.pos; const lapsAfter = ST.left - 1;
-    if (m > 0) {
-      const need = (m * 1000 + m * 500) / Math.max(1, lapsAfter);
-      const c2 = plan.stints[0].c; const mine = ST.runs[c2].base + ST.runs[c2].deg * lapsAfter / 2;
-      const theirs = byPos.filter(x => x.pos < me.pos && x.pos >= RJ.pos - 0).map(x => { const l = liveLaps(x).filter(y => y.valid).slice(-3); return l.length ? avg(l.map(y => y.ms)) : null; }).filter(Boolean);
-      const edge = theirs.length ? Math.min(...theirs) - mine : -1;
-      if (edge < need + 200) { call = null; ST.scHold = { m, need, edge }; }
-    }
-  }
-  if (call && id === PLAYER) pitCall(L.uid, call.kind, call.lap, call.c);
+  if (call && id === PLAYER && !L.replay) pitCall(L.uid, call.kind, call.lap, call.c);
   const RJ = rejoin(L.field, me, ST.lossNow);
   const nm = (x) => x ? esc(lastName(dName(s, idOf(x.i)) || '?')) : '';
   const lapsDone = me.lap - 1; const N = ST.n;
@@ -5762,7 +5929,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
         <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
-        ${ST.posNote ? `<div class="muted" style="font-size:12px">${ST.posNote.from ? `Switched to the ${plural(ST.posNote.stops, 'stop')} plan: it should finish P${ST.posNote.to} rather than P${ST.posNote.from}, counting each rival’s own plan and half a second for every pass.` : `On this plan you should finish about P${ST.posNote.to}.`}</div>` : ''}
+        ${ST.posNote ? posNoteHtml(ST.posNote, me) : ''}
         <div class="rejoin"><span class="label">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
     ${ST.none ? `${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft: false })}${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft: false })}` : fightCards(c, s, r, L, me, idOf, ST)}
   </div>`;
@@ -5944,18 +6111,32 @@ function soundsPanel() {
 const ncList = (c, s) => ((c.nextCal ||= {})[s.year + 1] ||= clone(nextCal(c, s)));
 const liveOpened = new Set();
 /** A message from the live race: kept (merged), each car's stops tracked, and the page redrawn. */
-function onLiveMsg(m) {
-  const same = liveErs?.uid === m.uid;
-  if (m.done) { if (same) { liveErs = { ...liveErs, done: true }; render(); } return; }
-  const prev = same ? liveErs : {};
-  liveErs = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {},
-    order: prev.order || [], pitEntries: prev.pitEntries || [], wasPit: prev.wasPit || {}, fight: prev.fight || {} };
+/**
+ * One live message folded into the race so far (`now`: its time, ms): the running order over the last 15 s, every car
+ * into the pit lane with the order 10 s before, each car's stops and tyres, and the fights for a place (a car within a
+ * second of the one ahead, on the same lap): a pass, or no pass within three laps or before it drops away.
+ */
+function mergeLive(prev, m, now) {
+  const L = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {},
+    order: prev.order || [], pitEntries: prev.pitEntries || [], wasPit: prev.wasPit || {}, fight: prev.fight || {}, held: prev.held || {}, fights: prev.fights || {}, passTally: prev.passTally || { f: 0, p: 0 } };
+  const liveErs = L; // (the steps below were written against the live state)
   if (m.field) {
-    const now = Date.now(); const pos = Object.fromEntries(m.field.filter(x => x.pos > 0).map(x => [x.i, x.pos])); const stops = Object.fromEntries(m.field.map(x => [x.i, x.stops || 0]));
+    const pos = Object.fromEntries(m.field.filter(x => x.pos > 0).map(x => [x.i, x.pos])); const stops = Object.fromEntries(m.field.map(x => [x.i, x.stops || 0]));
     liveErs.order = [...liveErs.order.filter(o => now - o.t < 15e3), { t: now, pos, stops }];
     for (const x of m.field) {
       if (x.pit && !liveErs.wasPit[x.i]) { const then = liveErs.order.filter(o => o.t <= now - LIVE_PIT_MEMORY).pop() || liveErs.order[0]; liveErs.pitEntries = [...liveErs.pitEntries.slice(-60), { i: x.i, t: now, lap: x.lap, pos: then.pos, stops: then.stops }]; }
       liveErs.wasPit[x.i] = !!x.pit;
+    }
+    // fights for a place
+    const G = raceGaps(m.field); const by = Object.fromEntries(m.field.map(x => [x.i, x])); const run = m.field.filter(x => x.pos > 0 && x.st === 2).sort((a, b) => a.pos - b.pos);
+    const F = L.fights = { ...L.fights }; const T = L.passTally = { ...L.passTally };
+    for (let k = 1; k < run.length; k++) { const a = run[k - 1], b = run[k]; if (a.pit || b.pit || (G[a.i]?.down || 0) !== (G[b.i]?.down || 0) || (b.gapF ?? 9e9) > 1000 || (b.lap || 0) < 2) continue; F[`${a.i}>${b.i}`] ||= { a: a.i, b: b.i, lap: b.lap, sa: a.stops || 0, sb: b.stops || 0 }; }
+    for (const [k, x] of Object.entries(F)) {
+      const a = by[x.a], b = by[x.b];
+      if (!a || !b || a.st !== 2 || b.st !== 2 || a.pit || b.pit || (a.stops || 0) !== x.sa || (b.stops || 0) !== x.sb) { delete F[k]; continue; } // a stop ends it either way
+      if (b.pos < a.pos) { T.f++; T.p++; delete F[k]; continue; }
+      if ((G[b.i]?.g ?? 0) - (G[a.i]?.g ?? 0) > 2000) { if (b.lap > x.lap) T.f++; delete F[k]; continue; }
+      if (b.lap >= x.lap + RETRY_LAPS) { T.f++; x.lap = b.lap; } // three laps behind without getting by: a chance gone, and the next go
     }
   }
   // a car's stop count went up: note the lap, and the tyre it came in on
@@ -5964,11 +6145,170 @@ function onLiveMsg(m) {
     if ((x.stops || 0) > was) { (liveErs.pitLaps[x.i] ||= []).push(Math.max(1, (x.lap || 1) - 1)); (liveErs.used[x.i] ||= []).push(liveErs.lastC[x.i] ?? x.c); }
     liveErs.stopsSeen[x.i] = x.stops || 0; if (!x.pit && x.c != null) liveErs.lastC[x.i] = x.c;
   }
+  return L;
+}
+function onLiveMsg(m) {
+  const same = liveErs?.uid === m.uid;
+  if (m.done) { if (same) { liveErs = { ...liveErs, done: true }; render(); } return; }
+  const before = same ? liveErs.passTally?.f || 0 : 0;
+  liveErs = mergeLive(same ? liveErs : {}, m, Date.now());
+  // what the fights say about passing here, kept per race for the overtaking slider
+  { const c = career(); const tid = GAME_TRACKS[m.track];
+    if (c && tid && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
   // a race starting: open Live Race, once
   if (!liveOpened.has(m.uid) && m.lap <= 1) { liveOpened.add(m.uid); ui.view = 'now'; ui.nowTab = 'live'; }
   const a = document.activeElement;
   if ((m.pack || (ui.view === 'now' && ui.nowTab === 'live')) && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render();
   else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
+}
+
+/* ------------------------------------------------------------ race replay */
+/*
+  Race Replay: a race recorded from F1 25 (every race driven with telemetry on, from 3.7) played back at up to 20x.
+  The recording is the live feed, a sample a second, so the replay runs it through the same steps as Live Race: the
+  dashboard shows the strategy, the undercut cards and the rejoin as they were (no sounds), next to the position chart
+  growing lap by lap and the field drawn by its gaps to the leader. Only races logged in this career are listed; races
+  from before 3.7 or without telemetry weren't recorded.
+*/
+const replayMem = {}; // recordings held in memory where there's no desktop app (the browser copy)
+const replayApi = () => window.api?.replays || { list: async () => Object.values(replayMem).map(x => ({ ...x.meta, bytes: 0, samples: x.samples.length })), load: async (k) => replayMem[k] || null, remove: async (k) => { delete replayMem[k]; return true; } };
+let replayList = null; // the recordings, once listed
+let RP = null; // the replay open
+const RP_H = 680; // px: the height of the gap view
+/** The recordings that belong to this career, newest first: [{ x (recording), s, r, k (session) }]. */
+function replaysHere(c) {
+  const out = [];
+  for (const x of replayList || []) for (const s of c.seasons) for (const [rid, w] of Object.entries(s.weekends || {})) for (const [k, sd] of Object.entries(w.sessions || {}))
+    if (sd?.game?.key === x.key) { const r = s.calendar.find(y => y.id === rid); if (r) out.push({ x, s, r, k }); }
+  return out.sort((a, b) => b.s.index - a.s.index || b.s.calendar.indexOf(b.r) - a.s.calendar.indexOf(a.r));
+}
+/** A recorded sample as a live field (the lap history up to each car's completed laps). */
+function replayField(D, S) {
+  return S.f.map(([i, pos, lap, dist, gapL, gapF, pit, st, stops, c, age, wear, fuel]) => {
+    const done = Math.max(0, lap - 1); const laps = (D.laps[i] || []).slice(0, done).map(l => l || [0, 0]); const fl = (D.fuel[i] || []).slice(0, done);
+    return { i, pos, lap, dist, gapL, gapF, pit: !!pit, st, stops, c: c < 0 ? null : c, age: age < 0 ? null : age, wear: wear < 0 ? null : wear / 10, fuel: fuel < 0 ? null : fuel / 10,
+      last: laps[laps.length - 1]?.[0] || 0, laps: laps.slice(-6), nLaps: laps.length, fuelLaps: fl.slice(-8), fuelN: fl.length };
+  });
+}
+/** Brings the replay's race state to sample `idx` (forwards from where it is, or again from the start). */
+function replayTo(idx) {
+  const D = RP.data; const M = D.meta;
+  if (idx < RP.at) { RP.L = {}; RP.at = -1; RP.mem = {}; RP.ts = null; RP.w = null; }
+  for (let k = RP.at + 1; k <= idx; k++) {
+    const S = D.samples[k]; if ('ts' in S) RP.ts = S.ts; if ('w' in S) RP.w = S.w;
+    RP.L = mergeLive(RP.L, { uid: M.uid, sessionType: M.sessionType, track: M.track, weekend: M.weekend, totalLaps: M.totalLaps, parts: M.parts, player: M.player, sc: S.sc, field: replayField(D, S), tyreSets: RP.ts, weather: RP.w }, S.t * 1000);
+  }
+  RP.at = idx;
+}
+const replayIdx = (T) => { const S = RP.data.samples; let lo = 0, hi = S.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S[m].t <= T) lo = m; else hi = m - 1; } return lo; };
+async function openReplay(item) {
+  const D = await replayApi().load(item.x.key); if (!D?.samples?.length) { toast('That recording couldn’t be read'); return; }
+  const c = career(); const map = liveMap(c, item.s, { parts: D.meta.parts, player: D.meta.player }); const idOf = (i) => map[i];
+  // each car's position at the start of every lap (lap 0: the first sample), for the chart
+  const posLaps = {}; const seen = {};
+  D.samples.forEach((S, k) => S.f.forEach(([i, pos, lap]) => { if (!pos) return; const P = (posLaps[i] ||= []); if (k === 0) P[0] = pos; if (lap > (seen[i] || 1)) { for (let l = (seen[i] || 1); l < lap; l++) P[l] = pos; seen[i] = lap; } }));
+  RP = { ...item, data: D, idOf, posLaps, T: 0, dur: D.samples[D.samples.length - 1].t, speed: 5, playing: false, i: -1, at: -1, L: {}, mem: {}, scale: 20, dashAt: 0, chartLap: -1 };
+  render();
+}
+function renderReplay() {
+  const c = career();
+  const head = (sub) => `<div class="page-head"><div><h1>Race Replay</h1><div class="sub">${sub}</div></div></div>`;
+  if (replayList == null) { replayApi().list().then(l => { replayList = l || []; render(); }).catch(() => { replayList = []; render(); }); return `<div class="page">${head('Loading the recordings…')}</div>`; }
+  if (RP) return replayView(c);
+  const list = replaysHere(c); const mb = (b) => `${(b / 1048576).toFixed(1)} MB`;
+  const sub = 'Every race you drive with telemetry on is recorded, a sample a second, and can be played back here at up to 20x. Races from before Pitwall 3.7, races without telemetry and historic seasons can’t be replayed.';
+  if (!list.length) return `<div class="page">${head(sub)}<div class="panel"><div class="panel-b muted">No recorded races in this career yet. Drive a race with telemetry on and it appears here once it’s logged.</div></div></div>`;
+  const bySeason = {}; list.forEach(x => (bySeason[x.s.year] ||= []).push(x));
+  return `<div class="page">${head(sub)}
+    <div class="tiles"><div class="tile"><span class="label">Recorded races</span><span class="v">${list.length}</span></div><div class="tile"><span class="label">On disk</span><span class="v">${mb(list.reduce((a, x) => a + (x.x.bytes || 0), 0))}</span></div></div>
+    ${Object.entries(bySeason).sort((a, b) => b[0] - a[0]).map(([y, xs]) => `<div class="panel"><div class="panel-h"><h2>${y}</h2></div><div class="panel-b tight table-wrap"><table><tbody>
+      ${xs.map(x => `<tr><td class="num">R${x.s.calendar.filter(q => !q.off).indexOf(x.r) + 1}</td><td><b>${esc(x.r.name)}</b> <span class="muted">${esc(SESSION_LABEL[x.k] || x.k)}</span></td><td class="muted">${x.x.laps ? plural(x.x.laps, 'lap') : ''}</td><td class="muted">${x.x.bytes ? mb(x.x.bytes) : ''}</td>
+        <td style="text-align:right"><button class="btn sm primary" data-act="rp-open" data-k="${esc(x.x.key)}">Watch</button> <button class="btn sm ghost" data-act="rp-del" data-k="${esc(x.x.key)}">Delete</button></td></tr>`).join('')}
+    </tbody></table></div></div>`).join('')}</div>`;
+}
+function replayView(c) {
+  setTimeout(() => replayShow(true));
+  return `<div class="page">
+    <div class="page-head"><div><h1>${esc(RP.r.name)} · ${esc(SESSION_LABEL[RP.k] || RP.k)}</h1><div class="sub">${RP.s.year} · replay of the live feed</div></div><div class="row"><button class="btn ghost" data-act="rp-close">All races</button></div></div>
+    <div class="panel rp-controls"><div class="panel-b row" style="gap:12px;flex-wrap:wrap;align-items:center">
+      <button class="btn primary" data-act="rp-play" id="rp-play">${RP.playing ? 'Pause' : 'Play'}</button>
+      <input type="range" id="rp-seek" data-ch="rp-seek" min="0" max="${Math.ceil(RP.dur)}" step="1" value="${Math.floor(RP.T)}" style="flex:1;min-width:200px">
+      <span id="rp-clock" class="num" style="min-width:150px"></span>
+      <label class="row" style="gap:6px">Speed <input type="range" data-ch="rp-speed" min="1" max="20" step="1" value="${RP.speed}" style="width:120px"><b id="rp-speed">${RP.speed}x</b></label></div></div>
+    <div class="rp-grid"><div class="panel"><div class="panel-h"><h2>The field</h2><span class="muted" style="font-size:12px" id="rp-lap"></span></div><div class="panel-b"><div class="rp-vis" id="rp-vis" style="height:${RP_H}px"></div></div></div>
+      <div class="stack" style="gap:16px"><div id="rp-dash"></div><div class="panel"><div class="panel-h"><h2>Positions</h2></div><div class="panel-b" id="rp-chart"></div></div></div></div></div>`;
+}
+/** Shows the replay at its time: the field every step, the dashboard once a second, the chart each new lap. */
+function replayShow(force = false) {
+  if (!RP || ui.view !== 'replay' || !document.getElementById('rp-vis')) return;
+  const idx = replayIdx(RP.T); const now = performance.now();
+  if (idx !== RP.i || force) { replayTo(idx); RP.i = idx; replayVis(); }
+  const S = RP.data.samples[idx]; const lead = Math.max(1, ...S.f.filter(x => x[1] === 1).map(x => x[2]));
+  const clk = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const el = (id) => document.getElementById(id);
+  el('rp-clock').textContent = `${clk(RP.T)} / ${clk(RP.dur)}`; el('rp-lap').textContent = `Lap ${Math.min(lead, RP.data.meta.totalLaps || lead)} of ${RP.data.meta.totalLaps || '?'}${S.sc === 1 ? ' · SAFETY CAR' : S.sc === 2 ? ' · VSC' : ''}`;
+  const seek = el('rp-seek'); if (document.activeElement !== seek) seek.value = Math.floor(RP.T);
+  el('rp-play').textContent = RP.playing ? 'Pause' : 'Play';
+  if (force || now - RP.dashAt > 1000) { RP.dashAt = now; el('rp-dash').innerHTML = replayDash(); }
+  if (force || lead !== RP.chartLap) { RP.chartLap = lead; el('rp-chart').innerHTML = replayChart(); }
+}
+function replayDash() {
+  const c = career(); const L = { ...RP.L, key: RP.k === 'SPR' ? 'SPR' : 'R', replay: true, mem: RP.mem, simT: RP.data.samples[RP.i].t * 1000 };
+  const me = L.field?.find(x => x.i === RP.data.meta.player); if (!me) return '';
+  try { return liveDriverCol(c, RP.s, RP.r, L, weekend(RP.s, RP.r.id, true), me, PLAYER, RP.idOf); } catch (e) { return `<div class="panel"><div class="panel-b muted">The dashboard couldn’t be drawn at this point (${esc(e.message)}).</div></div>`; }
+}
+/** The field by its gaps to the leader, F1-graphics style: each car slides as the gaps change. */
+function replayVis() {
+  const box = document.getElementById('rp-vis'); const L = RP.L; const s = RP.s; const field = L.field || [];
+  const G = raceGaps(field); const ab = (x) => { const id = RP.idOf(x.i); return id ? dAbbr(s, id) : (RP.data.meta.parts?.find(p => p.idx === x.i)?.name || '?').slice(0, 3).toUpperCase(); };
+  const running = field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
+  const onLap = running.filter(x => (G[x.i]?.down || 0) === 0 && x.st === 2);
+  const maxGap = Math.max(5000, ...onLap.map(x => G[x.i]?.g || 0));
+  const target = Math.max(3, Math.min(60, (RP_H - 60) / (maxGap / 1000))); RP.scale = RP.scale + (target - RP.scale) * 0.25;
+  const dur = Math.min(1, 1 / RP.speed);
+  // the second markers
+  const step = [1, 2, 5, 10, 15, 30, 60, 120].find(v => v * RP.scale >= 48) || 120; let ticks = '';
+  for (let v = step; v * RP.scale < RP_H - 30; v += step) ticks += `<div class="rp-tick" style="top:${12 + v * RP.scale}px"><span>+${v} s</span></div>`;
+  let tk = box.querySelector('.rp-ticks'); if (!tk) { tk = document.createElement('div'); tk.className = 'rp-ticks'; box.appendChild(tk); } tk.innerHTML = ticks;
+  let y0 = -99;
+  running.forEach(x => {
+    let node = box.querySelector(`.rp-car[data-i="${x.i}"]`);
+    if (!node) {
+      const id = RP.idOf(x.i); const tm = id ? teamOf(s, id) : null; const img = carPhoto(career(), tm?.id);
+      node = document.createElement('div'); node.className = 'rp-car' + (x.i === RP.data.meta.player ? ' me' : ''); node.dataset.i = x.i; node.style.setProperty('--c', tm?.color || '#888');
+      node.innerHTML = `<span class="rp-p"></span><span class="rp-t"></span>${img ? `<img src="${esc(img)}" alt="">` : '<i class="rp-shape"></i>'}<b>${esc(ab(x))}</b><small class="rp-g"></small>`;
+      box.appendChild(node);
+    }
+    const g = G[x.i]; const out = x.st !== 2 && x.st !== 3; let y;
+    if (out) y = RP_H - 22; else if (g?.down) y = RP_H - 44; else y = 12 + (g?.g || 0) / 1000 * RP.scale;
+    y = Math.min(RP_H - 22, Math.max(y, y0 + 16)); y0 = y;
+    node.style.transition = `transform ${dur}s linear`; node.style.transform = `translateY(${y}px)`; node.classList.toggle('out', out); node.classList.toggle('pit', !!x.pit);
+    node.querySelector('.rp-p').textContent = x.pos; node.querySelector('.rp-t').innerHTML = x.c != null ? tyreChip(x.c) : '';
+    node.querySelector('.rp-g').textContent = out ? 'OUT' : x.pit ? 'PIT' : x.pos === 1 ? 'Leader' : g?.down ? `+${g.down} LAP${g.down > 1 ? 'S' : ''}` : `+${((g?.g || 0) / 1000).toFixed(1)}`;
+  });
+}
+/** The position chart up to where the replay is. */
+function replayChart() {
+  const N = RP.data.meta.totalLaps || 1; const field = RP.L.field || []; const s = RP.s;
+  const n = Math.max(...field.map(x => x.pos || 0), 2); const W = 640, H = n * 16 + 24, X = (l) => 30 + l / N * (W - 80), Y = (p) => 12 + (p - 1) * 16;
+  const lines = field.map(x => {
+    const P = RP.posLaps[x.i] || []; const upto = Math.max(0, (x.lap || 1) - 1); const pts = []; for (let l = 0; l <= upto; l++) if (P[l]) pts.push(`${X(l).toFixed(1)},${Y(P[l])}`);
+    if (x.pos) pts.push(`${X(Math.min(N, upto + (x.dist > 0 ? 0.5 : 0))).toFixed(1)},${Y(x.pos)}`);
+    const id = RP.idOf(x.i); const col = id ? teamColor(s, id) : '#888'; const me = x.i === RP.data.meta.player;
+    const last = pts[pts.length - 1]?.split(','); const lab = id ? dAbbr(s, id) : '';
+    return pts.length < 2 ? '' : `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="${me ? 3 : 1.6}" opacity="${me ? 1 : 0.7}"/>${last ? `<text x="${+last[0] + 5}" y="${+last[1] + 4}" font-size="10" fill="${me ? 'var(--fg)' : 'var(--muted)'}">${esc(lab)}</text>` : ''}`;
+  }).join('');
+  const grid = Array.from({ length: n }, (_, k) => `<text x="4" y="${Y(k + 1) + 4}" font-size="9" fill="var(--muted)">${k + 1}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${grid}${lines}</svg>`;
+}
+function replayLoop() {
+  clearInterval(RP?.timer); if (!RP?.playing) return; RP.last = performance.now();
+  RP.timer = setInterval(() => {
+    if (!RP?.playing || ui.view !== 'replay') { if (RP) { RP.playing = false; clearInterval(RP.timer); } return; }
+    const now = performance.now(); RP.T = Math.min(RP.dur, RP.T + (now - RP.last) / 1000 * RP.speed); RP.last = now;
+    if (RP.T >= RP.dur) { RP.playing = false; clearInterval(RP.timer); }
+    replayShow();
+  }, 100);
 }
 
 /* ------------------------------------------------------------ next season */
@@ -6676,7 +7016,7 @@ function strategyAdvicePanel(c, s) {
   const r = nextRound(s); if (!r || isHist(s)) return '';
   const anyPractice = RUN_KEYS.some(k => s.weekends[r.id]?.sessions?.[k]?.game && !s.weekends[r.id].sessions[k].estimated);
   const head = `<div class="panel-h"><h2>Race strategy</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice${r.sprint ? " and the sprint" : ""}</span></div>`;
-  if (!anyPractice) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No practice logged from F1 25 for ${esc(r.name)} yet. Run practice with telemetry on and the best strategy appears here: it needs at least three consecutive laps on two dry compounds.</div></div>`;
+  if (!anyPractice) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No practice logged from F1 25 for ${esc(r.name)} yet. Run practice with telemetry on and the best strategy appears here: it needs at least three consecutive laps on two dry compounds.</div><div class="panel-b" style="font-size:13px">${overtakeRow(c, trackOf(r))}</div></div>`;
   const n = raceLaps(s, r.id); const tid = trackOf(r); const PL = pitLoss(c, tid); const SL = setsLeft(c, s, r);
   const { grid, mine } = strategyRuns(s, r); const SK = strategyKeys(s, r);
   const names = (runs) => listJoin(DRY.filter(cp => runs[cp]).map(cp => COMPOUNDS[cp][1].toLowerCase()));
@@ -6688,7 +7028,8 @@ function strategyAdvicePanel(c, s) {
     ${enough(grid) ? strategyBlock('From the whole grid', grid, n, `long runs from ${plural(Math.max(0, ...Object.values(grid).map(x => x.drivers || 0)), 'driver')}`, { loss: PL.green }) : short('From the whole grid', grid, 'long runs from the grid')}
     ${enough(mine) ? strategyBlock('From your runs', mine, n, 'your car, your driving, the sets you have left', { loss: PL.green, sets: SL.sets }) : short('From your runs', mine, 'of your own running')}
     <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${plural(n, 'lap')} at your race distance. A tyre is done at ${WEAR_LIMIT}% wear. Pace is on an empty tank and without extra boost (sessions logged from 3.4 on), so runs on different fuel loads compare fairly; a run on a set that was already worn counts as the new set it was. Fuel burn is the same for every plan, so it is left out of the totals.
-      <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div></div></div>`;
+      <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div>
+      ${overtakeRow(c, tid)}</div></div>`;
 }
 
 /*
@@ -10235,6 +10576,9 @@ const changes = {
     const fr = new FileReader(); fr.onload = () => { (state.sounds ||= {})[el.dataset.k] = { name: file.name, data: fr.result }; store.save(); render(); toast('Sound saved'); }; fr.readAsDataURL(file);
   },
   'tyre-count'(el) { const c = career(); const { fmt, c: cp } = el.dataset; (c.tyreCounts ||= {})[fmt] = { ...countsOf(c, fmt), [cp]: Math.max(0, Math.min(13, Math.round(+el.value || 0))) }; store.save(); tyrePresetsModal(); render(); },
+  'rp-seek'(el) { if (!RP) return; RP.T = +el.value; replayShow(true); },
+  'rp-speed'(el) { if (!RP) return; RP.speed = +el.value; const b = document.getElementById('rp-speed'); if (b) b.textContent = RP.speed + 'x'; },
+  'overtake'(el) { const c = career(); (c.overtake ||= {})[el.dataset.track] = Math.max(0, Math.min(100, +el.value || 0)); store.save(); render(); },
   'pit-loss'(el) {
     const c = career(); const tid = el.dataset.track; const cur = pitLoss(c, tid); const v = Math.max(0, Math.min(60, +el.value || 0));
     c.pitLoss ||= {}; c.pitLoss[tid] = { green: cur.green / 1000, vsc: cur.vsc / 1000, sc: cur.sc / 1000, [el.dataset.k]: v }; store.save(); render();
@@ -10451,6 +10795,12 @@ Object.assign(actions, {
   'tyre-add'(el) { const c = career(); const { fmt, p, k } = el.dataset; const plan = planOf(c, fmt, p); plan[k].push(S_); ((c.tyrePlans ||= {})[fmt] ||= {})[p] = plan; store.save(); tyrePresetsModal(); render(); },
   'tyre-presets-reset'(el) { const c = career(); const { fmt, p } = el.dataset; if (c.tyrePlans?.[fmt]) delete c.tyrePlans[fmt][p]; if (c.tyreCounts) delete c.tyreCounts[fmt]; store.save(); tyrePresetsModal(); render(); },
   'tyre-hand'(el) { const s = latestSeason(); const w = weekend(s, el.dataset.round, true); (w.tyreHand ||= {})[el.dataset.id] = el.dataset.v === '1'; store.save(); render(); },
+  async 'rp-open'(el) { const item = replaysHere(career()).find(x => x.x.key === el.dataset.k); if (item) await openReplay(item); },
+  'rp-close'() { if (RP) clearInterval(RP.timer); RP = null; render(); },
+  'rp-play'() { if (!RP) return; if (RP.T >= RP.dur) RP.T = 0; RP.playing = !RP.playing; replayLoop(); replayShow(); },
+  async 'rp-del'(el) { if (!confirm('Delete this race recording? It can’t be undone.')) return; await replayApi().remove(el.dataset.k); replayList = null; render(); },
+  'overtake-use'(el) { const c = career(); (c.overtake ||= {})[el.dataset.track] = +el.dataset.v; store.save(); render(); toast('Overtaking difficulty set'); },
+  'overtake-reset'(el) { const c = career(); delete c.overtake?.[el.dataset.track]; store.save(); render(); },
   'pit-loss-reset'(el) { const c = career(); delete c.pitLoss?.[el.dataset.track]; store.save(); render(); },
   'ers-view'(el) { ui[el.dataset.k || 'ersView'] = el.dataset.v; render(); },
   async 'ers-diag'(el) {

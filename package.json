@@ -1,7 +1,7 @@
 {
   "name": "pitwall",
   "productName": "Pitwall",
-  "version": "3.5.0",
+  "version": "3.7.0",
   "description": "F1 25 career mode tracker: session results, standings, head-to-head, goals and AI media sessions.",
   "main": "main.js",
   "author": "Pitwall",
@@ -26,6 +26,7 @@
       "preload.js",
       "companion.js",
       "telemetry.js",
+      "replays.js",
       "src/**/*",
       "build/icon.png",
       "build/Pitwall.apk"

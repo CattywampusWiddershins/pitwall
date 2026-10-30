@@ -821,3 +821,19 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .ucg-car.oth b { color: var(--muted); }
 .ucg-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .uc-num { margin-top: 6px; font-size: 13px; }
+/* race replay */
+.rp-grid { display: grid; grid-template-columns: minmax(320px, 440px) 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .rp-grid { grid-template-columns: 1fr; } }
+.rp-vis { position: relative; overflow: hidden; border-radius: 8px; background: linear-gradient(180deg, var(--panel-2), var(--panel)); }
+.rp-tick { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--line); }
+.rp-tick span { position: absolute; right: 6px; top: -7px; font-size: 10px; color: var(--muted); background: var(--panel-2); padding: 0 3px; }
+.rp-car { position: absolute; left: 8px; top: 0; height: 16px; display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 13px; will-change: transform; }
+.rp-car .rp-p { width: 20px; text-align: right; color: var(--muted); font-size: 11px; }
+.rp-car .tyre-chip { transform: scale(.85); }
+.rp-car img { height: 14px; max-width: 54px; object-fit: contain; }
+.rp-car .rp-shape { width: 46px; height: 9px; border-radius: 2px 9px 9px 2px; background: var(--c); box-shadow: inset 0 -3px 0 rgba(0,0,0,.25), -4px 0 0 -1px var(--c); }
+.rp-car b { letter-spacing: .04em; }
+.rp-car small { color: var(--muted); font-size: 11px; }
+.rp-car.me b { color: var(--red); }
+.rp-car.pit small { color: var(--yellow); }
+.rp-car.out { opacity: .4; }

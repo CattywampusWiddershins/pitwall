@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const createCompanion = require('./companion');
 const createTelemetry = require('./telemetry');
+const createReplays = require('./replays');
 
 const dataDir = () => app.getPath('userData');
 const dataFile = () => path.join(dataDir(), 'career-data.json');
@@ -196,16 +197,20 @@ ipcMain.handle('companion:forget', (_e, id) => companion.forget(id));
 
 // F1 25 telemetry: finished sessions wait here until the window has logged them (so none is lost while it loads)
 let telemetry = null; let pendingResults = [];
+const replays = createReplays(dataDir); // every race driven with telemetry on, recorded for Race Replay
 let liveRace = null; // the race being driven: its last full ERS profile and your battery now, for a window that (re)loads mid-race
 function setupTelemetry() {
   telemetry = createTelemetry({
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
-    onLive: (m) => { liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); },
+    onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); },
   });
   telemetry.configure(readJson(telemetryFile(), { enabled: false, port: 20778 }));
 }
 ipcMain.handle('telemetry:status', () => telemetry.status());
+ipcMain.handle('replay:list', () => replays.list());
+ipcMain.handle('replay:load', (_e, key) => replays.load(key));
+ipcMain.handle('replay:remove', (_e, key) => replays.remove(key));
 ipcMain.handle('telemetry:configure', (_e, cfg) => { writeJsonAtomic(telemetryFile(), { enabled: !!cfg.enabled, port: +cfg.port || 20778 }); return telemetry.configure(cfg); });
 ipcMain.handle('telemetry:pending', () => pendingResults);
 ipcMain.handle('telemetry:live', () => liveRace);
