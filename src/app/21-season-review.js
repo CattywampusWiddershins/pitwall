@@ -245,7 +245,7 @@ function battleStory(c, s, i, r, key, sd, h) {
   const lost = b.forLead && b.posW > 1; const times = (n) => n === 1 ? 'once' : n === 2 ? 'twice' : `${nw(n)} times`;
   const at = b.forLead ? 'for the lead' : b.posW <= 3 ? 'for a podium place' : b.posW <= 10 ? 'for points' : 'deep in the pack';
   const LP = key === 'R' && b.forLead ? lateWinPass(sd, sd.results.find(x => !OUT.includes(x.st))?.d) : null; const late = LP && pairKey(LP.prev, b.ahead) === pairKey(b.a, b.b);
-  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, replay: { k: key, lap: b.from }, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: b.forLead && !lost ? (sprint ? 'Battle for the sprint win' : 'Battle for the win') : lost ? (sprint ? 'Battle of the sprint' : 'Battle of the race') : sprint ? 'Battle of the sprint' : 'Battle of the race', massive: !!late,
+  return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, replay: { k: key, lap: b.from, ds: [b.ahead, b.behind] }, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: b.forLead && !lost ? (sprint ? 'Battle for the sprint win' : 'Battle for the win') : lost ? (sprint ? 'Battle of the sprint' : 'Battle of the race') : sprint ? 'Battle of the sprint' : 'Battle of the race', massive: !!late,
     headline: lost ? choose(rnd, [`${A} and ${Bn} fight for the lead, and both lose out`, `Did ${A} and ${Bn} fight each other out of the win?`]) : choose(rnd, [`${A} v ${Bn}: a fight ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn}`, `${A} edges ${Bn} in a great battle ${at}`]),
     standfirst: `${b.forLead ? `${A} and ${Bn} fought ${at}${b.to > b.from ? ` between laps ${b.from} and ${b.to}` : ` on lap ${b.from}`}, the lead changing hands ${times(b.leadN || 1)}${lost ? ', but the fight may have cost them both the win' : ''}.` : `${A} and ${Bn} had a great battle ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}.`} ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
     body: touched ? ['It wasn’t all clean: the two made contact along the way.'] : [],
@@ -719,7 +719,9 @@ function storyReplay(s, x) {
   const k = x.replay?.k || (x.kind === 'sprint' ? 'SPR' : 'R'); const g = s.weekends[x.r.id]?.sessions?.[k]?.game;
   const key = g?.key && replayList.some(y => y.key === g.key) ? g.key : g?.laps && Object.values(g.laps).some(L => L?.length > 1) && !isHist(s) ? `lap:${s.index}:${x.r.id}:${k}` : null;
   if (!key) return '';
-  const lap = x.replay?.lap; return `<div><button class="btn sm ghost" data-act="rp-story" data-k="${esc(key)}" data-lap="${lap || ''}">${ICON.play} ${lap > 1 ? `Watch from lap ${lap}` : 'Watch the replay'}</button></div>`;
+  // a battle or a clash: the map shows just the two drivers (a battle saved before 3.10.1: you and the other driver)
+  const ds = x.replay?.ds || (x.kind === 'battle' && x.subject ? [PLAYER, x.subject] : []);
+  const lap = x.replay?.lap; return `<div><button class="btn sm ghost" data-act="rp-story" data-k="${esc(key)}" data-lap="${lap || ''}" data-ds="${esc(ds.filter(Boolean).join(','))}">${ICON.play} ${lap > 1 ? `Watch from lap ${lap}` : 'Watch the replay'}</button></div>`;
 }
 function storyHtml(c, s, x, lead = false) {
   const when = x.r ? `R${x.i + 1} · ${esc(x.r.name)} · ${fmtDay(roundDate(s, x.r))}` : x.i < 0 ? 'Pre-season' : '';

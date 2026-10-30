@@ -244,6 +244,11 @@ function replayToggle(i) {
   if (F.hide.has(i)) F.hide.delete(i); else F.hide.add(i);
   replayTrack();
 }
+/** Shows only these drivers on the track map (a story's battle or clash). */
+function replayOnly(ids) {
+  const all = RP.data.samples[0]?.f.map(x => x[0]) || []; const on = new Set(all.filter(i => ids.includes(RP.idOf(i))));
+  if (!on.size) return; RP.flt = { mode: 'custom', hide: new Set(all.filter(i => !on.has(i))) }; replayTrack();
+}
 function replayTrack() {
   const box = document.getElementById('rp-track'); const fl = document.getElementById('rp-flt'); if (!box || !fl) return;
   const G = replayGeo(); const s = RP.s; const field = (RP.L.field || []).filter(x => x.pos > 0); const me = RP.data.meta.player;

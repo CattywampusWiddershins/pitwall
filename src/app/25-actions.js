@@ -579,6 +579,7 @@ Object.assign(actions, {
     if (replayList == null) replayList = await replayApi().list().catch(() => []) || [];
     const item = replaysHere(career()).find(x => x.x.key === el.dataset.k); if (!item) { toast('That recording is gone'); return; }
     ui.view = 'replay'; await openReplay(item);
+    const ds = (el.dataset.ds || '').split(',').filter(Boolean); if (ds.length && RP) replayOnly(ds);
     const lap = +el.dataset.lap || 0; if (lap > 1 && RP) { const S = RP.data.samples; const k = S.findIndex(x => Math.max(...x.f.filter(y => y[1] === 1).map(y => y[2])) >= lap); if (k > 0) { RP.T = Math.max(0, S[k].t - 15); replayShow(true); } }
   },
   async 'rp-del'(el) { if (!confirm('Delete this race recording? It can’t be undone.')) return; await replayApi().remove(el.dataset.k); replayList = null; render(); },

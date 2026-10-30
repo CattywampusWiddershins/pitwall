@@ -108,7 +108,7 @@ function incidentStories(c, s, i, r, key, sd, h) {
       : inc.out ? `${h.last(inc.a)} and ${h.last(inc.b)} collide in ${gp}` : choose(rnd, [`${h.last(inc.a)} and ${h.last(inc.b)} touch in ${gp}`, `A brush between ${h.last(inc.a)} and ${h.last(inc.b)}${sprint ? ' in the sprint' : ''}`]);
     standfirst = incidentLine(inc, h.last).replace(/\.$/, where(lead) + '.') + ` ${listJoin(after(lead))}.`;
   }
-  return [{ id: `${s.index}-${r.id}${key}inc0`, seq: i * 10 + (sprint ? 2 : 4) + 0.5, kind: 'incident', i, r, replay: { k: key, lap: inc.lap }, subject: inc.b, outlet: choose(rnd, D.OUTLETS), kicker: why === 'heavy' && inc.pen ? 'Stewards' : 'Contact',
+  return [{ id: `${s.index}-${r.id}${key}inc0`, seq: i * 10 + (sprint ? 2 : 4) + 0.5, kind: 'incident', i, r, replay: { k: key, lap: inc.lap, ds: [inc.a, inc.b] }, subject: inc.b, outlet: choose(rnd, D.OUTLETS), kicker: why === 'heavy' && inc.pen ? 'Stewards' : 'Contact',
     headline, standfirst, body: tier.length > 1 ? [listJoin(after(lead)) + '.'] : [], quotes: incidentQuotes(c, inc, h.last, rnd) }];
 }
 const GAME_SESSION_NAMES = { 1: 'Practice 1', 2: 'Practice 2', 3: 'Practice 3', 4: 'Practice', 5: 'Qualifying 1', 6: 'Qualifying 2', 7: 'Qualifying 3', 8: 'Qualifying', 9: 'One-shot qualifying', 10: 'Sprint Shootout 1', 11: 'Sprint Shootout 2', 12: 'Sprint Shootout 3', 13: 'Sprint Shootout', 14: 'One-shot Sprint Shootout', 15: 'Race', 16: 'Race' };
