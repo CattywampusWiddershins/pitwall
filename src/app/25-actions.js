@@ -562,6 +562,8 @@ Object.assign(actions, {
   'tyre-presets-reset'(el) { const c = career(); const { fmt, p } = el.dataset; if (c.tyrePlans?.[fmt]) delete c.tyrePlans[fmt][p]; if (c.tyreCounts) delete c.tyreCounts[fmt]; store.save(); tyrePresetsModal(); render(); },
   'tyre-hand'(el) { const s = latestSeason(); const w = weekend(s, el.dataset.round, true); (w.tyreHand ||= {})[el.dataset.id] = el.dataset.v === '1'; store.save(); render(); },
   async 'rp-open'(el) { const item = replaysHere(career()).find(x => x.x.key === el.dataset.k); if (item) await openReplay(item); },
+  'rp-flt'(el) { if (RP) replayToggle(+el.dataset.i); },
+  'rp-flt-mode'(el) { if (!RP) return; RP.flt = { mode: el.dataset.v, hide: new Set() }; replayTrack(); },
   'rp-close'() { if (RP) clearInterval(RP.timer); RP = null; render(); },
   'rp-play'() { if (!RP) return; if (RP.T >= RP.dur) RP.T = 0; RP.playing = !RP.playing; replayLoop(); replayShow(); },
   async 'rp-del-season'(el) {

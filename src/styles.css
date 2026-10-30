@@ -846,3 +846,19 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .form-chip.pod { border-color: var(--gold); color: var(--gold); }
 .form-chip.pts { border-color: color-mix(in srgb, var(--green) 60%, var(--line)); }
 .form-chip.out { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, var(--line)); font-size: 11px; }
+
+.rp-track svg { width: 100%; height: auto; max-height: 420px; display: block; margin: 0 auto; }
+.rp-trk-line { fill: none; stroke: var(--line); stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.rp-trk-start { fill: var(--fg); }
+.rp-dot { will-change: transform; }
+.rp-dot circle { stroke: rgba(0,0,0,.6); stroke-width: .5; }
+.rp-dot text { font-family: var(--font-display); font-size: 3px; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: .8px; }
+.rp-dot.me circle { stroke: var(--fg); stroke-width: .8; }
+.rp-dot.me text { fill: var(--fg); font-weight: 700; }
+.rp-dot.pit { opacity: .45; }
+.rp-flt { display: grid; gap: 8px; margin-top: 10px; }
+.rp-flt-cars { display: flex; flex-wrap: wrap; gap: 5px; }
+.rp-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 6px; border-radius: 6px; border: 1px solid var(--line); border-left: 3px solid var(--c); background: var(--panel-2); color: var(--fg); font-family: var(--font-display); font-size: 12px; letter-spacing: .04em; cursor: pointer; }
+.rp-chip .rp-chip-p { color: var(--muted); font-size: 10px; min-width: 20px; }
+.rp-chip.me { border-color: var(--fg); border-left-color: var(--c); }
+.rp-chip.off { opacity: .35; filter: grayscale(1); }

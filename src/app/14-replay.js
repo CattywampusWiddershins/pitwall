@@ -133,13 +133,13 @@ function replayView(c) {
       <span id="rp-clock" class="num" style="min-width:150px"></span>
       <label class="row" style="gap:6px">Speed <input type="range" data-ch="rp-speed" min="1" max="20" step="1" value="${RP.speed}" style="width:120px"><b id="rp-speed">${RP.speed}x</b></label></div></div>
     <div class="rp-grid"><div class="panel"><div class="panel-h"><h2>The field</h2><span class="muted" style="font-size:12px" id="rp-lap"></span></div><div class="panel-b"><div class="rp-vis" id="rp-vis" style="height:${RP_H}px"></div></div></div>
-      <div class="stack" style="gap:16px"><div id="rp-dash"></div><div class="panel"><div class="panel-h"><h2>Positions</h2></div><div class="panel-b" id="rp-chart"></div></div></div></div></div>`;
+      <div class="stack" style="gap:16px"><div class="panel"><div class="panel-h"><h2>Track</h2><span class="muted" style="font-size:12px" id="rp-trk-note"></span></div><div class="panel-b"><div class="rp-track" id="rp-track"></div><div class="rp-flt" id="rp-flt"></div></div></div><div id="rp-dash"></div><div class="panel"><div class="panel-h"><h2>Positions</h2></div><div class="panel-b" id="rp-chart"></div></div></div></div></div>`;
 }
 /** Shows the replay at its time: the field every step, the dashboard once a second, the chart each new lap. */
 function replayShow(force = false) {
   if (!RP || ui.view !== 'replay' || !document.getElementById('rp-vis')) return;
   const idx = replayIdx(RP.T); const now = performance.now();
-  if (idx !== RP.i || force) { replayTo(idx); RP.i = idx; replayVis(); }
+  if (idx !== RP.i || force) { replayTo(idx); RP.i = idx; replayVis(); replayTrack(); }
   const S = RP.data.samples[idx]; const lead = Math.max(1, ...S.f.filter(x => x[1] === 1).map(x => x[2]));
   const clk = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const el = (id) => document.getElementById(id);
@@ -192,6 +192,97 @@ function replayVis() {
     node.querySelector('.rp-p').textContent = x.pos; node.querySelector('.rp-t').innerHTML = x.c != null ? tyreChip(x.c) : '';
     node.querySelector('.rp-g').textContent = out ? 'OUT' : x.pit ? 'PIT' : x.pos === 1 ? 'Leader' : g?.down ? `+${g.down} LAP${g.down > 1 ? 'S' : ''}` : `+${((g?.g || 0) / 1000).toFixed(1)}`;
   });
+}
+/*
+  The track map: every car where it is round the lap. The outline is your own car's path from a weekend session where
+  Pitwall has one for the track (exact: the distance round the lap gives the spot), else the circuit's drawing, with
+  each car placed by the share of the lap it has done. Under it, who's shown: every car to start with; a tap hides a
+  car (or shows it again), and the presets show the top ten or the four cars around you, following the order.
+*/
+const RP_TRACK_PAD = 6;
+/** The outline as points in the map's own units: { pts, len (m), W, H, exact } (null: no outline for this track). */
+function replayGeo() {
+  if (RP.geo !== undefined) return RP.geo;
+  const c = career(); const tid = trackOf(RP.r); const own = c.trackMaps?.[tid]; let pts = null, exact = false, len = 0;
+  if (own?.map?.length && own.map.filter(Boolean).length >= own.map.length * 0.6) {
+    const m = own.map.slice(); const n = m.length;
+    for (let i = 0; i < n; i++) if (!m[i]) { // a gap: in a straight line between the slices either side
+      let a = 1; while (!m[(i - a + n) % n]) a++; let b = 1; while (!m[(i + b) % n]) b++;
+      const P = m[(i - a + n) % n], Q = m[(i + b) % n], u = a / (a + b); m[i] = [P[0] + (Q[0] - P[0]) * u, P[1] + (Q[1] - P[1]) * u];
+    }
+    pts = m.map(p => [p[0], p[1]]); if (c.ersFlip?.[tid]) pts = pts.map(p => [-p[0], p[1]]); exact = true; len = own.length || n * 20;
+  } else if (A.maps[tid]) {
+    const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.style.cssText = 'position:absolute;width:0;height:0;visibility:hidden';
+    const p = document.createElementNS(ns, 'path'); p.setAttribute('d', A.maps[tid]); svg.appendChild(p); document.body.appendChild(svg);
+    const T = p.getTotalLength(); pts = Array.from({ length: 400 }, (_, k) => { const q = p.getPointAtLength(k / 400 * T); return [q.x, q.y]; }); svg.remove();
+    len = Math.max(1000, ...RP.data.samples.map(S => Math.max(...S.f.map(x => x[3]))));
+  }
+  if (!pts) return (RP.geo = null);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); const x0 = Math.min(...xs), y0 = Math.min(...ys);
+  const sc = 100 / Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1);
+  const W = (Math.max(...xs) - x0) * sc + RP_TRACK_PAD * 2, H = (Math.max(...ys) - y0) * sc + RP_TRACK_PAD * 2;
+  pts = pts.map(p => [(p[0] - x0) * sc + RP_TRACK_PAD, (p[1] - y0) * sc + RP_TRACK_PAD]);
+  return (RP.geo = { pts, len, exact, W, H });
+}
+/** Where a car is on the map, from its distance round the lap. */
+function replaySpot(G, dist) {
+  const n = G.pts.length; const d = ((dist % G.len) + G.len) % G.len; const f = G.exact ? d / (G.len / n) - 0.5 : d / G.len * n;
+  const i = ((Math.floor(f) % n) + n) % n, j = (i + 1) % n, u = f - Math.floor(f); const P = G.pts[i], Q = G.pts[j];
+  return [P[0] + (Q[0] - P[0]) * u, P[1] + (Q[1] - P[1]) * u];
+}
+/** The cars shown on the map now: every car, the top ten, the four around you, or your own pick. */
+function replayShown(field) {
+  const F = RP.flt ||= { mode: 'all', hide: new Set() }; const run = field.filter(x => x.pos > 0 && (x.st === 2 || x.st === 3)).sort((a, b) => a.pos - b.pos);
+  if (F.mode === 'top10') return new Set(run.filter(x => x.pos <= 10).map(x => x.i));
+  if (F.mode === 'near') { const k = run.findIndex(x => x.i === RP.data.meta.player); if (k < 0) return new Set(run.map(x => x.i)); const a = Math.max(0, Math.min(k - 2, run.length - 5)); return new Set(run.slice(a, a + 5).map(x => x.i)); }
+  return new Set(field.map(x => x.i).filter(i => F.mode === 'all' || !F.hide.has(i)));
+}
+/** Hides or shows one car (a preset becomes your own pick, starting from the cars it shows). */
+function replayToggle(i) {
+  const F = RP.flt ||= { mode: 'all', hide: new Set() }; const field = RP.L.field || [];
+  if (F.mode !== 'custom') { const on = replayShown(field); F.hide = new Set(field.map(x => x.i).filter(k => !on.has(k))); F.mode = 'custom'; }
+  if (F.hide.has(i)) F.hide.delete(i); else F.hide.add(i);
+  replayTrack();
+}
+function replayTrack() {
+  const box = document.getElementById('rp-track'); const fl = document.getElementById('rp-flt'); if (!box || !fl) return;
+  const G = replayGeo(); const s = RP.s; const field = (RP.L.field || []).filter(x => x.pos > 0); const me = RP.data.meta.player;
+  const ab = (x) => { const id = RP.idOf(x.i); return id ? dAbbr(s, id) : (RP.data.meta.parts?.find(p => p.idx === x.i)?.name || '?').slice(0, 3).toUpperCase(); };
+  const col = (x) => { const id = RP.idOf(x.i); return (id && teamColor(s, id)) || '#888'; };
+  const shown = replayShown(field);
+  const note = document.getElementById('rp-trk-note'); if (note) note.textContent = !G ? '' : G.exact ? 'Outline from your own laps' : 'Circuit drawing: positions approximate';
+  if (!G) box.innerHTML = '<div class="muted" style="font-size:13px">No outline for this track yet: it comes from your car’s position in a weekend session.</div>';
+  else {
+    let svg = box.querySelector('svg');
+    if (!svg) {
+      const pt = (p) => p.map(v => v.toFixed(2)).join(','); const [sx, sy] = replaySpot(G, 0);
+      box.innerHTML = `<svg viewBox="0 0 ${G.W.toFixed(1)} ${G.H.toFixed(1)}"><polyline class="rp-trk-line" points="${G.pts.map(pt).join(' ')} ${pt(G.pts[0])}"/><circle class="rp-trk-start" cx="${sx.toFixed(2)}" cy="${sy.toFixed(2)}" r="1.4"/><g class="rp-trk-cars"></g></svg>`;
+      svg = box.querySelector('svg');
+    }
+    const g = svg.querySelector('.rp-trk-cars'); const dur = Math.min(1, 1 / RP.speed);
+    // back to front: the leader drawn last, your car on top of everyone
+    const order = field.slice().sort((a, b) => (a.i === me) - (b.i === me) || b.pos - a.pos);
+    for (const x of order) {
+      let node = g.querySelector(`[data-i="${x.i}"]`);
+      if (!node) { node = document.createElementNS('http://www.w3.org/2000/svg', 'g'); node.dataset.i = x.i; node.setAttribute('class', 'rp-dot' + (x.i === me ? ' me' : '')); node.innerHTML = `<circle r="${x.i === me ? 2.6 : 2.1}" fill="${col(x)}"/><text x="3.2" y="1.2">${esc(ab(x))}</text>`; }
+      g.appendChild(node); // keeps the drawing order
+      const vis = shown.has(x.i) && (x.st === 2 || x.st === 3); const [px, py] = replaySpot(G, x.dist || 0);
+      node.style.transition = node.dataset.on === '1' ? `transform ${dur}s linear` : 'none'; node.style.transform = `translate(${px.toFixed(2)}px, ${py.toFixed(2)}px)`;
+      node.style.display = vis ? '' : 'none'; node.dataset.on = vis ? '1' : '0'; node.classList.toggle('pit', !!x.pit);
+    }
+  }
+  // the filter: presets, then every car (in team order, so the buttons stay put while the order changes)
+  const F = RP.flt;
+  if (+fl.dataset.n !== field.length) {
+    const tix = (x) => { const t = teamOf(s, RP.idOf(x.i)); const k = t ? s.teams.indexOf(t) : -1; return k < 0 ? 99 : k; };
+    const byTeam = field.slice().sort((a, b) => tix(a) - tix(b) || a.i - b.i);
+    fl.innerHTML = `<div class="seg rp-flt-modes">${[['all', 'Everyone'], ['top10', 'Top 10'], ['near', 'Around me']].map(([v, l]) => `<button data-act="rp-flt-mode" data-v="${v}">${l}</button>`).join('')}</div>
+      <div class="rp-flt-cars">${byTeam.map(x => `<button class="rp-chip${x.i === me ? ' me' : ''}" data-act="rp-flt" data-i="${x.i}" style="--c:${col(x)}"><span class="rp-chip-p"></span>${esc(ab(x))}</button>`).join('')}</div>`;
+    fl.dataset.n = field.length;
+  }
+  fl.querySelectorAll('[data-act="rp-flt-mode"]').forEach(b => b.classList.toggle('on', b.dataset.v === F.mode));
+  const pos = Object.fromEntries(field.map(x => [x.i, x.pos]));
+  fl.querySelectorAll('.rp-chip').forEach(b => { const i = +b.dataset.i; b.classList.toggle('off', !shown.has(i)); b.querySelector('.rp-chip-p').textContent = pos[i] ? 'P' + pos[i] : ''; });
 }
 /** The position chart up to where the replay is. */
 function replayChart() {
