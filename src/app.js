@@ -1374,21 +1374,27 @@ function activeTheme() {
 const THEME_VARS = ['--bg', '--panel', '--panel-2', '--panel-3', '--line', '--rail'];
 /** Your uploaded fonts: a display face (headings, numbers; regular and bold) and a body face. */
 const FONT_SLOTS = [['display', 'Display (headings and numbers)', 400], ['displayBold', 'Display, bold', 700], ['body', 'Body text', 400]];
+let sysFonts = null; // fonts installed on this PC, once listed: [{ full, family }]
 function applyFonts() {
-  const F = state.fonts || {}; const key = FONT_SLOTS.map(([k]) => F[k]?.name || '').join('|');
+  const F = state.fonts || {}; const key = FONT_SLOTS.map(([k]) => F[k]?.name || F[k]?.local || '').join('|');
   let el = document.getElementById('user-fonts'); if (el?.dataset.key === key) return;
   if (!el) { el = document.createElement('style'); el.id = 'user-fonts'; document.head.appendChild(el); }
   el.dataset.key = key;
-  const face = (fam, k, w) => F[k] ? `@font-face { font-family: "${fam}"; src: url("${F[k].data}"); font-weight: ${w}; font-display: swap; }` : '';
+  // an uploaded file, or a font installed on this PC (by its full name; its family name works as a fallback)
+  const q = (n) => n.replace(/["\\]/g, '');
+  const face = (fam, k, w) => !F[k] ? '' : `@font-face { font-family: "${fam}"; src: ${F[k].local ? `local("${q(F[k].local)}")` : `url("${F[k].data}")`}; font-weight: ${w}; font-display: swap; }`;
+  const fallback = (k) => F[k]?.local ? `"${q(F[k].family || F[k].local)}", ` : '';
   const disp = F.display || F.displayBold; const bodyF = F.body;
   el.textContent = [face('PW Display', 'display', '100 599'), face('PW Display', 'displayBold', '600 900'), face('PW Body', 'body', '100 900'),
-    `:root { ${disp ? '--font-display: "PW Display", "Bahnschrift", "Barlow Condensed", sans-serif;' : ''} ${bodyF ? '--font-body: "PW Body", "Segoe UI", system-ui, sans-serif;' : ''} }`].join('\n');
+    `:root { ${disp ? `--font-display: "PW Display", ${fallback('display') || fallback('displayBold')}"Bahnschrift", "Barlow Condensed", sans-serif;` : ''} ${bodyF ? `--font-body: "PW Body", ${fallback('body')}"Segoe UI", system-ui, sans-serif;` : ''} }`].join('\n');
 }
 function fontsPanel() {
   const F = state.fonts || {};
   return `<div class="panel"><div class="panel-h"><h2>Fonts</h2><span class="muted" style="font-size:12px">Use your own, such as F1’s fonts</span></div><div class="panel-b stack">
-    ${FONT_SLOTS.map(([k, l]) => `<div class="row" style="gap:8px"><span style="min-width:240px">${l}</span>${F[k] ? `<span class="muted" style="font-size:12px">${esc(F[k].name)}</span><button class="btn sm ghost" data-act="font-clear" data-k="${k}">Remove</button>` : `<label class="btn sm">Upload<input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" data-ch="font-upload" data-k="${k}" hidden></label>`}</div>`).join('')}
-    <p class="muted" style="font-size:12px;margin:0">F1’s fonts belong to Formula 1, so they can’t come with Pitwall: if you have them, upload the files here (TTF, OTF or WOFF). For the F1 look, use Formula1 Display Regular for display, Formula1 Display Bold for bold, and Titillium Web (free) or Formula1 Display Regular for body text. They’re kept with your data.</p></div></div>`;
+    ${FONT_SLOTS.map(([k, l]) => `<div class="row" style="gap:8px"><span style="min-width:240px">${l}</span>${F[k] ? `<span class="muted" style="font-size:12px;font-family:${k === 'body' ? 'var(--font-body)' : 'var(--font-display)'};${k === 'displayBold' ? 'font-weight:700' : ''}">${esc(F[k].local ? `${F[k].local} (installed)` : F[k].name)}</span><button class="btn sm ghost" data-act="font-clear" data-k="${k}">Remove</button>` : `<label class="btn sm">Upload<input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" data-ch="font-upload" data-k="${k}" hidden></label><span class="muted" style="font-size:12px">or</span><input type="text" list="sys-fonts" placeholder="An installed font…" data-ch="font-local" data-k="${k}" style="width:240px">`}</div>`).join('')}
+    <datalist id="sys-fonts">${(sysFonts || []).map(x => `<option value="${esc(x.full)}">${esc(x.family)}</option>`).join('')}</datalist>
+    <div class="row" style="gap:8px">${sysFonts ? `<span class="muted" style="font-size:12px">${plural(sysFonts.length, 'installed font')} listed: start typing a name to pick one</span>` : `<button class="btn sm ghost" data-act="font-list">List my installed fonts</button><span class="muted" style="font-size:12px">or type a font’s name</span>`}</div>
+    <p class="muted" style="font-size:12px;margin:0">F1’s fonts belong to Formula 1, so they can’t come with Pitwall: if you have them, upload the files here (TTF, OTF or WOFF). For the F1 look, use Formula1 Display Regular for display, Formula1 Display Bold for bold, and Titillium Web (free) or Formula1 Display Regular for body text. Uploaded fonts are kept with your data; an installed font has to stay installed on this PC.</p></div></div>`;
 }
 function applyTheme() {
   applyFonts();
@@ -5429,7 +5435,8 @@ function planRest({ runs, sets, cur, age, curLife, left, loss, usedOther, firstL
   if (!res.length) return null;
   res.sort((a, b) => a.t - b.t); const best = res[0];
   const ks = res.filter(x => x.t - best.t <= 1500 && x.stints.length === best.stints.length && x.stints[0]?.c === best.stints[0]?.c).map(x => x.k);
-  return { ...best, window: [Math.min(...ks), Math.max(...ks)] };
+  const alts = [0, 1, 2].map(n => res.find(x => x.stints.length === n)).filter(Boolean);
+  return { ...best, window: [Math.min(...ks), Math.max(...ks)], alts };
 }
 /** A driver's laps from the live lap history: [{ n, ms, valid, s1, s2, s3 }] (n: lap number, counted from the history itself so a late history packet can't shift them). */
 function liveLaps(x) { const all = x.laps || []; const first = x.nLaps != null ? x.nLaps - all.length + 1 : Math.max(1, (x.lap || all.length) - all.length); return all.map((l, k) => ({ n: first + k, ms: l[0], valid: !!l[1], s1: l[2], s2: l[3], s3: l[4] })).filter(l => l.ms); }
@@ -5443,7 +5450,7 @@ function liveFuel(x) {
 /** The lap time a tyre gives in the race: its normalised pace and fall-off at that age, plus the fuel on board. */
 const livePace = (runs, c, age, fuelKg) => runs[c] ? runs[c].base + runs[c].deg * Math.max(0, age - 1) + (fuelKg || 0) * FUEL_MS : null;
 /** What a driver's live race says about their strategy now. */
-function liveStrategy(c, s, r, L, me, id, w) {
+function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - me.lap + 1);
   const PL = pitLoss(c, trackOf(r)); const lossNow = L.sc === 1 ? PL.sc : L.sc === 2 ? PL.vsc : PL.green;
   const mineId = id === PLAYER;
@@ -5470,14 +5477,161 @@ function liveStrategy(c, s, r, L, me, id, w) {
   const free = planRest(args); const mine = follow?.length ? planRest({ ...args, follow }) : null;
   let plan = mine || free; let changed = false;
   if (mine && free && free.t < mine.t - 2000) { plan = free; changed = true; }
+  // the plan that finishes highest, not just the quickest: rivals' own plans, and half a second for every car to pass
+  let posNote = null;
+  if (idOf && free?.alts?.length) {
+    const P = byPosition(s, r, L, me, idOf, [...free.alts, mine]); const cur = byPosition(s, r, L, me, idOf, [plan]);
+    if (P && cur && P.pos < cur.pos && P.p !== plan) { posNote = { from: cur.pos, to: P.pos, stops: P.p.stints.length }; plan = { ...P.p, window: [P.p.k, P.p.k] }; changed = !!mine; }
+    else if (cur) posNote = { to: cur.pos };
+  }
   // under a safety car: stopping now, at the cheaper loss
   let scCall = null;
   if (L.sc === 1 || L.sc === 2) {
     const now = planRest({ ...args, firstLoss: lossNow, onlyK: 1 });
     if (now && plan && now.t < plan.t - 500) scCall = { plan: now, extra: !plan.stints.length };
   }
-  return { n, left, lossNow, PL, runs, cur, age, curLife, sets, plan, free, follow, changed, scCall, usedOther };
+  return { n, left, lossNow, PL, runs, cur, age, curLife, sets, plan, free, follow, changed, scCall, usedOther, posNote };
 }
+
+/*
+  Undercut and overcut. Who you're fighting is remembered at every pit stop: when you, or the car ahead or behind,
+  goes into the pit lane, the running order from 10 seconds before is what counts (a car can be passed on the way in).
+  Before anyone stops, the forecast is predictive: if you stop this lap and they stop the next, where you'd come out
+  (the gap now, less what your new tyres buy over their old ones, the out-lap on cold tyres counted). Once you've
+  stopped it's live: where you'd be if they stopped right now. A car that isn't stopping again gets the battle
+  forecast instead; behind, that's the car really behind you, while ahead the remembered car stays until it's clear
+  for five laps running that you won't catch it. Each rival's stops left come from their own race pace on each tyre.
+*/
+const OUTLAP_MS = 1200; // the out-lap on cold tyres, against a flying lap
+const LIVE_PIT_MEMORY = 10e3; // ms: the running order this long before a car goes into the pit lane
+const _runsFor = new Map();
+/** A driver's race pace per tyre: their own runs where they have them, the grid's for the rest. */
+function runsFor(s, r, id) {
+  const k = `${s.index}:${r.id}:${id}`; const v = _runsFor.get(k); if (v?.gen === renderGen) return v.runs;
+  const { grid, mine } = strategyRuns(s, r); let runs;
+  if (id === PLAYER) runs = JSON.parse(JSON.stringify(mine));
+  else { runs = practiceRuns(s, r, id); orderTyres(runs); fillTyres(JSON.parse(JSON.stringify(grid)), runs); if (Object.keys(runs).length < 2) runs = JSON.parse(JSON.stringify(grid)); }
+  _runsFor.set(k, { gen: renderGen, runs }); return runs;
+}
+const _rivalPlan = new Map();
+/** A car's plan for the rest of the race from its own pace: { stops (left), next (compound), t (ms to the flag) } or null. */
+function rivalPlan(s, r, L, x, idOf) {
+  const k = `${L.uid}:${x.i}:${x.lap}:${x.c}:${x.stops}`; const v = _rivalPlan.get(k); if (v?.gen === renderGen) return v.p;
+  let p = null; const id = idOf(x.i);
+  if (id && DRY.includes(x.c)) {
+    const runs = runsFor(s, r, id); const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - x.lap + 1);
+    if (runs[x.c]) {
+      const wr = x.wear != null && x.age > 1 ? x.wear / x.age : runs[x.c].wear; const curLife = wr ? Math.max(1, Math.floor((WEAR_LIMIT - (x.wear ?? 0)) / wr)) : Math.max(1, (runs[x.c].life ?? 40) - (x.age || 0));
+      const usedOther = (L.used?.[x.i] || []).some(c2 => DRY.includes(c2) && c2 !== x.c) || L.key === 'SPR';
+      const pl = planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: pitLoss(career(), trackOf(r)).green, usedOther });
+      if (pl) p = { stops: pl.stints.length, next: pl.stints[0]?.c ?? null, k: pl.k, t: pl.t };
+    }
+  }
+  _rivalPlan.set(k, { gen: renderGen, p }); if (_rivalPlan.size > 400) _rivalPlan.clear(); return p;
+}
+/** The fight around a car: who was ahead and behind 10 s before the latest stop by it or a neighbour. */
+function fightContext(L, me) {
+  const E = (L.pitEntries || []).filter(e => e.pos && e.pos[me.i]).slice().reverse()
+    .find(e => { if (e.i === me.i) return true; const p = e.pos[me.i]; return e.pos[e.i] === p - 1 || e.pos[e.i] === p + 1; });
+  if (!E) return null;
+  const p = E.pos[me.i]; const at = (q) => +Object.keys(E.pos).find(i => E.pos[i] === q);
+  const ahead = p > 1 ? at(p - 1) : null, behind = at(p + 1);
+  return { entry: E, ahead: Number.isFinite(ahead) ? ahead : null, behind: Number.isFinite(behind) ? behind : null, stops: E.stops || {} };
+}
+/** The undercut graphic: the car at risk in the middle, the other car within a second either side (the gap is always shown). */
+function ucGraphic(c, s, idOf, mid, other, gap, good) {
+  const pct = 50 + Math.max(-1, Math.min(1, gap / 1000)) * 42; // + behind (right), - ahead (left)
+  const car = (x, cls) => { const id = idOf(x.i); const t = teamOf(s, id); const img = carPhoto(c, t?.id);
+    return `<div class="ucg-car ${cls}" style="--c:${t?.color || '#888'}">${img ? `<img src="${esc(img)}" alt="">` : '<span class="ucg-blob"></span>'}<b>${esc(lastName(dName(s, id) || '?'))}</b></div>`; };
+  const lo = Math.min(50, pct), hi = Math.max(50, pct);
+  return `<div class="ucg"><div class="ucg-track">
+      <i class="ucg-space ${good == null ? '' : good ? 'good' : 'bad'}" style="left:${lo}%;width:${hi - lo}%"></i>
+      <div class="ucg-at" style="left:50%">${car(mid, 'mid')}</div><div class="ucg-at" style="left:${pct}%">${car(other, 'oth')}</div></div>
+    <div class="ucg-scale"><span>1 s ahead</span><span>level</span><span>1 s behind</span></div></div>`;
+}
+/** The two fight cards for one of your cars: the car ahead and the car behind. */
+function fightCards(c, s, r, L, me, idOf, ST) {
+  const field = L.field; const byI = (i) => field.find(x => x.i === i);
+  const byPos = field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
+  const realAhead = byPos.find(x => x.pos === me.pos - 1), realBehind = byPos.find(x => x.pos === me.pos + 1);
+  const pits = (x) => L.pitLaps?.[x.i] || [];
+  const ctx = fightContext(L, me); const T = (liveErs.fight ||= {})[me.i] ||= {};
+  const PL = ST.PL; const myStops = ST.plan?.stints?.length || 0; const myNext = ST.plan?.stints?.[0]?.c ?? null;
+  const myRuns = runsFor(s, r, idOf(me.i)); const fuel = (x) => liveFuel(x)(x.lap) ?? x.fuel ?? 0;
+  const stoppedSince = (x) => ctx && (x.stops || 0) > (ctx.stops[x.i] ?? x.stops ?? 0);
+  // ahead: the remembered car, until five laps running say you won't catch it
+  let A = ctx?.ahead != null && T.dropAhead !== ctx.entry.t ? byI(ctx.ahead) : null; if (!A || A.st !== 2) A = realAhead;
+  const B0 = ctx?.behind != null ? byI(ctx.behind) : null;
+  const rpA = A && rivalPlan(s, r, L, A, idOf), rpB0 = B0 && rivalPlan(s, r, L, B0, idOf);
+  const B = B0 && B0.st === 2 && (rpB0?.stops ?? 0) > 0 ? B0 : realBehind; const rpB = B && (B === B0 ? rpB0 : rivalPlan(s, r, L, B, idOf));
+  const stopsTxt = (p) => p ? (p.stops ? `${plural(p.stops, 'stop')} left` : 'no more stops') : '';
+  const nm = (x) => esc(lastName(dName(s, idOf(x.i)) || '?'));
+  // the trend, lap on lap, of each forecast's gap
+  const trendOf = (key, v) => { const h = (T.hist ||= {})[key] ||= {}; if (h.lap !== me.lap) { h.prev = h.v; h.lap = me.lap; } h.v = v; return h.prev == null ? null : v - h.prev; };
+  const card = (title, sub, mid, other, gap, goodIfLower, note) => {
+    const d = trendOf(title + other.i, gap); const good = d == null || Math.abs(d) < 30 ? null : goodIfLower ? d < 0 : d > 0;
+    return `<div class="panel live-card ucard"><div class="panel-h"><h2>${title}</h2><span class="muted" style="font-size:12px">${sub}</span></div>
+      <div class="panel-b">${ucGraphic(c, s, idOf, mid, other, gap, good)}<div class="uc-num"><b>${gap > 0 ? `${(gap / 1000).toFixed(2)} s behind` : gap < 0 ? `${(-gap / 1000).toFixed(2)} s ahead` : 'level'}</b> <span class="muted">${note}</span></div></div></div>`;
+  };
+  const out = [];
+  // the car ahead: your undercut on them
+  if (A) {
+    const gapNow = (me.gapL || 0) - (A.gapL || 0);
+    if (myStops && (rpA?.stops ?? 0) > 0 && !stoppedSince(me) && !stoppedSince(A) && myNext != null) {
+      const theirOld = livePace(runsFor(s, r, idOf(A.i)), A.c, (A.age || 0) + 1, fuel(A)), myNew = livePace(myRuns, myNext, 1, fuel(me)) + OUTLAP_MS;
+      const after = theirOld != null && myNew != null ? gapNow - (theirOld - myNew) : null;
+      if (after != null) out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if you stop this lap and ${nm(A)} the next: ${after < 0 ? 'you come out ahead' : 'still behind'}`));
+    } else if (stoppedSince(me) && !stoppedSince(A) && (rpA?.stops ?? 0) > 0) {
+      const after = (me.gapL || 0) - ((A.gapL || 0) + PL.green);
+      out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if ${nm(A)} stopped now: ${after < 0 ? 'you’d be ahead' : 'they’d stay ahead'}`));
+    } else if (stoppedSince(A) && !stoppedSince(me) && myStops) {
+      // they stopped first: your overcut on them, live
+      const after = ((me.gapL || 0) + PL.green) - (A.gapL || 0);
+      out.push(card('Overcut', `on ${nm(A)}, who has stopped · you have ${plural(myStops, 'stop')} left`, A, me, after, true, `if you stopped now: ${after < 0 ? 'you’d come out ahead' : 'you’d be behind'}`));
+    }
+  }
+  if (A && out.length === 0) {
+    // the battle forecast on the car ahead; five laps running of not catching it and the next car up takes over
+    const edge = paceEdge(me, A, pits); const gap = Math.max(0, (me.gapL || 0) - (A.gapL || 0)); const left = ST.left;
+    const catching = edge != null && edge > 0 && Math.round(gap / edge) < left + 2;
+    if (T.lap !== me.lap) { T.lap = me.lap; T.noCatch = catching ? 0 : (T.noCatch || 0) + 1; if (T.noCatch >= 5 && ctx && A !== realAhead) T.dropAhead = ctx.entry.t; }
+    out.push(battleCard(s, idOf, A, { ...me, gapF: gap }, me, left, { pits, stopLeft: false, extra: stopsTxt(rpA) }));
+  }
+  // the car behind: their undercut on you (your overcut)
+  if (B) {
+    const gapNow = (B.gapL || 0) - (me.gapL || 0);
+    if (myStops && (rpB?.stops ?? 0) > 0 && !stoppedSince(me) && !stoppedSince(B) && rpB.next != null) {
+      const myOld = livePace(myRuns, me.c, (me.age || 0) + 1, fuel(me)), theirNew = livePace(runsFor(s, r, idOf(B.i)), rpB.next, 1, fuel(B)) + OUTLAP_MS;
+      const after = myOld != null && theirNew != null ? gapNow - (myOld - theirNew) : null;
+      if (after != null) out.push(card('Overcut', `${nm(B)}’s undercut on you · ${stopsTxt(rpB)}`, me, B, after, false, `if ${nm(B)} stops this lap and you the next: ${after < 0 ? 'they come out ahead' : 'you stay ahead'}`));
+      else out.push(battleCard(s, idOf, me, B, me, ST.left, { pits, stopLeft: false, extra: stopsTxt(rpB) }));
+    } else if (stoppedSince(me) && !stoppedSince(B) && (rpB?.stops ?? 0) > 0) {
+      // you've stopped, they haven't: where they'd come out if they stopped now
+      const after = ((B.gapL || 0) + PL.green) - (me.gapL || 0);
+      out.push(card('Overcut', `${nm(B)} still to stop · ${stopsTxt(rpB)}`, me, B, after, false, `if ${nm(B)} stopped now: ${after < 0 ? 'they’d come out ahead' : 'you’d stay ahead'}`));
+    } else if (stoppedSince(B) && !stoppedSince(me) && myStops) {
+      const after = (B.gapL || 0) - ((me.gapL || 0) + PL.green);
+      out.push(card('Overcut', `${nm(B)} has stopped · you have ${plural(myStops, 'stop')} left`, me, B, after, false, `if you stopped now: ${after < 0 ? `${nm(B)} would be ahead` : 'you’d stay ahead'}`));
+    } else out.push(battleCard(s, idOf, me, realBehind || B, me, ST.left, { pits, stopLeft: false, extra: stopsTxt(realBehind && realBehind !== B ? rivalPlan(s, r, L, realBehind, idOf) : rpB) }));
+  }
+  return out.join('');
+}
+/**
+ * Plans for the rest of the race, judged by where they'd finish: each rival's own plan gives their time to the flag,
+ * and every car you'd have to pass on track costs half a second. The fastest plan isn't always the one that finishes
+ * highest. Returns the plan that finishes highest (the quickest of those), with its projected position.
+ */
+function byPosition(s, r, L, me, idOf, plans) {
+  const rivals = L.field.filter(x => x.i !== me.i && x.st === 2 && x.pos > 0).map(x => ({ x, t: (x.gapL || 0) + (rivalPlan(s, r, L, x, idOf)?.t ?? Infinity) }));
+  const posOf = (p) => {
+    let mine = (me.gapL || 0) + p.t;
+    for (let k = 0; k < 2; k++) { const passes = rivals.filter(o => o.x.pos < me.pos && o.t > mine).length; mine = (me.gapL || 0) + p.t + passes * 500; }
+    return 1 + rivals.filter(o => o.t < mine).length;
+  };
+  const scored = plans.filter(Boolean).map(p => ({ p, pos: posOf(p) })).sort((a, b) => a.pos - b.pos || a.p.t - b.p.t);
+  return scored[0] || null;
+}
+
 /** Where a car would rejoin after a stop costing `loss` ms now: { pos, ahead, behind, gapA, gapB }. */
 function rejoin(field, me, loss) {
   const run = field.filter(x => x.i !== me.i && x.pos > 0 && x.st === 2);
@@ -5489,22 +5643,12 @@ function rejoin(field, me, loss) {
 function paceEdge(a, b, pits = null) {
   // laps both drivers have completed, not an in- or out-lap for either
   const skip = (x, n) => { const P = pits ? pits(x) : []; return P.includes(n) || P.includes(n - 1); };
-  const la = liveLaps(a).filter(x => !skip(a, x.n)), lb = liveLaps(b).filter(x => !skip(b, x.n)); const both = la.filter(x => lb.some(y => y.n === x.n)).slice(-3);
-  if (both.length < 3) return null;
+  const la = liveLaps(a).filter(x => !skip(a, x.n)), lb = liveLaps(b).filter(x => !skip(b, x.n)); let both = la.filter(x => lb.some(y => y.n === x.n)).slice(-3);
+  // after a stop, only laps since it count: the first normal lap straight away, then two, then three
+  const lastPit = pits ? Math.max(0, ...pits(a), ...pits(b)) : 0;
+  if (lastPit) { const since = both.filter(x => x.n > lastPit + 1); if (since.length < 3) { if (!since.length) return null; both = since; } }
+  if (!lastPit && both.length < 3) return null;
   return avg(both.map(x => lb.find(y => y.n === x.n).ms - x.ms));
-}
-/** The last three sectors each car drove, not counting an in- or out-lap sector (S3 coming in, S1 going out): ms. */
-function lastSectors(x) {
-  const laps = liveLaps(x); const out = [];
-  for (const l of laps) for (const [k, v] of [[1, l.s1], [2, l.s2], [3, l.s3]]) if (v) out.push({ n: l.n, k, v });
-  if (x.sector >= 1 && x.s1) out.push({ n: x.lap, k: 1, v: x.s1 }); if (x.sector >= 2 && x.s2) out.push({ n: x.lap, k: 2, v: x.s2 });
-  return out;
-}
-function sectorEdge(a, b, pitLaps) {
-  const sa = lastSectors(a), sb = lastSectors(b); const skip = (x, P) => (x.k === 3 && P.includes(x.n)) || (x.k === 1 && P.includes(x.n - 1));
-  const pairs = sa.filter(x => !skip(x, pitLaps(a)) && !skip(x, pitLaps(b))).map(x => [x, sb.find(y => y.n === x.n && y.k === x.k)]).filter(p => p[1]).slice(-3);
-  if (pairs.length < 3) return null;
-  return pairs.reduce((s2, [x, y]) => s2 + (y.v - x.v), 0); // over the last three sectors: positive, `a` was quicker
 }
 // ---- pit calls and their sounds
 const liveCalls = {}; // per race: the last call made, so a sound plays once
@@ -5535,26 +5679,15 @@ function weatherCard(L) {
     ${fc.length ? `<div class="wx-row">${fc.map(x => `<div class="wx-step">${weatherIcon(x.w)}<b>+${x.at} min</b><small>${x.rain}% rain</small></div>`).join('')}</div>` : '<div class="muted" style="font-size:12px">No forecast from the game.</div>'}</div></div>`;
 }
 /** A battle card: the car ahead on the left, the chaser on the right. */
-function battleCard(s, idOf, ahead, behind, me, left, { title, pits, stopLeft, runs }) {
+function battleCard(s, idOf, ahead, behind, me, left, { title, pits, stopLeft, runs, extra = '' }) {
   if (!ahead || !behind) return '';
   const nm = (x) => esc(lastName(dName(s, idOf(x.i)) || '?'));
   const gap = behind.gapF || 0; const meAhead = ahead.i === me.i;
   const neutral = gap < 1000;
-  // a stop still to make: the undercut from the car behind (or yours on the car ahead) instead
-  if (stopLeft) {
-    const edge = sectorEdge(behind, ahead, pits); // positive: the chaser is quicker over the last three sectors
-    const tyreC = meAhead ? me.c : behind.c; const age = meAhead ? me.age : behind.age;
-    const zone = Math.max(500, (runs?.[tyreC]?.deg || 80) * (age || 0) * 1.5); // what fresh tyres buy over the out-lap and one more
-    const threat = gap <= zone ? 'High' : gap <= zone + 1000 ? 'Medium' : 'Low';
-    const closing = edge != null && edge > 0 ? edge : null; const lapsTo = closing && gap > zone ? Math.round((gap - zone) / closing) : null;
-    return `<div class="panel live-card undercut ${threat.toLowerCase()}"><div class="panel-h"><h2>${meAhead ? 'Undercut threat' : 'Your undercut'}</h2><span class="tag ${threat === 'High' ? 'dnf' : threat === 'Medium' ? 'sprint' : ''}">${threat}${meAhead ? ` threat from ${nm(behind)}` : ''}</span></div>
-      <div class="panel-b uc"><div><span class="label">${nm(ahead)}</span></div><div class="uc-zone"><span class="label">Undercut zone</span><b>${(zone / 1000).toFixed(2)} s</b></div><div style="text-align:right"><span class="label">${nm(behind)}</span><b>${(gap / 1000).toFixed(2)} s</b></div></div>
-      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${gap <= zone ? `${meAhead ? `If ${nm(behind)} stops now, they come out ahead of you.` : `Stop now and you come out ahead of ${nm(ahead)}.`}` : lapsTo != null && lapsTo <= left ? `In the zone in about ${plural(lapsTo, 'lap')}, at the pace of the last three sectors.` : 'Not closing in: out of the zone for now.'}</div></div>`;
-  }
   const edge = paceEdge(behind, ahead, pits); // positive: the chaser is quicker, the gap shrinks
   const trend = edge == null ? '' : edge > 0 ? 'closing' : 'growing';
   const laps = !neutral && edge > 0 ? Math.max(1, Math.round(gap / edge)) : null; const far = laps != null && laps >= left + 2;
-  return `<div class="panel live-card battle ${trend}"><div class="panel-h"><h2>Battle forecast</h2></div>
+  return `<div class="panel live-card battle ${trend}"><div class="panel-h"><h2>Battle forecast</h2><span class="muted" style="font-size:12px">${esc(extra)}</span></div>
     <div class="panel-b bf"><div class="bf-side"><b>${nm(ahead)}</b><small class="muted">${meAhead ? 'You' : `P${ahead.pos}`}</small></div>
       <div class="bf-mid"><span class="label">${neutral ? 'Within a second' : laps != null && !far ? 'Striking distance' : edge != null && edge <= 0 ? 'Pulling away' : 'Out of reach'}</span>${neutral ? '<b>NOW</b>' : laps != null && !far ? `<b>in ${laps} lap${laps === 1 ? '' : 's'}</b>` : ''}<small>${(gap / 1000).toFixed(3)} s${edge != null ? ` · ${edge > 0 ? '−' : '+'}${(Math.abs(edge) / 1000).toFixed(2)} s a lap` : ''}</small></div>
       <div class="bf-side" style="text-align:right"><b>${nm(behind)}</b><small class="muted">${behind.i === me.i ? 'You' : `P${behind.pos}`}</small></div></div></div>`;
@@ -5586,7 +5719,7 @@ function champCard(c, s, r, L, idOf, mineIds) {
 }
 /** One driver's column: position, tyres, the strategy and the call, rejoin, and the battle cards. */
 function liveDriverCol(c, s, r, L, w, me, id, idOf) {
-  const ST = liveStrategy(c, s, r, L, me, id, w);
+  const ST = liveStrategy(c, s, r, L, me, id, w, idOf);
   const byPos = L.field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
   const ahead = byPos.find(x => x.pos === me.pos - 1), behind = byPos.find(x => x.pos === me.pos + 1);
   const pitLaps = (x) => (L.pitLaps?.[x.i] || []);
@@ -5629,9 +5762,9 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
         <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
+        ${ST.posNote ? `<div class="muted" style="font-size:12px">${ST.posNote.from ? `Switched to the ${plural(ST.posNote.stops, 'stop')} plan: it should finish P${ST.posNote.to} rather than P${ST.posNote.from}, counting each rival’s own plan and half a second for every pass.` : `On this plan you should finish about P${ST.posNote.to}.`}</div>` : ''}
         <div class="rejoin"><span class="label">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
-    ${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft, runs: ST.runs })}
-    ${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft, runs: ST.runs })}
+    ${ST.none ? `${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft: false })}${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft: false })}` : fightCards(c, s, r, L, me, idOf, ST)}
   </div>`;
 }
 /** The live dashboard (or, between races, the pick of strategy and the debrief). */
@@ -5815,7 +5948,16 @@ function onLiveMsg(m) {
   const same = liveErs?.uid === m.uid;
   if (m.done) { if (same) { liveErs = { ...liveErs, done: true }; render(); } return; }
   const prev = same ? liveErs : {};
-  liveErs = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {} };
+  liveErs = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {},
+    order: prev.order || [], pitEntries: prev.pitEntries || [], wasPit: prev.wasPit || {}, fight: prev.fight || {} };
+  if (m.field) {
+    const now = Date.now(); const pos = Object.fromEntries(m.field.filter(x => x.pos > 0).map(x => [x.i, x.pos])); const stops = Object.fromEntries(m.field.map(x => [x.i, x.stops || 0]));
+    liveErs.order = [...liveErs.order.filter(o => now - o.t < 15e3), { t: now, pos, stops }];
+    for (const x of m.field) {
+      if (x.pit && !liveErs.wasPit[x.i]) { const then = liveErs.order.filter(o => o.t <= now - LIVE_PIT_MEMORY).pop() || liveErs.order[0]; liveErs.pitEntries = [...liveErs.pitEntries.slice(-60), { i: x.i, t: now, lap: x.lap, pos: then.pos, stops: then.stops }]; }
+      liveErs.wasPit[x.i] = !!x.pit;
+    }
+  }
   // a car's stop count went up: note the lap, and the tyre it came in on
   for (const x of m.field || []) {
     const was = liveErs.stopsSeen[x.i] ?? 0;
@@ -10077,6 +10219,11 @@ const changes = {
     }
     store.save(); render();
   },
+  'font-local'(el) {
+    const v = el.value.trim(); if (!v) return;
+    const hit = sysFonts?.find(x => x.full.toLowerCase() === v.toLowerCase() || x.family.toLowerCase() === v.toLowerCase());
+    (state.fonts ||= {})[el.dataset.k] = { local: hit?.full || v, family: hit?.family || v }; store.save(); render(); toast('Font set');
+  },
   'font-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
     if (file.size > 3e6) { toast('That font file is too big: keep it under 3 MB'); return; }
@@ -10280,6 +10427,13 @@ Object.assign(actions, {
     const s = latestSeason(); const r = s.calendar.find(x => x.id === el.dataset.round); const c = career(); const w = weekend(s, r.id, true);
     const plans = optimalStrategies(strategyRuns(s, r).mine, raceLaps(s, r.id), { loss: pitLoss(c, trackOf(r)).green, sets: setsLeft(c, s, r).sets }); const p = plans[+el.dataset.i];
     if (!p) return; w.liveStrategy = w.liveStrategy?.seq.join() === p.seq.join() ? null : { seq: p.seq, lens: p.lens }; store.save(); render();
+  },
+  async 'font-list'() {
+    try {
+      const list = await window.queryLocalFonts();
+      const seen = new Set(); sysFonts = list.map(x => ({ full: x.fullName, family: x.family })).filter(x => !seen.has(x.full) && seen.add(x.full)).sort((a, b) => a.full.localeCompare(b.full));
+      render(); toast(`${plural(sysFonts.length, 'installed font')} found`);
+    } catch { toast('Couldn’t list the installed fonts here: type the font’s name instead'); }
   },
   'font-clear'(el) { delete (state.fonts ||= {})[el.dataset.k]; store.save(); render(); },
   'sound-play'(el) { playSounds([el.dataset.k]); },

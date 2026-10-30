@@ -807,3 +807,17 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .battle .bf-mid small { opacity: .85; }
 .hero-car { position: absolute; right: 270px; bottom: -6px; height: 115%; max-width: 46%; object-fit: contain; opacity: .5; pointer-events: none; filter: drop-shadow(0 6px 12px rgba(0,0,0,.5)); z-index: 0; }
 @media (max-width: 900px) { .hero-car { right: 0; opacity: .25; } }
+/* the undercut graphic */
+.ucg { display: grid; gap: 4px; }
+.ucg-track { position: relative; height: 64px; border-radius: 6px; background: linear-gradient(90deg, rgba(127,127,127,.06), rgba(127,127,127,.12) 50%, rgba(127,127,127,.06)); overflow: hidden; }
+.ucg-track::after { content: ''; position: absolute; left: 50%; top: 6px; bottom: 6px; border-left: 1px dashed var(--line); }
+.ucg-space { position: absolute; top: 18px; height: 28px; background: rgba(127,127,127,.18); transition: all .6s; }
+.ucg-space.good { background: rgba(31,157,85,.35); }
+.ucg-space.bad { background: rgba(232,0,45,.35); }
+.ucg-at { position: absolute; top: 4px; transform: translateX(-50%); transition: left .6s; z-index: 1; }
+.ucg-car { display: grid; justify-items: center; gap: 2px; font-size: 11px; }
+.ucg-car img { height: 34px; max-width: 110px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+.ucg-blob { width: 64px; height: 16px; margin: 9px 0; border-radius: 8px 14px 6px 6px; background: var(--c); box-shadow: inset 0 -4px 0 rgba(0,0,0,.25); }
+.ucg-car.oth b { color: var(--muted); }
+.ucg-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.uc-num { margin-top: 6px; font-size: 13px; }
