@@ -222,7 +222,7 @@ function replayFrame() {
   const G = RP.geo; const trk = document.querySelector('#rp-track .rp-trk-cars');
   if (G && trk) for (const node of trk.children) {
     if (node.dataset.on !== '1') continue; const i = +node.dataset.i; const a = A.by[i], b = B.by[i]; if (!a) continue;
-    let dA = a.dist || 0, dB = b ? b.dist || 0 : dA; if (dB - dA < -G.len / 2) dB += G.len; else if (dB - dA > G.len / 2) dB -= G.len; // over the line
+    let dA = (a.dist || 0) * G.unit, dB = b ? (b.dist || 0) * G.unit : dA; if (dB - dA < -G.len / 2) dB += G.len; else if (dB - dA > G.len / 2) dB -= G.len; // over the line
     const [px, py] = replaySpot(G, dA + (dB - dA) * u); node.style.transform = `translate(${px.toFixed(2)}px, ${py.toFixed(2)}px)`;
   }
 }
@@ -255,7 +255,8 @@ function replayGeo() {
   const sc = 100 / Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1);
   const W = (Math.max(...xs) - x0) * sc + RP_TRACK_PAD * 2, H = (Math.max(...ys) - y0) * sc + RP_TRACK_PAD * 2;
   pts = pts.map(p => [(p[0] - x0) * sc + RP_TRACK_PAD, (p[1] - y0) * sc + RP_TRACK_PAD]);
-  return (RP.geo = { pts, len, exact, W, H });
+  // a race rebuilt lap by lap gives each car its share of a 5000 m lap: stretched to this outline's length
+  return (RP.geo = { pts, len, exact, W, H, unit: RP.data.meta.lapByLap ? len / 5000 : 1 });
 }
 /** Where a car is on the map, from its distance round the lap. */
 function replaySpot(G, dist) {

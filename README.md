@@ -128,6 +128,8 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 
 **3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
 
+**3.10.3:** on the track map, cars in a race rebuilt lap by lap no longer jump back to the line a while after crossing it. Those races measure each lap as 5000 m, so on a track with your own (shorter) outline the cars ran on past the line and snapped back when the next lap began; the lap is now stretched to the outline.
+
 **3.10.2:** smoother replays. The recording has a sample a second; the replay now draws every frame, sliding each car between the samples either side of the moment shown, on the gap view (the gaps count along too) and on the track map (over the line as well), at any speed. A window left in the background doesn't skip ahead when you come back.
 
 **3.4: fair pace.** Pitwall now logs every car’s fuel and ERS deployment each lap, and puts every lap used for pace on the same footing before the strategy and forecasts use it: as if the tank were empty (0.035 s a kg, from the fuel the game reports) and as if the driver had used no more energy than on their most frugal laps of the session (about 1.1 ms a kJ over that). Without this a car getting lighter hides its tyres’ fall-off, and a low-fuel run looks faster than it is. A run on a set that was already worn now counts as the new set it was: its wear says how many laps old it really was, so the pace and life it gives are a new set’s. In the race, the fall-off Live Race measures on your stint is fuel-corrected too. Sessions logged before 3.4 have no fuel data and are used as they are.
