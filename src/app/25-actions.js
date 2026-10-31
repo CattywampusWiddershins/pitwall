@@ -469,6 +469,17 @@ Object.assign(changes, {
     const file = el.files?.[0]; if (!file) return;
     try { state.gfxLogo = await readImage(file, { max: 700 }); store.save(); applyTheme(); render(); toast('Logo saved'); } catch (e) { toast(e.message); }
   },
+  async 'body-upload'(el) {
+    const file = el.files?.[0]; if (!file) return;
+    try { setBody(career(), el.dataset.id, { url: await readBody(file) }); store.save(); render(); toast('Picture saved: set which way the driver faces'); } catch (e) { toast(e.message); }
+  },
+  'body-look'(el) { setBody(career(), el.dataset.id, { look: el.value }); store.save(); render(); },
+  'body-clear'(el) { setBody(career(), el.dataset.id, null); store.save(); render(); },
+  async 'trophy-upload'(el) {
+    const file = el.files?.[0]; if (!file) return;
+    try { (state.gfxTrophy ||= {})[el.dataset.kind] = await readImage(file, { max: 1000, type: 'image/webp' }); store.save(); render(); toast('Trophy saved'); } catch (e) { toast(e.message); }
+  },
+  'trophy-clear'(el) { if (state.gfxTrophy) delete state.gfxTrophy[el.dataset.kind]; store.save(); render(); },
   async 'pic-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
     const { kind, id } = el.dataset; const c = career();

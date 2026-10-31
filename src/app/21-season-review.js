@@ -304,8 +304,12 @@ function buildStories(c, s) {
           showdown && !inSprint ? `It is the final race of the season and nothing is settled. ${alive.length >= 3 ? `A ${numWord(alive.length)}-way decider is the stuff of legend: the last one in Formula 1 was 2010.` : 'One race, winner takes all.'}` : ''].filter(Boolean),
         permsHtml: inSprint || (kind === 'team' && P.clinch.some(t => t.table)) ? tablePermsHtml(m, P) : permsHtml(m, P, { compact: true }),
         permGfx: { kind, stage, who: (P.clinch || []).filter(t => t.table?.length).map(t => t.x.id) },
+        titleGfx: { kind, stage, mode: 'pre', ids: showdown ? alive.map(x => x.id) : P.clinch.map(t => t.x.id) },
+        hideList: true,
         quotes: SD ? (() => { const qw = phrasebook(rnd); return SD.N.rows.filter(o => o.id !== PLAYER).map(o => ({ id: o.id, text: qw(o.leader ? 'l' : 'c', SHOWDOWN_QUOTES[o.leader ? 'preLead' : 'preChase']) })); })() : kind === 'driver' ? [{ id: L.id, text: choose(rnd, QUOTES.preLead) }, ...(R2 && R2.alive && R2.id !== PLAYER ? [{ id: R2.id, text: choose(rnd, QUOTES.preChase) }] : [])].filter(q => q.id !== PLAYER) : [],
       });
+      // a decider: each contender's season so far, with their own graphic
+      if (showdown && !inSprint) alive.forEach((x, kk) => out.push(contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, i * 10 + (afterSpr ? 3 : 0) - 0.1 - kk * 0.01)));
     }
     // the next round: a preview built from what has happened so far (unless a title decider preview covers it)
     if (i === nri && i > 0 && !ses.Q?.done && !out.some(x => x.kind === 'preview' && x.i === i)) {
@@ -493,7 +497,7 @@ function buildStories(c, s) {
       // settled in the sprint: told after the sprint, before the race
       const atSprint = !!r.sprint && !!ses.SPR?.done && titleMath(s, 'driver', i, { afterSprint: true }).decided;
       const SDT = atFinal && !atSprint ? showdownTold(c, s, i, last, phrasebook(seeded(rid + 'sdt'))) : null;
-      out.push({ id: rid + 'wdc', seq: i * 10 + (atSprint ? 2 : 5), kind: 'title', i, r, subject: A0.id, outlet: outletFor(rnd), massive: atFinal,
+      out.push({ id: rid + 'wdc', seq: i * 10 + (atSprint ? 2 : 5), kind: 'title', i, r, subject: A0.id, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'driver', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [A0.id] },
         kicker: atSprint ? 'World champion · Sprint' : atFinal ? 'World champion · Final-race decider' : 'World champion',
         headline: SDT?.twist ? SDT.twist.headline : atFinal ? (rivals.length >= 2 ? `${name(A0.id)} wins a ${numWord(rivals.length + 1)}-way title showdown in ${gp}` : `${name(A0.id)} beats ${last(rivals[0]?.id || A1.id)} to the title in a ${gp} decider`) : A0.id === PLAYER ? `${name(A0.id)} is world champion` : `${name(A0.id)} is the ${s.year} world champion`,
         standfirst: `${last(A0.id)} sealed ${n > 1 ? `a ${ordWord(n)} title` : 'the title'} in ${atSprint ? `the ${gp} sprint` : gp}${atSprint ? ', with the Grand Prix still to come' : ''}${dA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(dA.left.length, 'round')} to spare` : atSprint ? '' : ' at the final round'}.`,
@@ -515,7 +519,7 @@ function buildStories(c, s) {
     if (tA.decided && !tB.decided) {
       const atFinal = !tA.left.length, rivals = tB.rows.filter(x => x.alive && x.id !== cA0.id);
       const atSprint = !!r.sprint && !!ses.SPR?.done && titleMath(s, 'team', i, { afterSprint: true }).decided;
-      out.push({ id: rid + 'wcc', seq: i * 10 + (atSprint ? 2 : 5), kind: 'title', i, r, outlet: outletFor(rnd), massive: atFinal,
+      out.push({ id: rid + 'wcc', seq: i * 10 + (atSprint ? 2 : 5), kind: 'title', i, r, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'team', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [cA0.id] },
         kicker: atSprint ? 'Constructors’ champions · Sprint' : atFinal ? 'Constructors’ champions · Final-race decider' : 'Constructors’ champions',
         headline: atFinal ? `${cA0.name} edge ${rivals.length >= 2 ? `a ${numWord(rivals.length + 1)}-team` : 'the'} constructors’ showdown in ${gp}` : `${cA0.name} win the ${s.year} constructors’ championship`,
         standfirst: `${cA0.name} wrapped up the teams’ title in ${atSprint ? `the ${gp} sprint, with the Grand Prix still to come` : gp}${tA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(tA.left.length, 'round')} to go` : atSprint ? '' : ', at the very last race'}, ${plural(tA.margin, 'point')} ahead of ${tA.rows[1]?.name}.`, body: [], quotes: [] });
@@ -760,10 +764,39 @@ function storyReplay(s, x) {
   const ds = x.replay?.ds || (x.kind === 'battle' && x.subject ? [PLAYER, x.subject] : []);
   const lap = x.replay?.lap; return `<div><button class="btn sm ghost" data-act="rp-story" data-k="${esc(key)}" data-lap="${lap || ''}" data-ds="${esc(ds.filter(Boolean).join(','))}">${ICON.play} ${lap > 1 ? `Watch from lap ${lap}` : 'Watch the replay'}</button></div>`;
 }
+/** A title contender's season so far, going into the decider at round i (a driver, or a team). */
+function contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, seq) {
+  const r = activeRounds(s)[i]; const rnd = seeded(`${s.index}-${r.id}-${kind}-ct-${x.id}`); const team = kind === 'team';
+  const rounds = activeRounds(s).slice(0, i); const raced = rounds.filter(rr => s.weekends[rr.id]?.sessions?.R?.done).length;
+  const st = seasonStats(s, i); const who = team ? x.name : last(x.id); const full = team ? x.name : name(x.id);
+  const T = titleTally(c, s, kind, x.id); const n = T.n + 1;
+  const top = m.rows[0], R2 = m.rows[1];
+  const lead = x.id === top.id ? (R2 && x.pts === R2.pts ? 'level on points at the top' : `leading by ${plural(x.pts - (R2?.pts || 0), 'point')}`) : x.pts === top.pts ? `level on points with ${team ? top.name : last(top.id)}` : `${plural(top.pts - x.pts, 'point')} behind`;
+  const row = team ? constructorStandings(s, st).find(o => o.team.id === x.id) : driverStandings(s, st).find(o => o.id === x.id);
+  const wins = row?.wins || 0, pods = row?.podiums || 0, poles = team ? 0 : row?.poles || 0;
+  const by = team ? {} : st[x.id]?.byRound || {};
+  const winAt = team ? [] : rounds.filter(rr => by[rr.id]?.r === 1).map(rr => rr.name);
+  const form = team ? [] : rounds.map(rr => by[rr.id]?.r).filter(v => v != null).slice(-5).map(v => typeof v === 'number' ? 'P' + v : v);
+  const chase = team ? (n === 1 ? `${who} are chasing a first constructors’ title` : `${who} are chasing a ${ordWord(n)} constructors’ title`)
+    : n === 1 ? `${who} is chasing a first world title` : T.streak >= 1 ? `${who} is chasing a ${ordWord(n)} title, and ${numWord(T.streak + 1)} in a row` : `${who} is already a ${numWord(T.n)}-time champion, chasing a ${ordWord(n)}`;
+  const drivers = team ? (s.teams.find(t => t.id === x.id)?.drivers || []).filter(Boolean) : [];
+  return { id: `${s.index}-${r.id}-${kind}ct${x.id}${stage}`, seq, kind: 'preview', i, r, subject: team ? null : x.id, outlet: choose(rnd, D.OUTLETS), kicker: 'Title decider · The contenders',
+    headline: choose(rnd, [`${who}: the road to ${r.name}`, `How ${who} got here`, team ? `The contenders: ${who}` : `The contender: ${full}`]),
+    standfirst: `${full} ${team ? 'arrive' : 'arrives'} in ${r.name} ${lead}, with ${plural(wins, 'win')} and ${plural(pods, 'podium')} from ${plural(raced, 'race')}.`,
+    body: [`${chase}.`,
+      team ? '' : winAt.length ? `Wins this year: ${listJoin(winAt)}.` : `${who} is yet to win this season.`,
+      poles ? `${plural(poles, 'pole position')} so far.` : '',
+      form.length ? `The last ${numWord(form.length)} races: ${form.join(', ')}.` : '',
+      team ? `Driving: ${listJoin(drivers.map(d => name(d)))}.` : ''].filter(Boolean),
+    titleGfx: { kind, stage, mode: 'pre', ids: [x.id] } };
+}
 /** The graphics that go with a story: results, standings, ratings and each contender's permutations. */
 function storyGfx(s, x) {
   if (!x.r) return [];
   const base = { si: s.index, ri: x.i }; const out = [];
+  if (x.titleGfx?.ids?.length) {
+    out.push({ type: 'title', ...x.titleGfx, ...base });
+  }
   if (x.kind === 'quali') out.push({ type: 'results', k: x.sess || 'Q', ...base });
   if (x.kind === 'practice') out.push({ type: 'class', k: x.sess, ...base });
   if (x.kind === 'sprint' && x.results) out.push({ type: 'results', k: 'SPR', ...base });
@@ -786,11 +819,12 @@ function storyHtml(c, s, x, lead = false) {
     ${x.body?.length ? `<div class="body">${x.body.map(p => `<p>${esc(p)}</p>`).join('')}</div>` : ''}
     ${x.chartHtml || ''}
     ${x.review ? `<details class="review-more"><summary>Read it race by race: all ${x.review.n} rounds</summary>${reviewHtml(c, s, x.review)}</details><div><button class="btn sm ghost" data-act="open-review" data-idx="${s.index}">Open the season review</button></div>` : ''}
-    ${x.list ? `<ul class="ms-list">${x.list.map(o => `<li>${avatar(c, s, o.id, 26)}<span>${esc(o.text)}</span></li>`).join('')}</ul>` : ''}
+    ${has('title') ? `<div class="gfx-hero">${G.filter(o => o.type === 'title').map(gfxSlot).join('')}</div>` : ''}
+    ${x.list && !(x.hideList && has('title')) ? `<ul class="ms-list">${x.list.map(o => `<li>${avatar(c, s, o.id, 26)}<span>${esc(o.text)}</span></li>`).join('')}</ul>` : ''}
     ${x.sections ? x.sections.map(sec => `<div class="story-sec"><h3>${esc(sec.title)}</h3><ul class="ms-list">${sec.items.map(o => `<li>${o.id ? avatar(c, s, o.id, 26) : ''}<span>${esc(o.text)}</span></li>`).join('')}</ul></div>`).join('') : ''}
     ${x.fanVoice && has('ratings') ? `<div class="row" style="gap:6px"><button class="btn sm ghost" data-act="fv-open" data-ri="${x.fanVoice.round}">All ratings</button></div>` : x.fanVoice ? `<div class="fv-cols"><div><span class="label">Top 10 · ${esc(x.r.name)}</span>${fvList(c, s, x.fanVoice.race)}</div><div><span class="label">Season so far · average</span>${fvList(c, s, x.fanVoice.season)}</div></div>
       <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="fv-open" data-ri="${x.fanVoice.round}">All ratings</button></div>` : ''}
-    ${G.length ? `<div class="gfx-row">${G.map(gfxSlot).join('')}</div>` : ''}
+    ${G.some(o => o.type !== 'title') ? `<div class="gfx-row">${G.filter(o => o.type !== 'title').map(gfxSlot).join('')}</div>` : ''}
     ${x.permsHtml ? (has('perm') ? `<details class="perms-more"><summary>Read the permutations as text</summary><div class="perms-box">${x.permsHtml}</div></details>` : `<div class="perms-box">${x.permsHtml}</div>`) : ''}
     ${x.qa ? `<div class="qa">${x.qa.map(([qq, a]) => `<div class="q"><div class="qt">${esc(qq)}</div><div class="ans">“${esc(a)}”</div></div>`).join('')}</div>` : ''}
     ${x.results && !has('results') ? `<div class="mini-results">${x.results.map(r => `<div class="${r.d === PLAYER ? 'me' : ''}"><span class="p">${OUT.includes(r.st) ? r.st : r.pos}</span>${avatar(c, s, r.d, 20)}<span class="nm">${esc(dName(s, r.d))}</span><span class="muted">${r.pts ? '+' + r.pts : ''}</span></div>`).join('')}</div>` : ''}
@@ -817,7 +851,7 @@ function renderStories() {
   return `<div class="page">
     <div class="page-head"><div><h1>Stories</h1><div class="sub">The ${s.year} season as the paddock press tells it: race reports, the title fight, interviews and rumours. Articles update when you edit results.</div></div>
       <div class="row">${seasonPicker(c, s.index)}${isHist(s) ? '' : '<button class="btn" data-act="rv-new">Start a rivalry</button><button class="btn primary" data-act="rm-new">Start a rumour</button>'}</div></div>
-    <div class="row"><div class="seg">${STORY_FILTERS.map(([id, l]) => `<button data-act="stories-filter" data-v="${id}" class="${f[0] === id ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="row"><div class="seg seg-wrap">${STORY_FILTERS.map(([id, l]) => `<button data-act="stories-filter" data-v="${id}" class="${f[0] === id ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     <div class="grid-main">
       <div class="panel">${list.length ? list.map((x, k) => storyHtml(c, s, x, k === 0)).join('') : `<div class="empty">No stories yet. Log a qualifying session or race and the press will write it up.</div>`}
         ${list.some(x => x.quotes?.length || x.qa) ? '<div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Quotes from other drivers are invented for your career and are not real statements.</div>' : ''}</div>

@@ -268,6 +268,31 @@ function setDriverPhoto(c, id, url) {
   if (cd) cd.photo = url;
   else setPic('drivers', id, url);
 }
+/*
+  Full-body pictures for the special graphics (title showdowns, permutations, ratings, Driver of the Day): a cut-out
+  on a transparent background, with the way the driver faces in it (left, right or center, as you look at it), so a
+  graphic can mirror them to face where it needs. Real drivers share one across careers; your own driver and custom
+  drivers keep theirs per career.
+*/
+const bodyKey = (c, id) => id === PLAYER_ID || c?.customDrivers?.some(x => x.id === id) ? `${c?.id}:${id}` : id;
+/** { url, look } or null. */
+function bodyOf(c, id) { const b = state.images?.bodies?.[bodyKey(c, id)]; return b?.url ? b : null; }
+function setBody(c, id, patch) {
+  const all = (imgStore().bodies ||= {}); const k = bodyKey(c, id);
+  if (patch === null) delete all[k]; else all[k] = { look: 'center', ...all[k], ...patch };
+}
+const readBody = (file) => readImage(file, { max: 1400, type: 'image/webp' });
+/** A championship trophy for the title graphics: kind driver or team. */
+const trophyOf = (kind) => state.gfxTrophy?.[kind] || null;
+const BODY_LOOKS = [['left', 'Looking left'], ['center', 'Straight ahead'], ['right', 'Looking right']];
+/** Upload, facing and remove controls for a driver's full-body picture. */
+function bodyControls(c, id, { thumb = true } = {}) {
+  const b = bodyOf(c, id);
+  return `<div class="body-ctl">${thumb && b ? `<img class="body-thumb" src="${esc(b.url)}" alt="">` : ''}
+    <label class="btn sm file-btn">${ICON.camera} ${b ? 'Replace' : 'Upload'} full-body picture<input type="file" accept="image/png,image/webp" data-ch="body-upload" data-id="${esc(id)}" hidden></label>
+    ${b ? `<select data-ch="body-look" data-id="${esc(id)}" title="Which way the driver faces in the picture, as you look at it">${BODY_LOOKS.map(([v, l]) => `<option value="${v}" ${b.look === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="btn sm ghost danger" data-act="body-clear" data-id="${esc(id)}">Remove</button>` : ''}</div>`;
+}
 const teamLogoUrl = (c, id) => id === MYTEAM ? c?.myTeam?.logo || null : picOf('teams', id);
 function initials(name) {
   const w = String(name || '?').replace(/[^\p{L}\s-]/gu, '').split(/[\s-]+/).filter(Boolean);

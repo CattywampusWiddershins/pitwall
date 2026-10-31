@@ -986,3 +986,45 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .fvg-dotd { flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 3px 7px; border-radius: 99px; background: rgba(0,0,0,.35); color: #fff; }
 .fvg-score { flex: none; min-width: 62px; text-align: center; padding: 6px 8px; border-radius: 8px; background: #22D04A; color: #0B1A0B; font-size: 22px; font-weight: 800; }
 @media (max-width: 640px) { .fvg { padding: 6px; } .fvg-n { width: 32px; font-size: 18px; } .fvg-logo { width: 30px; } .fvg-ph { width: 40px; } .fvg-who b { font-size: 15px; } .fvg-dotd { display: none; } .fvg-score { min-width: 50px; font-size: 18px; } }
+
+/* phones: long names give way to the numbers beside them; the story filters wrap; recent results drop the round */
+@media (max-width: 640px) {
+  .drv .ab { display: none; }
+  .drv .nm { max-width: 46vw; }
+  .seg.seg-wrap { flex-wrap: wrap; overflow: visible; }
+  .seg.seg-wrap button { border-bottom: 1px solid var(--line); flex: 1 0 auto; text-align: center; }
+  table.recent th:first-child, table.recent td:first-child { display: none; }
+  table.recent th, table.recent td { padding-left: 6px; padding-right: 6px; }
+  table.recent td:nth-child(2) { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* standings, Simple: the top three as cards, the rest as the standings graphic draws them */
+.pod-pts { background: #E10600; color: #fff; padding: 2px 10px; justify-self: start; border-radius: 3px; }
+.pod-body { height: 100%; width: 70%; object-fit: cover; object-position: top center; mask-image: linear-gradient(to bottom, #000 70%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+.pod-body.flip { transform: scaleX(-1); }
+.sgx { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.sgx li { display: grid; grid-template-columns: 56px minmax(0, 1fr) 84px 64px; min-height: 56px; cursor: pointer; font-family: var(--font-display); }
+.sgx li > * { display: flex; align-items: center; }
+.sgx-pos, .sgx-mv { justify-content: center; background: #1F1F27; color: #fff; font-family: var(--font-body); font-size: 20px; }
+.sgx-bar { gap: 12px; padding: 0 14px; background: var(--c); color: var(--i); min-width: 0; overflow: hidden; }
+.sgx-bar b { font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sgx-logo { flex: none; width: 40px; display: grid; place-items: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+.sgx-ph { flex: none; width: 48px; height: 56px; object-fit: cover; object-position: top; align-self: flex-end; }
+.sgx-pts { justify-content: center; background: #E10600; color: #fff; font-size: 22px; font-weight: 800; }
+.sgx-mv { font-size: 15px; font-weight: 700; } .sgx-mv.up { color: #2FD07A; } .sgx-mv.down { color: #FF5A5F; }
+.sgx li:not(:has(.sgx-mv)) { grid-template-columns: 56px minmax(0, 1fr) 96px; }
+.sgx li.me .sgx-pos { box-shadow: inset 4px 0 0 var(--team); }
+.sgx li:hover .sgx-bar { filter: brightness(1.08); }
+@media (max-width: 640px) { .sgx li { grid-template-columns: 40px minmax(0, 1fr) 62px 46px; min-height: 48px; } .sgx li:not(:has(.sgx-mv)) { grid-template-columns: 40px minmax(0, 1fr) 70px; } .sgx-bar { gap: 8px; padding: 0 8px; } .sgx-bar b { font-size: 16px; } .sgx-logo { width: 28px; } .sgx-ph { width: 38px; height: 48px; } .sgx-pts { font-size: 17px; } .sgx-pos { font-size: 16px; } .sgx-mv { font-size: 12px; } }
+
+/* full-body pictures and trophies */
+.body-ctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.body-ctl select { width: auto; padding: 4px 8px; font-size: 12px; }
+.body-thumb { height: 64px; width: 40px; object-fit: contain; object-position: top; background: #15151E; border-radius: 4px; }
+.body-list > summary { cursor: pointer; list-style: none; margin-top: 6px; }
+.body-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; margin-top: 8px; }
+.body-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); }
+.trophy-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.trophy-slot { display: grid; gap: 6px; justify-items: start; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 200px; }
+.trophy-slot img { height: 90px; max-width: 160px; object-fit: contain; }
+.gfx-hero { display: grid; max-width: 560px; }

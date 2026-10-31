@@ -2,6 +2,20 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.20.0
+
+**3.20.0: title showdowns, full-body pictures and trophies.**
+
+- **Full-body driver pictures** (Settings → Story graphics, or a driver's profile): a cut-out, head to toe, with the way the driver faces in it. The graphics mirror them to face where they need.
+- **Trophies**: upload the drivers' and constructors' championship trophies in Settings → Story graphics.
+- **Title showdown graphics**: the contenders under their teams' glow with the trophy in front. Two stand back to back; with three, the leader stands in front, a little larger; more go left to right in championship order. It sits at the top of the decider's story, in place of the points list, with the standings along the bottom. *Two drivers. One champion.*
+- **The contenders**: each contender in a decider gets a story of their season so far (wins, poles, recent form, what they're chasing) with a graphic of their own: *A fifth title awaits*, *History awaits*, *An historic eighth awaits*.
+- **Title weekend graphics**: when one driver or team can clinch, the same graphic with them alone and the trophy filling the right side.
+- **Champion graphics** in gold: *Lando Norris, World Champion*, *Four-time world champion*, *First eight-time champion*; the constructors' version shows both drivers.
+- **Ratings, permutations, Driver of the Day and Driver of the Season** show the driver standing beside the graphic when they have a full-body picture.
+- **Standings, Simple** looks like the standings graphic: the top three as cards (points on red), then team-colour bars with red points and the places moved. **Detailed** is the full table again.
+- **On phones**: long names no longer push the Dashboard standings' points off screen, the Recent results table fits, and the Stories filters wrap instead of running off the side.
+
 ## 3.19.1
 
 - A perfect rating shows as **10**, not 10.0, in the graphics and on the Fan Voice page, so it fits its box.

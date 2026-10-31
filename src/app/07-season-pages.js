@@ -61,7 +61,7 @@ function renderDashboard() {
 
         <div class="panel">
           <div class="panel-h"><h2>Recent results</h2><button class="btn sm ghost" data-act="nav" data-view="calendar">Full calendar</button></div>
-          <div class="panel-b tight table-wrap"><table>
+          <div class="panel-b tight table-wrap"><table class="recent">
             <thead><tr><th>Rnd</th><th>Grand Prix</th><th class="num">Quali</th><th class="num">Sprint</th><th class="num">Race</th><th class="num">Pts</th></tr></thead>
             <tbody>${(() => {
               const rows = activeRounds(s).map((r, i) => ({ r, i, br: me.byRound[r.id] })).filter(x => x.br && (x.br.r != null || x.br.q != null)).slice(-6).reverse();
@@ -396,14 +396,27 @@ function renderTap(s, sd) {
 const standingsTabs = (tab) => `<div class="seg">${[['drivers', 'Drivers'], ['constructors', 'Constructors'], ['progress', 'Progress'], ['grid', 'Results grid'], ['forecast', 'Title forecast']].map(([id, l]) => `<button data-act="standings-tab" data-tab="${id}" class="${tab === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 /** The top three as podium cards (second, first, third), as in the results graphics: the new looks only. */
 function standingsPodium(c, s, rows, team) {
-  if (uiStyle() === 'classic' || rows.length < 3) return '';
+  if (rows.length < 3) return '';
   const card = (x, n) => {
     const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
-    const pic = team ? (teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : '') : driverPhoto(c, x.id) ? `<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
+    const body = !team && bodyOf(c, x.id);
+    const pic = team ? (teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : '') : body ? `<img class="pod-photo pod-body ${body.look === 'left' ? 'flip' : ''}" src="${esc(body.url)}" alt="">` : driverPhoto(c, x.id) ? `<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
     const nm = team ? tm.name : lastName(dName(s, x.id));
     return `<button class="pod-card p${n}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
   };
   return `<div class="podium">${card(rows[1], 2)}${card(rows[0], 1)}${card(rows[2], 3)}</div>`;
+}
+/** Positions four and down as the standings graphic draws them: team-colour bars, red points, the places moved. */
+function standingsBars(c, s, rows, team, prev) {
+  return `<ol class="sgx">${rows.map(x => {
+    const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82';
+    const id = team ? tm.id : x.id; const me = team ? id === s.playerTeamId : id === PLAYER;
+    const was = prev ? prev.findIndex(p => (team ? p.team.id : p.id) === id) + 1 : 0; const mv = was ? was - x.pos : 0;
+    const ph = !team && driverPhoto(c, id);
+    return `<li class="${me ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${id}">
+      <span class="sgx-pos">${x.pos}</span><span class="sgx-bar"><span class="sgx-logo">${teamLogo(c, tm, 28)}</span>${ph ? `<img class="sgx-ph" src="${esc(ph)}" alt="">` : ''}<b>${esc(team ? tm.name : lastName(dName(s, id)))}</b></span>
+      <span class="sgx-pts">${fmtPts(x.pts)}</span>${team ? '' : `<span class="sgx-mv ${mv > 0 ? 'up' : mv < 0 ? 'down' : ''}">${mv > 0 ? '▲' + mv : mv < 0 ? '▼' + -mv : '–'}</span>`}</li>`;
+  }).join('')}</ol>`;
 }
 function renderStandings() {
   if (ui.standingsTab === 'forecast') return renderForecast();
@@ -415,10 +428,11 @@ function renderStandings() {
   const tab = ui.standingsTab;
   let body = '';
   const simple = ui.standingsDetail === 'simple';
+  const prevStats = roundsDone(s) > 1 ? seasonStats(s, roundsDone(s) - 1) : null;
   if (simple && tab === 'drivers') {
-    body = `<table><thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th class="num">Pts</th></tr></thead><tbody>${ds.map(x => `<tr class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="muted">${esc(teamOf(s, x.id)?.name || '')}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table>`;
+    body = standingsBars(c, s, ds.slice(3), false, prevStats && driverStandings(s, prevStats));
   } else if (simple && tab === 'constructors') {
-    body = `<table><thead><tr><th>Pos</th><th>Team</th><th class="num">Pts</th></tr></thead><tbody>${cs.map(x => `<tr class="${x.team.id === s.playerTeamId ? 'me' : ''}" data-act="open-team" data-id="${x.team.id}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td><div class="drv">${teamMark(c, x.team)}<b>${esc(x.team.name)}</b></div></td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table>`;
+    body = standingsBars(c, s, cs.slice(3), true, null);
   } else if (tab === 'drivers') {
     body = `<table><thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th class="num">Wins</th><th class="num">Podiums</th><th class="num">Poles</th><th class="num">FL</th><th class="num">DNF</th><th class="num">Avg Q</th><th class="num">Avg finish</th><th class="num">Pts</th></tr></thead><tbody>
       ${ds.map(x => `<tr class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}" title="Driver profile"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="muted">${esc(teamOf(s, x.id)?.name || '')}</td>
@@ -453,7 +467,7 @@ function renderStandings() {
   return `<div class="page">
     <div class="page-head"><div><h1>${s.year} Standings</h1><div class="sub">After ${roundsDone(s)} of ${rounds.length} rounds</div></div>
     <div class="row">${seasonPicker(c, s.index)}${tab === 'drivers' || tab === 'constructors' ? `<div class="seg">${[['simple', 'Simple'], ['detailed', 'Detailed']].map(([v, l]) => `<button data-act="standings-detail" data-v="${v}" class="${(ui.standingsDetail || 'detailed') === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}${standingsTabs(tab)}</div></div>
-    ${tab === 'drivers' ? standingsPodium(c, s, ds, false) : tab === 'constructors' ? standingsPodium(c, s, cs, true) : ''}
-    <div class="panel"><div class="panel-b tight table-wrap">${body}</div></div>
+    ${simple && tab === 'drivers' ? standingsPodium(c, s, ds, false) : simple && tab === 'constructors' ? standingsPodium(c, s, cs, true) : ''}
+    ${simple && (tab === 'drivers' || tab === 'constructors') ? body : `<div class="panel"><div class="panel-b tight table-wrap">${body}</div></div>`}
   </div>`;
 }

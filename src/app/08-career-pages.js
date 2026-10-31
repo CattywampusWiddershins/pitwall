@@ -453,6 +453,7 @@ function renderDriver() {
         <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${titles.length}</div>
         <span class="muted" style="font-size:13px">${titles.length ? titles.join(', ') : tot.bestChamp ? `Best: P${tot.bestChamp} in the championship` : 'No completed seasons yet'}</span>
         <div class="row" style="gap:6px">${inCareer ? `<button class="btn sm" data-act="driver-h2h" data-id="${id}">${isMe ? 'Head to head' : 'Compare with you'}</button>` : ''}${isYou ? '' : `<button class="btn sm" data-act="tr-new" data-driver="${id}">${ICON.swap} Transfer</button>`}${pictureControls('driver', id, !!driverPhoto(c, id))}</div>
+        ${bodyControls(c, id, { thumb: false })}
       </div>
     </section>
     ${numberOneToggle(c, id)}
