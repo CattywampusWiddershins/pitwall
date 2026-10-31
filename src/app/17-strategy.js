@@ -373,6 +373,48 @@ function strategyBlock(title, runs, n, note, opts = {}) {
 }
 /** Dashboard: the best strategy for the next race, from this weekend's practice (the grid's, then yours). Each needs
  *  at least two dry compounds with three or more consecutive clean laps. */
+/*
+  Fuel to carry. Each session logged from F1 25 keeps the fuel in every car's tank at the end of each lap, so a lap's
+  burn is the drop from one lap to the next. Only proper laps count (a time within 7% of the driver's typical lap in
+  that session: out-laps, in-laps and slow laps burn less), from this weekend's practice and the sprint, and the burn
+  is their average (any more than a quarter off the middle one left out). The fuel to carry is that times the laps,
+  plus half a lap to spare.
+*/
+const FUEL_SPARE_LAPS = 0.5;
+/** A driver's fuel burn a lap from this weekend: { kg, laps, from: [session keys] } or null. */
+function fuelBurn(s, r, id) {
+  const w = s.weekends[r.id]; const drops = []; const from = [];
+  for (const k of RUN_KEYS) {
+    const sd = w?.sessions?.[k]; const g = sd?.game; if (!g || sd.estimated) continue;
+    const F = g.fuel?.[id] || [], L = g.laps?.[id] || []; const mid = median(L.map(l => l?.[0]).filter(Boolean)); if (!mid) continue;
+    let n = 0;
+    for (let i = 1; i < F.length; i++) {
+      const d = F[i - 1] != null && F[i] != null ? F[i - 1] - F[i] : null; const ms = L[i]?.[0];
+      if (d != null && d > 0.2 && d < 5 && ms && ms < mid * 1.07) { drops.push(d); n++; }
+    }
+    if (n) from.push(k);
+  }
+  if (drops.length < 3) return null;
+  const m = median(drops); const ok = drops.filter(d => Math.abs(d - m) <= m * 0.25);
+  return { kg: avg(ok), laps: ok.length, from };
+}
+/** The sprint's laps: as the game ran it, else a third of the race (as F1 25's sprints are). */
+const sprintLaps = (s, r) => s.weekends[r.id]?.sessions?.SPR?.game?.totalLaps || Math.round(raceLaps(s, r.id) / 3);
+/** Fuel to carry for the race (and the sprint, when it's still to come), for each of your drivers. */
+function fuelPanel(c, s, r, ids) {
+  const w = s.weekends[r.id] || {}; const races = [['Race', raceLaps(s, r.id)]];
+  if (r.sprint && !w.sessions?.SPR?.done) races.unshift(['Sprint', sprintLaps(s, r)]);
+  const rows = ids.map(id => ({ id, B: fuelBurn(s, r, id) }));
+  const kg = (v) => `${v.toFixed(1)} kg`;
+  const head = `<div class="panel-h"><h2>Fuel to carry</h2><span class="muted" style="font-size:12px">${esc(r.name)} · from practice${r.sprint ? ' and the sprint' : ''}</span></div>`;
+  if (!rows.some(x => x.B)) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">No fuel figures yet: they come from your laps in practice logged from F1 25 (three proper laps or more).</div></div>`;
+  return `<div class="panel">${head}<div class="panel-b stack" style="gap:10px">
+    ${rows.map(({ id, B }) => `<div class="fuel-row">${ids.length > 1 ? `<b class="fuel-who">${esc(dName(s, id))}</b>` : ''}
+      ${B ? `<div class="fuel-burn"><span class="label">Burn</span><b>${B.kg.toFixed(2)} kg</b><span class="muted">a lap, from ${plural(B.laps, 'lap')} in ${esc(listJoin(B.from.map(k => SESSION_SHORT[k] || k)))}</span></div>
+        ${races.map(([label, n]) => `<div class="fuel-need"><span class="label">${label} · ${plural(n, 'lap')}</span><b>${kg(B.kg * (n + FUEL_SPARE_LAPS))}</b><span class="muted">${kg(B.kg * n)} for the distance + ${kg(B.kg * FUEL_SPARE_LAPS)} spare</span></div>`).join('')}`
+        : '<span class="muted" style="font-size:13px">No practice laps with fuel figures yet.</span>'}</div>`).join('')}
+    <p class="muted" style="font-size:12px;margin:0">Your burn a lap times the laps, plus half a lap to spare. Driving the formation lap uses fuel too: about another lap’s worth.</p></div></div>`;
+}
 function strategyAdvicePanel(c, s) {
   const r = nextRound(s); if (!r || isHist(s)) return '';
   const anyPractice = RUN_KEYS.some(k => s.weekends[r.id]?.sessions?.[k]?.game && !s.weekends[r.id].sessions[k].estimated);

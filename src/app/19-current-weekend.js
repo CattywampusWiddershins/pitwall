@@ -92,6 +92,7 @@ function renderCurrentWeekend() {
     </div>` : ''}
     ${tyreAllocPanel(c, s, r)}
     ${strategyAdvicePanel(c, s)}
+    ${(() => { const r = nextRound(s); return r && !isHist(s) ? fuelPanel(c, s, r, c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER]) : ''; })()}
     ${ersPanel(c, s, r, 'quali')}
     ${ersPanel(c, s, r)}
   </div>`;

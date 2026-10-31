@@ -105,6 +105,28 @@ function tyreLifeLeft(x, run, field) {
   if (!rate || x.wear == null) return Math.max(1, (run?.life ?? 40) - age);
   return Math.max(1, Math.floor((WEAR_LIMIT - x.wear) / rate + frac));
 }
+/*
+  Fuel at the flag: what's in the tank now, less the burn a lap times the laps still to run (the rest of this one
+  included). The burn is this race's own once three laps have measured it, else the weekend's practice. More than
+  nothing left is a green box; less is a flashing red one, with how much a lap to save.
+*/
+function fuelProjection(s, r, L, me, id) {
+  if (me.fuel == null || me.st !== 2) return null;
+  const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(0, n - me.lap + 1);
+  const frac = Math.min(1, Math.max(0, (me.dist || 0) / (L.lapLen || 5000))); const toGo = Math.max(0, left - frac);
+  const F = me.fuelLaps || []; const drops = F.map((v, k) => k && F[k - 1] != null && v != null ? F[k - 1] - v : null).filter(d => d != null && d > 0.2 && d < 5);
+  const live = drops.length >= 3 ? median(drops) : null; const B = live ? null : fuelBurn(s, r, id);
+  const burn = live ?? B?.kg; if (!burn) return null;
+  const end = me.fuel - burn * toGo;
+  return { end, burn, live: !!live, toGo, lapsSpare: end / burn, save: end < 0 && toGo > 0 ? -end / toGo : 0 };
+}
+function fuelCard(P) {
+  if (!P) return '';
+  const ok = P.end >= 0;
+  return `<div class="panel live-card"><div class="panel-h"><h2>Fuel</h2><span class="muted" style="font-size:12px">${P.burn.toFixed(2)} kg a lap · ${P.live ? 'this race' : 'from practice'}</span></div>
+    <div class="panel-b"><div class="fuel-proj ${ok ? 'ok' : 'short'}"><span class="label">At the flag</span><b>${ok ? '+' : '−'}${Math.abs(P.end).toFixed(1)} kg</b>
+      <span>${ok ? `about ${P.lapsSpare.toFixed(1)} laps spare` : `short by ${(-P.lapsSpare).toFixed(1)} laps: save ${P.save.toFixed(2)} kg a lap`}</span></div></div></div>`;
+}
 /** What a driver's live race says about their strategy now. */
 function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - me.lap + 1);
@@ -578,6 +600,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
         <div><span class="label">Ahead</span><b>${ahead ? `${nm(ahead)} +${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading'}</b></div>
         <div><span class="label">Behind</span><b>${behind ? `${nm(behind)} −${((behind.gapF || 0) / 1000).toFixed(3)}` : '–'}</b></div>
         <div><span class="label">Tyre</span><b>${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0} laps${me.wear != null ? ` · ${me.wear}%` : ''}</b></div></div></div>
+    ${fuelCard(fuelProjection(s, r, L, me, id))}
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
         <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
@@ -648,7 +671,8 @@ function liveIdle(c, s, r, w) {
   // a sprint weekend: the sprint's debrief until qualifying is logged
   if (r.sprint && w.sessions?.SPR?.done && !w.sessions?.Q?.done) return debrief(c, s, r, 'SPR');
   if (!any && ri > 0) return debrief(c, s, rounds[ri - 1], 'R');
-  if (r.sprint && !w.sessions?.SPR?.done) return `<div class="panel"><div class="panel-h"><h2>Sprint</h2></div><div class="panel-b muted" style="font-size:13px">Live Race follows the sprint as soon as it starts: no stop to plan, so just the race, the battles and the ERS.</div></div>`;
+  const fuelIds = c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
+  if (r.sprint && !w.sessions?.SPR?.done) return fuelPanel(c, s, r, fuelIds) + `<div class="panel"><div class="panel-h"><h2>Sprint</h2></div><div class="panel-b muted" style="font-size:13px">Live Race follows the sprint as soon as it starts: no stop to plan, so just the race, the battles and the ERS.</div></div>`;
   const fp3 = r.sprint ? w.sessions?.Q?.done : (w.sessions?.FP3?.done || sessionsFor(s, r).filter(k => PRACTICE_KEYS.includes(k)).every(k => w.sessions?.[k]?.done));
   const { mine } = strategyRuns(s, r); const n = raceLaps(s, r.id); const PL = pitLoss(c, trackOf(r));
   const plans = Object.keys(mine).length >= 2 ? optimalStrategies(mine, n, { loss: PL.green, sets: setsLeft(c, s, r).sets }) : [];
@@ -656,7 +680,8 @@ function liveIdle(c, s, r, w) {
   return `<div class="panel"><div class="panel-h"><h2>Your race strategy</h2><span class="muted" style="font-size:12px">${fp3 ? 'Pick the one you’ll follow' : 'Practice isn’t finished yet: the list can still change'}</span></div>
     ${plans.length ? `<div class="panel-b stack">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const on = sel && sel.seq.join() === p.seq.join(); return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${['', 'One', 'Two', 'Three'][p.stops]}-stopper${i === 0 ? ' · quickest' : ` · +${((p.t - plans[0].t) / 1000).toFixed(1)} s`}</span><button class="btn sm ${on ? 'primary' : ''}" data-act="live-pick" data-round="${r.id}" data-i="${i}">${on ? 'Following' : 'Follow this'}</button></div></div>`; }).join('')}
       <p class="muted" style="font-size:12px;margin:0">${sel ? 'In the race, Live Race tracks your stint and moves the stops as your tyres go, and switches plan if another is now quicker.' : 'Pick none and Live Race builds the strategy from the tyre you start on.'}</p></div>`
-      : '<div class="panel-b muted" style="font-size:13px">No strategy yet: it needs long runs on two dry compounds in practice. Without one, Live Race builds it in the race from the tyre you start on.</div>'}</div>`;
+      : '<div class="panel-b muted" style="font-size:13px">No strategy yet: it needs long runs on two dry compounds in practice. Without one, Live Race builds it in the race from the tyre you start on.</div>'}</div>
+    ${fuelPanel(c, s, r, fuelIds)}`;
 }
 /**
  * After a race: everything to look back on. The result and what it did to the championship; per driver of yours, the
