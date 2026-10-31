@@ -1,7 +1,7 @@
 {
   "name": "pitwall",
   "productName": "Pitwall",
-  "version": "3.18.2",
+  "version": "3.18.3",
   "description": "F1 25 career mode tracker: session results, standings, head-to-head, goals and AI media sessions.",
   "main": "main.js",
   "author": "Pitwall",

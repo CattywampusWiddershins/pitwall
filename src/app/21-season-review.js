@@ -740,7 +740,7 @@ function storyReplay(s, x) {
 }
 /** The graphics that go with a story: results, standings, ratings and each contender's permutations. */
 function storyGfx(s, x) {
-  if (!x.r || isHist(s)) return [];
+  if (!x.r) return [];
   const base = { si: s.index, ri: x.i }; const out = [];
   if (x.kind === 'quali') out.push({ type: 'results', k: 'Q', ...base });
   if (x.kind === 'sprint' && x.results) out.push({ type: 'results', k: 'SPR', ...base });

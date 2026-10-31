@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.18.3
+
+- **Story graphics for the real seasons** (2016 to 2024) too: results, standings, ratings, permutations and the Driver of the Day cards, as in your own seasons.
+
 ## 3.18.2
 
 **3.18.2: Driver of the Day, shown in the story.**
