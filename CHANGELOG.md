@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.14.1
+
+**3.14.1: faster updates.** A version just published downloads slowly from GitHub until its servers have a copy (175 KB/s against 12 MB/s once they do), and the first person to update got the slow one. Pitwall now downloads an update in four pieces at once, so even then it's about four times quicker, and checks the whole file is the size GitHub lists before installing it. Publishing a release also fetches the installer once straight away, so GitHub's servers have it before anyone updates.
+
 ## 3.14.0
 
 **3.14.0: fuel to carry.** Current Weekend, and Live Race before the start, show how much fuel to put in: your burn a lap from this weekend's practice (and the sprint) times the laps, plus half a lap to spare, for the race and for the sprint when it's still to come (My Team: each of your drivers). Only proper laps count, within 7% of your typical lap, so out-laps, in-laps and slow laps don't pull the average down; checked against your Hungary and Netherlands races, practice gave 1.039 and 0.990 kg a lap where the races burnt 1.036 and 0.986, and you'd have carried about 2 kg less in each. **Fuel at the flag:** during the race a Fuel card projects what will be left when the chequered flag falls (what's in the tank, less the burn times the laps to go), from this race's own burn after three laps and practice before that: a green box with the laps spare, or a flashing red one with how much a lap to save.

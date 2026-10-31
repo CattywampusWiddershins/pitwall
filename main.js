@@ -141,6 +141,43 @@ ipcMain.handle('update:check', () => checkUpdate());
  * The new version, downloaded in the background (reporting progress) as soon as it's found. It goes in when you
  * restart Pitwall from the app, or by itself when you close Pitwall: the installer runs quietly over this version.
  */
+/*
+  The download comes in four pieces at once, each written into its place in the file. A file just published comes
+  slowly from GitHub's servers until they have a copy (a fraction of a megabyte a second on one connection), and four
+  connections are four times that. A server that won't send pieces gets it in one go.
+*/
+const DL_PARTS = 4;
+async function readInto(res, fh, pos, onBytes) {
+  const reader = res.body.getReader(); let at = pos;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; await fh.write(value, 0, value.length, at); at += value.length; onBytes(value.length); }
+  return at - pos;
+}
+async function downloadFile(url, file, size, progress) {
+  const H = { 'User-Agent': 'Pitwall' }; let got = 0; const count = (n) => { got += n; progress(got, size || 0); };
+  const fh = await fs.promises.open(file, 'w');
+  try {
+    if (size > 4e6) {
+      const step = Math.ceil(size / DL_PARTS); const parts = Array.from({ length: DL_PARTS }, (_, k) => [k * step, Math.min(size, (k + 1) * step) - 1]).filter(([a, b]) => a <= b);
+      const first = await fetch(url, { headers: { ...H, Range: `bytes=${parts[0][0]}-${parts[0][1]}` } });
+      if (first.status === 206) {
+        const whole = +(first.headers.get('content-range') || '').split('/')[1]; if (whole && whole !== size) throw new Error('The download wasn’t the size GitHub listed');
+        const sizes = await Promise.all(parts.map(async ([a, b], k) => {
+          const res = k === 0 ? first : await fetch(url, { headers: { ...H, Range: `bytes=${a}-${b}` } });
+          if (res.status !== 206 || !res.body) throw new Error(`GitHub said ${res.status}`);
+          const n = await readInto(res, fh, a, count); if (n !== b - a + 1) throw new Error('The download was incomplete'); return n;
+        }));
+        if (sizes.reduce((x, y) => x + y, 0) !== size) throw new Error('The download was incomplete');
+        return;
+      }
+      if (!first.ok || !first.body) throw new Error(`GitHub said ${first.status}`);
+      await first.body.cancel().catch(() => {});
+    }
+    // one piece
+    const res = await fetch(url, { headers: H }); if (!res.ok || !res.body) throw new Error(`GitHub said ${res.status}`);
+    const n = await readInto(res, fh, 0, count); if (size && n !== size) throw new Error('The download was incomplete');
+  } catch (err) { await fh.close().catch(() => {}); fs.rmSync(file, { force: true }); throw err; }
+  finally { await fh.close().catch(() => {}); }
+}
 let downloading = null; let ready = null; let applying = false;
 ipcMain.handle('update:download', (e) => {
   if (ready) return { ok: true, version: ready.version };
@@ -151,18 +188,8 @@ ipcMain.handle('update:download', (e) => {
     const file = path.join(app.getPath('temp'), `Pitwall-Setup-${U.latest}.exe`);
     try {
       if (!(U.size && fs.existsSync(file) && fs.statSync(file).size === U.size)) {
-        const res = await fetch(U.download, { headers: { 'User-Agent': 'Pitwall' } });
-        if (!res.ok || !res.body) throw new Error(`GitHub said ${res.status}`);
-        const total = +res.headers.get('content-length') || U.size || 0;
-        const out = fs.createWriteStream(file); let got = 0, last = 0;
-        const reader = res.body.getReader();
-        for (;;) {
-          const { done, value } = await reader.read(); if (done) break;
-          got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
-          const now = Date.now(); if (now - last > 500 && !e.sender.isDestroyed()) { last = now; e.sender.send('update:progress', { got, total }); }
-        }
-        await new Promise((r, j) => out.end(err => err ? j(err) : r()));
-        if (U.size && got !== U.size) { fs.rmSync(file, { force: true }); throw new Error('The download was incomplete'); }
+        let last = 0; const progress = (got, total) => { const now = Date.now(); if (now - last > 500 && !e.sender.isDestroyed()) { last = now; e.sender.send('update:progress', { got, total }); } };
+        await downloadFile(U.download, file, U.size, progress);
       }
       ready = { file, version: U.latest };
       return { ok: true, version: U.latest };

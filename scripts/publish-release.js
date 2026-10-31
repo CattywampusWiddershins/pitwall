@@ -28,4 +28,8 @@ const H = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+js
   const up = await fetch(`https://uploads.github.com/repos/${repo}/releases/${rel.id}/assets?name=${encodeURIComponent(path.basename(exe))}`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/octet-stream', 'Content-Length': String(data.length) }, body: data });
   if (!up.ok) throw new Error(`Uploading the installer: ${up.status} ${await up.text()}`);
   const a = await up.json(); console.log('Uploaded', a.name, a.size, 'bytes');
+  // a file just published downloads slowly until GitHub's servers have a copy: fetch it once now (nothing is saved)
+  const t = Date.now(); const dl = await fetch(a.browser_download_url, { headers: { 'User-Agent': 'Pitwall-release' } }); let n = 0;
+  if (dl.ok && dl.body) { const r = dl.body.getReader(); for (;;) { const { done, value } = await r.read(); if (done) break; n += value.length; } }
+  console.log(`Fetched once to warm GitHub's servers: ${(n / 1048576).toFixed(0)} MB in ${Math.round((Date.now() - t) / 1000)} s`);
 })().catch(e => { console.error(String(e.message || e).replace(token, '***')); process.exit(1); });
