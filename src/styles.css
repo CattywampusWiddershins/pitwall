@@ -633,6 +633,7 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
 .fg-retired { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--yellow); }
 
 /* F1 25 telemetry: the import banner and tyre chips */
+.update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 16px 0; border-left-color: var(--team, var(--red)); }
 .game-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 16px 0; border-left-color: var(--green); }
 .game-notice svg { width: 14px; height: 14px; vertical-align: -2px; }
 .tyre-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px 1px 4px; border-radius: 10px; border: 2px solid var(--c); font-weight: 700; font-size: 11px; color: var(--fg); }

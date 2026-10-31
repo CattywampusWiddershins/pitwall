@@ -33,4 +33,6 @@
     window.api.telemetry.onLive?.(onLiveMsg);
     try { for (const r of await window.api.telemetry.pending()) handleGameResult(r); } catch { }
   }
+  // a new version of Pitwall, a few seconds after it opens
+  if (window.api?.updates) setTimeout(() => checkUpdates(), 4000);
 })();

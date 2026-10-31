@@ -17,6 +17,7 @@ const STATIC = {
   '/history.js': ['src/history.js', 'text/javascript; charset=utf-8'],
   '/assets.js': ['src/assets.js', 'text/javascript; charset=utf-8'],
   '/pool.js': ['src/pool.js', 'text/javascript; charset=utf-8'],
+  '/pictures.js': ['src/pictures.js', 'text/javascript; charset=utf-8'],
   '/remote.js': ['src/remote.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['src/manifest.webmanifest', 'application/manifest+json'],
   '/icon.png': ['build/icon.png', 'image/png'],
@@ -37,7 +38,7 @@ const newRev = () => crypto.randomBytes(9).toString('base64url');
 // android/build.ps1 hashes the same files in the same order.
 // the renderer's files (src/app/, in name order) come first
 const appFiles = (root) => { try { return fs.readdirSync(path.join(root, 'src', 'app')).filter(f => f.endsWith('.js')).sort().map(f => 'src/app/' + f); } catch { return []; } };
-const BUNDLE = ['src/data.js', 'src/reference.js', 'src/history.js', 'src/assets.js', 'src/pool.js', 'src/styles.css', 'src/remote.js', 'src/index.html'];
+const BUNDLE = ['src/data.js', 'src/reference.js', 'src/history.js', 'src/assets.js', 'src/pool.js', 'src/pictures.js', 'src/styles.css', 'src/remote.js', 'src/index.html'];
 function bundleHash(root) {
   const h = crypto.createHash('sha256');
   for (const f of [...appFiles(root), ...BUNDLE]) { try { h.update(fs.readFileSync(path.join(root, f))); } catch { } }

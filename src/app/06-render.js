@@ -115,7 +115,7 @@ function render() {
   const top = main.scrollTop;
   $('#rail').innerHTML = renderRail();
   $('#topbar').innerHTML = renderTopbar();
-  main.innerHTML = (ui.view === 'setup' ? '' : gameNoticeHtml()) + renderView();
+  main.innerHTML = (ui.view === 'setup' ? '' : updateNoticeHtml() + gameNoticeHtml()) + renderView();
   main.dataset.view = viewKey();
   main.scrollTop = keepScroll ? top : 0;
 }
@@ -215,22 +215,37 @@ function drvCell(s, id, opts = {}) {
 }
 
 /* --------------------------------------------------------------- pictures */
-// Photos and logos you upload. Real drivers and teams share one set across every career;
-// your own driver, custom drivers and My Team keep theirs on the career.
+// Photos and logos. Real drivers and teams share one set across every career: the ones you upload, else the ones
+// that come with Pitwall (pictures.js); removing one that came with it keeps it removed (null) until you restore it.
+// Your own driver, custom drivers and My Team keep theirs on the career.
 const imgStore = () => (state.images ||= { drivers: {}, teams: {} });
+const BUILT_IN = typeof DEFAULT_IMAGES === 'undefined' ? {} : DEFAULT_IMAGES;
+/** A real driver's or team's picture: kind is drivers, teams or cars. */
+function picOf(kind, id) {
+  const own = state.images?.[kind];
+  if (own && Object.prototype.hasOwnProperty.call(own, id)) return own[id] || null;
+  return BUILT_IN[kind]?.[id] || null;
+}
+/** Sets or removes one: removing a built-in picture remembers that you did. */
+function setPic(kind, id, url) {
+  const own = (imgStore()[kind] ||= {});
+  if (url) own[id] = url; else if (BUILT_IN[kind]?.[id]) own[id] = null; else delete own[id];
+}
+/** Back to the picture that came with Pitwall. */
+const restorePic = (kind, id) => { delete imgStore()[kind]?.[id]; };
+const canRestore = (kind, id) => !!BUILT_IN[kind]?.[id] && state.images?.[kind]?.[id] !== undefined && state.images[kind][id] !== BUILT_IN[kind][id];
 function driverPhoto(c, id) {
   if (id === PLAYER_ID) return c?.profile.photo || null;
   const cd = c?.customDrivers?.find(x => x.id === id);
-  return cd ? cd.photo || null : state.images?.drivers?.[id] || null;
+  return cd ? cd.photo || null : picOf('drivers', id);
 }
 function setDriverPhoto(c, id, url) {
   if (id === PLAYER_ID) { c.profile.photo = url; return; }
-  const cd = c.customDrivers?.find(x => x.id === id);
+  const cd = c?.customDrivers?.find(x => x.id === id);
   if (cd) cd.photo = url;
-  else if (url) imgStore().drivers[id] = url;
-  else delete imgStore().drivers[id];
+  else setPic('drivers', id, url);
 }
-const teamLogoUrl = (c, id) => id === MYTEAM ? c?.myTeam?.logo || null : state.images?.teams?.[id] || null;
+const teamLogoUrl = (c, id) => id === MYTEAM ? c?.myTeam?.logo || null : picOf('teams', id);
 function initials(name) {
   const w = String(name || '?').replace(/[^\p{L}\s-]/gu, '').split(/[\s-]+/).filter(Boolean);
   return ((w[0]?.[0] || '?') + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase();
@@ -280,12 +295,14 @@ const readLogo = (file) => readImage(file, { max: 256 });
 const readPhoto = (file) => readImage(file, { max: 220, square: true, type: 'image/webp' });
 const readCar = (file) => readImage(file, { max: 1000, type: 'image/webp' });
 /** A team's car picture: for the profile banners and the undercut graphic. */
-const carPhoto = (c, id) => !id ? null : id === MYTEAM ? c?.myTeam?.car || null : state.images?.cars?.[id] || state.images?.cars?.[teamRoot(id)] || null;
+const carPhoto = (c, id) => !id ? null : id === MYTEAM ? c?.myTeam?.car || null : picOf('cars', id) || picOf('cars', teamRoot(id));
 
 /** Upload / remove controls for a driver photo or team logo. kind: driver | team | setup */
 function pictureControls(kind, id, has, label = kind === 'team' ? 'logo' : 'photo') {
+  const pk = { driver: 'drivers', team: 'teams', car: 'cars' }[kind];
   return `<label class="btn sm file-btn">${ICON.camera} ${has ? 'Replace' : 'Upload'} ${label}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" data-ch="pic-upload" data-kind="${kind}" data-id="${esc(id)}" hidden></label>
-    ${has ? `<button class="btn sm ghost danger" data-act="pic-clear" data-kind="${kind}" data-id="${esc(id)}">Remove</button>` : ''}`;
+    ${has ? `<button class="btn sm ghost danger" data-act="pic-clear" data-kind="${kind}" data-id="${esc(id)}">Remove</button>` : ''}
+    ${pk && canRestore(pk, id) ? `<button class="btn sm ghost" data-act="pic-default" data-kind="${pk}" data-id="${esc(id)}" title="The ${label} that comes with Pitwall">Default ${label}</button>` : ''}`;
 }
 function photoModal(id) { ui.modal = { kind: 'photo', id }; drawPhotoModal(); }
 function drawPhotoModal() {

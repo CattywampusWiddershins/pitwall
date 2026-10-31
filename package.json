@@ -1,10 +1,13 @@
 {
   "name": "pitwall",
   "productName": "Pitwall",
-  "version": "3.11.2",
+  "version": "3.12.0",
   "description": "F1 25 career mode tracker: session results, standings, head-to-head, goals and AI media sessions.",
   "main": "main.js",
   "author": "Pitwall",
+  "pitwall": {
+    "updateRepo": ""
+  },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -28,6 +31,7 @@
       "telemetry.js",
       "replays.js",
       "src/**/*",
+      "package.json",
       "build/icon.png",
       "build/Pitwall.apk"
     ],

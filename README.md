@@ -34,6 +34,20 @@ On a Mac use `npm run dist:mac`; on Linux `npm run dist:linux`.
 
 Windows may show a SmartScreen warning the first time because the app isn't code-signed. Click **More info → Run anyway**.
 
+## Publishing an update
+
+Pitwall checks GitHub for a newer release when it starts, and offers it at the top of the page (and in **Settings → Updates**) with the release notes and a download button. To set it up once:
+
+1. Make a GitHub repository for Pitwall (public, so the app can read its releases without signing in).
+2. Put its name in `package.json` under `"pitwall": { "updateRepo": "your-name/your-repo" }`. Builds made before this is set don't check.
+
+For each new version:
+
+1. Build it: `npm run dist:win`.
+2. On GitHub, open **Releases → Draft a new release**, make the tag `v<version>` (for example `v3.12.0`, matching `package.json`), paste that version's notes from below, attach `dist/Pitwall-<version>-portable.exe`, and publish.
+
+Everyone on an older version is offered it the next time they open Pitwall. The download is the new portable app: they close the old one and run the new one, and their careers and settings carry over (they live in the user's app data, not next to the .exe). The phone app updates itself from the desktop as before.
+
 ## How seasons work
 
 Every career contains every real season from 2016, read-only, with full qualifying, sprint and race results. Standings, stories, ratings, records and stats all count them.
@@ -127,6 +141,8 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 **3.10.0:** a track map in Race Replay. Every car is drawn where it is round the lap, in its team colour, with your car outlined and on top. The outline is your own car's path from a weekend session at that track (kept from the first session logged there with telemetry, and replaced by later ones), so the cars sit exactly where they were; at a track you haven't driven yet it's the circuit drawing, with the cars placed by how far round the lap they are. Under the map you choose who's shown: everyone to start with, a tap on a driver hides them (greyed out) and another tap brings them back, and two presets, Top 10 and Around me (you and the two cars either side; the four behind when you lead, the four ahead when you're last), follow the order as it changes.
 
 **3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
+
+**3.12.0: pictures included, and updates.** Pitwall now comes with photos for 36 real drivers, logos for 15 teams and pictures of 11 cars, so a new install has them from the start. Your own uploads take their place, and removing one that came with Pitwall keeps it removed (a **Default** button brings it back). Your own driver and My Team are still yours to add. **Updates:** Pitwall checks GitHub for a newer release a few seconds after it opens and shows it at the top of the page with the notes and a download; **Settings → Updates** shows your version and checks on demand. See *Publishing an update* above to set it up.
 
 **3.11.2:** the green numbers beside drivers' and teams' totals (Drivers, Teams, their pages, Career Stats) can count what was **added in the career** or **added this season**: a toggle on each of those pages, kept as a setting. **Banners:** the car picture on the dashboard, driver and team banners is cropped to the car, so it shows bigger. **Dashboard:** the form results shrink to fit their tile, so nothing is cut off on a narrow window or a phone.
 

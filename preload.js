@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('api', {
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   ai: (req) => ipcRenderer.invoke('ai:generate', req),
   saveImage: (dataUrl, name) => ipcRenderer.invoke('image:save', { dataUrl, name }),
+  // new versions, from the GitHub releases
+  updates: {
+    check: () => ipcRenderer.invoke('update:check'),
+    open: (url) => ipcRenderer.invoke('update:open', url),
+  },
   // edits made on a paired phone or tablet
   onRemote: (cb) => ipcRenderer.on('data:remote', (_e, msg) => cb(msg)),
   // F1 25 telemetry (desktop only)

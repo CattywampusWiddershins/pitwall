@@ -471,10 +471,10 @@ Object.assign(changes, {
     try {
       if (kind === 'car') {
         const url = await readCar(file);
-        if (id === MYTEAM) c.myTeam.car = url; else (imgStore().cars ||= {})[id] = url;
+        if (id === MYTEAM) c.myTeam.car = url; else setPic('cars', id, url);
       } else if (kind === 'team') {
         const url = await readLogo(file);
-        if (id === MYTEAM) { c.myTeam.logo = url; syncMyTeam(c); } else imgStore().teams[id] = url;
+        if (id === MYTEAM) { c.myTeam.logo = url; syncMyTeam(c); } else setPic('teams', id, url);
       } else {
         const url = await readPhoto(file);
         if (kind === 'newdriver') { const [scope, key] = id.split(':'); (ndDrafts(scope)[key] ||= {}).photo = url; }
@@ -599,12 +599,18 @@ Object.assign(actions, {
   'pic-clear'(el) {
     const { kind, id } = el.dataset; const c = career();
     if (kind === 'setup') ui.setup.photo = null;
-    else if (kind === 'team') { if (id === MYTEAM) { c.myTeam.logo = null; syncMyTeam(c); } else delete imgStore().teams[id]; }
-    else if (kind === 'car') { if (id === MYTEAM) c.myTeam.car = null; else delete imgStore().cars?.[id]; }
+    else if (kind === 'team') { if (id === MYTEAM) { c.myTeam.logo = null; syncMyTeam(c); } else setPic('teams', id, null); }
+    else if (kind === 'car') { if (id === MYTEAM) c.myTeam.car = null; else setPic('cars', id, null); }
     else setDriverPhoto(c, id, null);
     if (kind !== 'setup') store.save();
     render(); if (ui.modal?.kind === 'photo') drawPhotoModal();
   },
+  'update-check'() { checkUpdates(true); },
+  'update-get'() { if (updateInfo?.download) window.api.updates.open(updateInfo.download); },
+  'update-page'() { if (updateInfo?.page) window.api.updates.open(updateInfo.page); },
+  'update-notes'() { updateNotesModal(); },
+  'update-later'() { state.updateSkip = updateInfo?.latest || null; store.save(); render(); },
+  'pic-default'(el) { restorePic(el.dataset.kind, el.dataset.id); store.save(); render(); if (ui.modal?.kind === 'photo') drawPhotoModal(); },
   'driver-photo'(el) { photoModal(el.dataset.id); },
   'rm-new'() { rumourModal(); },
   async 'tm-save'() {

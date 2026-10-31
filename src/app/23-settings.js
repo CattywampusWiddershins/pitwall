@@ -1,5 +1,38 @@
 /* Pitwall — Settings, career setup and dialogs. Part of the renderer, split into files that load in order (see index.html). */
 'use strict';
+/* ---------------------------------------------------------------- updates */
+// A new version: asked of the GitHub releases when Pitwall starts (and from Settings), offered at the top of the page
+// with its notes and a download. "Not now" hides it until the next version. The desktop app only.
+let updateInfo = null; // { current, configured, latest, newer, notes, page, download, size, error, checking }
+async function checkUpdates(manual = false) {
+  if (!window.api?.updates) return;
+  updateInfo = { ...(updateInfo || {}), checking: true }; if (manual) render();
+  try { updateInfo = await window.api.updates.check(); } catch { updateInfo = { error: 'The check didn’t work' }; }
+  if (manual && updateInfo.configured && !updateInfo.newer && !updateInfo.error) toast(`Pitwall ${updateInfo.current} is the latest version`);
+  const a = document.activeElement; if (manual || (updateInfo.newer && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select')))) render();
+}
+const mbOf = (b) => b ? ` (${(b / 1048576).toFixed(0)} MB)` : '';
+function updateNoticeHtml() {
+  const U = updateInfo; if (!U?.newer || state.updateSkip === U.latest) return '';
+  return `<div class="callout update-notice"><span><b>Pitwall ${esc(U.latest)} is out</b> <span class="muted">· you have ${esc(U.current)}</span></span>
+    <span class="row" style="gap:6px">${U.notes ? '<button class="btn sm ghost" data-act="update-notes">What’s new</button>' : ''}<button class="btn sm primary" data-act="update-get">Download${mbOf(U.size)}</button><button class="btn sm ghost" data-act="update-later">Not now</button></span></div>`;
+}
+function updatesPanel() {
+  if (!window.api?.updates) return '';
+  const U = updateInfo || {};
+  const state1 = U.checking ? 'Checking…' : !U.current ? '' : U.configured === false ? 'Update checks aren’t set up in this build.' : U.error ? `Couldn’t check: ${esc(U.error)}.`
+    : U.latest == null ? 'No releases published yet.' : U.newer ? `<b>Pitwall ${esc(U.latest)} is out.</b>` : 'You have the latest version.';
+  return `<div class="panel"><div class="panel-h"><h2>Updates</h2><span class="muted" style="font-size:12px">Version ${esc(U.current || '')}</span></div><div class="panel-b stack" style="gap:8px">
+    <div class="row" style="gap:8px;flex-wrap:wrap"><span>${state1}</span>${U.newer ? `<button class="btn sm primary" data-act="update-get">Download${mbOf(U.size)}</button>${U.notes ? '<button class="btn sm ghost" data-act="update-notes">What’s new</button>' : ''}` : ''}<button class="btn sm ghost" data-act="update-check" ${U.checking ? 'disabled' : ''}>Check now</button></div>
+    <p class="muted" style="font-size:12px;margin:0">Pitwall checks for a new version when it starts. The download is the new Pitwall: close this one and run it instead (your careers and settings stay where they are).</p></div></div>`;
+}
+function updateNotesModal() {
+  const U = updateInfo; if (!U) return;
+  modal(`<div class="modal-h"><h2>What’s new in Pitwall ${esc(U.latest)}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+    <div class="modal-b"><div style="white-space:pre-wrap;font-size:14px;line-height:1.5">${esc(U.notes || '')}</div>
+    <div class="row" style="gap:8px;margin-top:14px"><button class="btn primary" data-act="update-get">Download${mbOf(U.size)}</button>${U.page ? '<button class="btn ghost" data-act="update-page">Release page</button>' : ''}</div></div>`);
+}
+
 /* --------------------------------------------------------------- settings */
 function renderSettings() {
   const c = career(); const s = latestSeason();
@@ -7,6 +40,7 @@ function renderSettings() {
   const known = allKnownDrivers(c, s);
   return `<div class="page">
     <div class="page-head"><div><h1>Settings</h1><div class="sub">Appearance, career profile, ${s.year} roster and calendar, AI media and your data.</div></div></div>
+    ${updatesPanel()}
     ${renderThemePicker(c, s)}
     ${fontsPanel()}
     ${soundsPanel()}

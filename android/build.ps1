@@ -29,7 +29,7 @@ $www = "$out\assets\www"
 New-Item -ItemType Directory -Force $www, "$www\app" | Out-Null
 # the renderer's files (src\app, in name order) first, as in companion.js
 $appFiles = @(Get-ChildItem (Join-Path $root 'src\app') -Filter *.js | ForEach-Object Name | Sort-Object -CaseSensitive | ForEach-Object { "app\$_" })
-$bundle = $appFiles + @('data.js', 'reference.js', 'history.js', 'assets.js', 'pool.js', 'styles.css', 'remote.js', 'index.html')
+$bundle = $appFiles + @('data.js', 'reference.js', 'history.js', 'assets.js', 'pool.js', 'pictures.js', 'styles.css', 'remote.js', 'index.html')
 $ms = New-Object IO.MemoryStream
 foreach ($f in $bundle) { $b = [IO.File]::ReadAllBytes((Join-Path $root "src\$f")); $ms.Write($b, 0, $b.Length) }
 $sha = [Security.Cryptography.SHA256]::Create()
