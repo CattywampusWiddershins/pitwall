@@ -337,8 +337,11 @@ async function gfxPerm(g, k, c, s, { kind, ri, who, stage = '' }) {
     g.fillStyle = i % 2 ? 'rgba(31,31,39,0.88)' : 'rgba(42,42,52,0.88)'; g.fillRect(tx, y, tw, rh);
     const nop = row.nop || NO_PTS;
     const head = byPts ? `${row.pts} PTS` : row.p >= nop ? 'OUTSIDE THE POINTS' : `P${row.p}`;
-    k.text(head, tx + cw / 2 - (byPts ? 40 : 0), y + rh / 2, { size: !byPts && row.p >= nop ? 24 : 36, weight: 800, align: 'center', max: cw - 20 });
-    if (byPts) k.text(`(${row.combo})`, tx + cw / 2 + 70, y + rh / 2, { size: 22, weight: 600, color: '#B8C0D0', align: 'center', fam: k.body });
+    // a team's points sit at the left of the cell and the finishes that make them at the right, both inside it
+    if (byPts) {
+      k.text(head, tx + 16, y + rh / 2, { size: Math.min(34, rh * 0.55), weight: 800, max: cw * 0.55 - 16 });
+      k.text(`(${row.combo})`, tx + cw - 14, y + rh / 2, { size: Math.min(20, rh * 0.36), weight: 600, color: '#B8C0D0', align: 'right', max: cw * 0.45 - 18, fam: k.body });
+    } else k.text(head, tx + cw / 2, y + rh / 2, { size: row.p >= nop ? 24 : 36, weight: 800, align: 'center', max: cw - 20 });
     row.conds.slice(0, 3).forEach((o, j) => {
       const free = byPts ? o.max == null : !o.q;
       const txt = byPts ? (free ? 'ANYTHING' : `${o.max} PTS OR FEWER`) : free ? 'ANYWHERE' : o.q >= nop ? 'OUT OF THE POINTS' : `P${o.q} OR LOWER`;
