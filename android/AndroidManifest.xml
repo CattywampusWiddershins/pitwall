@@ -3,6 +3,8 @@
     package="app.pitwall.companion">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- to install its own updates (Android asks you to allow it the first time) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="Pitwall"

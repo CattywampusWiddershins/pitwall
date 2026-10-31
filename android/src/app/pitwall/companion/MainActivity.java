@@ -2,8 +2,10 @@ package app.pitwall.companion;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageInstaller;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
@@ -66,6 +68,7 @@ public class MainActivity extends Activity {
     static final int FILE_REQUEST = 1;
     static final String APP_HOST = "app.pitwall";
     static final String APP = "http://" + APP_HOST + "/";
+    static final String ACTION_INSTALLED = "app.pitwall.companion.INSTALLED";
 
     WebView web;
     SharedPreferences prefs;
@@ -73,6 +76,7 @@ public class MainActivity extends Activity {
     final Handler main = new Handler(Looper.getMainLooper());
     String host; // the computer, "192.168.1.20:8765"
     volatile boolean scanning = false;
+    volatile boolean updating = false;
     final AtomicInteger listenGen = new AtomicInteger();
 
     @Override
@@ -112,6 +116,24 @@ public class MainActivity extends Activity {
     void toast(final String text) { main.post(() -> Toast.makeText(this, text, Toast.LENGTH_LONG).show()); }
 
     File cacheFile() { return new File(getFilesDir(), "career-cache.json"); }
+
+    File updateFile() { return new File(getCacheDir(), "update.apk"); }
+
+    /** Android's installer reporting back: ask you to confirm when it needs to, say so if it failed. */
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (!ACTION_INSTALLED.equals(intent.getAction())) return;
+        int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirm != null) { confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); try { startActivity(confirm); } catch (Exception ignored) { } }
+        } else if (status != PackageInstaller.STATUS_SUCCESS) {
+            String msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+            js("window.__pw && window.__pw.updateFailed(" + JSONObject.quote(msg == null ? "Android didn't install it" : msg) + ")");
+        }
+    }
 
     /** "192.168.1.20", "192.168.1.20:8765" or "http://192.168.1.20:8765/" → "192.168.1.20:8765". */
     static String normalise(String raw) {
@@ -339,6 +361,74 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void changeComputer() { main.post(() -> showConnect("")); }
 
         @JavascriptInterface public String lastHost() { return host == null ? "" : host; }
+
+        /**
+         * Updates. The computer serves the app that came with its version of Pitwall (/app); this downloads it into
+         * the app's own storage, reporting progress to the page, and installUpdate hands it to Android's installer.
+         * The first time, Android asks to allow installs from Pitwall and to confirm; once Pitwall has installed
+         * itself, Android 12 and later let it update without asking.
+         */
+        @JavascriptInterface public boolean canUpdate() { return true; }
+
+        @JavascriptInterface public void downloadUpdate() {
+            final String h = host;
+            if (updating || h == null) return;
+            updating = true;
+            new Thread(() -> {
+                HttpURLConnection c = null;
+                try {
+                    c = (HttpURLConnection) new URL("http://" + h + "/app").openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(30000);
+                    if (c.getResponseCode() != 200) throw new IOException("the computer said " + c.getResponseCode());
+                    long total = c.getContentLengthLong(), got = 0; int last = -1;
+                    File tmp = new File(getCacheDir(), "update.part");
+                    try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(tmp)) {
+                        byte[] b = new byte[65536]; int n;
+                        while ((n = in.read(b)) > 0) {
+                            out.write(b, 0, n); got += n;
+                            int pct = total > 0 ? (int) (got * 100 / total) : -1;
+                            if (pct != last) { last = pct; js("window.__pw && window.__pw.updateProgress(" + pct + ")"); }
+                        }
+                    }
+                    if (total > 0 && got != total) throw new IOException("the download was incomplete");
+                    File apk = updateFile(); apk.delete();
+                    if (!tmp.renameTo(apk)) throw new IOException("couldn't keep the download");
+                    js("window.__pw && window.__pw.updateReady()");
+                } catch (Exception e) {
+                    js("window.__pw && window.__pw.updateFailed(" + JSONObject.quote(String.valueOf(e.getMessage())) + ")");
+                } finally {
+                    if (c != null) c.disconnect();
+                    updating = false;
+                }
+            }).start();
+        }
+
+        @JavascriptInterface public void installUpdate() {
+            new Thread(() -> {
+                try {
+                    File apk = updateFile();
+                    if (!apk.exists()) throw new IOException("nothing downloaded");
+                    PackageInstaller pi = getPackageManager().getPackageInstaller();
+                    PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                    sp.setAppPackageName(getPackageName());
+                    if (Build.VERSION.SDK_INT >= 31) sp.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                    int id = pi.createSession(sp);
+                    try (PackageInstaller.Session session = pi.openSession(id)) {
+                        try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("pitwall.apk", 0, apk.length())) {
+                            byte[] b = new byte[65536]; int n;
+                            while ((n = in.read(b)) > 0) out.write(b, 0, n);
+                            session.fsync(out);
+                        }
+                        Intent done = new Intent(MainActivity.this, MainActivity.class).setAction(ACTION_INSTALLED);
+                        int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                        session.commit(PendingIntent.getActivity(MainActivity.this, 7, done, flags).getIntentSender());
+                    }
+                } catch (Exception e) {
+                    js("window.__pw && window.__pw.updateFailed(" + JSONObject.quote(String.valueOf(e.getMessage())) + ")");
+                }
+            }).start();
+        }
 
         @JavascriptInterface public String version() {
             try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return ""; }

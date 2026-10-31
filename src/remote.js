@@ -38,7 +38,20 @@
     if (!el) { el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
     el.className = cls; el.innerHTML = html; el.hidden = false; return el;
   }
-  const linkState = (text) => pill('link-state', 'link-state', text);
+  // The link to the computer: a note for three seconds, which then slides up out of the way, and a thin line along the
+  // top of the screen all the time (yellow while the computer is away, green when connected).
+  let noteTimer = null;
+  const linkState = (text) => {
+    const el = pill('link-state', 'link-state', text); clearTimeout(noteTimer);
+    if (!el) return;
+    el.classList.remove('gone');
+    noteTimer = setTimeout(() => { el.classList.add('gone'); noteTimer = setTimeout(() => { el.hidden = true; }, 400); }, 3000);
+  };
+  const linkLine = (on) => {
+    let el = document.getElementById('link-line');
+    if (!el) { el = document.createElement('div'); el.id = 'link-line'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
+    el.className = 'link-line ' + (on ? 'on' : 'off'); el.title = on ? 'Connected to your computer' : 'Your computer is away: changes are kept on this device';
+  };
   const say = (msg) => { if (typeof window.toast === 'function') window.toast(msg); };
   const brand = '<div class="brand-mark" style="color:#fff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M3 17h7l3-10h8M7 12h5"/></svg></div>';
 
@@ -75,12 +88,31 @@
       const r = await http('GET', 'api/hello', undefined, 2500);
       const h = await r.json();
       if (!h.pitwall) return false;
-      if (inApp && h.build && BUILD && h.build !== BUILD) {
-        pill('update-note', 'update-note', `Pitwall on your computer has been updated. <a href="${base}app">Install the new version of this app</a>`);
-      }
+      if (inApp && h.build && BUILD && h.build !== BUILD) appUpdate();
       return true;
     } catch { return false; }
   }
+
+  /**
+   * The computer has a newer Pitwall than this app. The app downloads the matching version by itself, then one tap
+   * installs it (Android may ask you to confirm; after the first time, Android 12 and later don't). An app from
+   * before 3.15 can't install itself, so it gets the download link as before.
+   */
+  let updateStarted = false;
+  function appUpdate() {
+    if (!android.canUpdate) { pill('update-note', 'update-note', `Pitwall on your computer has been updated. <a href="${base}app">Install the new version of this app</a>`); return; }
+    if (updateStarted) return; updateStarted = true;
+    const show = (html) => pill('update-note', 'update-note', html);
+    show('A new version of the app is downloading…');
+    window.__pw.updateProgress = (pct) => { if (pct >= 0) show(`A new version of the app is downloading… ${pct}%`); };
+    window.__pw.updateReady = () => show('A new version of the app is ready. <button class="btn sm primary" data-pw-install>Install</button> <button class="btn sm ghost" data-pw-later>Later</button>');
+    window.__pw.updateFailed = (msg) => { updateStarted = false; show(`The app update didn’t work (${String(msg || 'unknown').replace(/[<>&]/g, '')}). <a href="${base}app">Download it instead</a>`); };
+    android.downloadUpdate();
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-pw-install]')) { pill('update-note', 'update-note', 'Installing the new version…'); android.installUpdate(); }
+    else if (e.target.closest('[data-pw-later]')) pill('update-note', 'update-note', '');
+  });
 
   /** Ask for the PIN shown in the desktop's Settings until it pairs. */
   function pair(message) {
@@ -135,9 +167,12 @@
     return r.json();
   }
 
+  // the note shows once each time the computer goes away (it used to come back every time the app checked)
+  let awayShown = false;
   function goOffline() {
-    if (!online && document.getElementById('link-state')?.hidden === false) return;
-    online = false;
+    online = false; linkLine(false);
+    if (awayShown) return;
+    awayShown = true;
     linkState(inApp ? 'Offline · changes are kept on this device and sync when your computer is back' : 'Reconnecting to your computer…');
     if (inApp) setTimeout(() => { if (!online) android.rediscover(); }, 8000); // maybe the computer's address changed
   }
@@ -223,7 +258,7 @@
     onRemote(cb) {
       const pull = async () => { const r = await call('GET', 'api/state'); cb({ state: r.state, rev: r.rev }); };
       const hello = async () => {
-        const was = online; online = true; linkState('');
+        const was = online; online = true; awayShown = false; linkState(''); linkLine(true);
         reachable();
         try { await pull(); if (!was && inApp) say('Synced with your computer'); } catch { }
       };

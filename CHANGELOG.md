@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.15.0
+
+**3.15.0: the phone app updates itself.** When Pitwall on the computer has a newer version, the Android app downloads the matching app from it by itself (with progress), then one tap on **Install** puts it in. The first time, Android asks you to allow installs from Pitwall and to confirm; once Pitwall has installed itself, Android 12 and later let it update without asking. This needs the 3.15 app: getting there from an older one is the download link one last time. **Connection status:** the "offline" note on the phone shows for three seconds and then slides up out of the way, once each time the computer goes away (it kept coming back while the computer was off); a thin line along the top of the screen stays all the time, yellow while the computer is away and green when it's connected.
+
 ## 3.14.2
 
 **3.14.2: fair pace, fixed.** At Monza the strategy had the hard at 1:24.1, two seconds slower than any lap driven on it. Two things were wrong. **Boost:** each lap is put on the same footing for the ERS energy it deployed, at 1.1 ms a kJ; measured on the 2026 season's practice laps it's 0.35 ms (your own laps; 0.07 across the grid), so a lap with a big deployment was made a second and a half slower than it was. It's 0.35 ms now, against your usual deployment over the whole weekend (each session used to have its own reference, and laps below it weren't corrected at all). **Runs that get quicker:** a run whose laps got faster had its pace taken from the line through them followed back to its first lap, which made it slower than any lap driven; it's the run's average now. Monza on a new set and an empty tank: soft 1:20.08, medium 1:20.51, hard 1:21.84 (it was 1:20.92, 1:20.86 and 1:24.10), and the plan is soft then hard.

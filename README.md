@@ -120,7 +120,7 @@ For AI-written questions and articles, add an Anthropic API key in **Settings �
 
 ## Phone and tablet
 
-Turn it on in **Settings → Phone & tablet**, with the phone or tablet on the same Wi-Fi as the PC. The first time, Windows asks whether Pitwall may use the network: allow it on **private networks**. Settings shows how to connect: download and install the **Pitwall** Android app (Android asks you to allow installs from Chrome the first time), or open Pitwall in the phone's browser. The app keeps its own copy, so it works with the computer off and syncs when they reconnect; after you update Pitwall on the PC, the app offers its own update.
+Turn it on in **Settings → Phone & tablet**, with the phone or tablet on the same Wi-Fi as the PC. The first time, Windows asks whether Pitwall may use the network: allow it on **private networks**. Settings shows how to connect: download and install the **Pitwall** Android app (Android asks you to allow installs from Chrome the first time), or open Pitwall in the phone's browser. The app keeps its own copy, so it works with the computer off and syncs when they reconnect; a line along the top of the screen is green while it's connected and yellow while the computer is away. After you update Pitwall on the PC, the app downloads its own update and installs it with a tap (Android asks you to allow it the first time).
 
 ## Your data
 

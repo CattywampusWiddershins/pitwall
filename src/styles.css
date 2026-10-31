@@ -440,7 +440,12 @@ input[type=color] { height: 38px; padding: 3px; cursor: pointer; }
 .link-state { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 70; background: var(--panel-3); border: 1px solid var(--yellow); color: var(--fg); padding: 7px 14px; border-radius: 20px; font-size: 13px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); }
 .update-note { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 65; width: min(560px, calc(100vw - 24px)); background: var(--panel-3); border: 1px solid var(--glow-edge); box-shadow: var(--glow); color: var(--fg); padding: 10px 14px; border-radius: var(--r); font-size: 14px; }
 .update-note a { color: var(--team); font-weight: 600; }
-.link-state { max-width: calc(100vw - 24px); text-align: center; }
+.link-state { max-width: calc(100vw - 24px); text-align: center; transition: transform 0.35s ease, opacity 0.35s ease; }
+.link-state.gone { transform: translate(-50%, calc(-100% - 20px - env(safe-area-inset-top))); opacity: 0; }
+/* the link to the computer, along the top of the screen all the time: yellow while away, green when connected */
+.link-line { position: fixed; top: env(safe-area-inset-top); left: 0; right: 0; height: 3px; z-index: 72; pointer-events: none; transition: background 0.4s ease; }
+.link-line.off { background: var(--yellow); }
+.link-line.on { background: var(--green); }
 .link-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .link-step { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); padding: 14px; display: grid; gap: 8px; align-content: start; }
 .big-code { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: 0.04em; color: var(--fg); word-break: break-all; }
