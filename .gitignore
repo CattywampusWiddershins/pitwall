@@ -6,3 +6,4 @@ build/Pitwall.apk
 data-raw/
 build/Pitwall.apk.idsig
 *.log
+android/*.keystore
