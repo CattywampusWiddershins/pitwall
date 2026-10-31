@@ -40,8 +40,11 @@ Pitwall updates itself. When it starts it checks GitHub for a newer release and 
 
 For each new version:
 
-1. Build it: `npm run dist:win`.
-2. On GitHub, open **Releases → Draft a new release**, make the tag `v<version>` (for example `v3.12.0`, matching `package.json`), paste that version's notes from below, attach `dist/Pitwall-Setup-<version>.exe`, and publish.
+1. Commit, tag `v<version>` (matching `package.json`) and push: `git push` and `git push --tags`.
+2. Build it: `npm run dist:win`.
+3. Publish it: `node scripts/publish-release.js` creates the release on the version's tag, with that version's section of [CHANGELOG.md](CHANGELOG.md) as the notes, and uploads `dist/Pitwall-Setup-<version>.exe` (it uses the GitHub sign-in git saved when you pushed). Or do it on GitHub: **Releases → Draft a new release**, pick the tag, paste the notes, attach the installer and publish.
+
+A pushed tag alone isn't an update: Pitwall only offers a version once its release is published with the installer.
 
 Everyone on an older version is offered it the next time they open Pitwall, and their careers and settings carry over. A copy of Pitwall that wasn't installed (the old portable `.exe`) gets a **Download** button for the installer instead. The phone app updates itself from the desktop as before.
 
