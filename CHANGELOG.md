@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.22.3
+
+- **Standings open in Simple** by default; Detailed is one click away.
+- The standings cards (drivers and constructors) use the drivers' headshots; the full-body pictures are for the story graphics.
+
 ## 3.22.2
 
 - **You're quoted in stories too**: until you do a media session for a weekend, stories give you a line like everyone else's. After a session, your own answers replace them (the race report uses one of your answers, as before).

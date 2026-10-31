@@ -400,10 +400,9 @@ function standingsPodium(c, s, rows, team) {
   const champ = !!titleDecision(s, team ? 'team' : 'driver');
   const card = (x, n) => {
     const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
-    const body = !team && bodyOf(c, x.id);
-    // a team: both its drivers (full-body pictures, else their photos), with the logo over them
-    const pair = team ? (tm.drivers || []).filter(Boolean).slice(0, 2).map(d => { const b = bodyOf(c, d); const u = b?.url || driverPhoto(c, d); return u ? `<img class="${b ? 'pod-body' : ''}" src="${esc(u)}" alt="">` : ''; }).join('') : '';
-    const pic = team ? `${pair ? `<span class="pod-pair">${pair}</span>` : ''}${teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : ''}` : body ?`<img class="pod-photo pod-body" src="${esc(body.url)}" alt="">` : driverPhoto(c, x.id) ? `<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
+    // headshots only (the full-body pictures are for the story graphics); a team shows both its drivers, the logo over them
+    const pair = team ? (tm.drivers || []).filter(Boolean).slice(0, 2).map(d => driverPhoto(c, d) ? `<img src="${esc(driverPhoto(c, d))}" alt="">` : '').join('') : '';
+    const pic = team ? `${pair ? `<span class="pod-pair">${pair}</span>` : ''}${teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : ''}` : driverPhoto(c, x.id) ?`<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
     const nm = team ? tm.name : lastName(dName(s, x.id));
     // the champion, once the title is settled, gets gold points as in the graphics
     return `<button class="pod-card p${n} ${n === 1 && champ ? 'champ' : ''}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
@@ -431,7 +430,7 @@ function renderStandings() {
   const rounds = activeRounds(s);
   const tab = ui.standingsTab;
   let body = '';
-  const simple = ui.standingsDetail === 'simple';
+  const simple = ui.standingsDetail !== 'detailed'; // Simple unless you pick Detailed
   const prevStats = roundsDone(s) > 1 ? seasonStats(s, roundsDone(s) - 1) : null;
   if (simple && tab === 'drivers') {
     body = standingsBars(c, s, ds.slice(3), false, prevStats && driverStandings(s, prevStats));
@@ -470,7 +469,7 @@ function renderStandings() {
   }
   return `<div class="page">
     <div class="page-head"><div><h1>${s.year} Standings</h1><div class="sub">After ${roundsDone(s)} of ${rounds.length} rounds</div></div>
-    <div class="row">${seasonPicker(c, s.index)}${tab === 'drivers' || tab === 'constructors' ? `<div class="seg">${[['simple', 'Simple'], ['detailed', 'Detailed']].map(([v, l]) => `<button data-act="standings-detail" data-v="${v}" class="${(ui.standingsDetail || 'detailed') === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}${standingsTabs(tab)}</div></div>
+    <div class="row">${seasonPicker(c, s.index)}${tab === 'drivers' || tab === 'constructors' ? `<div class="seg">${[['simple', 'Simple'], ['detailed', 'Detailed']].map(([v, l]) => `<button data-act="standings-detail" data-v="${v}" class="${(ui.standingsDetail || 'simple') === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}${standingsTabs(tab)}</div></div>
     ${simple && tab === 'drivers' ? standingsPodium(c, s, ds, false) : simple && tab === 'constructors' ? standingsPodium(c, s, cs, true) : ''}
     ${simple && (tab === 'drivers' || tab === 'constructors') ? body : `<div class="panel"><div class="panel-b tight table-wrap">${body}</div></div>`}
   </div>`;
