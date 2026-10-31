@@ -292,6 +292,7 @@ function buildStories(c, s) {
           P.clinch.length > 1 ? `${listJoin(P.clinch.map(x => x.x.name))} can all leave ${gp} as champion${kind === 'team' ? 's' : ''}.` : '',
           showdown ? `It is the final race of the season and nothing is settled. ${alive.length >= 3 ? `A ${numWord(alive.length)}-way decider is the stuff of legend: the last one in Formula 1 was 2010.` : 'One race, winner takes all.'}` : ''].filter(Boolean),
         permsHtml: permsHtml(m, P, { compact: true }),
+        permGfx: { kind, who: (P.clinch || []).filter(t => t.table?.length).map(t => t.x.id) },
         quotes: SD ? (() => { const qw = phrasebook(rnd); return SD.N.rows.filter(o => o.id !== PLAYER).map(o => ({ id: o.id, text: qw(o.leader ? 'l' : 'c', SHOWDOWN_QUOTES[o.leader ? 'preLead' : 'preChase']) })); })() : kind === 'driver' ? [{ id: L.id, text: choose(rnd, QUOTES.preLead) }, ...(R2 && R2.alive && R2.id !== PLAYER ? [{ id: R2.id, text: choose(rnd, QUOTES.preChase) }] : [])].filter(q => q.id !== PLAYER) : [],
       });
     }
@@ -723,7 +724,19 @@ function storyReplay(s, x) {
   const ds = x.replay?.ds || (x.kind === 'battle' && x.subject ? [PLAYER, x.subject] : []);
   const lap = x.replay?.lap; return `<div><button class="btn sm ghost" data-act="rp-story" data-k="${esc(key)}" data-lap="${lap || ''}" data-ds="${esc(ds.filter(Boolean).join(','))}">${ICON.play} ${lap > 1 ? `Watch from lap ${lap}` : 'Watch the replay'}</button></div>`;
 }
+/** The graphics that go with a story: results, standings, ratings and each contender's permutations. */
+function storyGfx(s, x) {
+  if (!x.r || isHist(s)) return [];
+  const base = { si: s.index, ri: x.i }; const out = [];
+  if (x.kind === 'quali') out.push({ type: 'results', k: 'Q', ...base });
+  if (x.kind === 'sprint' && x.results) out.push({ type: 'results', k: 'SPR', ...base });
+  if (x.kind === 'race' && x.results) out.push({ type: 'results', k: 'R', ...base }, { type: 'standings', kind: 'driver', ...base }, { type: 'standings', kind: 'team', ...base });
+  if (x.fanVoice?.race?.length) out.push({ type: 'ratings', rows: x.fanVoice.race.slice(0, 10).map(o => ({ id: o.id, rating: +o.rating.toFixed(1) })), ...base });
+  for (const who of x.permGfx?.who || []) out.push({ type: 'perm', kind: x.permGfx.kind, who, ...base });
+  return out;
+}
 function storyHtml(c, s, x, lead = false) {
+  const G = storyGfx(s, x); const has = (t) => G.some(o => o.type === t);
   const when = x.r ? `R${x.i + 1} · ${esc(x.r.name)} · ${fmtDay(roundDate(s, x.r))}` : x.i < 0 ? 'Pre-season' : '';
   const kcls = { race: 'done', title: 'next', preview: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next', rivalry: 'dnf', incident: 'dnf', battle: 'sprint', review: 'next' }[x.kind] || '';
   const q = (x.quotes || []).filter(Boolean);
@@ -737,10 +750,11 @@ function storyHtml(c, s, x, lead = false) {
     ${x.sections ? x.sections.map(sec => `<div class="story-sec"><h3>${esc(sec.title)}</h3><ul class="ms-list">${sec.items.map(o => `<li>${o.id ? avatar(c, s, o.id, 26) : ''}<span>${esc(o.text)}</span></li>`).join('')}</ul></div>`).join('') : ''}
     ${x.fanVoice ? `<div class="fv-cols"><div><span class="label">Top 10 · ${esc(x.r.name)}</span>${fvList(c, s, x.fanVoice.race)}</div><div><span class="label">Season so far · average</span>${fvList(c, s, x.fanVoice.season)}</div></div>
       <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="fv-open" data-ri="${x.fanVoice.round}">All ratings</button></div>` : ''}
-    ${x.permsHtml ? `<div class="perms-box">${x.permsHtml}</div>` : ''}
+    ${G.length ? `<div class="gfx-row">${G.map(gfxSlot).join('')}</div>` : ''}
+    ${x.permsHtml ? (has('perm') ? `<details class="perms-more"><summary>Read the permutations as text</summary><div class="perms-box">${x.permsHtml}</div></details>` : `<div class="perms-box">${x.permsHtml}</div>`) : ''}
     ${x.qa ? `<div class="qa">${x.qa.map(([qq, a]) => `<div class="q"><div class="qt">${esc(qq)}</div><div class="ans">“${esc(a)}”</div></div>`).join('')}</div>` : ''}
-    ${x.results ? `<div class="mini-results">${x.results.map(r => `<div class="${r.d === PLAYER ? 'me' : ''}"><span class="p">${OUT.includes(r.st) ? r.st : r.pos}</span>${avatar(c, s, r.d, 20)}<span class="nm">${esc(dName(s, r.d))}</span><span class="muted">${r.pts ? '+' + r.pts : ''}</span></div>`).join('')}</div>` : ''}
-    ${x.standings ? (() => { const mv = (n) => n > 0 ? `<span class="pos-up">▲${n}</span>` : n < 0 ? `<span class="neg">▼${-n}</span>` : ''; return `<div class="fv-cols"><div><span class="label">Drivers’ championship</span><div class="mini-results">${x.standings.drivers.map(r => `<div class="${r.id === PLAYER ? 'me' : ''}"><span class="p">${r.pos}</span>${avatar(c, s, r.id, 20)}<span class="nm">${esc(dName(s, r.id))} ${mv(r.mv)}</span><span class="muted">${r.pts}</span></div>`).join('')}</div></div><div><span class="label">Constructors’ championship</span><div class="mini-results">${x.standings.teams.map(r => `<div class="${r.team.id === s.playerTeamId ? 'me' : ''}"><span class="p">${r.pos}</span>${teamLogo(c, r.team, 20)}<span class="nm">${esc(r.team.name)} ${mv(r.mv)}</span><span class="muted">${r.pts}</span></div>`).join('')}</div></div></div>`; })() : ''}
+    ${x.results && !has('results') ? `<div class="mini-results">${x.results.map(r => `<div class="${r.d === PLAYER ? 'me' : ''}"><span class="p">${OUT.includes(r.st) ? r.st : r.pos}</span>${avatar(c, s, r.d, 20)}<span class="nm">${esc(dName(s, r.d))}</span><span class="muted">${r.pts ? '+' + r.pts : ''}</span></div>`).join('')}</div>` : ''}
+    ${x.standings && !has('standings') ? (() => { const mv = (n) => n > 0 ? `<span class="pos-up">▲${n}</span>` : n < 0 ? `<span class="neg">▼${-n}</span>` : ''; return `<div class="fv-cols"><div><span class="label">Drivers’ championship</span><div class="mini-results">${x.standings.drivers.map(r => `<div class="${r.id === PLAYER ? 'me' : ''}"><span class="p">${r.pos}</span>${avatar(c, s, r.id, 20)}<span class="nm">${esc(dName(s, r.id))} ${mv(r.mv)}</span><span class="muted">${r.pts}</span></div>`).join('')}</div></div><div><span class="label">Constructors’ championship</span><div class="mini-results">${x.standings.teams.map(r => `<div class="${r.team.id === s.playerTeamId ? 'me' : ''}"><span class="p">${r.pos}</span>${teamLogo(c, r.team, 20)}<span class="nm">${esc(r.team.name)} ${mv(r.mv)}</span><span class="muted">${r.pts}</span></div>`).join('')}</div></div></div>`; })() : ''}
     ${q.length ? `<div class="quotes">${q.map(o => o.team
       ? `<blockquote>${teamLogo(c, s.teams.find(t => t.id === o.team) || teamMeta(c, o.team), 30)}<div><p>“${esc(o.text)}”</p><cite>${esc((s.teams.find(t => t.id === o.team) || teamMeta(c, o.team))?.name || '')} · ${esc(o.role || 'Spokesperson')}</cite></div></blockquote>`
       : `<blockquote>${avatar(c, s, o.id, 30)}<div><p>“${esc(o.text)}”</p><cite>${esc(dName(s, o.id))}${o.real ? ' · from your interview' : ''}</cite></div></blockquote>`).join('')}</div>` : ''}

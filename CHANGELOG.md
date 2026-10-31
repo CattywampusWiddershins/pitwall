@@ -2,6 +2,17 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.17.0
+
+**3.17.0: story graphics.** Stories now carry F1-style graphics, drawn as images you can save (click one, then **Save image**; 1080 × 1350, sized for social posts):
+
+- **Driver and team standings** in the race report: the top ten in team colours with logos (and each driver's photo and their move since the last round), the points in red. Once a title is settled, the champion's points are gold from that round on; a title won at the final race is gold only in the final standings.
+- **Results** for the race, the sprint and qualifying: the podium (or the front three) with photos, flags and points (lap times and gaps for qualifying), then fourth to tenth with team logos.
+- **Driver ratings** in the Fan Voice story: the race's top ten with their ratings, ties marked.
+- **Title permutations** in the title previews: one graphic for each driver who can be champion that weekend, with their picture faded behind and a table: *If VERSTAPPEN finishes* P1, P2… against where each rival must finish (*P3 or lower*, *out of the points*, or *anywhere*). At the final round every contender gets one; before that, only those who could clinch it there. A weekend with a sprint, or the constructors' title, can only compare points totals, so those keep the written version, which is also there under each graphic.
+
+The logo slot at the top of each graphic takes an image you upload in **Settings → Story graphics** (F1's logo belongs to Formula 1, so it can't come with Pitwall); until then it shows Pitwall's name. The graphics use your display font.
+
 ## 3.16.0
 
 **3.16.0: the strategy learns from your race (the Monza debrief).** At Monza a one-stop would have won and the strategy showed it, then on lap 18, while you led, it switched to two stops and you finished third, and after the first stop it wanted used hards over new mediums. The reasons, and what changed:

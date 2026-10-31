@@ -23,7 +23,7 @@ Your careers and settings live in your user folder, so updating, uninstalling or
 - **Live Race:** a dashboard while you race, with a live strategy that follows your tyres, pit calls with your own sounds, fuel left at the flag, undercut and overcut forecasts, finishing odds, the championship as it stands, the weather and an ERS plan; then a full debrief.
 - **Race Replay:** every race recorded and played back at up to 20x, with the field by its gaps, the dashboard as it was, and a track map of every car.
 - **Weekend tools:** fuel to carry from your practice laps, strategy from practice, tyre allocation, qualifying and race forecasts, race pace, and an ERS boost planner on your own track map.
-- **Stories and media:** race reports, season reviews, title showdowns, incidents with driver reactions, rumours, rivalries and press conferences (optionally written by AI).
+- **Stories and media:** F1-style graphics for standings, results, ratings and title permutations (saved as images), race reports, season reviews, title showdowns, incidents with driver reactions, rumours, rivalries and press conferences (optionally written by AI).
 - **Stats:** standings and a title forecast, head to head, career stats, driver and team pages with real career totals, circuits, the Hall of Fame and the record book.
 - **Your look:** team-colour themes, driver photos, team logos and car pictures included (replace any with your own), and your own fonts.
 - **Phone and tablet:** an Android app and browser access over Wi-Fi, in sync with the PC.

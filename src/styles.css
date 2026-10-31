@@ -855,6 +855,10 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .rp-split { border-top: 1px solid var(--line); }
 .rp-split span { left: 8px; right: auto; text-transform: uppercase; letter-spacing: .06em; }
 .rp-vis { transition: height .4s; }
+.gfx-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.gfx { display: grid; place-items: center; aspect-ratio: 4 / 5; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #15151E; cursor: zoom-in; overflow: hidden; }
+.gfx img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.perms-more summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .form-row { display: flex; gap: 5px; margin-top: 6px; min-width: 0; }
 .form-chip { flex: 0 1 30px; min-width: 0; height: 30px; padding: 0 2px; border-radius: 6px; display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 15px; background: var(--panel-2, rgba(255,255,255,.06)); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .add-scope-row { justify-content: flex-end; margin-bottom: -6px; }

@@ -75,6 +75,10 @@ function renderSettings() {
     ${updatesPanel()}
     ${renderThemePicker(c, s)}
     ${fontsPanel()}
+    <div class="panel"><div class="panel-h"><h2>Story graphics</h2><span class="muted" style="font-size:12px">Standings, results, ratings and permutations as images</span></div><div class="panel-b stack" style="gap:10px">
+      <div class="row" style="gap:12px;flex-wrap:wrap">${state.gfxLogo ? `<img src="${esc(state.gfxLogo)}" alt="" style="height:40px;max-width:180px;object-fit:contain;background:#15151E;padding:6px 10px;border-radius:6px">` : '<span class="muted" style="font-size:13px">No logo: the graphics show Pitwall’s name at the top.</span>'}
+        <label class="btn sm file-btn">${ICON.camera} ${state.gfxLogo ? 'Replace' : 'Upload'} logo<input type="file" accept="image/png,image/svg+xml,image/webp" data-ch="gfx-logo" hidden></label>${state.gfxLogo ? '<button class="btn sm ghost danger" data-act="gfx-logo-clear">Remove</button>' : ''}</div>
+      <p class="muted" style="font-size:12px;margin:0">The logo at the top of every story graphic, such as F1’s (it belongs to Formula 1, so it can’t come with Pitwall). A white logo on a transparent background (PNG or SVG) looks best.</p></div></div>
     ${soundsPanel()}
 
     <div class="panel"><div class="panel-h"><h2>AI media engine</h2><span class="muted" style="font-size:12px">${settings.hasKey ? 'API key saved' : 'No API key: media sessions use built-in question templates'}</span></div>

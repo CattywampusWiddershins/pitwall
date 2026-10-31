@@ -117,6 +117,7 @@ function render() {
   $('#topbar').innerHTML = renderTopbar();
   main.innerHTML = (ui.view === 'setup' ? '' : updateNoticeHtml() + gameNoticeHtml()) + renderView();
   main.dataset.view = viewKey();
+  if (typeof fillGraphics === 'function') setTimeout(fillGraphics, 0);
   main.scrollTop = keepScroll ? top : 0;
 }
 const viewKey = () => `${ui.view}|${ui.round}|${ui.session}|${ui.seasonIdx}|${ui.driverId}|${ui.trackId}|${ui.teamId}`;

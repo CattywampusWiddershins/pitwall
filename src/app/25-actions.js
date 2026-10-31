@@ -465,6 +465,10 @@ Object.assign(changes, {
   },
   'mt-budget'(el) { career().myTeam.budget = +el.value || 0; store.save(); render(); },
   'mt-sponsor-status'(el) { career().myTeam.sponsors.find(x => x.id === el.dataset.id).status = el.value; store.save(); render(); },
+  async 'gfx-logo'(el) {
+    const file = el.files?.[0]; if (!file) return;
+    try { state.gfxLogo = await readImage(file, { max: 700 }); store.save(); render(); toast('Logo saved'); } catch (e) { toast(e.message); }
+  },
   async 'pic-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
     const { kind, id } = el.dataset; const c = career();
@@ -644,6 +648,8 @@ Object.assign(actions, {
     closeModal(); ui.view = 'stories'; ui.seasonIdx = null; ui.stories = 'all'; store.save(); render(); toast('Rivalry started. The press has the story.');
   },
   'weekend-card'(el) { weekendCardModal(el.dataset.round); },
+  'gfx-open'(el) { gfxModal(el.dataset.gfx); },
+  'gfx-logo-clear'() { delete state.gfxLogo; store.save(); render(); },
   'award-card'(el) { awardCardModal(el.dataset.kind, el.dataset.ri != null ? +el.dataset.ri : null); },
   async 'card-save'() {
     const m = ui.modal; if (!m?.url) return;
