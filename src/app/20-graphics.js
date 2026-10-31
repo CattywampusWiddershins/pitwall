@@ -273,7 +273,6 @@ async function gfxRatings(g, k, c, s, { ri, rows, season = false, span = '', all
     const x = rows[i]; const y = y0 + i * rh; const tm = teamAt(s, x.id, ri) || teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
     const gr = g.createLinearGradient(L.x, 0, GFX_W - 30, 0); gr.addColorStop(0, mixHex(col, '#0E3A8A', 0.5)); gr.addColorStop(0.35, col); gr.addColorStop(1, mixHex(col, '#000000', 0.25));
     g.fillStyle = gr; g.beginPath(); g.roundRect(L.x, y, GFX_W - 30 - L.x, rh - 12, 14); g.fill();
-    if (i === 0) { g.lineWidth = 3; g.strokeStyle = '#FFFFFF'; g.stroke(); }
     const tie = rows.filter(o => o.rating.toFixed(1) === x.rating.toFixed(1)).length > 1;
     const rank = rows.findIndex(o => o.rating.toFixed(1) === x.rating.toFixed(1)) + 1;
     k.text(`${rank}${tie ? '=' : ''}`, L.rank, y + rh / 2 - 6, { size: Math.round(48 * z), weight: 800, color: ink, align: 'center' });
@@ -282,6 +281,8 @@ async function gfxRatings(g, k, c, s, { ri, rows, season = false, span = '', all
     k.text(gfxLast(s, x.id), L.name, y + rh / 2 - 6, { size: Math.round(42 * z), weight: 800, color: ink, align: 'center', max: L.nameMax });
     g.fillStyle = '#22D04A'; g.beginPath(); g.roundRect(L.pill, y + 14, L.pillW, rh - 40, 10); g.fill();
     k.text(gfxR(x.rating), L.pill + L.pillW / 2, y + rh / 2 - 6, { size: Math.round(50 * z), weight: 800, color: '#0B1A0B', align: 'center' });
+    // the top row's white outline goes over everything in it, the photo included
+    if (i === 0) { g.lineWidth = 3; g.strokeStyle = '#FFFFFF'; g.beginPath(); g.roundRect(L.x, y, GFX_W - 30 - L.x, rh - 12, 14); g.stroke(); }
   }
 }
 

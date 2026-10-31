@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.22.2
+
+- **You're quoted in stories too**: until you do a media session for a weekend, stories give you a line like everyone else's. After a session, your own answers replace them (the race report uses one of your answers, as before).
+- The top driver's white outline in Fan Voice and the ratings graphic is no longer hidden under their photo.
+
 ## 3.22.1
 
 - **The trophy fills the empty side** of a title graphic: when the drivers stand to one side (two looking the same way, or both straight ahead, as with a constructors' pair), the trophy fills the other, half cut off by the edge. When they stand across the middle, it stays in the middle, in front or behind them.

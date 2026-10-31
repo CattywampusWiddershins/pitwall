@@ -465,7 +465,7 @@ function rivalryStories(c, s) {
   const team = (kind, id) => kind === 'team' ? s.teams.find(t => teamRoot(t.id) === id)?.id : null;
   const quotes = (e, rnd) => {
     const tier = heatTier(rivalHeat(e.kind, e.gap ?? 0));
-    if (e.kind === 'driver') return [e.a, e.b].filter(id => id !== PLAYER).map((id, k) => ({ id, text: choose(rnd, RIVAL_QUOTES[id === e.a ? 'lead' : 'chase'][tier]) })).slice(0, 2);
+    if (e.kind === 'driver') return [e.a, e.b].map((id, k) => ({ id, text: choose(rnd, RIVAL_QUOTES[id === e.a ? 'lead' : 'chase'][tier]) })).slice(0, 2);
     return [e.a, e.b].map(id => team('team', id)).filter(Boolean).map(tid => ({ team: tid, role: principalOf(c, tid) ? `Team principal ${principalOf(c, tid)}` : 'Team principal', text: choose(rnd, RIVAL_QUOTES.boss[tier]) }));
   };
   const groupable = (e) => (e.type === 'start' && !e.rematch && !e.again) || e.type === 'hot' || e.type === 'cool' || (e.type === 'end' && !e.swap);
@@ -569,7 +569,7 @@ function feudStory(c, s, fd) {
   }[fd.reason] || ['No comment.'];
   return { id: 'fd' + fd.id, seq: i * 10 + 8, kind: 'rivalry', i, r, subject: fd.a, outlet: choose(rnd, D.OUTLETS), kicker: 'Bad blood',
     headline: choose(rnd, head), standfirst: `${dName(s, fd.a)} and ${dName(s, fd.b)} have a score to settle, and the next few races will be worth watching.`, body: [],
-    quotes: [fd.a, fd.b].filter(id => id !== PLAYER).map(id => ({ id, text: choose(rnd, said) })), feud: fd };
+    quotes: [fd.a, fd.b].map(id => ({ id, text: choose(rnd, said) })), feud: fd };
 }
 /** Feuds still running at round i: started after an earlier round and within five races of it. */
 const feudsAt = (c, s, i) => (c.rivalries || []).filter(fd => fd.seasonIdx === s.index && i >= fd.after && i < fd.after + FEUD_RACES);
@@ -701,12 +701,12 @@ function duelStoriesEach(c, s) {
         standfirst: choose(rnd, [`${A} and ${B} battled hard in ${gpOf(last2[0])}, and again in ${gpOf(last2[1])}. We’re excited to see the next fight between these two.`, `First ${gpOf(last2[0])}, then ${gpOf(last2[1])}: wherever ${A} and ${B} meet on track, sparks fly. Bring on the next one.`, `The two rivals battled on track in ${gpOf(last2[0])} and again in ${gpOf(last2[1])}, and neither looks ready to give an inch.`]),
         body: [last2[0].ahead === last2[1].ahead ? `${L(last2[1].ahead)} came out ahead both times, and ${L(last2[1].ahead === e.a ? e.b : e.a)} will want to turn that around.` : `They have one each: ${L(last2[0].ahead)} had the final say first time, ${L(last2[1].ahead)} the second.`,
           touched ? 'The two have already made contact along the way, and neither looks in the mood to back down.' : choose(rnd, ['It has been hard, clean racing so far. Long may it continue.', 'So far it has stayed clean. With these two, that may not last.'])],
-        quotes: [e.a, e.b].filter(id => id !== PLAYER).map(id => ({ id, text: choose(rnd, DUEL_QUOTES[touched ? 'needle' : 'respect']) })) });
+        quotes: [e.a, e.b].map(id => ({ id, text: choose(rnd, DUEL_QUOTES[touched ? 'needle' : 'respect']) })) });
     } else if (false) { // it dies down quietly: no story (kept for reference)
       out.push({ ...base, kicker: 'Wheel to wheel', subject: lead === PLAYER ? (lead === e.a ? e.b : e.a) : lead,
         headline: choose(rnd, [`The ${A}–${B} duel goes quiet`, `${A} and ${B} go their separate ways`, `Three races of peace between ${A} and ${B}`]),
         standfirst: `${A} and ${B} have now gone three races without a fight. Over ${pw(e.battles.length, 'battle')}, ${sc[e.a] === sc[e.b] ? 'they finished honours even' : sc[lead] === e.battles.length ? `${L(lead)} came out ahead every time` : `${L(lead)} came out ahead in ${nw(sc[lead])}`}.`,
-        body: [], quotes: [e.a, e.b].filter(id => id !== PLAYER).slice(0, 1).map(id => ({ id, text: choose(rnd, DUEL_QUOTES.ended) })) });
+        body: [], quotes: [e.a, e.b].slice(0, 1).map(id => ({ id, text: choose(rnd, DUEL_QUOTES.ended) })) });
     }
   }
   return out;

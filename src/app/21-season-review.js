@@ -249,7 +249,7 @@ function battleStory(c, s, i, r, key, sd, h) {
     headline: lost ? choose(rnd, [`${A} and ${Bn} fight for the lead, and both lose out`, `Did ${A} and ${Bn} fight each other out of the win?`]) : choose(rnd, [`${A} v ${Bn}: a fight ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn}`, `${A} edges ${Bn} in a great battle ${at}`]),
     standfirst: `${b.forLead ? `${A} and ${Bn} fought ${at}${b.to > b.from ? ` between laps ${b.from} and ${b.to}` : ` on lap ${b.from}`}, the lead changing hands ${times(b.leadN || 1)}${lost ? ', but the fight may have cost them both the win' : ''}.` : `${A} and ${Bn} had a great battle ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}.`} ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
     body: touched ? ['It wasn’t all clean: the two made contact along the way.'] : [],
-    quotes: [[b.ahead, touched ? 'wonNeedle' : 'won'], [b.behind, touched ? 'lostNeedle' : 'lost']].filter(([d]) => d !== PLAYER).map(([d, k]) => ({ id: d, text: choose(rnd, BATTLE_QUOTES[k]) })) };
+    quotes: [[b.ahead, touched ? 'wonNeedle' : 'won'], [b.behind, touched ? 'lostNeedle' : 'lost']].map(([d, k]) => ({ id: d, text: choose(rnd, BATTLE_QUOTES[k]) })) };
 }
 
 function buildStories(c, s) {
@@ -306,7 +306,7 @@ function buildStories(c, s) {
         permGfx: { kind, stage, who: (P.clinch || []).filter(t => t.table?.length).map(t => t.x.id) },
         titleGfx: { kind, stage, mode: 'pre', ids: showdown ? alive.map(x => x.id) : P.clinch.map(t => t.x.id) },
         hideList: true,
-        quotes: SD ? (() => { const qw = phrasebook(rnd); return SD.N.rows.filter(o => o.id !== PLAYER).map(o => ({ id: o.id, text: qw(o.leader ? 'l' : 'c', SHOWDOWN_QUOTES[o.leader ? 'preLead' : 'preChase']) })); })() : kind === 'driver' ? [{ id: L.id, text: choose(rnd, QUOTES.preLead) }, ...(R2 && R2.alive && R2.id !== PLAYER ? [{ id: R2.id, text: choose(rnd, QUOTES.preChase) }] : [])].filter(q => q.id !== PLAYER) : [],
+        quotes: SD ? (() => { const qw = phrasebook(rnd); return SD.N.rows.map(o => ({ id: o.id, text: qw(o.leader ? 'l' : 'c', SHOWDOWN_QUOTES[o.leader ? 'preLead' : 'preChase']) })); })() : kind === 'driver' ? [{ id: L.id, text: choose(rnd, QUOTES.preLead) }, ...(R2 && R2.alive ? [{ id: R2.id, text: choose(rnd, QUOTES.preChase) }] : [])] : [],
       });
       // a decider: each contender's season so far, with their own graphic
       if (showdown && !inSprint) alive.forEach((x, kk) => out.push(contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, i * 10 + (afterSpr ? 3 : 0) - 0.1 - kk * 0.01)));
@@ -460,8 +460,8 @@ function buildStories(c, s) {
     if (dnfs[0]) quotes.push({ id: dnfs[0].d, text: choose(rnd, QUOTES.dnf) });
     const mine = c.media.find(x => x.article && x.seasonIdx === s.index && x.roundId === r.id && x.kind === 'race');
     const myLine = mine?.questions.map(q => q.answer?.trim()).find(a => a && a.length > 20 && !/^no comment/i.test(a));
-    const qs = quotes.filter(q => q.id !== PLAYER);
-    if (myLine) qs.push({ id: PLAYER, text: myLine, real: true });
+    // the player's own words from the media session, else a line like everyone else's
+    const qs = myLine ? [...quotes.filter(q => q.id !== PLAYER), { id: PLAYER, text: myLine, real: true }] : quotes;
     const TL = dB.left.length > 1 && roundPerms(dB)?.clinch.length ? titleByLap(s, i) : null;
     out.push({ id: rid + 'r', seq: i * 10 + 4, kind: 'race', chartHtml: TL ? titleChartHtml(s, TL, last) : '', i, r, subject: W, outlet: outletFor(rnd), kicker: 'Race report', headline, standfirst: `Round ${i + 1} of ${rounds.length} · ${r.venue}`, body, quotes: qs, results: res.slice(0, 10).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('R', k + 1, x.st, x.pts), gap: x.gap })), standings: standingsAfter(s, i) });
     if (dd) out.push(dotdStory(c, s, i, dd, mem, { name, last, tName }));
@@ -504,7 +504,7 @@ function buildStories(c, s) {
         chartHtml: SDT?.chart || '',
         body: SDT ? [SDT.scene, SDT.needs.join(' '), SDT.race.join(' '), `${SDT.outcome} ${last(A0.id)} finished the year with ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} for ${tName(A0.id)}.`] : [atFinal ? `The title went down to the last race${rivals.length >= 2 ? `, with ${listJoin([A0.id, ...rivals.map(x => x.id)].map(id => name(id)))} all still able to win it` : ''}. ${last(A0.id)} arrived ${dB.rows[0].id === A0.id ? `leading by ${plural(dB.margin, 'point')}` : `${plural(dB.rows[0].pts - (dB.rows.find(x => x.id === A0.id)?.pts || 0), 'point')} behind ${name(dB.rows[0].id)}`} and left as champion.` : '',
           `${last(A0.id)} has ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} this season for ${tName(A0.id)}, ${plural(dA.margin, 'point')} clear of ${name(A1.id)}.`].filter(Boolean),
-        quotes: SDT ? (() => { const qw = phrasebook(rnd); return [...(A0.id === PLAYER ? [] : [{ id: A0.id, text: qw('won', SHOWDOWN_QUOTES.won) }]), ...SDT.losers.filter(d => d !== PLAYER).map(d => ({ id: d, text: qw('lost', SHOWDOWN_QUOTES.lost) }))]; })() : A0.id === PLAYER ? [] : [{ id: A0.id, text: choose(rnd, atFinal ? ['I can’t breathe. That was the longest race of my life.', 'To do it at the last race, under that pressure… this is everything.', ...QUOTES.champion] : QUOTES.champion) }] });
+        quotes: SDT ? (() => { const qw = phrasebook(rnd); return [{ id: A0.id, text: qw('won', SHOWDOWN_QUOTES.won) }, ...SDT.losers.map(d => ({ id: d, text: qw('lost', SHOWDOWN_QUOTES.lost) }))]; })() : [{ id: A0.id, text: choose(rnd, atFinal ? ['I can’t breathe. That was the longest race of my life.', 'To do it at the last race, under that pressure… this is everything.', ...QUOTES.champion] : QUOTES.champion) }] });
       { const F = driverTitleFacts(c, s, A0.id, i, rnd).facts.filter(f => f.score); const w = out.find(o => o.id === rid + 'wdc'); if (w && F.length) w.body.push(F.slice(0, 2).map(f => f.line).join(' ')); }
       const T = titleRetro(c, s, 'driver'); if (T && T.dec.i === i) out.push(titleRetroStory(c, s, T));
     } else if (i > 0 && A0.id !== B0.id) {
@@ -516,7 +516,7 @@ function buildStories(c, s) {
     if (dropped.length && !dA.decided) out.push({ id: rid + 'out', seq: i * 10 + 5, kind: 'title', i, r, outlet: outletFor(rnd), kicker: 'Championship', headline: `Title hopes over for ${listJoin(dropped.map(x => last(x.id)))}`,
       standfirst: `With ${plural(dA.R, 'point')} left, ${listJoin(dropped.map(x => name(x.id)))} can no longer catch ${name(A0.id)}.`,
       body: [`${dA.rows.filter(x => x.alive).length} ${dA.rows.filter(x => x.alive).length === 1 ? 'driver remains' : 'drivers remain'} in the fight: ${listJoin(dA.rows.filter(x => x.alive).map(x => `${x.name} (${x.pts})`))}.`],
-      quotes: dropped.filter(x => x.id !== PLAYER).slice(0, 1).map(x => ({ id: x.id, text: choose(rnd, QUOTES.out) })) });
+      quotes: dropped.slice(0, 1).map(x => ({ id: x.id, text: choose(rnd, QUOTES.out) })) });
     if (tA.decided && !tB.decided) {
       const atFinal = !tA.left.length, rivals = tB.rows.filter(x => x.alive && x.id !== cA0.id);
       const atSprint = !!r.sprint && !!ses.SPR?.done && titleMath(s, 'team', i, { afterSprint: true }).decided;
@@ -583,6 +583,8 @@ function buildStories(c, s) {
   out.push(...rivalryStories(c, s));
   out.push(...calendarStories(c, s));
   for (const tr of s.transfers || []) out.push(transferStory(c, s, tr));
+  const spoke = new Set(c.media.filter(x => x.article && x.seasonIdx === s.index && x.roundId).map(x => x.roundId));
+  for (const x of out) if (x.quotes?.length && x.r && spoke.has(x.r.id)) x.quotes = x.quotes.filter(q => q.id !== PLAYER || q.real);
   return out.sort((a, b) => (b.seq - a.seq) || (b.t || 0) - (a.t || 0));
 }
 
