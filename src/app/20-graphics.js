@@ -518,16 +518,19 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   else figs = ids.map(id => ({ id, tm: teamAt(s, id, ri) || teamOf(s, id) }));
   figs = figs.slice(0, 5); const n = figs.length;
   // where each stands (cx, top, frac; lay[i] is figs[i]) and the trophy's place. Nobody is mirrored: the way each faces
-  // (left, right or center, as uploaded) decides where they stand. One looking left stands right of the trophy; two
-  // looking apart stand back to back; two looking the same way (straight ahead counts) overlap, the leader in front and
-  // larger; with three the leader is in front and the others take the side they look to; more stand in a row.
+  // (left, right or center, as uploaded) decides where they stand, and the trophy fills whatever side they leave empty
+  // (`side`), else stands in the middle. One driver stands away from the side they look to; two looking apart stand
+  // back to back, and with one looking straight ahead the other stands on the side they look to (both centred); two
+  // looking the same way (or both straight ahead) overlap to one side, the leader in front and larger; with three the
+  // leader is in front and the others take the side they look to; more stand in a row.
   const looks = await Promise.all(figs.map(async f => (await gfxBody(c, f.id))?.look || 'center'));
-  let lay, tcx = W / 2, trophyLeft = false;
-  if (n === 1) { trophyLeft = looks[0] === 'left'; lay = [{ cx: trophyLeft ? 710 : 370, top: 130, frac: 0.62 }]; tcx = trophyLeft ? 280 : 800; }
+  let lay, tcx = W / 2, side = null;
+  if (n === 1) { side = looks[0] === 'left' ? 'left' : 'right'; lay = [{ cx: side === 'left' ? 710 : 370, top: 130, frac: 0.62 }]; }
   else if (n === 2) {
-    const [a, b] = looks;
-    if (a !== b && a !== 'center' && b !== 'center') lay = a === 'left' ? [{ cx: 310, top: 150, frac: 0.52 }, { cx: 770, top: 150, frac: 0.52 }] : [{ cx: 770, top: 150, frac: 0.52 }, { cx: 310, top: 150, frac: 0.52 }];
-    else { const lead = a === 'left' ? 460 : 620, back = a === 'left' ? 790 : 300; lay = [{ cx: lead, top: 140, frac: 0.6, front: true }, { cx: back, top: 225, frac: 0.66 }]; }
+    const [a, b] = looks; const at = (d) => d === 'left' ? 320 : 760;
+    if (a !== b && a !== 'center' && b !== 'center') lay = [{ cx: at(a), top: 150, frac: 0.52 }, { cx: at(b), top: 150, frac: 0.52 }];
+    else if (a !== b) { const d = a === 'center' ? b : a, other = at(d === 'left' ? 'right' : 'left'); lay = a === 'center' ? [{ cx: other, top: 150, frac: 0.55 }, { cx: at(d), top: 150, frac: 0.55 }] : [{ cx: at(d), top: 150, frac: 0.55 }, { cx: other, top: 150, frac: 0.55 }]; }
+    else { side = a === 'left' ? 'left' : 'right'; lay = side === 'left' ? [{ cx: 650, top: 140, frac: 0.6, front: true }, { cx: 880, top: 225, frac: 0.66 }] : [{ cx: 430, top: 140, frac: 0.6, front: true }, { cx: 200, top: 225, frac: 0.66 }]; }
   }
   else if (n === 3) { // the one looking left takes the left
     const swap = (looks[2] === 'left' && looks[1] !== 'left') || (looks[1] === 'right' && looks[2] !== 'right');
@@ -556,17 +559,17 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
     else k.text(_up(D.TEAM_BIO[tid]?.short || tm?.name || ''), cx, ly, { size: bh * 0.5, weight: 900, align: 'center', max: bw });
     g.restore();
   }
-  // one driver: the trophy fills the side they look to, behind them, fading toward the middle
-  const tro = trophyOf(team ? 'team' : 'driver'); const tim = tro && await loadImg(tro);
-  // (or, for variety, even larger with half of it cut off by the edge)
-  if (tim && n === 1) {
-    const cut = seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
+  // drivers to one side: the trophy fills the empty side, behind them, fading toward the middle; half cut off by the
+  // edge for a group, and for one driver either that or the whole trophy, for variety
+  const tro = trophyOf(team ? 'team' : 'driver'); const tim = tro && await loadImg(tro); const trophyLeft = side === 'left';
+  if (tim && side) {
+    const cut = n > 1 || seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
     const th = cut ? 1700 : 1240, tw = tim.width * th / tim.height, tr = cut ? W - tw / 2 : W - tw * 0.86, gx = cut ? W - 80 : W - tw * 0.42;
     gfxGlow(g, trophyLeft ? W - gx : gx, cut ? 520 : 560, cut ? 600 : 520, '#F3D98B', won ? 0.4 : 0.22);
     g.drawImage(gfxFaded(tim, tw, th, trophyLeft ? { right: 0.45 } : { left: 0.45 }), trophyLeft ? W - tr - tw : tr, cut ? -20 : 40);
   }
-  // more than one: the trophy either rises huge out of the bottom in front of them, half in frame, or towers behind them
-  const behind = tim && n > 1 && seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
+  // spread across the middle: the trophy either rises huge out of the bottom in front of them, half in frame, or towers behind them
+  const behind = tim && !side && seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
   if (behind) {
     const th = 1750, tw = tim.width * th / tim.height;
     gfxGlow(g, tcx, 420, 680, '#F3D98B', won ? 0.45 : 0.3);
@@ -586,7 +589,7 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   // the lower part darkens for the words
   const fade = g.createLinearGradient(0, 760, 0, 1140); fade.addColorStop(0, won ? 'rgba(18,13,4,0)' : 'rgba(7,8,15,0)'); fade.addColorStop(1, won ? 'rgba(18,13,4,0.96)' : 'rgba(7,8,15,0.96)');
   g.fillStyle = fade; g.fillRect(0, 760, W, 380); g.fillStyle = won ? 'rgba(18,13,4,0.96)' : 'rgba(7,8,15,0.96)'; g.fillRect(0, 1140, W, H - 1140);
-  if (tim && n > 1 && !behind) {
+  if (tim && !side && !behind) {
     const th = 1400, tw = tim.width * th / tim.height, ty = 700; // the top half in frame, sinking into the words
     gfxGlow(g, tcx, ty + 220, 520, '#F3D98B', won ? 0.4 : 0.25);
     g.drawImage(tim, tcx - tw / 2, ty, tw, th);
