@@ -1,49 +1,32 @@
-﻿# Pitwall — F1 25 Career Tracker
+# Pitwall — F1 25 Career Tracker
 
 A desktop app for tracking your F1 25 driver career: every session result for every driver, fastest laps, championship standings, head-to-head stats, season goals and AI-driven media sessions.
 
+**[Download the latest version](https://github.com/CattywampusWiddershins/pitwall/releases/latest)** (Windows) · [What's new](CHANGELOG.md) · [Building it yourself](DEVELOPING.md)
+
+## Install
+
+Download `Pitwall-Setup-<version>.exe` from the [latest release](https://github.com/CattywampusWiddershins/pitwall/releases/latest) and run it. It installs Pitwall for your Windows user (no administrator prompt), adds it to the Start menu and the desktop, and opens it.
+
+Pitwall isn't code-signed, so the first time the installer runs, Windows SmartScreen says it "protected your PC": click **More info → Run anyway**.
+
+**Updates install themselves.** When Pitwall starts it checks for a new version and downloads it in the background; once it's ready, a bar at the top offers **Restart now** or **Later**, and if you leave it, the update installs by itself when you close Pitwall. **Settings → Updates** shows your version and the release notes.
+
+Your careers and settings live in your user folder, so updating, uninstalling or reinstalling never touches them. Coming from the old portable `.exe`: install, then delete the portable file.
+
+## What it does
+
+- **Careers:** a Driver Career (your own driver, or race as a real driver from any year since 2016) or a My Team career, with every real season from 2016 built in, the real grids and calendars by year, a next-season planner and a driver market for the years after.
+- **Results straight from F1 25:** every session logged by itself over the game's telemetry (laps, tyres, pit stops, penalties, incidents and overtakes), or entered by hand.
+- **Live Race:** a dashboard while you race, with a live strategy that follows your tyres, pit calls with your own sounds, undercut and overcut forecasts, finishing odds, the championship as it stands, the weather and an ERS plan; then a full debrief.
+- **Race Replay:** every race recorded and played back at up to 20x, with the field by its gaps, the dashboard as it was, and a track map of every car.
+- **Weekend tools:** strategy from practice, tyre allocation, qualifying and race forecasts, race pace, and an ERS boost planner on your own track map.
+- **Stories and media:** race reports, season reviews, title showdowns, incidents with driver reactions, rumours, rivalries and press conferences (optionally written by AI).
+- **Stats:** standings and a title forecast, head to head, career stats, driver and team pages with real career totals, circuits, the Hall of Fame and the record book.
+- **Your look:** team-colour themes, driver photos, team logos and car pictures included (replace any with your own), and your own fonts.
+- **Phone and tablet:** an Android app and browser access over Wi-Fi, in sync with the PC.
+
 **Window size.** The desktop app fills the window, and a window wider than 1800 (in Windows’ display-scaled pixels) also grows the text and controls, up to 160%.
-
-## Run it
-
-You need [Node.js](https://nodejs.org) (LTS) installed once.
-
-1. Unzip this folder somewhere permanent, e.g. `Documents\Pitwall`.
-2. Open a terminal in that folder (in File Explorer: type `cmd` in the address bar and press Enter).
-3. Run:
-
-```
-npm install
-npm start
-```
-
-`npm install` is only needed the first time. After that, `npm start` opens the app.
-
-## Build the Windows installer
-
-```
-npm run dist:win
-```
-
-This creates `dist/Pitwall-Setup-<version>.exe`, the installer. Running it installs Pitwall for your Windows user (no administrator prompt), adds it to the Start menu and the desktop, and opens it. Uninstall it from Windows Settings → Apps like any other app; your careers stay in your user folder (`AppData\Roaming\Pitwall`), so an uninstall or reinstall never touches them. Coming from the old portable `.exe`: install, then delete the portable file; everything carries over.
-
-On a Mac use `npm run dist:mac`; on Linux `npm run dist:linux`.
-
-Pitwall isn't code-signed, so the first time the installer runs Windows SmartScreen says it "protected your PC": click **More info → Run anyway**. Updates installed from inside Pitwall don't ask again.
-
-## Publishing an update
-
-Pitwall updates itself. When it starts it checks GitHub for a newer release and downloads it in the background; once it's ready, a bar at the top offers **Restart now** (Pitwall closes, installs quietly and opens again on the new version) or **Later**, and if you leave it, the update installs by itself when you close Pitwall. **Settings → Updates** shows your version, the download's progress and the release notes. To set it up once:
-
-1. Make a GitHub repository for Pitwall (public, so the app can read its releases without signing in).
-2. Put its name in `package.json` under `"pitwall": { "updateRepo": "your-name/your-repo" }`. Builds made before this is set don't check.
-
-For each new version:
-
-1. Build it: `npm run dist:win`.
-2. On GitHub, open **Releases → Draft a new release**, make the tag `v<version>` (for example `v3.12.0`, matching `package.json`), paste that version's notes from below, attach `dist/Pitwall-Setup-<version>.exe`, and publish.
-
-Everyone on an older version is offered it the next time they open Pitwall, and their careers and settings carry over. A copy of Pitwall that wasn't installed (the old portable `.exe`) gets a **Download** button for the installer instead. The phone app updates itself from the desktop as before.
 
 ## How seasons work
 
@@ -103,95 +86,15 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 
 **Current Weekend.** A tab for the round you're on. The qualifying forecast builds each driver's ideal lap from their best sector 1, 2 and 3 across all practice sessions. The race forecast takes the grid's long runs (as the strategy does), how each driver compared on the same tyres (their ideal-lap gap where they did no long run, marked “est.”) and their starting place, and predicts the finishing order, with teams and drivers ranked on race pace per lap like the Performance tab.
 
-**ERS: where to boost (2.0).** In practice and the sprint (and, from 2.2, the race and qualifying) Pitwall follows your car alone (never the AI) in 20 m slices of the lap: throttle, brake, speed, the battery, the deploy mode, energy deployed and harvested, MGU-K power and where the car is. From your long runs (the laps the strategy uses, the sprint included) it measures what boost really drains against normal deployment, what you harvest a lap and how full the battery is. Only normal and boost count; laps in no deployment or hotlap are left out, and so are laps on intermediates or wets. The plan spends what you harvest a lap, less what normal deployment already uses, so the battery lasts the stint, and puts boost on the straights where it buys the most time per joule. Each zone is a stretch of a straight, usually from the corner exit, since the speed it gains carries all the way down the straight (so long straights come first); the battery has to keep enough charge to reach the end of every straight, and a boost that would leave it dry is cut short. Deployment is measured per 20 km/h speed band in each mode (shown in the panel), since the game deploys differently as speed builds (in 2026, normal deployment fades at high speed while boost holds on); the planner uses those curves, and counts extra power out of slow corners for less, where the tyres can’t put it all down. The time gained comes from a model (extra power accelerates the car, drag takes some back), scaled by your own laps where you drove the same straight with and without boost (leaving out straights within a second of the car ahead, where the slipstream flatters the speed, and before 2026 straights with DRS open; from 2026 the straight-mode wing is open on every straight for everyone, so it doesn't count). The Current Weekend tab draws your own track outline with the boost zones, braking and full throttle, or where you actually used boost (“Your laps”), plus the battery over a lap and the measured numbers. If the map comes out mirrored, **Flip map** fixes it for that track. The detailed profile is kept for the current weekend only; the track outline is kept for good.
-
 **Positions, lap by lap.** Every race and sprint logged from F1 25 shows how all drivers moved through the order: a line per driver from the grid to the flag, in team colours (the second car of a team dashed), with retirements marked. The order on each lap comes from the lap times; the last lap is the official result, penalties included. Hover a line to pick out the driver.
 
 **Forecasts on a sprint weekend.** The sprint race counts as long runs for the strategy and the race-pace forecast, and the sprint shootout’s laps count towards each driver’s ideal lap for the qualifying forecast.
-
-**ERS in the race (2.2).** Pitwall now follows your car through the whole weekend, the race included. While you race, the ERS panel on the Current Weekend tab goes live: your battery, deploy mode and energy deployed update every second, and each new lap the plan is rebuilt. Your racing laps join the measurements (not the start, pit laps, or laps more than 3% off your typical pace, such as behind the safety car), and once there are a few, harvest comes from them. The plan also adapts to the battery: it takes the charge you crossed the line with, keeps 5% for the flag, and spreads the rest over the laps left on top of what you harvest. A full battery late on goes on boost instead of being wasted; a low one means boost only from what you harvest. A chart shows the battery at the line lap by lap against that path. The finished race is saved with its profile, so it counts too.
-
-**Debrief (3.1).** After a race (or sprint), the Live Race tab is a full debrief until the next session: the result and what it did to the championship; for each of your drivers the places made from the grid, how far off the best race on their own pace (or how far under it), race-pace rank, passes made and lost (and on lap 1), best lap and the lap their best sectors add up to, the gap to the teammate, the strategy against the quickest one in hindsight, and every stint’s pace, fall-off and wear; then the positions lap by lap with your cars highlighted, lap times against the winner and the cars either side of you, race pace by driver and by team, who stopped when around you, the fastest sectors of the race, and the whole field’s strategies and penalties. My Team careers get both drivers side by side.
-
-**Sounds fixed (3.1).** The Live Race sounds now play: the app’s security settings blocked uploaded sounds. If a file still can’t play, a message says so.
-
-**3.5: undercut and overcut.** Live Race now remembers who you were fighting: whenever you, or the car ahead or behind, goes into the pit lane, the running order from 10 seconds before counts (a car can be passed on the way in). Before anyone stops, the **Undercut** card (on the car ahead) and the **Overcut** card (the car behind’s undercut on you) predict where you’d come out if one of you stopped this lap and the other the next: the gap now, less what the new tyres buy over the old ones (each driver’s own race pace per tyre, fuel-corrected, the cold out-lap counted). Once one of you has stopped they go live: where you’d be if the other stopped right now. The graphic keeps the car at risk in the middle with the other car within a second either side (the real gap is always written underneath), the space between them green when the gap moves your way and red when it doesn’t, lap on lap. Every rival’s stops left are predicted from their own pace; a car that won’t stop again gets the battle forecast instead (behind: the car really behind you; ahead: the remembered car, until five laps running say you won’t catch it). After a stop the battle pace counts from the first normal lap (one lap, then two, then three). The live strategy also judges plans by where they’d finish, using every rival’s own plan and half a second for each car you’d have to pass, so a plan that finishes higher beats one that’s only quicker. **Installed fonts:** each font slot in Settings can also use a font installed on your PC.
-
-**3.6: overtaking odds.** Every track has an **overtaking difficulty** (a slider beside the pit loss in the race strategy panel; Hungary starts at 90%, so a driver who catches the car ahead gets by one time in ten). Live Race runs the rest of the race 300 times with every car on its own plan: a car that pits is placed by its time, while one that catches the car ahead on track gets one go at passing (a failed pass leaves it stuck until one of them stops). Each plan gets its odds of every finishing position, and a plan replaces the quickest one only when it is likelier to finish ahead of it than behind; when the two are even, the one with the better best case wins. Where passing is hard, this favours track position and the undercut, and the Undercut card says so. **Rejoin fix:** lapped cars no longer count as ahead of you in the rejoin position. **Capitals:** drivers’ surnames, countries and race names show in capitals throughout.
-
-**3.7: race replay and a steadier strategy.** **Race Replay** (its own page): every race you drive with telemetry on is recorded from the live feed, a sample a second, and kept gzipped in the data folder under replays (about half a megabyte a race, so a whole career fits). Pick a race to play it back at 1x to 20x, with a timeline to jump around: the field drawn by its gaps to the leader (cars slide as the gaps change, lapped and retired cars at the bottom), the Live Race dashboard as it was at that moment (strategy, undercut cards, rejoin; no sounds), and the position chart growing lap by lap. Only races logged in the career are listed; races from before 3.7, races without telemetry and historic seasons can't be replayed. **Strategy:** the odds are worked out again every five seconds, not once a lap, and the plan in hand is kept unless another is clearly better (10 points likelier to finish ahead than behind), so the call doesn't flip. A pass is likelier the more pace the car behind has (the track's chance is for half a second a lap), and a car that fails has another go three laps later. Each rival's next stop is varied by up to two laps either way. **Safety car:** stopping now is judged through the same odds: nobody passes behind the safety car, rivals due to stop soon take the cheap stop, and the field bunches up for the restart (within a second of each other nine times in ten), so a green-flag stop afterwards costs a lot of places. The Undercut card names every car further up that the stop would also clear. **Learned overtaking:** every fight in a live race (a car within a second of the one ahead) is counted, and once a track has enough of them the slider suggests a difficulty from your own races.
-
-**3.9: under the hood, backups and replay links.** The app's code is split into one file per area under src/app (loaded in order; every page renders exactly as before), which makes changes quicker and safer. **Live Race** now updates only the cards that changed each second instead of redrawing the whole app: the menu, your scroll and open sections stay put, and the ERS plan is worked out once a lap. **Backups:** besides the daily one (kept 14 days), Pitwall backs up after every race logged from F1 25 and before an import, a new season or a restore (the last 20 of those); Settings lists them with Back up now, Open the folder and Restore (which backs up what you have first). **Replay housekeeping:** Race Replay can keep recordings for every season or only the last 1, 2, 3 or 5 (older ones are deleted), delete a whole season's recordings, and clear recordings that belong to no career. **Replay links:** race, sprint, contact, battle, penalty and Driver of the Day stories link to the recording; contact and battles start from the lap it happened.
-
-**3.9.1: lap-by-lap replays of older races.** Races logged from F1 25 before recordings began (3.7) appear in Race Replay marked Lap by lap, rebuilt on the spot from every car's lap times, stints, wear and safety-car laps: the order and the gaps are exact each time the cars cross the line and smooth in between. They have no live dashboard, aren't stored anywhere, and their stories link to them too. Recorded races are unaffected and always take priority. Lapped cars are now told apart by how far round each car is, not only by the order of the gaps, so they show as laps down (in Live Race too).
-
-**3.9.2:** Race Replay's field view no longer piles cars up at the bottom: the lead lap is scaled to leave room, lapped and retired cars get a row each under a Lapped / Out line, and the view grows taller when it needs to.
-
-**3.9.3:** the Android app works again: its build now packs the app/ folder of the interface (it only took the top-level files, so the app had none of its code after the 3.9 split).
-
-**3.9.4:** fonts reach the phone too. Uploaded fonts already travelled with your data; an installed font now carries a copy of its file (made when you pick it, or with Copy for your phone in Settings for one picked earlier), so a paired phone or tablet shows it even though it isn't installed there. The PC still uses the installed font.
-
-**3.9.5:** a fuller dashboard. The tiles fill two rows: average finish and average qualifying (with your best of each), positions gained from the grid, DNFs and your form over the last five races join the rest, and Fastest laps takes the Predicted finish slot once there is no forecast to show. The banner drops the driver type and shows your team's car picture, if you have added one.
-
-**3.9.6:** the live strategy stops flipping every lap when the tyres only just last. The wear rate was the wear over the tyre age, and the age only goes up at the line while the wear climbs all through the lap, so the tyres looked a little worse every second until the line: a no-stop plan that just fits was ruled out mid-lap (over the 70% limit) and came back at the line. The rate now counts the part of the lap driven, and a tyre age the game reports a moment late is put right when the car crosses the line. Checked against the 2026 Netherlands sprint recording: one call (no stop) for all 24 laps, where it used to change about 50 times.
-
-**3.10.0:** a track map in Race Replay. Every car is drawn where it is round the lap, in its team colour, with your car outlined and on top. The outline is your own car's path from a weekend session at that track (kept from the first session logged there with telemetry, and replaced by later ones), so the cars sit exactly where they were; at a track you haven't driven yet it's the circuit drawing, with the cars placed by how far round the lap they are. Under the map you choose who's shown: everyone to start with, a tap on a driver hides them (greyed out) and another tap brings them back, and two presets, Top 10 and Around me (you and the two cars either side; the four behind when you lead, the four ahead when you're last), follow the order as it changes.
-
-**3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
-
-**3.13.2:** updates come from the Pitwall repository on GitHub ([CattywampusWiddershins/pitwall](https://github.com/CattywampusWiddershins/pitwall)): from this version on, Pitwall checks its releases when it starts.
-
-**3.13.1:** Pitwall updates itself without being asked. A new version downloads in the background as soon as Pitwall sees it; then **Restart now** puts it in, or **Later** leaves it to install by itself when you close Pitwall. No installer to click through, and the download's progress is in **Settings → Updates**.
-
-**3.13.0: an installer, and updates that install themselves.** Pitwall for Windows is now an installer (`Pitwall-Setup-<version>.exe`) instead of a portable .exe: it installs for your user with no administrator prompt, adds Start menu and desktop shortcuts, and uninstalls from Windows Settings. Your careers and settings were already in your user folder, so they carry straight over (install, then delete the old portable file). A new version on GitHub now shows **Update now**: Pitwall downloads the installer (with progress), closes, installs it quietly and opens again on the new version. Copies that weren't installed get a **Download** button instead.
-
-**3.12.0: pictures included, and updates.** Pitwall now comes with photos for 36 real drivers, logos for 15 teams and pictures of 11 cars, so a new install has them from the start. Your own uploads take their place, and removing one that came with Pitwall keeps it removed (a **Default** button brings it back). Your own driver and My Team are still yours to add. **Updates:** Pitwall checks GitHub for a newer release a few seconds after it opens and shows it at the top of the page with the notes and a download; **Settings → Updates** shows your version and checks on demand. See *Publishing an update* above to set it up.
-
-**3.11.2:** the green numbers beside drivers' and teams' totals (Drivers, Teams, their pages, Career Stats) can count what was **added in the career** or **added this season**: a toggle on each of those pages, kept as a setting. **Banners:** the car picture on the dashboard, driver and team banners is cropped to the car, so it shows bigger. **Dashboard:** the form results shrink to fit their tile, so nothing is cut off on a narrow window or a phone.
-
-**3.11.1:** lapped cars are counted from the lap counts. Laps down came from how far round the lap each car was, measured against the furthest any car had got on the lap, which early in a lap is tiny: at the start half the field flickered in and out of "lapped", and when the gaps bunched behind a safety car cars were shown two laps down. This shows in Race Replay's field and in Live Race (rejoin, odds). **The field** has bigger names and cars (the car pictures cropped to the car), and every tyre is a round icon. **The track map's filter** lists the drivers in running order.
-
-**3.11.0: strategy and undercut, checked against the 2026 Netherlands race.** Run through the race second by second, the old strategy changed its call 49 times; it now keeps one plan, moving only the lap of the stop. **Tyre wear limit 75%** (was 70%). **Tyre life** counts only the wear a set has put on in green-flag laps: a used set no longer looks worn out (its wear when fitted was counted as this stint's, so the used softs got 6–8 laps of life and lasted 16), and laps behind the safety car no longer make new tyres look good for 300 laps. The first laps on a set lean on the practice rate. **Fall-off** from the stint's laps leaves out laps behind a safety car or VSC (they made the hards look 5 s a lap slower every lap, so staying out looked hopeless) and waits for five clean laps. **Plans:** when nothing fits on one or two more stops, a third is tried, so stopping under a safety car is always on the table (on lap 30 it was ruled out by a lap, and the call didn't come); a plan in hand isn't dropped because the tyre life moved by a lap, and a new plan has to win at two odds updates running before it's shown, so one lucky run can't call you in. **Undercut:** the cards follow the order on track unless a stop has a car out of place (Hamilton takes over from Verstappen once he's passed him), you're no longer listed among the cars you'd clear, the safety car's cheaper stop is used, one car can't fill both cards, and the cards hold steady in the pit lane and the few seconds after it, until the game has a gap for you again. **Pit loss learned in the race:** every stop is measured (in-lap and out-lap against the car's laps before it) and the race's figure takes over from the first one; stops behind a safety car, and any more than 3 s over the track's figure (a new front wing, a penalty), are left out. When the race ends, its figure is saved for the track, so next season starts from it; you can still change it in the race strategy panel.
-
-**3.10.4:** a race recorded while Pitwall was open shows as recorded straight away. The list of recordings was read once per run, so a race finished after Race Replay or a story link had been opened was listed as rebuilt lap by lap until Pitwall was restarted; it's now read again a few seconds after each race ends.
-
-**3.10.3:** on the track map, cars in a race rebuilt lap by lap no longer jump back to the line a while after crossing it. Those races measure each lap as 5000 m, so on a track with your own (shorter) outline the cars ran on past the line and snapped back when the next lap began; the lap is now stretched to the outline.
-
-**3.10.2:** smoother replays. The recording has a sample a second; the replay now draws every frame, sliding each car between the samples either side of the moment shown, on the gap view (the gaps count along too) and on the track map (over the line as well), at any speed. A window left in the background doesn't skip ahead when you come back.
-
-**3.4: fair pace.** Pitwall now logs every car’s fuel and ERS deployment each lap, and puts every lap used for pace on the same footing before the strategy and forecasts use it: as if the tank were empty (0.035 s a kg, from the fuel the game reports) and as if the driver had used no more energy than on their most frugal laps of the session (about 1.1 ms a kJ over that). Without this a car getting lighter hides its tyres’ fall-off, and a low-fuel run looks faster than it is. A run on a set that was already worn now counts as the new set it was: its wear says how many laps old it really was, so the pace and life it gives are a new set’s. In the race, the fall-off Live Race measures on your stint is fuel-corrected too. Sessions logged before 3.4 have no fuel data and are used as they are.
-
-**3.3.** **Fonts:** upload your own in Settings (a display face, its bold, and a body face; TTF, OTF or WOFF), such as F1’s, which belong to Formula 1 and can’t come with the app. **Car pictures:** upload one per team on the team’s page; it shows in the team and driver banners (and will feed the undercut graphic). **ERS:** in qualifying a straight that crosses the start line is split there, since only this lap counts and nothing gained after the line helps it; in both plans each straight uses its own correction from your laps where you drove it with and without boost (the lap’s average elsewhere), so a straight where boost really pays gets more of it.
-
-**3.2.** The career tile shows the number you race (the 1 when you run it). The dashboard shows where the title forecast has you finishing. Standings has a simple view (points only) next to the detailed one, and the Title Forecast is now a tab there. Tyre allocation keeps its session layout all weekend (practice is one column): on a normal weekend the practice and Q3 sets go back, on a sprint weekend everything but the race, Q1 and Q2 sets; the game’s tyre data now only supplies wear (its “available” flag means usable in the session running, not returned). Stories: a wheel-to-wheel rivalry takes three races running with a battle, rivalries born at one race share a story, the race report names only the most serious contact and ends with the top ten of both championships and their moves, and a contact story with several incidents is told once. Transfers shows this season’s moves, and the driver pool’s sections fold away. Career stats name drivers who are off the grid. Circuits show your own results only. The debrief charts the championship around you over the last three races. The battle forecast never blanks: green while the gap shrinks, yellow while it grows, NOW inside a second; it compares only laps both drivers have completed, without in- or out-laps.
-
-**No more predicted transfers (3.1.1).** Past the real-history years, a new season starts with exactly what the Next Season tab shows: this season’s grid with only the transfers you confirmed, and the calendar you laid out there. The AI transfer market and the F2 rookies it brought in are gone; empty seats stay empty until you fill them. Seasons that follow real history still start on the real grid, with your moves on top, and the tab shows that grid too.
-
-**Lapped cars (3.1).** A car a lap or more down is shown laps down again (+1 lap): the game’s gap to the leader for a lapped car isn’t a real gap. Races already logged are put right when the app opens.
-
-**Next Season (3.0).** The Season page has a **Next season** tab: next year’s line-up as it stands (this grid with only the moves you’ve confirmed for next season; nothing is predicted), with transfers made from here taking effect next season only; and next year’s calendar, which you can reorder, cut, add to (any circuit F1 has raced, or that F1 25 has) and mark sprints on. That calendar is the one the season starts with. **Announce** puts it in the stories round by round, with each venue’s last winner and most wins in your career, and a breaking story for any venue new to the calendar (when F1 last raced there, or that it’s new). Each track has a contract (roughly the real ones to start with), shown as the seasons left after this one; change it and the press reports the new deal, the extension or the shorter one.
-
-**Tyre allocation, reworked (3.0).** A weekend has a fixed number of dry sets for its format (8 soft, 3 medium, 2 hard on a normal weekend; 6, 4 and 2 on a sprint weekend; change them under Edit presets, for every preset of that format), and each preset decides which session every set goes to, laid out like the game’s Tyre Allocation screen. Set it once and every weekend with that preset follows it. The sets in practice go back at the end of the last practice session; tap any set to mark it returned, or to bring it back, when the game did something else.
-
-**Story fixes (3.0).** One contact story a weekend: heavy contact first (a penalty, or a car out within a lap of it), then contact between title rivals, then any other; several heavy ones (or several between rivals) share the story, and from the rest one is picked. The defending champion line names the champion and only runs when they win. A wheel-to-wheel rivalry dies down quietly, with no story.
-
-**Live Race (2.5).** Current Weekend has a second tab, **Live Race**: a race dashboard fed by F1 25 every second while you drive the race or the sprint. When a race starts it opens by itself (once), a red light shows on Current Weekend while it tracks, and Current Weekend opens straight on it. It shows your position, the gaps ahead and behind, your tyre (compound, age, wear) and: **a live strategy** that follows the plan you picked (or builds one from the tyre you start on), measures how the tyre is really going (fall-off from the stint’s laps, life from its wear), moves the stop to suit, switches plan when another is now 2 s or more quicker, and only uses the sets you have left; **PIT THIS LAP** when it’s time, flashing, with your own sounds (the pit sound, then the tyre’s), played once: again only if the tyre changes or the stop moves on by more than a lap; **PIT NOW** under a safety car or VSC when stopping at the cheaper loss is quicker, and, when that stop would be an extra one in your last stint, only if your pace on new tyres can win the places back (1 s a car plus 0.5 s an overtake, over the laps left); **tyre offset**: leading with time to spare, it extends the stint until the car behind is about a pit stop plus 1.6 s back; **where you’d rejoin** if you stopped now, and the gaps; **battle forecasts** (striking distance in so many laps, from the last three laps’ pace; grey within a second) or, while a stop is still to come, **the undercut** (the zone, the gap, the threat, from the last three sectors, in- and out-lap sectors left out); **the championship as it stands**, with the full tables a click away and, where the title can be decided, who would be champion if it finished like this; **the weather** now and in steps of minutes, animated; and **the ERS map**, learning from the race as it goes (the ERS panel on the Weekend tab stays on practice and the sprint). My Team careers follow your car, your teammate, or both side by side. Before the race, pick the strategy to follow on the Live Race tab; after it, the tab is a **debrief** (your strategy, the quickest one in hindsight from your race pace, how far off the best race you were, how much of your energy you deployed) until the next weekend’s first session, with a **celebration** when a title was decided (a big one if it’s yours). Sounds go in **Settings → Live Race sounds**.
-
-**Strategy forecast (2.4).** The strategy now only learns from sessions that agree on tyre wear: if one of your compounds wore more than 1.5 points a lap differently in an earlier session (say FP1 ran on a different tyre-wear setting), that session and everything before it are left out, for you and the grid, and the panel says so. A harder tyre measured as dropping off or wearing faster than a softer one keeps its pace, but its fall-off or wear is rebuilt from the other two compounds (each changed figure says why). With two or more of your own compounds measured, a missing one is worked out from your own runs rather than the grid’s. Pit stops cost what they cost at that track, with figures for green flag, virtual safety car and safety car (typical values per track; set your own under the strategy). **Tyre allocation:** pick the preset you chose in F1 25 (Softer, Balanced, Harder) next to the race distance; like the distance, it carries over from the previous round. The Current Weekend tab shows the allocation laid out like the game’s screen: each session’s sets, the ones returned, and what’s left, with each set’s wear. Where a session sends F1 25’s own tyre-set data, that is used (every set’s wear, and whether it’s still yours); otherwise the preset stands in, each stint using a fresh set and the two most-used going back after each practice session. Your plans only use sets you still have, and a used set starts its stint already worn.
-
-**Fixes (2.3).** Safety cars and virtual safety cars are counted as they come out (the game’s own count at the end could stay at zero), with the laps each one ran. Contact is linked to what it caused: damage registered within a second of the contact, and a retirement within a lap of a car’s last contact; a retirement no longer gets blamed on any contact earlier in the race, and the race report and incident stories say when a car was damaged or put out. A penalty the game reported but that didn’t stand (undone with a flashback, say) can be removed with the × next to it in the race’s Strategy & penalties table. A pass now counts once it has held for 2 seconds. Stories: title rivals who move together share one story (“a title battle seems to be developing between…”, “Norris and Leclerc slip back”), a chaser dropping back is said to fall beyond a race win (or two, or three) behind, and only one who is out of contention “can no longer catch” the leader; a change of leader no longer reads as the end of a fight. Battles and wheel-to-wheel rivalries are told without counting passes, except how many times the lead changed hands, and a fight for the lead that didn’t end in the win says it may have cost them. A transfer that contradicts a rumour marks it denied (one that fits confirms it; undo the transfer and it reopens), and a rumoured move before a contract ends says so. The dashboard shows only the wheel-to-wheel and bad-blood rivalries you (or your team) are part of.
-
-**Race boost can run the battery out (2.2.2).** The race plan now uses the same lap-time search as qualifying: boost may empty the battery before the end of a straight where that is still the faster lap, such as when a big recharge zone follows and refills it for the next straight. Over a lap it still harvests what it spends, so the battery lasts the stint. Harvest is measured per unit of braking where the battery had room, since a full battery turns harvest away and practice laps run full would under-count it. The per-lap deploy limit never sits below what you actually deployed in a lap.
-
-**Qualifying deployment (2.2).** A second panel plans the flying lap. Every lap in practice or qualifying that is mostly hotlap or boost on full throttle counts (qualifying’s parts add up), and out-laps and in-laps drop out on their own. Hotlap is the base and boost goes on top: the energy is what the battery starts the lap with plus what the lap harvests, up to the per-lap deploy limit. Charge left at the line is wasted (the in-lap recharges it), so the plan aims to cross the line empty (2.2.1): boost grows wherever it still gains time, until the battery, or the per-lap deploy limit, runs out. Running the battery dry before the end of a straight costs the deployment that can’t happen, carried down the rest of the straight, so the plan only lets it happen where that is still the faster lap, such as a straight followed by a big recharge zone; those zones are marked “runs out” (or “limit”, where the deploy limit ends it). Anything left at the line is explained: usually what the last corners harvest after the final straight, too late to use. As in the race plan, deployment is measured per speed band, zones are stretches of a straight, and the time gained is checked against your own laps with and without boost.
 
 **Wet tyres.** Long runs on intermediates or wets are ignored by the strategy, the race-pace forecast and the ERS profile: they depend too much on the conditions.
 
 **Tyres nobody ran.** If only you or only the grid ran a compound, the other side takes its fall-off, wear and life, with the pace moved by the usual gap between you and the grid. If nobody ran it, it’s worked out from the other two: a missing hard is the medium plus the soft-to-medium step (slower, dropping off and wearing slower), a missing soft the medium minus the medium-to-hard step (quicker, dropping off and wearing faster), and a missing medium sits halfway between the soft and the hard. The tyre table says where each filled-in tyre came from. If only one compound has any data, nothing is filled in and no optimal strategy is made.
 
 **Race strategy.** The Current Weekend tab works out the best plan for the next race from that weekend's practice: once from the whole grid's long runs, and once from yours. Each needs at least three consecutive clean laps on two dry compounds. Broken or short runs (a session you retired from) often measure no fall-off, so the two are made to agree: a compound showing +0.000 s a lap on one side takes the other side's figure, and where the grid's fall-off is more than 50% off yours, it's pulled to within a tenth of yours (yours 1 s a lap, the grid's 0.3 s: the grid's becomes 0.9 s). The tyre table notes every figure that was changed. It uses each compound's pace, how much time it loses per lap as it ages, and its wear rate (which sets how long it lasts), and times every one- and two-stop plan with about 22 s per stop. Plans are drawn as Pirelli-style bars with the pit window for each stop (every lap that keeps the plan within 2.5 s of its best), and races show each driver's strategy the same way.
-
-`node scripts/fake-f1-session.js` sends a made-up race to a running Pitwall, to check the connection.
 
 ## Logging a weekend
 
@@ -213,56 +116,14 @@ Go to **Media → New media session** (or the Media button on any weekend). Pick
 
 For AI-written questions and articles, add an Anthropic API key in **Settings → AI media engine** (get one at console.anthropic.com; usage is billed to your API account). The key is stored encrypted on your computer. Without a key, media sessions still work using built-in question templates.
 
+## Phone and tablet
+
+Turn it on in **Settings → Phone & tablet**, with the phone or tablet on the same Wi-Fi as the PC. The first time, Windows asks whether Pitwall may use the network: allow it on **private networks**. Settings shows how to connect: download and install the **Pitwall** Android app (Android asks you to allow installs from Chrome the first time), or open Pitwall in the phone's browser. The app keeps its own copy, so it works with the computer off and syncs when they reconnect; after you update Pitwall on the PC, the app offers its own update.
+
 ## Your data
 
 Everything saves automatically to your user folder (`%APPDATA%\Pitwall\career-data.json` on Windows), with a daily backup kept for 14 days in the `backups` folder next to it. Use **Settings → Export backup** to save a copy anywhere.
 
-## Versions and rolling back
+## Credits
 
-The project is a git repository. Every release is tagged (`v1.1.0`, `v1.2.0`, …). To see them:
-
-```
-git tag
-```
-
-To go back to a release, for example 1.1.0, and rebuild it:
-
-```
-git checkout v1.1.0
-npm run dist:win
-```
-
-`git checkout main` returns to the latest version. Your career data is stored outside the project, so switching versions never touches it (an older version may not understand data saved by a newer one, so export a backup first).
-
-## Real results data
-
-`src/history.js` (every season from 2016 and the record book before it) is generated from the [Jolpica F1 API](https://github.com/jolpica/jolpica-f1). `src/assets.js` holds circuit outlines from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT) and flags from [flag-icons](https://github.com/lipis/flag-icons) (MIT). To rebuild them:
-
-```
-node scripts/fetch-history.js
-node scripts/build-history.js
-node scripts/build-assets.js
-```
-
-The first downloads into `data-raw/` (about an hour, at the API's rate limit) and only fetches what's missing on later runs.
-
-## Project layout
-
-```
-main.js            Electron main process: window, file storage, API calls
-preload.js         Safe bridge between the window and main process
-companion.js       Phone/tablet link
-src/index.html     App shell
-src/styles.css     Styling
-src/data.js        Grids, calendars, points, driver types (edit to change defaults)
-src/reference.js   Real-world bios, circuits, team records
-src/history.js     Real seasons from 2016 (generated)
-src/assets.js      Circuit maps and flags (generated)
-src/pool.js        F2 and F3 drivers for the transfer pool
-src/app/           The app, one file per area, loaded in name order (01-core … 26-boot)
-replays.js         Race recordings for Race Replay
-scripts/           Data builders and a test server (node scripts/serve.js)
-android/           The Android companion app
-```
-
-You can also run `node scripts/serve.js` and open http://localhost:5173 to try it in a browser; data then stays in that browser and AI media is unavailable.
+Real results from the [Jolpica F1 API](https://github.com/jolpica/jolpica-f1); circuit outlines from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT); flags from [flag-icons](https://github.com/lipis/flag-icons) (MIT).
