@@ -116,22 +116,24 @@ async function gfxBodyBox(url) {
 async function gfxBody(c, id) { const b = bodyOf(c, id); return b && await gfxBodyBox(b.url) ? b : null; }
 /**
  * A full-body picture from the top of the head at `top`, scaled so `frac` of the body reaches `bottom` (cut off there),
- * centred on cx and mirrored to face `face` (left or right) when the picture faces the other way.
+ * centred on cx, facing the way it was uploaded (never mirrored: the way it faces decides where it stands instead).
  */
-async function gfxFigure(g, body, { cx, top, bottom, frac = 0.6, face = null }) {
+async function gfxFigure(g, body, { cx, top, bottom, frac = 0.6 }) {
   const B = body && await gfxBodyBox(body.url); if (!B) return false;
   const sc = (bottom - top) / (B.h * frac); const dw = B.w * sc, dh = B.h * sc;
-  const flip = (face === 'left' || face === 'right') && body.look !== 'center' && body.look !== face;
   g.save(); g.beginPath(); g.rect(0, 0, g.canvas.width, bottom); g.clip();
-  if (flip) { g.translate(cx * 2, 0); g.scale(-1, 1); }
   g.drawImage(B.im, B.x, B.y, B.w, B.h, cx - dw / 2, top, dw, dh); g.restore(); return true;
 }
-/** A picture at w×h fading out toward its bottom (and its left edge, with left: the share of its width the fade takes). */
-function gfxFaded(im, w, h, { left = 0 } = {}) {
+/**
+ * A picture at w×h fading out toward its bottom, and toward one side: left (the share of its width the fade takes
+ * from the left edge) or right (from the right edge).
+ */
+function gfxFaded(im, w, h, { left = 0, right = 0 } = {}) {
   const oc = document.createElement('canvas'); oc.width = Math.ceil(w); oc.height = Math.ceil(h); const o = oc.getContext('2d'); o.drawImage(im, 0, 0, w, h);
   o.globalCompositeOperation = 'destination-in';
   const fv = o.createLinearGradient(0, 0, 0, h); fv.addColorStop(0, 'rgba(0,0,0,0.92)'); fv.addColorStop(0.5, 'rgba(0,0,0,0.8)'); fv.addColorStop(0.82, 'rgba(0,0,0,0.25)'); fv.addColorStop(1, 'rgba(0,0,0,0)'); o.fillStyle = fv; o.fillRect(0, 0, oc.width, oc.height);
   if (left) { const fh = o.createLinearGradient(0, 0, w, 0); fh.addColorStop(0, 'rgba(0,0,0,0)'); fh.addColorStop(left, 'rgba(0,0,0,0.8)'); fh.addColorStop(1, 'rgba(0,0,0,1)'); o.fillStyle = fh; o.fillRect(0, 0, oc.width, oc.height); }
+  if (right) { const fh = o.createLinearGradient(w, 0, 0, 0); fh.addColorStop(0, 'rgba(0,0,0,0)'); fh.addColorStop(right, 'rgba(0,0,0,0.8)'); fh.addColorStop(1, 'rgba(0,0,0,1)'); o.fillStyle = fh; o.fillRect(0, 0, oc.width, oc.height); }
   return oc;
 }
 /** A soft glow of a colour behind a figure. */
@@ -264,7 +266,7 @@ async function gfxRatings(g, k, c, s, { ri, rows, season = false, span = '', all
   const y0 = 250, rh = n > 10 ? 84 : 104, z = rh / 104;
   // the top driver standing beside the list, when there's a full-body picture of them
   const fig = !all && await gfxBody(c, rows[0].id);
-  if (fig) { gfxGlow(g, 215, 560, 380, (teamAt(s, rows[0].id, ri) || teamOf(s, rows[0].id))?.color || GFX_RED); await gfxFigure(g, fig, { cx: 215, top: 250, bottom: GFX_H, frac: 0.6, face: 'right' }); }
+  if (fig) { gfxGlow(g, 215, 560, 380, (teamAt(s, rows[0].id, ri) || teamOf(s, rows[0].id))?.color || GFX_RED); await gfxFigure(g, fig, { cx: 215, top: 250, bottom: GFX_H, frac: 0.6 }); }
   const L = fig ? { x: 400, rank: 445, logo: 478, logoW: 92, ph: 582, phW: 80, name: 790, nameMax: 240, pill: 925, pillW: 110 }
     : { x: 30, rank: 90, logo: 150, logoW: 120, ph: 300, phW: 96, name: 640, nameMax: 400, pill: GFX_W - 200, pillW: 140 };
   for (let i = 0; i < n; i++) {
@@ -312,8 +314,8 @@ async function gfxPerm(g, k, c, s, { kind, ri, who, stage = '' }) {
   const fig = team ? pair.some(Boolean) : await gfxBody(c, who);
   if (fig) {
     gfxGlow(g, 200, 560, 380, col);
-    if (team) { const [a, b] = pair; if (b) await gfxFigure(g, b, { cx: 270, top: 300, bottom: GFX_H, frac: 0.62, face: 'right' }); if (a) await gfxFigure(g, a, { cx: b ? 140 : 200, top: 250, bottom: GFX_H, frac: 0.6, face: 'right' }); }
-    else await gfxFigure(g, fig, { cx: 200, top: 250, bottom: GFX_H, frac: 0.6, face: 'right' });
+    if (team) { const [a, b] = pair; if (b) await gfxFigure(g, b, { cx: 270, top: 300, bottom: GFX_H, frac: 0.62 }); if (a) await gfxFigure(g, a, { cx: b ? 140 : 200, top: 250, bottom: GFX_H, frac: 0.6 }); }
+    else await gfxFigure(g, fig, { cx: 200, top: 250, bottom: GFX_H, frac: 0.6 });
   }
   const hx = fig ? 725 : GFX_W / 2, hw = fig ? 640 : GFX_W - 80; // the name and the table sit beside the figure
   k.text(P.final ? 'TITLE PERMUTATIONS' : team ? 'CONSTRUCTORS’ TITLE' : 'TITLE DECIDER', GFX_W / 2, 140, { size: 70, weight: 800, align: 'center', max: GFX_W - 80 });
@@ -515,14 +517,24 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   if (team) { const per = ids.length <= 2 ? 2 : 1; for (const tid of ids) { const t = s.teams.find(x => x.id === tid); (t?.drivers || []).filter(Boolean).sort((a, b) => dpos.indexOf(a) - dpos.indexOf(b)).slice(0, per).forEach(id => figs.push({ id, tm: t })); } }
   else figs = ids.map(id => ({ id, tm: teamAt(s, id, ri) || teamOf(s, id) }));
   figs = figs.slice(0, 5); const n = figs.length;
-  // where each stands (cx, top, frac), which way they face, and the trophy's place
-  let lay, tcx = W / 2;
-  if (n === 1) { lay = [{ cx: 370, top: 130, frac: 0.62, face: 'right' }]; tcx = 800; }
-  else if (n === 2) lay = [{ cx: 310, top: 150, frac: 0.52, face: 'left' }, { cx: 770, top: 150, frac: 0.52, face: 'right' }];
-  else if (n === 3) lay = [{ cx: 540, top: 150, frac: 0.66, face: 'center', front: true }, { cx: 235, top: 215, frac: 0.7, face: 'left' }, { cx: 845, top: 215, frac: 0.7, face: 'right' }];
-  // two teams: each pair stands together, back to back with the other
-  else if (team && n === 4 && ids.length === 2) lay = [{ cx: 175, top: 190, frac: 0.6, face: 'left' }, { cx: 390, top: 160, frac: 0.58, face: 'left' }, { cx: 690, top: 160, frac: 0.58, face: 'right' }, { cx: 905, top: 190, frac: 0.6, face: 'right' }];
-  else { lay = figs.map((_, i) => ({ cx: 150 + i * (720 / (n - 1)), top: 140 + i * 28, frac: 0.5 + i * 0.02, face: 'right' })); tcx = 880; }
+  // where each stands (cx, top, frac; lay[i] is figs[i]) and the trophy's place. Nobody is mirrored: the way each faces
+  // (left, right or center, as uploaded) decides where they stand. One looking left stands right of the trophy; two
+  // looking apart stand back to back; two looking the same way (straight ahead counts) overlap, the leader in front and
+  // larger; with three the leader is in front and the others take the side they look to; more stand in a row.
+  const looks = await Promise.all(figs.map(async f => (await gfxBody(c, f.id))?.look || 'center'));
+  let lay, tcx = W / 2, trophyLeft = false;
+  if (n === 1) { trophyLeft = looks[0] === 'left'; lay = [{ cx: trophyLeft ? 710 : 370, top: 130, frac: 0.62 }]; tcx = trophyLeft ? 280 : 800; }
+  else if (n === 2) {
+    const [a, b] = looks;
+    if (a !== b && a !== 'center' && b !== 'center') lay = a === 'left' ? [{ cx: 310, top: 150, frac: 0.52 }, { cx: 770, top: 150, frac: 0.52 }] : [{ cx: 770, top: 150, frac: 0.52 }, { cx: 310, top: 150, frac: 0.52 }];
+    else { const lead = a === 'left' ? 460 : 620, back = a === 'left' ? 790 : 300; lay = [{ cx: lead, top: 140, frac: 0.6, front: true }, { cx: back, top: 225, frac: 0.66 }]; }
+  }
+  else if (n === 3) { // the one looking left takes the left
+    const swap = (looks[2] === 'left' && looks[1] !== 'left') || (looks[1] === 'right' && looks[2] !== 'right');
+    lay =[{ cx: 540, top: 150, frac: 0.66, front: true }, { cx: swap ? 845 : 235, top: 215, frac: 0.7 }, { cx: swap ? 235 : 845, top: 215, frac: 0.7 }]; }
+  // two teams: each pair stands together
+  else if (team && n === 4 && ids.length === 2) lay = [{ cx: 175, top: 190, frac: 0.6 }, { cx: 390, top: 160, frac: 0.58 }, { cx: 690, top: 160, frac: 0.58 }, { cx: 905, top: 190, frac: 0.6 }];
+  else { lay = figs.map((_, i) => ({ cx: 150 + i * (720 / (n - 1)), top: 140 + i * 28, frac: 0.5 + i * 0.02 })); tcx = 880; }
   if (team) lay.forEach(p => { p.top += 90; }); // room above them for the team's logo
   // the background: night blue with light streaks and gold dots, or gold for the champion
   if (won) { const bg = g.createRadialGradient(W / 2, 420, 50, W / 2, 520, 1000); bg.addColorStop(0, '#8A6A1E'); bg.addColorStop(0.45, '#3A2A0A'); bg.addColorStop(1, '#120D04'); g.fillStyle = bg; }
@@ -544,14 +556,14 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
     else k.text(_up(D.TEAM_BIO[tid]?.short || tm?.name || ''), cx, ly, { size: bh * 0.5, weight: 900, align: 'center', max: bw });
     g.restore();
   }
-  // one driver: the trophy fills the right side behind them, fading toward the middle
+  // one driver: the trophy fills the side they look to, behind them, fading toward the middle
   const tro = trophyOf(team ? 'team' : 'driver'); const tim = tro && await loadImg(tro);
-  // (or, for variety, even larger with its right half cut off by the edge)
+  // (or, for variety, even larger with half of it cut off by the edge)
   if (tim && n === 1) {
     const cut = seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
-    const th = cut ? 1700 : 1240, tw = tim.width * th / tim.height, tx = cut ? W - tw / 2 : W - tw * 0.86;
-    gfxGlow(g, cut ? W - 80 : W - tw * 0.42, cut ? 520 : 560, cut ? 600 : 520, '#F3D98B', won ? 0.4 : 0.22);
-    g.drawImage(gfxFaded(tim, tw, th, { left: 0.45 }), tx, cut ? -20 : 40);
+    const th = cut ? 1700 : 1240, tw = tim.width * th / tim.height, tr = cut ? W - tw / 2 : W - tw * 0.86, gx = cut ? W - 80 : W - tw * 0.42;
+    gfxGlow(g, trophyLeft ? W - gx : gx, cut ? 520 : 560, cut ? 600 : 520, '#F3D98B', won ? 0.4 : 0.22);
+    g.drawImage(gfxFaded(tim, tw, th, trophyLeft ? { right: 0.45 } : { left: 0.45 }), trophyLeft ? W - tr - tw : tr, cut ? -20 : 40);
   }
   // more than one: the trophy either rises huge out of the bottom in front of them, half in frame, or towers behind them
   const behind = tim && n > 1 && seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
@@ -565,7 +577,7 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   for (const p of order) gfxGlow(g, p.cx, p.top + 330, n === 1 ? 460 : 380, won ? mixHex(p.f.tm?.color || '#D4AF37', '#F3D98B', 0.6) : p.f.tm?.color || '#5E6A82', won ? 0.6 : 0.55);
   for (const p of order) {
     const body = await gfxBody(c, p.f.id);
-    if (body) await gfxFigure(g, body, { cx: p.cx, top: p.top, bottom: H, frac: p.frac, face: p.face });
+    if (body) await gfxFigure(g, body, { cx: p.cx, top: p.top, bottom: H, frac: p.frac });
     else { // no full-body picture: their photo in a ring of the team's colour
       const rad = n === 1 ? 190 : 150, cy = p.top + 260; g.save(); g.beginPath(); g.arc(p.cx, cy, rad + 8, 0, 7); g.fillStyle = p.f.tm?.color || '#5E6A82'; g.fill(); g.beginPath(); g.arc(p.cx, cy, rad, 0, 7); g.clip();
       g.fillStyle = '#1F1F27'; g.fillRect(p.cx - rad, cy - rad, rad * 2, rad * 2); const ph = driverPhoto(c, p.f.id); if (ph) await k.img(ph, p.cx - rad, cy - rad, rad * 2, rad * 2, { cover: true }); g.restore();
@@ -623,7 +635,7 @@ async function gfxAward(c, s, kind, ri) {
   k.text(kind === 'dots' ? `${s.year} FORMULA 1 SEASON${pick.final ? '' : `  ·  AFTER ${roundsDone(s)} OF ${rounds.length} ROUNDS`}` : `${r.name.toUpperCase()} GRAND PRIX  ·  ROUND ${ri + 1} OF ${rounds.length}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
   // with a full-body picture, the driver stands at the left and the card takes the rest
   const fig = await gfxBody(c, id);
-  if (fig) { gfxGlow(g, 225, 560, 400, col, 0.5); await gfxFigure(g, fig, { cx: 225, top: 235, bottom: GFX_H, frac: 0.6, face: 'right' }); }
+  if (fig) { gfxGlow(g, 225, 560, 400, col, 0.5); await gfxFigure(g, fig, { cx: 225, top: 235, bottom: GFX_H, frac: 0.6 }); }
   const X = fig ? 440 : 60, CW = fig ? GFX_W - 40 - 440 : GFX_W - 120;
   if (fig) { g.fillStyle = 'rgba(21,21,30,0.86)'; g.beginPath(); g.roundRect(X - 24, 250, GFX_W - X + 4, GFX_H - 280, 18); g.fill(); } // the card beside them
   // the name and team, and the headline figure

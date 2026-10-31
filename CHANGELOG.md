@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.22.0
+
+- **Drivers are never mirrored** in the graphics any more: the way each one faces in their picture decides where they stand instead.
+  - One driver looking left stands on the right, with the trophy on the left.
+  - Two looking apart stand back to back; two looking the same way (straight ahead counts) overlap, the leader in front and larger.
+  - With three, the leader stands in front and the others take the side they look to; more stand in a row as before.
+  - Ratings, permutations and the Driver of the Day and Season cards keep the driver on the left, as uploaded.
+
 ## 3.21.3
 
 - **Constructors' standings, Simple**: the top three teams' cards show both their drivers (full-body pictures cropped to the upper body, else their photos), with the logo over them.
