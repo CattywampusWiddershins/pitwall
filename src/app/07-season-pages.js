@@ -365,103 +365,18 @@ async function weekendCardModal(roundId) {
 }
 
 /* ------------------------------------------------------------ award cards */
-/** Drawing kit shared by the award cards: text, fitting, a driver's photo in a ring, and the team-coloured backdrop. */
-function cardKit(g, c, s, W, H) {
-  const F = '"Bahnschrift", "DIN Alternate", "Barlow Condensed", "Roboto Condensed", "Arial Narrow", sans-serif';
-  const text = (t, x, y, { size = 20, weight = 400, color = '#E7ECF5', align = 'left' } = {}) => { g.font = `${weight} ${size}px ${F}`; g.fillStyle = color; g.textAlign = align; g.fillText(t, x, y); };
-  const fit = (t, size, maxW, weight = 600) => { let sz = size; g.font = `${weight} ${sz}px ${F}`; while (sz > 12 && g.measureText(t).width > maxW) { sz -= 2; g.font = `${weight} ${sz}px ${F}`; } return sz; };
-  const circlePic = async (id, x, y, rad, ring) => {
-    const img = await loadImg(driverPhoto(c, id));
-    const tc = teamColor(s, id);
-    g.save(); g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.closePath();
-    if (img) { g.clip(); const k = Math.max(rad * 2 / img.width, rad * 2 / img.height); g.drawImage(img, x - img.width * k / 2, y - rad, img.width * k, img.height * k); }
-    else { const gr = g.createRadialGradient(x - rad * 0.4, y - rad * 0.5, rad * 0.1, x, y, rad); gr.addColorStop(0, mixHex(tc, '#FFFFFF', 0.35)); gr.addColorStop(1, mixHex(tc, '#000000', 0.35)); g.fillStyle = gr; g.fill();
-      text(initials(trName(c, s, id)), x, y + rad * 0.3, { size: Math.round(rad * 0.8), weight: 700, color: contrastInk(tc), align: 'center' }); }
-    g.restore();
-    g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.lineWidth = ring; g.strokeStyle = tc; g.stroke();
-  };
-  const backdrop = (col, col2) => {
-    g.fillStyle = '#0B0F17'; g.fillRect(0, 0, W, H);
-    const wash = g.createLinearGradient(0, 0, W, 0); wash.addColorStop(0, hexA(col, 0.45)); wash.addColorStop(0.6, hexA(col, 0)); g.fillStyle = wash; g.fillRect(0, 0, W, H);
-    g.save(); g.globalAlpha = 0.1; g.strokeStyle = col2; g.lineWidth = 6;
-    for (let x = 820; x < W + 400; x += 26) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x - 300, H); g.stroke(); }
-    g.restore();
-    g.fillStyle = col; g.fillRect(0, 0, 14, H);
-  };
-  const tile = (x, y, w, label, value, col, valColor = '#E7ECF5') => {
-    g.fillStyle = 'rgba(18,24,38,0.85)'; g.fillRect(x, y, w, 96); g.fillStyle = col; g.fillRect(x, y, w, 3);
-    text(label, x + 14, y + 28, { size: 14, weight: 600, color: '#8B97AF' });
-    text(value, x + 14, y + 76, { size: 38, weight: 700, color: valColor });
-  };
-  const wrap = (t, x, y, maxW, lineH, size, color, maxLines = 3) => {
-    g.font = `500 ${size}px ${F}`; const words = t.split(' '); let line = ''; const lines = [];
-    for (const w of words) { const tt = line ? line + ' ' + w : w; if (g.measureText(tt).width > maxW) { lines.push(line); line = w; } else line = tt; }
-    lines.push(line); lines.slice(0, maxLines).forEach((l, i) => text(l, x, y + i * lineH, { size, weight: 500, color }));
-  };
-  return { text, fit, circlePic, backdrop, tile, wrap };
-}
-const ratingInk = (v) => v >= 9 ? '#C78BF0' : v >= 8 ? '#2FD07A' : v >= 6.5 ? '#E7ECF5' : v >= 5 ? '#F5C518' : '#F0535A';
-/** Driver of the Day (kind 'dotd', round ri) or Driver of the Season ('dots') as a 1200×675 image. */
-async function drawAwardCard(c, s, kind, ri) {
-  const W = 1200, H = 675;
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const g = cv.getContext('2d');
-  const k = cardKit(g, c, s, W, H);
-  const rounds = activeRounds(s);
-  const pick = kind === 'dots' ? driverOfTheSeason(s) : driverOfTheDay(s, ri);
-  if (!pick) return null;
-  const id = pick.id;
-  const team = teamOf(s, id) || (kind === 'dotd' ? teamAt(s, id, ri) : null);
-  const col = team?.color || '#E10600';
-  const col2 = (team && (team.id === MYTEAM ? c.myTeam?.color2 : D.TEAM_BIO[team.id]?.color2)) || '#FFFFFF';
-  k.backdrop(col, col2);
-  const name = trName(c, s, id);
-  if (kind === 'dotd') {
-    const r = rounds[ri];
-    k.text('DRIVER OF THE DAY', 60, 72, { size: 26, weight: 700, color: '#E9C46A' });
-    k.text(`ROUND ${ri + 1} OF ${rounds.length}  ·  ${r.name.toUpperCase()} GRAND PRIX  ·  ${s.year}`, 60, 106, { size: 18, weight: 600, color: '#8B97AF' });
-    await k.circlePic(id, 210, 330, 130, 7);
-    k.text(name, 380, 268, { size: k.fit(name, 56, 520, 700), weight: 700 });
-    k.text(team?.name || '', 380, 306, { size: 24, color: '#8B97AF' });
-    k.wrap(pick.reasons.length ? pick.reasons.map(x => x[0].toUpperCase() + x.slice(1)).join(' · ') : `${ordWord(pick.finish)} at the flag`, 380, 352, 480, 30, 24, '#C9D1E0', 2);
-    // the rating
-    k.text(pick.rating.toFixed(1), 1110, 330, { size: 150, weight: 700, color: ratingInk(pick.rating), align: 'right' });
-    k.text('/ 10', 1110, 372, { size: 28, weight: 600, color: '#8B97AF', align: 'right' });
-    const tw = 150, gap = 12; let tx = 60;
-    for (const [lab, val] of [['GRID', pick.grid ? 'P' + pick.grid : '–'], ['FINISH', 'P' + pick.finish], ['CAR PACE', pick.carGap >= 5 ? `+${(pick.carGap / 1000).toFixed(2)}s` : 'Fastest'], ['QUALIFYING', pick.quali != null ? pick.quali.toFixed(1) : '–']]) { k.tile(tx, 500, tw, lab, val, col, val === 'P1' ? '#E9C46A' : '#E7ECF5'); tx += tw + gap; }
-    const others = Object.values(raceRatings(s, ri)).filter(x => !x.dnf && x.id !== id).sort((a, b) => b.rating - a.rating).slice(0, 3);
-    k.text('ALSO RATED', 760, 470, { size: 15, weight: 600, color: '#8B97AF' });
-    others.forEach((o, i) => { const y = 510 + i * 40; k.text(trName(c, s, o.id), 760, y, { size: 22, weight: 600 }); k.text(o.rating.toFixed(1), 1110, y, { size: 22, weight: 700, color: ratingInk(o.rating), align: 'right' }); });
-  } else {
-    k.text(`DRIVER OF THE SEASON`, 60, 72, { size: 26, weight: 700, color: '#E9C46A' });
-    k.text(`${s.year} FORMULA 1 SEASON${pick.final ? '' : `  ·  AFTER ${roundsDone(s)} OF ${rounds.length} ROUNDS`}`, 60, 106, { size: 18, weight: 600, color: '#8B97AF' });
-    await k.circlePic(id, 210, 330, 130, 7);
-    k.text(name, 380, 268, { size: k.fit(name, 56, 520, 700), weight: 700 });
-    k.text(team?.name || '', 380, 306, { size: 24, color: '#8B97AF' });
-    const wins = pick.SR.dotd.filter(x => x.id === id);
-    k.wrap(`Driver of the Day in ${listJoin(wins.map(x => x.r.name))}.`, 380, 352, 480, 30, 22, '#C9D1E0', 3);
-    k.text(String(pick.dotd), 1110, 320, { size: 150, weight: 700, color: '#E9C46A', align: 'right' });
-    k.text(pick.dotd === 1 ? 'AWARD' : 'AWARDS', 1110, 362, { size: 24, weight: 600, color: '#8B97AF', align: 'right' });
-    const tw = 170, gap = 12; let tx = 60;
-    for (const [lab, val] of [['AVERAGE RATING', pick.avg.toFixed(1)], ['LAST 5', pick.last5.toFixed(1)], ['RACES RATED', String(pick.list.length)]]) { k.tile(tx, 500, tw, lab, val, col); tx += tw + gap; }
-    const rest = Object.values(pick.SR.by).filter(o => o.id !== id && o.dotd).sort((a, b) => b.dotd - a.dotd || b.avg - a.avg).slice(0, 3);
-    k.text('RUNNERS-UP', 760, 470, { size: 15, weight: 600, color: '#8B97AF' });
-    rest.forEach((o, i) => { const y = 510 + i * 40; k.text(trName(c, s, o.id), 760, y, { size: 22, weight: 600 }); k.text(`${o.dotd}`, 1110, y, { size: 22, weight: 700, color: '#E9C46A', align: 'right' }); });
-  }
-  k.text('PITWALL', W - 40, H - 28, { size: 22, weight: 700, color: col, align: 'right' });
-  return cv;
-}
+/** Driver of the Day (round ri) or Driver of the Season, drawn in the story-graphics style (gfxAward), to save. */
 async function awardCardModal(kind, ri) {
   const c = career(); const s = curSeason();
   const title = kind === 'dots' ? `${s.year} Driver of the Season` : `Driver of the Day · ${activeRounds(s)[ri]?.name} Grand Prix`;
   modal(`<div class="modal-h"><h2>${esc(title)}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b"><div class="row"><span class="spinner"></span><span class="muted">Drawing the card…</span></div></div>`, 'wide');
-  const cv = await drawAwardCard(c, s, kind, ri);
+  const cv = await gfxAward(c, s, kind, ri);
   if (!cv) { closeModal(); toast('Nothing to show yet'); return; }
   const url = cv.toDataURL('image/png');
   ui.modal = { kind: 'card', url, name: kind === 'dots' ? `pitwall-${s.year}-driver-of-the-season.png` : `pitwall-${s.year}-r${ri + 1}-driver-of-the-day.png` };
   modal(`<div class="modal-h"><h2>${esc(title)}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
-    <div class="modal-b"><img src="${url}" alt="${esc(title)}" style="width:100%;border-radius:6px;border:1px solid var(--line)"></div>
-    <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">1200 × 675 PNG, sized for social posts.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`, 'wide');
+    <div class="modal-b"><img src="${url}" alt="${esc(title)}" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
+    <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">1080 × 1350 PNG, sized for social posts.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`, 'wide');
 }
 
 function renderTap(s, sd) {

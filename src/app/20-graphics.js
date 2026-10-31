@@ -231,3 +231,53 @@ async function gfxPerm(g, k, c, s, { kind, ri, who }) {
   const lowest = t.table[t.table.length - 1].p;
   k.text(lowest >= NO_PTS ? `EVERY FINISH STILL GIVES ${name} A CHANCE, WITH THE RESULTS ABOVE` : `FINISH P${lowest + 1} OR LOWER AND ${name} CAN'T BE CHAMPION THIS WEEKEND`, GFX_W / 2, GFX_H - 60, { size: 24, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80, fam: k.body });
 }
+
+/*
+  Driver of the Day and Driver of the Season, in the same style: the driver faded in behind in their team's colour,
+  their name, the rating (or the number of awards) in its box, the figures behind it, and the runners-up below.
+*/
+async function gfxAward(c, s, kind, ri) {
+  const pick = kind === 'dots' ? driverOfTheSeason(s) : driverOfTheDay(s, ri); if (!pick) return null;
+  const cv = document.createElement('canvas'); cv.width = GFX_W; cv.height = GFX_H; const g = cv.getContext('2d'); const k = gfxKit(g);
+  const id = pick.id; const rounds = activeRounds(s); const r = rounds[ri];
+  const tm = (kind === 'dotd' ? teamAt(s, id, ri) : null) || teamOf(s, id); const col = tm?.color || GFX_RED;
+  g.fillStyle = GFX_BG; g.fillRect(0, 0, GFX_W, GFX_H);
+  const gr = g.createLinearGradient(0, 0, GFX_W, GFX_H); gr.addColorStop(0, hexA(col, 0.6)); gr.addColorStop(0.75, hexA(col, 0.04)); g.fillStyle = gr; g.fillRect(0, 0, GFX_W, GFX_H);
+  g.save(); g.globalAlpha = 0.5; const ph = driverPhoto(c, id); if (ph) await k.img(ph, 140, 230, 800, 700, { cover: true }); g.restore();
+  const shade = g.createLinearGradient(0, 560, 0, 980); shade.addColorStop(0, 'rgba(21,21,30,0)'); shade.addColorStop(1, 'rgba(21,21,30,1)'); g.fillStyle = shade; g.fillRect(0, 560, GFX_W, 420); g.fillStyle = GFX_BG; g.fillRect(0, 980, GFX_W, GFX_H - 980);
+  g.fillStyle = GFX_RED; g.fillRect(0, 34, 390, 14); g.fillRect(0, 56, 390, 14); g.fillRect(GFX_W - 390, 34, 390, 14); g.fillRect(GFX_W - 390, 56, 390, 14);
+  if (!(state.gfxLogo && await k.img(state.gfxLogo, 410, 18, 260, 66))) k.text('PITWALL', GFX_W / 2, 52, { size: 46, weight: 800, align: 'center' });
+  k.text(kind === 'dots' ? 'DRIVER OF THE SEASON' : 'DRIVER OF THE DAY', GFX_W / 2, 140, { size: 76, weight: 800, align: 'center', max: GFX_W - 80 });
+  k.text(kind === 'dots' ? `${s.year} FORMULA 1 SEASON${pick.final ? '' : `  ·  AFTER ${roundsDone(s)} OF ${rounds.length} ROUNDS`}` : `${r.name.toUpperCase()} GRAND PRIX  ·  ROUND ${ri + 1} OF ${rounds.length}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
+  // the name and team, and the headline figure
+  k.text(lastName(trName(c, s, id)).toUpperCase(), 60, 690, { size: 110, weight: 900, max: 640 });
+  k.text(`${trName(c, s, id).split(' ').slice(0, -1).join(' ').toUpperCase()}  ·  ${(tm?.name || '').toUpperCase()}`, 64, 770, { size: 30, weight: 600, color: '#D0D6E2', max: 640, fam: k.body });
+  const big = kind === 'dots' ? String(pick.dotd) : pick.rating.toFixed(1);
+  g.fillStyle = kind === 'dots' ? goldFill(g, GFX_W - 330, 600, 270, 190) : '#22D04A'; g.beginPath(); g.roundRect(GFX_W - 330, 600, 270, 190, 18); g.fill();
+  k.text(big, GFX_W - 195, 682, { size: 120, weight: 900, color: '#0B1A0B', align: 'center' });
+  k.text(kind === 'dots' ? (pick.dotd === 1 ? 'AWARD' : 'AWARDS') : 'RATING', GFX_W - 195, 762, { size: 26, weight: 700, color: '#0B1A0B', align: 'center' });
+  // the figures
+  const tiles = kind === 'dots' ? [['AVERAGE RATING', pick.avg.toFixed(1)], ['LAST 5', pick.last5.toFixed(1)], ['RACES RATED', String(pick.list.length)]]
+    : [['GRID', pick.grid ? 'P' + pick.grid : '–'], ['FINISH', 'P' + pick.finish], ['CAR PACE', pick.carGap >= 5 ? `+${(pick.carGap / 1000).toFixed(2)}s` : 'FASTEST'], ['QUALIFYING', pick.quali != null ? pick.quali.toFixed(1) : '–']];
+  const tw = (GFX_W - 120 - (tiles.length - 1) * 16) / tiles.length;
+  tiles.forEach(([lab, val], j) => { const x = 60 + j * (tw + 16); g.fillStyle = GFX_ROW; g.fillRect(x, 830, tw, 130); g.fillStyle = col; g.fillRect(x, 830, tw, 6);
+    k.text(lab, x + tw / 2, 870, { size: 22, weight: 700, color: '#A9B2C3', align: 'center', max: tw - 16, fam: k.body });
+    k.text(val, x + tw / 2, 920, { size: 54, weight: 800, color: val === 'P1' ? '#F3D98B' : '#FFFFFF', align: 'center', max: tw - 16 }); });
+  // why, and who else
+  const why = kind === 'dots' ? `Driver of the Day in ${listJoin(pick.SR.dotd.filter(x => x.id === id).map(x => x.r.name))}.`
+    : pick.reasons.length ? pick.reasons.map(x => x[0].toUpperCase() + x.slice(1)).join(' · ') : `${ordWord(pick.finish)} at the flag`;
+  k.text(why, GFX_W / 2, 1000, { size: 26, weight: 500, color: '#D0D6E2', align: 'center', max: GFX_W - 100, fam: k.body });
+  const others = kind === 'dots' ? Object.values(pick.SR.by).filter(o => o.id !== id && o.dotd).sort((a, b) => b.dotd - a.dotd || b.avg - a.avg).slice(0, 3).map(o => ({ id: o.id, v: String(o.dotd) }))
+    : Object.values(raceRatings(s, ri)).filter(x => !x.dnf && x.id !== id).sort((a, b) => b.rating - a.rating).slice(0, 3).map(o => ({ id: o.id, v: o.rating.toFixed(1) }));
+  k.text(kind === 'dots' ? 'RUNNERS-UP' : 'ALSO RATED', 60, 1060, { size: 24, weight: 800, color: '#A9B2C3', fam: k.body });
+  for (let j = 0; j < others.length; j++) {
+    const o = others[j]; const y = 1085 + j * 78; const t2 = (kind === 'dotd' ? teamAt(s, o.id, ri) : null) || teamOf(s, o.id); const c2 = t2?.color || '#5E6A82'; const ink = contrastInk(c2);
+    g.fillStyle = c2; g.beginPath(); g.roundRect(60, y, GFX_W - 120, 66, 10); g.fill();
+    await gfxLogo(g, k, c, t2, 76, y + 10, 90, 46, ink);
+    const p2 = driverPhoto(c, o.id); if (p2) await k.img(p2, 180, y, 66, 66, { cover: true });
+    k.text(gfxLast(s, o.id), 270, y + 33, { size: 34, weight: 800, color: ink, max: 520 });
+    g.fillStyle = kind === 'dots' ? goldFill(g, GFX_W - 190, y + 10, 110, 46) : '#22D04A'; g.beginPath(); g.roundRect(GFX_W - 190, y + 10, 110, 46, 8); g.fill();
+    k.text(o.v, GFX_W - 135, y + 33, { size: 32, weight: 800, color: '#0B1A0B', align: 'center' });
+  }
+  return cv;
+}

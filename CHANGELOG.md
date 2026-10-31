@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.17.1
+
+**3.17.1:** the **Driver of the Day** and **Driver of the Season** cards are in the story-graphics style: portrait 1080 × 1350 with your logo, the driver faded in behind in their team's colour, their name, the rating in its green box (the number of awards in gold for the season), their figures (grid, finish, car pace and qualifying; or average rating, last five and races rated), why they won it, and the runners-up below.
+
 ## 3.17.0
 
 **3.17.0: story graphics.** Stories now carry F1-style graphics, drawn as images you can save (click one, then **Save image**; 1080 × 1350, sized for social posts):
