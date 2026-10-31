@@ -494,8 +494,11 @@ function dotdStory(c, s, i, dd, mem, { name, last, tName }) {
   const R = raceRatings(s, i);
   const runners = Object.values(R).filter(x => !x.dnf && x.id !== dd.id).sort((a, b) => b.rating - a.rating).slice(0, 3);
   const repeat = mem.run(dd.id).dotd;
-  const headline = dd.rating >= 9.5 ? choose(rnd, [`${last(dd.id)} drive of the season so far in ${r.name}`, `A near-perfect ${r.name} from ${last(dd.id)}`])
-    : choose(rnd, [`${last(dd.id)} is Driver of the Day in ${r.name}`, `${r.name}: Driver of the Day goes to ${last(dd.id)}`]);
+  // their drive of the season: better than every earlier rating they've had this year
+  const before = []; for (let j = 0; j < i; j++) { const v = raceRatings(s, j)?.[dd.id]; if (v) before.push(v.rating); }
+  const best = before.length > 0 && dd.rating > Math.max(...before);
+  const headline = best ? choose(rnd, [`${last(dd.id)}’s drive of the season`, `${r.name}: ${last(dd.id)}’s drive of the season`, `Drive of the season: ${last(dd.id)} in ${r.name}`])
+    : choose(rnd, [`${last(dd.id)} voted Driver of the Day`, `${last(dd.id)} voted Driver of the Day in ${r.name}`, `Fans vote ${last(dd.id)} Driver of the Day`, `${r.name}: ${last(dd.id)} is the fans’ Driver of the Day`]);
   const body = [
     `Pitwall rates the drive ${dd.rating.toFixed(1)} out of 10.${dd.grid ? ` From ${ordWord(dd.grid)} on the grid to ${ordWord(dd.finish)} at the flag.` : ` ${ordWord(dd.finish)[0].toUpperCase() + ordWord(dd.finish).slice(1)} at the flag.`}`,
     repeat ? `It is ${repeat + 1 >= 3 ? `a ${ordWord(repeat + 1)} straight award` : 'back-to-back awards'} for ${last(dd.id)}.` : '',

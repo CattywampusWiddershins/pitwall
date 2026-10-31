@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.18.2
+
+**3.18.2: Driver of the Day, shown in the story.**
+
+- The Driver of the Day and Driver of the Season cards appear under their stories, like the other graphics; click one to save it.
+- Driver of the Day headlines say the driver was voted Driver of the Day (*Verstappen voted Driver of the Day*, *Fans vote Verstappen Driver of the Day*), and call it their drive of the season only when it beats every rating they've had that year.
+
 ## 3.18.1
 
 **3.18.1: F1 Fan Voice gets its own tab.**

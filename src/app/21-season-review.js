@@ -747,6 +747,8 @@ function storyGfx(s, x) {
   if (x.kind === 'race' && x.results) out.push({ type: 'results', k: 'R', ...base }, { type: 'standings', kind: 'driver', ...base }, { type: 'standings', kind: 'team', ...base });
   if (x.fanVoice?.race?.length) out.push({ type: 'ratings', rows: x.fanVoice.race.slice(0, 10).map(o => ({ id: o.id, rating: +o.rating.toFixed(1) })), ...base });
   if (x.fanVoice?.season?.length) out.push({ type: 'ratings', season: true, rows: x.fanVoice.season.slice(0, 10).map(o => ({ id: o.id, rating: +o.rating.toFixed(1) })), ...base });
+  if (x.dotd) out.push({ type: 'award', kind: 'dotd', ...base });
+  if (x.dots) out.push({ type: 'award', kind: 'dots', ...base });
   for (const who of x.permGfx?.who || []) out.push({ type: 'perm', kind: x.permGfx.kind, stage: x.permGfx.stage || '', who, ...base });
   return out;
 }
@@ -775,7 +777,7 @@ function storyHtml(c, s, x, lead = false) {
       : `<blockquote>${avatar(c, s, o.id, 30)}<div><p>“${esc(o.text)}”</p><cite>${esc(dName(s, o.id))}${o.real ? ' · from your interview' : ''}</cite></div></blockquote>`).join('')}</div>` : ''}
     ${x.media ? `<div><button class="btn sm ghost" data-act="nav" data-view="media">Read the full interview</button></div>` : ''}
     ${storyReplay(s, x)}
-    ${x.dotd ? `<div><button class="btn sm ghost" data-act="award-card" data-kind="dotd" data-ri="${x.dotd.ri}">${ICON.camera} Image</button></div>` : x.dots ? `<div><button class="btn sm ghost" data-act="award-card" data-kind="dots">${ICON.camera} Image</button></div>` : ''}
+    ${has('award') ? '' : x.dotd ? `<div><button class="btn sm ghost" data-act="award-card" data-kind="dotd" data-ri="${x.dotd.ri}">${ICON.camera} Image</button></div>` : x.dots ? `<div><button class="btn sm ghost" data-act="award-card" data-kind="dots">${ICON.camera} Image</button></div>` : ''}
     ${x.rumour ? `<div class="row" style="gap:6px"><span class="muted" style="font-size:12px">Your rumour.${x.rumour.status === 'open' ? ' If it comes true, make it official in Transfers.' : ''}</span>${x.rumour.status === 'open' && trPick(c, x.rumour.driver) ? `<button class="btn sm" data-act="tr-rumour" data-id="${x.rumour.id}">Make it official</button>` : ''}<button class="btn sm ghost danger" data-act="rm-del" data-id="${x.rumour.id}">Delete</button></div>` : ''}
   </article>`;
 }
