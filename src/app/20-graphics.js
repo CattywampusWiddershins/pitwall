@@ -375,12 +375,83 @@ function titleTally(c, s, kind, id) {
 }
 const _up = (t) => String(t).toUpperCase();
 const _num = (n) => n <= 10 ? _up(numWord(n)) : String(n);
+/* --- what makes a drivers' title remarkable, from every champion since 1950 (the Hall of Fame) and the career's */
+/** The champions before season s, oldest first: { year, key, team, root } (root: the team's id, career seasons only). */
+function titleTimeline(c, s) {
+  const first = c.seasons[0]?.year ?? s.year;
+  const out = D.CHAMPIONS.filter(([y]) => y < first).map(([year, key, team]) => ({ year, key, team: team || '', root: null }));
+  for (const se of c.seasons.slice(0, s.index)) { const id = _champ(se, 'driver'); if (id) { const t = teamOf(se, id); out.push({ year: se.year, key: id, team: t?.name || '', root: t ? _root(t.id) : null }); } }
+  return out;
+}
+/**
+ * The facts a driver's title would carry (or carries), most remarkable first. Each: { score, won, pre, line, ahead }:
+ * won and pre are the graphic's words once it's won and while it's within reach, line and ahead the same in a sentence.
+ * Records broken rank highest, then records equalled, then a nation's firsts and long waits, a team's, and titles in a
+ * row; the last fact is the plain one (score 0), for a title with nothing remarkable about it.
+ */
+function driverTitleFacts(c, s, id, ri, rnd = Math.random) {
+  const TL = titleTimeline(c, s); const norm = (x) => String(x || '').trim().toLowerCase();
+  const natOf = (k) => D.CHAMP_BIO[k]?.nat || gfxNat(c, k) || '';
+  const nameOf = (k) => D.CHAMP_BIO[k]?.name || (k === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : dName(s, k) || anyName(k));
+  const nat = natOf(id).trim(), ADJ = _up(nat), L = lastName(dName(s, id) || id), full = dName(s, id) || L;
+  const n = TL.filter(x => x.key === id).length + 1;
+  // titles in a row: theirs coming in, and the longest anyone has had
+  let streak = 0; for (let j = TL.length - 1, yr = s.year - 1; j >= 0 && TL[j].key === id && TL[j].year === yr; j--, yr--) streak++;
+  let recS = 0, run = 0; TL.forEach((x, j) => { run = j && TL[j - 1].key === x.key && TL[j - 1].year === x.year - 1 ? run + 1 : 1; recS = Math.max(recS, run); });
+  const counts = {}; TL.forEach(x => { counts[x.key] = (counts[x.key] || 0) + 1; });
+  const rec = Math.max(0, ...Object.entries(counts).filter(([k]) => k !== id).map(([, v]) => v));
+  const recBy = Object.keys(counts).filter(k => k !== id && counts[k] === rec).map(nameOf);
+  // their nation's titles: how many, by whom, and how long ago
+  const natTL = nat ? TL.filter(x => norm(natOf(x.key)) === norm(nat)) : [];
+  const natOthers = [...new Set(natTL.map(x => x.key))].filter(k => k !== id);
+  const natBest = Math.max(0, ...natOthers.map(k => counts[k])); const natBestBy = natOthers.filter(k => counts[k] === natBest).map(nameOf);
+  const lastNat = natTL[natTL.length - 1];
+  // their team's drivers' titles
+  const tm = teamAt(s, id, ri) || teamOf(s, id); const tn = norm(tm?.name);
+  const ofTeam = (x) => x.root ? x.root === _root(tm?.id) : !!tn && x.team.split('/').map(norm).some(p => p && (tn.includes(p) || p.includes(tn)));
+  const teamTL = tm ? TL.filter(ofTeam) : []; const lastTeam = teamTL[teamTL.length - 1]; const TEAM = _up(tm?.name || '');
+  const NUM = _num(n), ORD = _up(ordWord(n)), sN = streak + 1, F = [];
+  if (n > 1 && n > rec) F.push({ score: 100, won: `FIRST ${NUM}-TIME CHAMPION`, pre: choose(rnd, [`AN HISTORIC ${ORD} AWAITS`, `A RECORD ${ORD} AWAITS`, `THE RECORD BOOK AWAITS`]),
+    line: `${L} is the first driver ever to win ${n} world titles, passing ${listJoin(recBy)}.`, ahead: `A title would make ${L} the first driver ever to win ${n}, one more than ${listJoin(recBy)}.` });
+  else if (n > 1 && n === rec) F.push({ score: 90, won: `RECORD-EQUALLING ${NUM}-TIME CHAMPION`, pre: choose(rnd, [`A RECORD-EQUALLING ${ORD} AWAITS`, `LEVEL WITH THE GREATEST`]),
+    line: `${L} joins ${listJoin(recBy)} on a record ${n} titles.`, ahead: `A title would put ${L} level with ${listJoin(recBy)} on a record ${n}.` });
+  if (sN >= 2 && sN > recS) F.push({ score: 95, won: `A RECORD ${_num(sN)} IN A ROW`, pre: `A RECORD ${_num(sN)} IN A ROW AWAITS`,
+    line: `No driver had ever won ${sN} titles in a row.`, ahead: `Nobody has won ${sN} titles in a row: the record is ${recS}.` });
+  else if (sN >= 2 && sN === recS) F.push({ score: 85, won: `${_num(sN)} IN A ROW · RECORD EQUALLED`, pre: `A RECORD-EQUALLING ${_num(sN)} IN A ROW AWAITS`,
+    line: `${sN} titles in a row equals the record.`, ahead: `${sN} in a row would equal the record.` });
+  else if (sN >= 2) F.push({ score: 50, won: sN === 2 ? 'BACK-TO-BACK CHAMPION' : `${_num(sN)} IN A ROW`, pre: sN === 2 ? choose(rnd, ['BACK-TO-BACK AWAITS', 'TWO IN A ROW AWAITS']) : `${_num(sN)} IN A ROW AWAITS`,
+    line: `It is ${L}’s ${ordWord(sN)} title in a row.`, ahead: `${L} is going for ${numWord(sN)} titles in a row.` });
+  if (nat && !natTL.length) F.push({ score: 80, won: `FIRST ${ADJ} WORLD CHAMPION`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `${ADJ} HISTORY AWAITS`, 'A NATION HOLDS ITS BREATH']),
+    line: `${L} is the first ${nat} world champion.`, ahead: `No ${nat} driver has ever been world champion.` });
+  // a nation with few champions (people, not titles: Max's four still leave the Netherlands one champion), on a first title only
+  else if (nat && natOthers.length < 3 && n === 1) F.push({ score: 70, won: `${_up(ordWord(natOthers.length + 1))} ${ADJ} WORLD CHAMPION`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `${ADJ} HISTORY AWAITS`]),
+    line: `${L} is only the ${ordWord(natOthers.length + 1)} ${nat} world champion, after ${listJoin(natOthers.map(k => `${nameOf(k)} (${TL.filter(x => x.key === k).map(x => x.year).join(', ')})`))}.`,
+    ahead: `${L} would be only the ${ordWord(natOthers.length + 1)} ${nat} world champion, after ${listJoin(natOthers.map(nameOf))}.` });
+  else if (nat && lastNat && s.year - lastNat.year >= 15) F.push({ score: 68, won: `FIRST ${ADJ} CHAMPION SINCE ${lastNat.year}`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `A ${s.year - lastNat.year}-YEAR WAIT COULD END`, `${ADJ} GLORY AWAITS`]),
+    line: `${L} is the first ${nat} champion since ${nameOf(lastNat.key)} in ${lastNat.year}.`, ahead: `${nat} fans have waited ${s.year - lastNat.year} years, since ${nameOf(lastNat.key)} in ${lastNat.year}.` });
+  if (nat && natBest >= 1 && n > natBest && n - 1 <= natBest) F.push({ score: natOthers.length < 3 ? 66 : 60, won: `THE MOST SUCCESSFUL ${ADJ} CHAMPION`, pre: `${ADJ} HISTORY AWAITS`,
+    line: `With ${n} titles, ${L} passes ${listJoin(natBestBy)} as the most successful ${nat} champion.`, ahead: `A ${ordWord(n)} title would take ${L} past ${listJoin(natBestBy)} as the most successful ${nat} champion.` });
+  if (tm && !teamTL.length) F.push({ score: 75, won: `${TEAM}’S FIRST WORLD CHAMPION`, pre: choose(rnd, [`${TEAM}’S FIRST CROWN AWAITS`, `A FIRST FOR ${TEAM}`]),
+    line: `${L} is ${tm.name}’s first world champion.`, ahead: `${tm.name} has never had a world champion.` });
+  else if (tm && lastTeam && s.year - lastTeam.year >= 10) F.push({ score: 58, won: `${TEAM}’S FIRST CHAMPION SINCE ${lastTeam.year}`, pre: `${TEAM} DREAMS AGAIN`,
+    line: `${L} is ${tm.name}’s first champion since ${nameOf(lastTeam.key)} in ${lastTeam.year}.`, ahead: `${tm.name} has not had a champion since ${nameOf(lastTeam.key)} in ${lastTeam.year}.` });
+  F.sort((a, b) => b.score - a.score);
+  F.push({ score: 0, won: n === 1 ? 'WORLD CHAMPION' : `${NUM}-TIME WORLD CHAMPION`, pre: n === 1 ? choose(rnd, ['HISTORY AWAITS', 'A FIRST TITLE AWAITS', 'ONE STEP FROM HISTORY']) : choose(rnd, [`A ${ORD} TITLE AWAITS`, n === 2 ? 'A SECOND CROWN AWAITS' : `TITLE NUMBER ${NUM} AWAITS`]),
+    line: n === 1 ? `It is ${L}’s first world title.` : `It is ${L}’s ${ordWord(n)} world title.`, ahead: n === 1 ? `${full} is chasing a first world title.` : `${full} is chasing a ${ordWord(n)} title.` });
+  return { n, streak, facts: F };
+}
 /** What a title graphic says: { small, big, sub }. mode pre (it can be won) or won. */
 function titleWords(c, s, { kind, ri, stage, mode, ids }) {
   const r = activeRounds(s)[ri]; const team = kind === 'team'; const rnd = seeded(`${s.index}-${r.id}-${kind}-${mode}-${stage}`);
   const where = `${_up(r.name)} ${stage === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}`;
   const nm = (id) => team ? _up(s.teams.find(t => t.id === id)?.name || id) : gfxLast(s, id);
   const full = (id) => team ? nm(id) : _up(dName(s, id) || id);
+  // a driver: led by the most remarkable thing about the title, with the next one underneath
+  if (!team && (mode === 'won' || ids.length === 1)) {
+    const [top, next] = driverTitleFacts(c, s, ids[0], ri, rnd).facts;
+    if (mode === 'won') return { small: full(ids[0]), big: top.won, sub: next && next.score ? `${next.won}  ·  ${s.year} WORLD CHAMPION` : `${s.year} FORMULA 1 WORLD CHAMPION  ·  CROWNED IN THE ${where}` };
+    return { big: top.pre, sub: `${nm(ids[0])} CAN BE CHAMPION IN THE ${where}` };
+  }
   const T = titleTally(c, s, kind, ids[0]);
   if (mode === 'won') {
     const n = T.n + 1;

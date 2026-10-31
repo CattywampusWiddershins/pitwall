@@ -505,6 +505,7 @@ function buildStories(c, s) {
         body: SDT ? [SDT.scene, SDT.needs.join(' '), SDT.race.join(' '), `${SDT.outcome} ${last(A0.id)} finished the year with ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} for ${tName(A0.id)}.`] : [atFinal ? `The title went down to the last race${rivals.length >= 2 ? `, with ${listJoin([A0.id, ...rivals.map(x => x.id)].map(id => name(id)))} all still able to win it` : ''}. ${last(A0.id)} arrived ${dB.rows[0].id === A0.id ? `leading by ${plural(dB.margin, 'point')}` : `${plural(dB.rows[0].pts - (dB.rows.find(x => x.id === A0.id)?.pts || 0), 'point')} behind ${name(dB.rows[0].id)}`} and left as champion.` : '',
           `${last(A0.id)} has ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} this season for ${tName(A0.id)}, ${plural(dA.margin, 'point')} clear of ${name(A1.id)}.`].filter(Boolean),
         quotes: SDT ? (() => { const qw = phrasebook(rnd); return [...(A0.id === PLAYER ? [] : [{ id: A0.id, text: qw('won', SHOWDOWN_QUOTES.won) }]), ...SDT.losers.filter(d => d !== PLAYER).map(d => ({ id: d, text: qw('lost', SHOWDOWN_QUOTES.lost) }))]; })() : A0.id === PLAYER ? [] : [{ id: A0.id, text: choose(rnd, atFinal ? ['I can’t breathe. That was the longest race of my life.', 'To do it at the last race, under that pressure… this is everything.', ...QUOTES.champion] : QUOTES.champion) }] });
+      { const F = driverTitleFacts(c, s, A0.id, i, rnd).facts.filter(f => f.score); const w = out.find(o => o.id === rid + 'wdc'); if (w && F.length) w.body.push(F.slice(0, 2).map(f => f.line).join(' ')); }
       const T = titleRetro(c, s, 'driver'); if (T && T.dec.i === i) out.push(titleRetroStory(c, s, T));
     } else if (i > 0 && A0.id !== B0.id) {
       out.push({ id: rid + 'lead', seq: i * 10 + 5, kind: 'title', i, r, subject: A0.id, outlet: outletFor(rnd), kicker: 'Championship', headline: `${last(A0.id)} takes over at the top of the championship`,
@@ -783,7 +784,7 @@ function contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, seq) 
   return { id: `${s.index}-${r.id}-${kind}ct${x.id}${stage}`, seq, kind: 'preview', i, r, subject: team ? null : x.id, outlet: choose(rnd, D.OUTLETS), kicker: 'Title decider · The contenders',
     headline: choose(rnd, [`${who}: the road to ${r.name}`, `How ${who} got here`, team ? `The contenders: ${who}` : `The contender: ${full}`]),
     standfirst: `${full} ${team ? 'arrive' : 'arrives'} in ${r.name} ${lead}, with ${plural(wins, 'win')} and ${plural(pods, 'podium')} from ${plural(raced, 'race')}.`,
-    body: [`${chase}.`,
+    body: [team ? `${chase}.` : driverTitleFacts(c, s, x.id, i, rnd).facts.filter((f, j) => j === 0 || f.score).slice(0, 2).map(f => f.ahead).join(' '),
       team ? '' : winAt.length ? `Wins this year: ${listJoin(winAt)}.` : `${who} is yet to win this season.`,
       poles ? `${plural(poles, 'pole position')} so far.` : '',
       form.length ? `The last ${numWord(form.length)} races: ${form.join(', ')}.` : '',

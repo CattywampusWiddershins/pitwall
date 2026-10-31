@@ -2,6 +2,17 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.21.0
+
+**3.21.0: titles that know their history.**
+
+- **Drivers' title graphics and stories** now lead with what makes a title remarkable, worked out from every champion since 1950 (the Hall of Fame) and your career's:
+  - records broken (*First eight-time champion*, *A record six in a row*) and equalled (*Record-equalling seven-time champion*);
+  - a nation's firsts (*First Monégasque world champion*, *Carrying Monégasque hopes*), its few champions (*Third German world champion*: counted by people, so Max's titles still leave the Netherlands one) and long waits (*First Spanish champion since 2006*);
+  - the most successful driver of a nation, and a team's first champion or first in a long time (*McLaren's first champion since 2008*);
+  - titles in a row (*Back-to-back champion*, *Four in a row*).
+- The most remarkable fact leads, the next sits underneath; a title with nothing remarkable keeps the plain words (*Five-time world champion*). The champion's and the contenders' stories say the same in a sentence.
+
 ## 3.20.3
 
 - **Constructors' title graphics**: the team's logo, huge and faded, behind its two drivers; in a two-team decider each pair stands together, back to back with the other (no logos there, to keep it clean). They use the constructors' trophy with the same versions as the drivers' graphics.
