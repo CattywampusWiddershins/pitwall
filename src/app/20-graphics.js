@@ -307,12 +307,18 @@ async function gfxPerm(g, k, c, s, { kind, ri, who, stage = '' }) {
   g.fillStyle = GFX_RED; g.fillRect(0, 34, 390, 14); g.fillRect(0, 56, 390, 14); g.fillRect(GFX_W - 390, 34, 390, 14); g.fillRect(GFX_W - 390, 56, 390, 14);
   if (!(state.gfxLogo && await k.img(state.gfxLogo, 410, 18, 260, 66))) k.text('PITWALL', GFX_W / 2, 52, { size: 46, weight: 800, align: 'center' });
   const name = team ? tm.name.toUpperCase() : gfxLast(s, who);
-  const fig = !team && await gfxBody(c, who);
-  if (fig) { gfxGlow(g, 200, 560, 380, col); await gfxFigure(g, fig, { cx: 200, top: 250, bottom: GFX_H, frac: 0.6, face: 'right' }); }
+  // the driver, or a team's two drivers (the second a step behind), standing beside the table
+  const pair = team ? await Promise.all((tm?.drivers || []).filter(Boolean).slice(0, 2).map(id => gfxBody(c, id))) : [];
+  const fig = team ? pair.some(Boolean) : await gfxBody(c, who);
+  if (fig) {
+    gfxGlow(g, 200, 560, 380, col);
+    if (team) { const [a, b] = pair; if (b) await gfxFigure(g, b, { cx: 270, top: 300, bottom: GFX_H, frac: 0.62, face: 'right' }); if (a) await gfxFigure(g, a, { cx: b ? 140 : 200, top: 250, bottom: GFX_H, frac: 0.6, face: 'right' }); }
+    else await gfxFigure(g, fig, { cx: 200, top: 250, bottom: GFX_H, frac: 0.6, face: 'right' });
+  }
   const hx = fig ? 725 : GFX_W / 2, hw = fig ? 640 : GFX_W - 80; // the name and the table sit beside the figure
   k.text(P.final ? 'TITLE PERMUTATIONS' : team ? 'CONSTRUCTORS’ TITLE' : 'TITLE DECIDER', GFX_W / 2, 140, { size: 70, weight: 800, align: 'center', max: GFX_W - 80 });
   k.text(`${r.name.toUpperCase()} ${stage === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}  ·  ROUND ${ri + 1}${stage === 'race' ? '  ·  AFTER THE SPRINT' : ''}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
-  if (team) await gfxLogo(g, k, c, tm, GFX_W / 2 - 160, 236, 320, 70, '#FFFFFF');
+  if (team) await gfxLogo(g, k, c, tm, hx - 160, 236, 320, 70, '#FFFFFF');
   k.text(name, hx, team ? 340 : 290, { size: team ? 72 : 96, weight: 900, align: 'center', max: hw });
   k.text(`${t.x.pts} POINTS  ·  ${t.x.gap ? `${t.x.gap} BEHIND` : m.rows[1] && t.x.pts > m.rows[1].pts ? `${t.x.pts - m.rows[1].pts} AHEAD` : 'LEVEL ON POINTS'}`, hx, team ? 400 : 360, { size: 30, weight: 600, color: '#D0D6E2', align: 'center', max: hw });
   // the table: their result, then each rival's
