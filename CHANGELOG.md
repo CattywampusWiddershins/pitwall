@@ -4,7 +4,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 3.20.3
 
-- **Constructors' title graphics**: the team's logo, huge and faded, behind its two drivers; in a two-team decider each pair stands together, back to back with the other, each under its own logo. They use the constructors' trophy with the same versions as the drivers' graphics.
+- **Constructors' title graphics**: the team's logo, huge and faded, behind its two drivers; in a two-team decider each pair stands together, back to back with the other (no logos there, to keep it clean). They use the constructors' trophy with the same versions as the drivers' graphics.
 - **Your logo in the app**: the logo uploaded in Settings → Story graphics (F1's, say) takes the place of Pitwall's mark in the sidebar and top bar.
 
 ## 3.20.2

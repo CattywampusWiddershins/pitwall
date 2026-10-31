@@ -426,8 +426,8 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   for (let yy = 110; yy < 420; yy += 22) for (let xx = W - 300; xx < W; xx += 22) { const d = Math.hypot(W - xx, yy - 110) / 380; if (d < 1) { g.beginPath(); g.arc(xx, yy, 5 * (1 - d), 0, 7); g.fill(); } }
   if (won) { const rnd = seeded(`${s.index}-${ri}-confetti`); for (let i = 0; i < 70; i++) { g.save(); g.translate(rnd() * W, rnd() * H * 0.7); g.rotate(rnd() * 3); g.fillStyle = `rgba(${rnd() < 0.5 ? '243,217,139' : '255,255,255'},${0.35 + rnd() * 0.5})`; g.fillRect(-7, -3, 14, 6); g.restore(); } }
   g.restore();
-  // a team's logo, large and faded behind its drivers
-  if (team) for (const tid of ids) {
+  // one team: its logo, large and faded behind its drivers (with more teams it would clutter)
+  if (team && ids.length === 1) for (const tid of ids) {
     const at = lay.filter((p, i) => figs[i]?.tm?.id === tid); if (!at.length) continue;
     const cx = at.reduce((a, p) => a + p.cx, 0) / at.length, bw = ids.length === 1 ? 1500 : ids.length === 2 ? 760 : 420, bh = ids.length === 1 ? 900 : bw * 0.7, tm = s.teams.find(t => t.id === tid), ly = ids.length === 1 ? 460 : 380; // huge, spilling past the edges
     const lim = teamLogoUrl(c, tid) && await loadImg(teamLogoUrl(c, tid));
