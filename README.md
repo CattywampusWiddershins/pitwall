@@ -25,7 +25,7 @@ Your careers and settings live in your user folder, so updating, uninstalling or
 - **Weekend tools:** fuel to carry from your practice laps, strategy from practice, tyre allocation, qualifying and race forecasts, race pace, and an ERS boost planner on your own track map.
 - **Stories and media:** F1-style graphics for standings, results, ratings and title permutations (saved as images), race reports, season reviews, title showdowns, incidents with driver reactions, rumours, rivalries and press conferences (optionally written by AI).
 - **Stats:** standings and a title forecast, head to head, career stats, driver and team pages with real career totals, circuits, the Hall of Fame and the record book.
-- **Your look:** team-colour themes, driver photos, team logos and car pictures included (replace any with your own), and your own fonts.
+- **Your look:** four styles (Classic, Broadcast, Paddock and Livery) with team-colour themes, driver photos, team logos and car pictures included (replace any with your own), and your own fonts.
 - **Phone and tablet:** an Android app and browser access over Wi-Fi, in sync with the PC.
 
 **Window size.** The desktop app fills the window, and a window wider than 1800 (in Windows’ display-scaled pixels) also grows the text and controls, up to 160%.

@@ -8,7 +8,7 @@ const NO_PTS = D.RACE_POINTS.length + 1; // stands for "outside the points"
  * The championship as it stands, and what is left to race. `upto` gives the picture before that round
  * (used for previews and history); without it, the live state including a sprint already run this weekend.
  */
-function titleMath(s, kind = 'driver', upto = null) {
+function titleMath(s, kind = 'driver', upto = null, { afterSprint = false } = {}) {
   const team = kind === 'team';
   // real seasons had a point for fastest lap (2019–24) and a smaller sprint (2021)
   const fl = s.scoring?.fl || 0, spr = s.scoring?.spr || D.SPRINT_POINTS;
@@ -16,11 +16,23 @@ function titleMath(s, kind = 'driver', upto = null) {
   const st = upto == null ? seasonStatsCache(s) : seasonStats(s, upto);
   const rows = team ? constructorStandings(s, st).map(x => ({ id: x.team.id, name: x.team.name, pts: x.pts, wins: x.wins }))
     : driverStandings(s, st).map(x => ({ id: x.id, name: dName(s, x.id), pts: x.pts, wins: x.wins, posCount: x.posCount }));
+  // after round upto's sprint (its race still to come): that sprint's points on top
+  const sprintIn = afterSprint && upto != null && !!activeRounds(s)[upto]?.sprint && !!s.weekends[activeRounds(s)[upto].id]?.sessions?.SPR?.done;
+  if (sprintIn) {
+    const R0 = activeRounds(s)[upto]; const res = s.weekends[R0.id].sessions.SPR.results || [];
+    res.forEach((x, k) => {
+      const p = pointsFor('SPR', k + 1, x.st, x.pts); if (!p) return;
+      const id = team ? teamAt(s, x.d, upto)?.id : x.d; let row = rows.find(y => y.id === id);
+      if (!row && !team) rows.push(row = { id, name: dName(s, id), pts: 0, wins: 0, posCount: [] });
+      if (row) row.pts += p;
+    });
+    rows.sort((a, b) => b.pts - a.pts || b.wins - a.wins);
+  }
   const left = [];
   activeRounds(s).forEach((r, i) => {
     const w = s.weekends[r.id]?.sessions;
     if (upto != null ? i < upto : w?.R?.done) return;
-    const spr = !!r.sprint && (upto != null || !w?.SPR?.done);
+    const spr = !!r.sprint && (upto != null ? !(sprintIn && i === upto) : !w?.SPR?.done);
     left.push({ r, i, spr, max: M.R + (spr ? M.SPR : 0) });
   });
   const R = left.reduce((a, x) => a + x.max, 0);
@@ -62,7 +74,7 @@ function roundPerms(m) {
   if (exact && Rp === 0) {
     const clinch = [];
     for (const x of alive) {
-      const rivals = m.rows.filter(y => y !== x && y.pts + G >= x.pts);
+      const rivals = m.rows.filter(y => y !== x && y.alive && y.pts + G >= x.pts); // one who can outscore x but can't be champion doesn't come into it
       const table = clinchTableFinal(x, rivals);
       if (table.length) clinch.push({ x, rivals: rivals.map(y => ({ y, need: x.pts - y.pts })), table });
     }
@@ -73,9 +85,10 @@ function roundPerms(m) {
     const others = m.rows.filter(y => y !== x);
     const best = Math.max(0, ...others.map(y => y.pts));
     if (x.pts + G - best <= Rp) continue;
-    // x is champion if it beats every rival y by `need` points or more this weekend
-    const rivals = others.map(y => ({ y, need: Rp - (x.pts - y.pts) + 1 })).filter(o => o.need > -G);
-    clinch.push({ x, rivals, table: exact ? clinchTable(rivals) : null });
+    // x is champion if it beats every rival y by `need` points or more this weekend (rivals who can't be champion
+    // themselves don't come into it: they can't end up ahead of the one who would be)
+    const rivals = others.filter(y => y.alive).map(y => ({ y, need: Rp - (x.pts - y.pts) + 1 })).filter(o => o.need > -G);
+    clinch.push({ x, rivals, table: exact ? clinchTable(rivals) : m.team && !nx.spr ? teamTable(rivals, D.RACE_POINTS) : null });
   }
   const out = [];
   for (const j of alive) {
@@ -84,6 +97,55 @@ function roundPerms(m) {
     if (threats.length) out.push({ j, threats: threats.map(t => ({ ...t, table: exact ? elimTable(t.e) : null })) });
   }
   return { nx, G, Rp, exact, clinch, out, safe: alive.filter(j => !out.some(o => o.j === j)) };
+}
+/**
+ * A title that can be won in a round's sprint: who can be champion after it, whatever the race does (m: the picture
+ * before the weekend). Drivers get a table by sprint finish; teams one by the points both cars score.
+ */
+function sprintPerms(m) {
+  const nx = m.left[0]; if (!nx || m.decided || !nx.spr) return null;
+  const spr = m.s.scoring?.spr || D.SPRINT_POINTS; const G = m.team ? spr[0] + spr[1] : spr[0]; const Rp = m.R - G;
+  const clinch = [];
+  for (const x of m.rows.filter(y => y.alive)) {
+    const best = Math.max(0, ...m.rows.filter(y => y !== x).map(y => y.pts));
+    if (x.pts + G - best <= Rp) continue;
+    const rivals = m.rows.filter(y => y !== x && y.alive).map(y => ({ y, need: Rp - (x.pts - y.pts) + 1 })).filter(o => o.need > -G);
+    clinch.push({ x, rivals, table: m.team ? teamTable(rivals, spr) : clinchTableP(rivals, (p) => spr[p - 1] || 0, spr.length + 1) });
+  }
+  return { nx, G, Rp, exact: !m.team, sprint: true, clinch, out: [], safe: [] };
+}
+/** clinchTable for any points scale: pts(p) the points for finishing p, nop the place that stands for "outside the points". */
+function clinchTableP(rivals, pts, nop) {
+  const rows = [];
+  for (let p = 1; p <= nop; p++) {
+    const conds = [];
+    for (const o of rivals) {
+      const limit = pts(p) - o.need; if (limit < 0) return rows;
+      let q = 1; while (q < nop && (q === p || pts(q) > limit)) q++;
+      conds.push({ y: o.y, q: q === 1 || (q === 2 && p === 1) ? 0 : q, nop });
+    }
+    rows.push({ p, nop, conds });
+  }
+  return rows;
+}
+/**
+ * A team's clinch table by points: for each haul both cars can score (P: the points scale), the most each rival
+ * may score. [{ pts, combo, conds: [{ y, max }] }] (max null: no limit), the hauls that still win it.
+ */
+function teamTable(rivals, P) {
+  const hauls = new Map(); const n = P.length;
+  for (let a = 0; a <= n; a++) for (let b = a + 1; b <= n + 1; b++) { const v = (P[a] || 0) + (P[b] || 0); if (!hauls.has(v)) hauls.set(v, [a + 1, b + 1]); }
+  const all = [...hauls.keys()].sort((x, y) => y - x); const top = all[0];
+  const rows = [];
+  for (const v of all) {
+    const conds = [];
+    for (const o of rivals) {
+      const most = v - o.need; if (most < 0) return rows;
+      conds.push({ y: o.y, max: most >= top ? null : all.find(t => t <= most) ?? 0 });
+    }
+    const [a, b] = hauls.get(v); rows.push({ pts: v, combo: `${a > n ? '–' : a}-${b > n ? '–' : b}`, conds });
+  }
+  return rows;
 }
 function clinchTable(rivals) {
   const rows = [];
@@ -794,3 +856,15 @@ function driverOfTheSeason(s) {
   return top ? { ...top, final: roundsDone(s) === activeRounds(s).length, SR } : null;
 }
 const ratingColor = (v) => v >= 9 ? 'var(--purple)' : v >= 8 ? 'var(--green)' : v >= 6.5 ? 'var(--fg)' : v >= 5 ? 'var(--yellow)' : 'var(--red)';
+/** The permutations of a sprint, or of the constructors' title, in words (the text version of their graphics). */
+function tablePermsHtml(m, P) {
+  const nm = (y) => esc(y.name); const posW = (q, nop) => q >= nop ? 'outside the points' : 'P' + q;
+  return P.clinch.filter(t => t.table?.length).map(t => {
+    const lines = t.table.map(row => {
+      const head = row.p != null ? `${row.p >= row.nop ? 'Outside the points' : 'P' + row.p}` : `${row.pts} points (${row.combo})`;
+      const conds = row.conds.map(o => row.p != null ? (o.q ? `${nm(o.y)} ${posW(o.q, o.nop)} or lower` : null) : o.max != null ? `${nm(o.y)} no more than ${o.max}` : null).filter(Boolean);
+      return `<li><b>${head}</b>: ${conds.length ? conds.join(', ') : 'champion whatever the others do'}</li>`;
+    });
+    return `<p><b>${nm(t.x)}</b> ${m.team ? 'are' : 'is'} champion${P.sprint ? ' after the sprint' : ''} if ${m.team ? 'they score' : 'they finish'}:</p><ul class="perm-list">${lines.join('')}</ul>`;
+  }).join('');
+}

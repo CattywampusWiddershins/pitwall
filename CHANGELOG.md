@@ -2,6 +2,17 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.18.0
+
+**3.18.0: looks, and permutations for every title.**
+
+- **Looks** (Settings → Look): **Classic** (Pitwall as it has always been), **Broadcast** (F1's TV graphics: near-black, red stripes, bold capitals, angled buttons, the banner as a team-colour slab), **Paddock** (light and editorial: white cards, black and red) and **Livery** (your team's colour is the whole look, with its livery stripes in the second colour). Each takes the team colours from the theme and uses your fonts. In the new looks the standings open with the top three as podium cards, as in the results graphics.
+- **Constructors' permutations** get their graphic too: a table by the points both cars score (*If McLaren score 43 points (1-2)*) against the most each rival may score.
+- **Sprint weekends**: a title that can be won in the sprint gets its own preview and graphic before the sprint (by sprint finish); after the sprint, the race's permutations come with the sprint's points in, and a title settled in the sprint is told as one ("sealed the title in the Qatar sprint, with the Grand Prix still to come"). They used to fall back to text, as the sprint and race together can only compare points totals.
+- **Permutations leave out drivers who can't be champion**: a driver who could finish ahead but can't win the title no longer appears in a contender's table.
+- **Season ratings**: the Fan Voice story has a second graphic, the season's average ratings so far. Stories show the old tables only where a graphic can't be made.
+- The permutation, Driver of the Day and Driver of the Season cards no longer have the driver's photo faded behind (it can come back later).
+
 ## 3.17.1
 
 **3.17.1:** the **Driver of the Day** and **Driver of the Season** cards are in the story-graphics style: portrait 1080 × 1350 with your logo, the driver faded in behind in their team's colour, their name, the rating in its green box (the number of awards in gold for the season), their figures (grid, finish, car pace and qualifying; or average rating, last five and races rated), why they won it, and the runners-up below.

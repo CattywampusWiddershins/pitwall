@@ -25,6 +25,19 @@ function activeTheme() {
   return D.THEMES[pref] || D.THEMES.classic;
 }
 const THEME_VARS = ['--bg', '--panel', '--panel-2', '--panel-3', '--line', '--rail'];
+/*
+  Looks: the app's style, chosen in Settings, each working with the team colours of the theme. Classic is Pitwall as
+  it has always been; Broadcast takes F1's TV graphics (near-black, red stripes, heavy capitals, team-colour bars);
+  Paddock is light and editorial; Livery makes the team colour the whole look. Each uses your fonts.
+*/
+const UI_STYLES = [
+  ['classic', 'Classic', 'Pitwall as it has always been: the blue-black timing screen, tinted by your team'],
+  ['broadcast', 'Broadcast', 'F1’s TV graphics: near-black, red stripes, bold capitals and team-colour bars'],
+  ['paddock', 'Paddock', 'Light and editorial, like F1’s website: easy to read in daylight and on a phone'],
+  ['livery', 'Livery', 'Your team’s colour is the whole look, with its livery stripes'],
+];
+const uiStyle = () => UI_STYLES.some(x => x[0] === state.uiStyle) ? state.uiStyle : 'classic';
+const LOOK_PALETTES = { broadcast: ['#15151E', '#1F1F27', '#26262F', '#2E2E38', '#363642', '#0E0E14'], paddock: ['#F4F4F1', '#FFFFFF', '#F7F7F4', '#EDEDE8', '#DCDCD5', '#FFFFFF'] };
 /** Your uploaded fonts: a display face (headings, numbers; regular and bold) and a body face. */
 const FONT_SLOTS = [['display', 'Display (headings and numbers)', 400], ['displayBold', 'Display, bold', 700], ['body', 'Body text', 400]];
 let sysFonts = null; // fonts installed on this PC, once listed: [{ full, family }]
@@ -66,6 +79,14 @@ function applyTheme() {
   st.setProperty('--team', th.accent);
   st.setProperty('--team-ink', contrastInk(th.accent));
   st.setProperty('--team-2', th.accent2);
+  st.setProperty('--team-2-ink', contrastInk(th.accent2));
+  const look = uiStyle(); document.documentElement.dataset.style = look;
+  if (LOOK_PALETTES[look]) { THEME_VARS.forEach((v, i) => st.setProperty(v, LOOK_PALETTES[look][i])); return; }
+  if (look === 'livery') { // a dark shade of the team's colour throughout
+    const base = mixHex('#06070A', th.accent, 0.17); const lift = mixHex('#FFFFFF', th.accent, 0.45);
+    const vals = [base, mixHex(base, lift, 0.07), mixHex(base, lift, 0.11), mixHex(base, lift, 0.16), mixHex(base, lift, 0.22), mixHex(base, '#000000', 0.4)];
+    THEME_VARS.forEach((v, i) => st.setProperty(v, vals[i])); return;
+  }
   if (!th.base) { THEME_VARS.forEach(v => st.removeProperty(v)); return; }
   // lift the panels from the team's dark base, with a hint of the accent so they read as one palette
   const lift = mixHex('#FFFFFF', th.accent, 0.3);

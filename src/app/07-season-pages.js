@@ -394,6 +394,17 @@ function renderTap(s, sd) {
 /* ------------------------------------------------------------- standings */
 /** The tabs along the top of Standings (the title forecast is one of them). */
 const standingsTabs = (tab) => `<div class="seg">${[['drivers', 'Drivers'], ['constructors', 'Constructors'], ['progress', 'Progress'], ['grid', 'Results grid'], ['forecast', 'Title forecast']].map(([id, l]) => `<button data-act="standings-tab" data-tab="${id}" class="${tab === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+/** The top three as podium cards (second, first, third), as in the results graphics: the new looks only. */
+function standingsPodium(c, s, rows, team) {
+  if (uiStyle() === 'classic' || rows.length < 3) return '';
+  const card = (x, n) => {
+    const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
+    const pic = team ? (teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : '') : driverPhoto(c, x.id) ? `<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
+    const nm = team ? tm.name : lastName(dName(s, x.id));
+    return `<button class="pod-card p${n}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
+  };
+  return `<div class="podium">${card(rows[1], 2)}${card(rows[0], 1)}${card(rows[2], 3)}</div>`;
+}
 function renderStandings() {
   if (ui.standingsTab === 'forecast') return renderForecast();
   const c = career(); const s = curSeason();
@@ -442,6 +453,7 @@ function renderStandings() {
   return `<div class="page">
     <div class="page-head"><div><h1>${s.year} Standings</h1><div class="sub">After ${roundsDone(s)} of ${rounds.length} rounds</div></div>
     <div class="row">${seasonPicker(c, s.index)}${tab === 'drivers' || tab === 'constructors' ? `<div class="seg">${[['simple', 'Simple'], ['detailed', 'Detailed']].map(([v, l]) => `<button data-act="standings-detail" data-v="${v}" class="${(ui.standingsDetail || 'detailed') === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}${standingsTabs(tab)}</div></div>
+    ${tab === 'drivers' ? standingsPodium(c, s, ds, false) : tab === 'constructors' ? standingsPodium(c, s, cs, true) : ''}
     <div class="panel"><div class="panel-b tight table-wrap">${body}</div></div>
   </div>`;
 }

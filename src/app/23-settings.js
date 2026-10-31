@@ -73,6 +73,7 @@ function renderSettings() {
   return `<div class="page">
     <div class="page-head"><div><h1>Settings</h1><div class="sub">Appearance, career profile, ${s.year} roster and calendar, AI media and your data.</div></div></div>
     ${updatesPanel()}
+    ${renderLookPicker()}
     ${renderThemePicker(c, s)}
     ${fontsPanel()}
     <div class="panel"><div class="panel-h"><h2>Story graphics</h2><span class="muted" style="font-size:12px">Standings, results, ratings and permutations as images</span></div><div class="panel-b stack" style="gap:10px">
@@ -211,6 +212,13 @@ function renderCompanionPanel() {
     </tbody></table></div>` : '<p class="muted">No devices paired yet.</p>'}
     <p class="muted" style="font-size:12px">The app keeps its own copy, so it works with this computer off and syncs when they reconnect. After you update Pitwall here, the app shows a link to install its update.</p>
     <div class="row"><button class="btn" data-act="companion-enable" data-on="0">Turn off</button>${C.devices.length > 1 ? '<button class="btn ghost danger" data-act="companion-forget">Disconnect all</button>' : ''}</div>
+  </div></div>`;
+}
+/** The look of the app (a style), above the team colours it uses. */
+function renderLookPicker() {
+  const cur = uiStyle();
+  return `<div class="panel"><div class="panel-h"><h2>Look</h2><span class="muted" style="font-size:12px">The app's style; the theme below sets its colours</span></div><div class="panel-b">
+    <div class="choices look-choices">${UI_STYLES.map(([id, name, note]) => `<button class="choice ${cur === id ? 'on' : ''}" data-act="ui-style" data-v="${id}"><span class="look-mini look-${id}" aria-hidden="true"><i></i><i></i><i></i></span><b>${name}</b><small>${note}</small></button>`).join('')}</div>
   </div></div>`;
 }
 function renderThemePicker(c, s) {

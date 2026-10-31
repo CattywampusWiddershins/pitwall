@@ -39,7 +39,7 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying' }[spec.k], ratings: 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase() }[spec.type];
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying' }[spec.k], ratings: spec.season ? 'season-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase() }[spec.type];
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${esc(r?.name || '')} · ${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
@@ -170,9 +170,9 @@ async function gfxResults(g, k, c, s, { k: key, ri }) {
 }
 
 /** Driver ratings for a race: the top ten. rows: [{ id, rating }] */
-async function gfxRatings(g, k, c, s, { ri, rows }) {
+async function gfxRatings(g, k, c, s, { ri, rows, season = false }) {
   const r = activeRounds(s)[ri]; if (!rows?.length) return false;
-  await gfxFrame(g, k, 'DRIVER RATINGS', { sub: `${r.name.toUpperCase()} GRAND PRIX` });
+  await gfxFrame(g, k, 'DRIVER RATINGS', { sub: season ? `${s.year} SEASON SO FAR  ·  AVERAGE AFTER ROUND ${ri + 1}` : `${r.name.toUpperCase()} GRAND PRIX` });
   const y0 = 250, rh = 104;
   for (let i = 0; i < Math.min(10, rows.length); i++) {
     const x = rows[i]; const y = y0 + i * rh; const tm = teamAt(s, x.id, ri) || teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
@@ -190,50 +190,68 @@ async function gfxRatings(g, k, c, s, { ri, rows }) {
   }
 }
 
-/** One contender's permutations for round ri: for each finish of theirs, where each rival has to finish. */
-async function gfxPerm(g, k, c, s, { kind, ri, who }) {
-  const r = activeRounds(s)[ri]; const m = titleMath(s, kind, ri); const P = roundPerms(m);
+/**
+ * The permutations a graphic draws, for a stage of round ri: the weekend (''), the sprint on its own ('sprint') or the
+ * race after the sprint ('race'). { m, P }.
+ */
+function gfxPermsFor(s, kind, ri, stage) {
+  if (stage === 'sprint') { const m = titleMath(s, kind, ri); return { m, P: sprintPerms(m) }; }
+  if (stage === 'race') { const m = titleMath(s, kind, ri, { afterSprint: true }); return { m, P: roundPerms(m) }; }
+  const m = titleMath(s, kind, ri); return { m, P: roundPerms(m) };
+}
+/**
+ * One contender's permutations: for each finish of theirs (a driver's place; a team's points from both cars), where
+ * each rival has to finish (or the most they may score).
+ */
+async function gfxPerm(g, k, c, s, { kind, ri, who, stage = '' }) {
+  const r = activeRounds(s)[ri]; const { m, P } = gfxPermsFor(s, kind, ri, stage);
   const t = P?.clinch.find(o => o.x.id === who); if (!t?.table?.length) return false;
-  const team = kind === 'team'; const tm = team ? s.teams.find(x => x.id === who) : teamAt(s, who, ri) || teamOf(s, who);
+  const team = kind === 'team'; const byPts = t.table[0].pts != null;
+  const tm = team ? s.teams.find(x => x.id === who) : teamAt(s, who, ri) || teamOf(s, who);
   const col = tm?.color || '#5E6A82';
   g.fillStyle = GFX_BG; g.fillRect(0, 0, GFX_W, GFX_H);
-  // the contender faded in behind
   const gr = g.createLinearGradient(0, 0, GFX_W, GFX_H); gr.addColorStop(0, hexA(col, 0.55)); gr.addColorStop(0.7, hexA(col, 0.05)); g.fillStyle = gr; g.fillRect(0, 0, GFX_W, GFX_H);
-  g.save(); g.globalAlpha = 0.4;
-  if (team) { const url = teamLogoUrl(c, who); if (url) await k.img(url, 120, 280, 840, 700); }
-  else { const ph = driverPhoto(c, who); if (ph) await k.img(ph, 180, 180, 900, 1000, { cover: true }); }
-  g.restore();
-  const shade = g.createLinearGradient(0, 600, 0, GFX_H); shade.addColorStop(0, 'rgba(21,21,30,0)'); shade.addColorStop(1, 'rgba(21,21,30,0.95)'); g.fillStyle = shade; g.fillRect(0, 600, GFX_W, GFX_H - 600);
-  // the frame on top
   g.fillStyle = GFX_RED; g.fillRect(0, 34, 390, 14); g.fillRect(0, 56, 390, 14); g.fillRect(GFX_W - 390, 34, 390, 14); g.fillRect(GFX_W - 390, 56, 390, 14);
   if (!(state.gfxLogo && await k.img(state.gfxLogo, 410, 18, 260, 66))) k.text('PITWALL', GFX_W / 2, 52, { size: 46, weight: 800, align: 'center' });
   const name = team ? tm.name.toUpperCase() : gfxLast(s, who);
-  k.text(P.final ? 'TITLE PERMUTATIONS' : 'TITLE DECIDER', GFX_W / 2, 140, { size: 70, weight: 800, align: 'center' });
-  k.text(`${r.name.toUpperCase()} GRAND PRIX  ·  ROUND ${ri + 1}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center' });
-  k.text(name, GFX_W / 2, 290, { size: 96, weight: 900, align: 'center', max: GFX_W - 80 });
-  k.text(`${t.x.pts} POINTS  ·  ${t.x.gap ? `${t.x.gap} BEHIND` : m.rows[1] && t.x.pts > m.rows[1].pts ? `${t.x.pts - m.rows[1].pts} AHEAD` : 'LEVEL ON POINTS'}`, GFX_W / 2, 360, { size: 30, weight: 600, color: '#D0D6E2', align: 'center' });
-  // the table: their finish, then each rival's
+  k.text(P.final ? 'TITLE PERMUTATIONS' : team ? 'CONSTRUCTORS’ TITLE' : 'TITLE DECIDER', GFX_W / 2, 140, { size: 70, weight: 800, align: 'center', max: GFX_W - 80 });
+  k.text(`${r.name.toUpperCase()} ${stage === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}  ·  ROUND ${ri + 1}${stage === 'race' ? '  ·  AFTER THE SPRINT' : ''}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
+  if (team) await gfxLogo(g, k, c, tm, GFX_W / 2 - 160, 236, 320, 70, '#FFFFFF');
+  k.text(name, GFX_W / 2, team ? 340 : 290, { size: team ? 72 : 96, weight: 900, align: 'center', max: GFX_W - 80 });
+  k.text(`${t.x.pts} POINTS  ·  ${t.x.gap ? `${t.x.gap} BEHIND` : m.rows[1] && t.x.pts > m.rows[1].pts ? `${t.x.pts - m.rows[1].pts} AHEAD` : 'LEVEL ON POINTS'}`, GFX_W / 2, team ? 400 : 360, { size: 30, weight: 600, color: '#D0D6E2', align: 'center' });
+  // the table: their result, then each rival's
   const rivals = t.table[0].conds.map(o => o.y).slice(0, 3); const cols = 1 + rivals.length;
-  const tx = 50, tw = GFX_W - 100, cw = tw / cols; let y = 430; const hh = 96;
+  const tx = 50, tw = GFX_W - 100, cw = tw / cols; let y = team ? 450 : 430; const hh = 96;
   g.fillStyle = GFX_RED; g.fillRect(tx, y, tw, hh);
-  k.text(`IF ${name} FINISHES`, tx + cw / 2, y + hh / 2, { size: 26, weight: 800, align: 'center', max: cw - 20 });
-  rivals.forEach((o, j) => k.text(`${team ? o.name.toUpperCase() : gfxLast(s, o.id)} MUST FINISH`, tx + cw * (j + 1) + cw / 2, y + hh / 2, { size: 24, weight: 800, align: 'center', max: cw - 20 }));
-  y += hh; const rows = t.table.slice(0, 11); const rh = Math.min(70, Math.floor((GFX_H - 120 - y) / rows.length));
+  k.text(`IF ${name} ${byPts ? 'SCORE' : 'FINISHES'}`, tx + cw / 2, y + hh / 2, { size: 26, weight: 800, align: 'center', max: cw - 20 });
+  rivals.forEach((o, j) => k.text(`${team ? o.name.toUpperCase() : gfxLast(s, o.id)} MUST ${byPts ? 'SCORE' : 'FINISH'}`, tx + cw * (j + 1) + cw / 2, y + hh / 2, { size: 24, weight: 800, align: 'center', max: cw - 20 }));
+  y += hh;
+  // a team's points table can run long: the hauls where what the rivals may score changes, at most twelve
+  let rows = t.table;
+  if (byPts) { rows = rows.filter((row, i) => i === 0 || i === rows.length - 1 || row.conds.some((o, j) => o.max !== rows[i - 1].conds[j].max)); if (rows.length > 12) rows = rows.filter((_, i) => i % Math.ceil(rows.length / 12) === 0 || i === rows.length - 1); }
+  else rows = rows.slice(0, 11);
+  const rh = Math.min(70, Math.floor((GFX_H - 120 - y) / rows.length));
   rows.forEach((row, i) => {
     g.fillStyle = i % 2 ? 'rgba(31,31,39,0.88)' : 'rgba(42,42,52,0.88)'; g.fillRect(tx, y, tw, rh);
-    k.text(row.p >= NO_PTS ? 'OUTSIDE THE POINTS' : `P${row.p}`, tx + cw / 2, y + rh / 2, { size: row.p >= NO_PTS ? 24 : 36, weight: 800, align: 'center', max: cw - 20 });
+    const nop = row.nop || NO_PTS;
+    const head = byPts ? `${row.pts} PTS` : row.p >= nop ? 'OUTSIDE THE POINTS' : `P${row.p}`;
+    k.text(head, tx + cw / 2 - (byPts ? 40 : 0), y + rh / 2, { size: !byPts && row.p >= nop ? 24 : 36, weight: 800, align: 'center', max: cw - 20 });
+    if (byPts) k.text(`(${row.combo})`, tx + cw / 2 + 70, y + rh / 2, { size: 22, weight: 600, color: '#B8C0D0', align: 'center', fam: k.body });
     row.conds.slice(0, 3).forEach((o, j) => {
-      const txt = !o.q ? 'ANYWHERE' : o.q >= NO_PTS ? 'OUT OF THE POINTS' : `P${o.q} OR LOWER`;
-      k.text(txt, tx + cw * (j + 1) + cw / 2, y + rh / 2, { size: !o.q ? 26 : 28, weight: !o.q ? 600 : 700, color: !o.q ? '#9AE6B4' : '#FFFFFF', align: 'center', max: cw - 20, fam: !o.q ? k.body : undefined });
+      const free = byPts ? o.max == null : !o.q;
+      const txt = byPts ? (free ? 'ANYTHING' : `${o.max} PTS OR FEWER`) : free ? 'ANYWHERE' : o.q >= nop ? 'OUT OF THE POINTS' : `P${o.q} OR LOWER`;
+      k.text(txt, tx + cw * (j + 1) + cw / 2, y + rh / 2, { size: free ? 26 : 28, weight: free ? 600 : 700, color: free ? '#9AE6B4' : '#FFFFFF', align: 'center', max: cw - 20, fam: free ? k.body : undefined });
     });
     y += rh;
   });
-  const lowest = t.table[t.table.length - 1].p;
-  k.text(lowest >= NO_PTS ? `EVERY FINISH STILL GIVES ${name} A CHANCE, WITH THE RESULTS ABOVE` : `FINISH P${lowest + 1} OR LOWER AND ${name} CAN'T BE CHAMPION THIS WEEKEND`, GFX_W / 2, GFX_H - 60, { size: 24, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80, fam: k.body });
+  const last = t.table[t.table.length - 1];
+  const foot = byPts ? `SCORING FEWER THAN ${last.pts} POINTS, ${name} CAN'T BE CHAMPION${stage === 'sprint' ? ' IN THE SPRINT' : ' THIS WEEKEND'}`
+    : last.p >= (last.nop || NO_PTS) ? `EVERY FINISH STILL GIVES ${name} A CHANCE, WITH THE RESULTS ABOVE` : `FINISH P${last.p + 1} OR LOWER AND ${name} CAN'T BE CHAMPION${stage === 'sprint' ? ' IN THE SPRINT' : ' THIS WEEKEND'}`;
+  k.text(foot, GFX_W / 2, GFX_H - 60, { size: 24, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80, fam: k.body });
 }
 
 /*
-  Driver of the Day and Driver of the Season, in the same style: the driver faded in behind in their team's colour,
+  Driver of the Day and Driver of the Season, in the same style: their team's colour behind (the driver's photo can come back later),
   their name, the rating (or the number of awards) in its box, the figures behind it, and the runners-up below.
 */
 async function gfxAward(c, s, kind, ri) {
@@ -243,7 +261,6 @@ async function gfxAward(c, s, kind, ri) {
   const tm = (kind === 'dotd' ? teamAt(s, id, ri) : null) || teamOf(s, id); const col = tm?.color || GFX_RED;
   g.fillStyle = GFX_BG; g.fillRect(0, 0, GFX_W, GFX_H);
   const gr = g.createLinearGradient(0, 0, GFX_W, GFX_H); gr.addColorStop(0, hexA(col, 0.6)); gr.addColorStop(0.75, hexA(col, 0.04)); g.fillStyle = gr; g.fillRect(0, 0, GFX_W, GFX_H);
-  g.save(); g.globalAlpha = 0.5; const ph = driverPhoto(c, id); if (ph) await k.img(ph, 140, 230, 800, 700, { cover: true }); g.restore();
   const shade = g.createLinearGradient(0, 560, 0, 980); shade.addColorStop(0, 'rgba(21,21,30,0)'); shade.addColorStop(1, 'rgba(21,21,30,1)'); g.fillStyle = shade; g.fillRect(0, 560, GFX_W, 420); g.fillStyle = GFX_BG; g.fillRect(0, 980, GFX_W, GFX_H - 980);
   g.fillStyle = GFX_RED; g.fillRect(0, 34, 390, 14); g.fillRect(0, 56, 390, 14); g.fillRect(GFX_W - 390, 34, 390, 14); g.fillRect(GFX_W - 390, 56, 390, 14);
   if (!(state.gfxLogo && await k.img(state.gfxLogo, 410, 18, 260, 66))) k.text('PITWALL', GFX_W / 2, 52, { size: 46, weight: 800, align: 'center' });

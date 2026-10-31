@@ -649,6 +649,7 @@ Object.assign(actions, {
   },
   'weekend-card'(el) { weekendCardModal(el.dataset.round); },
   'gfx-open'(el) { gfxModal(el.dataset.gfx); },
+  'ui-style'(el) { state.uiStyle = el.dataset.v; store.save(); applyTheme(); render(); },
   'gfx-logo-clear'() { delete state.gfxLogo; store.save(); render(); },
   'award-card'(el) { awardCardModal(el.dataset.kind, el.dataset.ri != null ? +el.dataset.ri : null); },
   async 'card-save'() {
