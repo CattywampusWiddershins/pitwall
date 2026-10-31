@@ -430,7 +430,7 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
     const cut = seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
     const th = cut ? 1700 : 1240, tw = tim.width * th / tim.height, tx = cut ? W - tw / 2 : W - tw * 0.86;
     gfxGlow(g, cut ? W - 80 : W - tw * 0.42, cut ? 520 : 560, cut ? 600 : 520, '#F3D98B', won ? 0.4 : 0.22);
-    g.drawImage(gfxFaded(tim, tw, th, { left: cut ? 0.25 : 0.45 }), tx, cut ? -20 : 40);
+    g.drawImage(gfxFaded(tim, tw, th, { left: 0.45 }), tx, cut ? -20 : 40);
   }
   // more than one: the trophy either rises huge out of the bottom in front of them, half in frame, or towers behind them
   const behind = tim && n > 1 && seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
