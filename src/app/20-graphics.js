@@ -126,12 +126,12 @@ async function gfxFigure(g, body, { cx, top, bottom, frac = 0.6, face = null }) 
   if (flip) { g.translate(cx * 2, 0); g.scale(-1, 1); }
   g.drawImage(B.im, B.x, B.y, B.w, B.h, cx - dw / 2, top, dw, dh); g.restore(); return true;
 }
-/** A picture at w×h fading out toward its bottom (and its left edge, with left). */
-function gfxFaded(im, w, h, { left = false } = {}) {
+/** A picture at w×h fading out toward its bottom (and its left edge, with left: the share of its width the fade takes). */
+function gfxFaded(im, w, h, { left = 0 } = {}) {
   const oc = document.createElement('canvas'); oc.width = Math.ceil(w); oc.height = Math.ceil(h); const o = oc.getContext('2d'); o.drawImage(im, 0, 0, w, h);
   o.globalCompositeOperation = 'destination-in';
   const fv = o.createLinearGradient(0, 0, 0, h); fv.addColorStop(0, 'rgba(0,0,0,0.92)'); fv.addColorStop(0.5, 'rgba(0,0,0,0.8)'); fv.addColorStop(0.82, 'rgba(0,0,0,0.25)'); fv.addColorStop(1, 'rgba(0,0,0,0)'); o.fillStyle = fv; o.fillRect(0, 0, oc.width, oc.height);
-  if (left) { const fh = o.createLinearGradient(0, 0, w, 0); fh.addColorStop(0, 'rgba(0,0,0,0)'); fh.addColorStop(0.45, 'rgba(0,0,0,0.75)'); fh.addColorStop(1, 'rgba(0,0,0,1)'); o.fillStyle = fh; o.fillRect(0, 0, oc.width, oc.height); }
+  if (left) { const fh = o.createLinearGradient(0, 0, w, 0); fh.addColorStop(0, 'rgba(0,0,0,0)'); fh.addColorStop(left, 'rgba(0,0,0,0.8)'); fh.addColorStop(1, 'rgba(0,0,0,1)'); o.fillStyle = fh; o.fillRect(0, 0, oc.width, oc.height); }
   return oc;
 }
 /** A soft glow of a colour behind a figure. */
@@ -425,10 +425,12 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   g.restore();
   // one driver: the trophy fills the right side behind them, fading toward the middle
   const tro = trophyOf(team ? 'team' : 'driver'); const tim = tro && await loadImg(tro);
+  // (or, for variety, even larger with its right half cut off by the edge)
   if (tim && n === 1) {
-    const th = 1240, tw = tim.width * th / tim.height;
-    gfxGlow(g, W - tw * 0.42, 560, 520, '#F3D98B', won ? 0.4 : 0.22);
-    g.drawImage(gfxFaded(tim, tw, th, { left: true }), W - tw * 0.86, 40);
+    const cut = seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
+    const th = cut ? 1700 : 1240, tw = tim.width * th / tim.height, tx = cut ? W - tw / 2 : W - tw * 0.86;
+    gfxGlow(g, cut ? W - 80 : W - tw * 0.42, cut ? 520 : 560, cut ? 600 : 520, '#F3D98B', won ? 0.4 : 0.22);
+    g.drawImage(gfxFaded(tim, tw, th, { left: cut ? 0.25 : 0.45 }), tx, cut ? -20 : 40);
   }
   // more than one: the trophy either rises huge out of the bottom in front of them, half in frame, or towers behind them
   const behind = tim && n > 1 && seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
