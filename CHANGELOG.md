@@ -2,6 +2,19 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.16.0
+
+**3.16.0: the strategy learns from your race (the Monza debrief).** At Monza a one-stop would have won and the strategy showed it, then on lap 18, while you led, it switched to two stops and you finished third, and after the first stop it wanted used hards over new mediums. The reasons, and what changed:
+
+- **Each tyre's pace comes from your race laps.** The hard's practice pace came from three low-fuel laps and was 1.9 s a lap too slow; in the race your hards and mediums ran the same pace. Every compound you run in the race is now set by your laps on it, weighted by how many there are, and remembered after you change tyres.
+- **Laps in a fight don't count as wear.** Laps 15 and 16, fighting for the lead, were a second slower and read as the hards falling off 0.27 s a lap. A lap spent within a second of the car ahead is now left out of the fall-off (yours and every rival's), and the fall-off is the typical lap-to-lap trend, not a line that a slow lap or two can tip. For pace, those laps are used only when there's nothing cleaner (a cautious figure).
+- **No tyre is assumed never to slow down.** With no fall-off measured in practice, the hard had none at all, which is why 24 laps on a used hard looked as good as new mediums. It now takes the next compound's fall-off, scaled by how much slower it wears.
+- **A short practice run is weighed against the grid's.** Your 5-lap medium run said 141 ms a lap of fall-off; it now counts with the grid's figure as five laps (about 100; your race mediums lost about 95).
+- **Rivals stop as the AI does.** The odds had Verstappen stopping on lap 24 for softs to last 29 laps; he ran his hards to lap 31. Rivals now plan on the grid's tyres and, when they have to stop, go as long as their tyres allow (Leclerc's mediums to lap 22, Verstappen's hards to 31).
+- **Passing costs time.** In the odds, a car that gets past now loses time doing it (half a second where passing is easy, a second where it's hard): the price of rejoining behind cars after a stop.
+
+Replayed through Monza, the strategy holds the one-stop (pit on lap 31 for mediums, P1) from lap 12 until your stop, and after it plans the last stint on softs, not old hards. The Netherlands race still comes out as before (the safety-car call on lap 30, 15 changes of plan).
+
 ## 3.15.0
 
 **3.15.0: the phone app updates itself.** When Pitwall on the computer has a newer version, the Android app downloads the matching app from it by itself (with progress), then one tap on **Install** puts it in. The first time, Android asks you to allow installs from Pitwall and to confirm; once Pitwall has installed itself, Android 12 and later let it update without asking. This needs the 3.15 app: getting there from an older one is the download link one last time. **Connection status:** the "offline" note on the phone shows for three seconds and then slides up out of the way, once each time the computer goes away (it kept coming back while the computer was off); a thin line along the top of the screen stays all the time, yellow while the computer is away and green when it's connected.

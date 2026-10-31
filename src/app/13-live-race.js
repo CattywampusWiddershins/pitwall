@@ -88,6 +88,14 @@ function liveFuel(x) {
   const at = (n) => { const v = F[n - 1 - off]; return v == null ? (x.fuel != null && n >= (x.lap || 0) ? x.fuel : null) : v + burn / 2; };
   at.burn = burn; return at;
 }
+/**
+ * The typical lap-to-lap trend through some laps ([[lap, ms]]): the middle of the slopes between every pair, so a
+ * lap or two lost in traffic or a fight don't tip it the way a straight line through them all would.
+ */
+function trendSlope(pts) {
+  const sl = []; for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (pts[j][0] !== pts[i][0]) sl.push((pts[j][1] - pts[i][1]) / (pts[j][0] - pts[i][0]));
+  return sl.length ? median(sl) : null;
+}
 /** The lap time a tyre gives in the race: its normalised pace and fall-off at that age, plus the fuel on board. */
 const livePace = (runs, c, age, fuelKg) => runs[c] ? runs[c].base + runs[c].deg * Math.max(0, age - 1) + (fuelKg || 0) * FUEL_MS : null;
 /*
@@ -103,9 +111,10 @@ const livePace = (runs, c, age, fuelKg) => runs[c] ? runs[c].base + runs[c].deg 
 /** How a car's last three clean laps on this set run against a model (ms, + slower), or null with none to go on. */
 function rawOffset(L, x, runs) {
   if (!runs?.[x.c] || x.age == null) return null;
-  const sc = new Set(L.scLaps?.[x.i] || []); const pits = L.pitLaps?.[x.i] || []; const fuelAt = liveFuel(x);
+  const sc = new Set(L.scLaps?.[x.i] || []); const dirty = new Set(L.dirtyLaps?.[x.i] || []); const pits = L.pitLaps?.[x.i] || []; const fuelAt = liveFuel(x);
   const lapAge = (n) => x.age + 1 - (x.lap - n); // the lap of the set that lap n was
-  const laps = liveLaps(x).filter(l => l.valid && l.n < x.lap && lapAge(l.n) >= 2 && !sc.has(l.n) && !pits.includes(l.n) && !pits.includes(l.n - 1)).slice(-3);
+  const ok = liveLaps(x).filter(l => l.valid && l.n < x.lap && lapAge(l.n) >= 2 && !sc.has(l.n) && !pits.includes(l.n) && !pits.includes(l.n - 1));
+  const free = ok.filter(l => !dirty.has(l.n)); const laps = (free.length >= 2 ? free : ok).slice(-3); // clean laps, else those in dirty air
   if (!laps.length) return null;
   return Math.max(-3000, Math.min(3000, median(laps.map(l => l.ms - livePace(runs, x.c, lapAge(l.n), fuelAt(l.n) ?? x.fuel ?? 0))) || 0));
 }
@@ -140,10 +149,11 @@ function paceModel(s, r, x, idOf, L) {
   const B = L ? tyreBias(s, r, L, idOf) : {}; const base = Object.fromEntries(Object.entries(g0).map(([c, v]) => [c, B[c] ? { ...v, base: v.base + B[c] } : v]));
   if (x.age == null) return base;
   const fuelAt = liveFuel(x); const lapAge = (n) => x.age + 1 - (x.lap - n);
-  const clean = liveLaps(x).filter(l => l.valid && l.n < x.lap && lapAge(l.n) >= 2); const mid = median(clean.map(l => l.ms));
+  const dirty = new Set(L?.dirtyLaps?.[x.i] || []); const scl = new Set(L?.scLaps?.[x.i] || []);
+  const clean = liveLaps(x).filter(l => l.valid && l.n < x.lap && lapAge(l.n) >= 2 && !dirty.has(l.n) && !scl.has(l.n)); const mid = median(clean.map(l => l.ms));
   const pts = clean.filter(l => l.ms < mid + 2500).map(l => [lapAge(l.n), l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS]);
   let runs = base;
-  if (pts.length >= 5) { const fit = fitLine(pts); if (fit && fit.b > 0) { const n = pts.length; runs = { ...base, [x.c]: { ...base[x.c], deg: (base[x.c].deg * 8 + fit.b * n) / (8 + n) } }; } }
+  if (pts.length >= 5) { const b = trendSlope(pts); if (b != null && b > 0) { const n = pts.length; runs = { ...base, [x.c]: { ...base[x.c], deg: (base[x.c].deg * 8 + b * n) / (8 + n) } }; } }
   _paceModel.set(key, runs); if (_paceModel.size > 400) _paceModel.clear(); return runs;
 }
 /**
@@ -196,10 +206,26 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   // any far off the stint's pace, say nothing about the tyres
   const fuelAt = liveFuel(me);
   const scLaps = new Set(L.scLaps?.[me.i] || []);
-  const clean = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid && !scLaps.has(l.n)); const mid = median(clean.map(l => l.ms));
-  const stintLaps = clean.filter(l => l.ms < mid + 2500).map(l => ({ ...l, ms: l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS }));
-  // five clean laps or more, and worth more the more laps there are: the practice fall-off counts as eight laps
-  if (stintLaps.length >= 5) { const fit = fitLine(stintLaps.map(l => [l.n, l.ms])); if (fit && fit.b > 0) { const n = stintLaps.length; runs[cur].deg = (runs[cur].deg * 8 + fit.b * n) / (8 + n); runs[cur].degLive = fit.b; } }
+  // (and laps in dirty air, within a second of the car ahead, for the fall-off: a fight late in the stint reads as wear)
+  const dirty = new Set(L.dirtyLaps?.[me.i] || []);
+  const stintAll = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid && !scLaps.has(l.n)); const mid = median(stintAll.map(l => l.ms));
+  const onEmpty = (l) => ({ ...l, ms: l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS });
+  const stintLaps = stintAll.filter(l => l.ms < mid + 2500 && !dirty.has(l.n)).map(onEmpty);
+  const paceLaps = stintLaps.length >= 2 ? stintLaps : stintAll.filter(l => l.ms < mid + 2500).map(onEmpty); // in traffic all stint: those laps, a cautious figure
+  // five clean laps or more, and worth more the more laps there are: the practice fall-off counts as eight laps. The
+  // trend is the typical lap-to-lap one (trendSlope), so a couple of laps lost in a fight don't read as the tyres going
+  if (stintLaps.length >= 5) { const b = trendSlope(stintLaps.map(l => [l.n, l.ms])); if (b != null && b > 0) { const n = stintLaps.length; runs[cur].deg = (runs[cur].deg * 8 + b * n) / (8 + n); runs[cur].degLive = b; } }
+  // What each tyre has really done in this race. Practice can be well out for a tyre (at Monza the hard came from three
+  // low-fuel laps and was 1.9 s a lap too slow, so the strategy threw away a winning one-stop for two stops on mediums
+  // that raced no quicker). Each compound you've run in the race is set by your laps on it (empty tank, against its
+  // pace for that lap's age), weighted by how many there are against two; it's remembered after you change tyres.
+  {
+    const mem = L.mem || liveErs || {}; const CAL = ((mem.raceCal ||= {})[`${L.uid}:${me.i}`] ||= {});
+    const lapAge = (n) => age + 1 - (me.lap - n);
+    const pts = paceLaps.filter(l => lapAge(l.n) >= 2);
+    if (pts.length) CAL[cur] = { off: median(pts.map(l => l.ms - (runs[cur].base + runs[cur].deg * (lapAge(l.n) - 1)))), deg: runs[cur].deg, n: pts.length };
+    for (const [c, k] of Object.entries(CAL)) if (runs[c]) { runs[c].base += k.off * k.n / (k.n + 2); if (+c !== cur) runs[c].deg = k.deg; runs[c].raceLaps = k.n; }
+  }
   const curLife = tyreLifeLeft(me, runs[cur], L.field);
   // the sets left: the game's own data in the race, else from the weekend; the set on the car isn't one of them
   let sets = null;
@@ -282,15 +308,22 @@ function rivalPlan(s, r, L, x, idOf) {
   const k = `${L.uid}:${x.i}:${x.lap}:${x.c}:${x.stops}`; const v = _rivalPlan.get(k); if (v?.gen === renderGen) return v.p;
   let p = null; const id = idOf(x.i);
   if (id && DRY.includes(x.c)) {
-    const runs = runsFor(s, r, id); const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - x.lap + 1);
+    // the grid's tyres (one AI driver's practice can have a soft lasting 29 laps), else their own
+    const g = isMine(s, id) ? null : strategyRuns(s, r).grid; const runs = g?.[x.c] ? g : runsFor(s, r, id);
+    const n = L.totalLaps || raceLaps(s, r.id); const left = Math.max(1, n - x.lap + 1);
     if (runs[x.c]) {
       const curLife = tyreLifeLeft(x, runs[x.c], L.field);
       const usedOther = (L.used?.[x.i] || []).some(c2 => DRY.includes(c2) && c2 !== x.c) || L.key === 'SPR';
-      // a rival stops again only when it has to: its set won't reach the flag, or it still has a second compound to run.
+      const loss = racePitLoss(career(), trackOf(r), L).green; const base = { runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss, usedOther };
+      // A rival stops again only when it has to: its set won't reach the flag, or it still has a second compound to run.
       // The AI doesn't take a stop just because fresh tyres would be quicker (at Zandvoort it ran hards 41 laps to the
-      // flag where the quickest plan had it stopping for softs with 13 to go)
-      const pl = usedOther && curLife >= left ? planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: 0, usedOther, onlyK: left })
-        : planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: racePitLoss(career(), trackOf(r), L).green, usedOther });
+      // flag where the quickest plan had it stopping for softs with 13 to go). And when it has to, it goes as long as
+      // its tyres allow (at Monza Leclerc ran his mediums to lap 22 and Verstappen his hards to 31, where the quickest
+      // plan had Verstappen stopping on lap 24 and made a two-stop look like it would win)
+      let pl = null;
+      if (usedOther && curLife >= left) pl = planRest({ ...base, loss: 0, onlyK: left });
+      else for (let k = Math.min(curLife, left - 1); k >= 1 && !pl; k--) pl = planRest({ ...base, onlyK: k });
+      if (!pl) pl = planRest(base);
       if (pl) p = { stops: pl.stints.length, next: pl.stints[0]?.c ?? null, k: pl.k, t: pl.t, stints: pl.stints };
     }
   }
@@ -422,6 +455,9 @@ function overtakeRow(c, tid) {
 function overtakeOf(c, track) { const v = c?.overtake?.[track]; const hard = v ?? OVERTAKE_HARD[track] ?? 60; return { hard, p: (100 - hard) / 100, own: v != null }; }
 const SIM_RUNS = 300;
 const PASS_GAIN = 300, STUCK_GAP = 400; // ms: what a pass costs the passed car; how far back a car that can't pass sits
+// ms: what a pass costs the car making it (the laps in dirty air before it, the move itself): half a second where passing
+// is easy, a second where it's hard. It's the price of rejoining behind cars after a stop, which a plan with more stops pays
+const passCost = (pass) => 400 + 600 * (1 - pass);
 /** A plan's laps from now to the flag: { laps: [ms], pits: Set of lap indexes it pits on (the pit loss is on that lap) }. */
 function planLaps(runs, cur, age, p, left, loss, firstLoss = loss) {
   const lt = (c, a) => runs[c].base + (runs[c].deg || 0) * a;
@@ -506,7 +542,7 @@ function raceOdds(s, r, L, me, idOf, ST, plans) {
             if (sc && j === 0) { t[X] = t[Y] + 200; break; } // no passing behind the safety car
             const f = `${X}:${Y}:${lastPit[X]}:${lastPit[Y]}`; const at = failed.get(f); const go = at == null || j - at >= RETRY_LAPS;
             const pe = 1 - Math.pow(1 - pass, Math.max(0.4, Math.min(3, (all[Y].laps[j] - all[X].laps[j]) / 500)));
-            if (go && rnd() < pe) { order[k] = Y; order[k - 1] = X; t[Y] = Math.max(t[Y], t[X] + PASS_GAIN); k--; }
+            if (go && rnd() < pe) { t[X] += passCost(pass); order[k] = Y; order[k - 1] = X; t[Y] = Math.max(t[Y], t[X] + PASS_GAIN); k--; }
             else { if (go) failed.set(f, j); t[X] = t[Y] + STUCK_GAP; break; }
           }
         }
@@ -938,6 +974,8 @@ function mergeLive(prev, m, now) {
       if (b.lap >= x.lap + RETRY_LAPS) { T.f++; x.lap = b.lap; } // three laps behind without getting by: a chance gone, and the next go
     }
   }
+  // the laps each car spent within a second of the car ahead (a fight, dirty air): they say nothing about its tyres
+  if (m.field && !m.sc) { let D = null; for (const x of m.field) { if (x.st !== 2 || x.pit || !(x.pos > 1) || !(x.gapF > 0 && x.gapF < 1000) || !x.lap) continue; D ||= (L.dirtyLaps = { ...(prev.dirtyLaps || {}) }); const a = D[x.i] || []; if (a[a.length - 1] !== x.lap) D[x.i] = [...a.slice(-30), x.lap]; } }
   // the laps each car ran with the safety car or VSC out, for any part of the lap
   if (m.sc && m.field) { L.scLaps = { ...(prev.scLaps || {}) }; for (const x of m.field) { const a = L.scLaps[x.i] || []; if (x.lap && a[a.length - 1] !== x.lap) L.scLaps[x.i] = [...a, x.lap]; } }
   // a car's stop count went up: note the lap, and the tyre it came in on

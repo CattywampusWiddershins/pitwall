@@ -128,10 +128,26 @@ function strategyRuns(s, round) {
       const was = a.deg; a.deg = Math.max(p.deg - DEG_NEAR, Math.min(p.deg + DEG_NEAR, a.deg));
       a.degNote = `near yours; the grid measured +${(was / 1000).toFixed(3)} s`;
     }
+    // your fall-off from a short run is noisy: the grid's (many drivers' runs) counts as five laps of yours. At Monza
+    // your 5-lap medium run said 141 ms a lap, the grid's 59; your mediums lost about 95 in the race
+    if (a.deg >= DEG_ZERO && p.deg >= DEG_ZERO && p.laps < 12) { const was = p.deg; p.deg = (p.deg * p.laps + a.deg * 5) / (p.laps + 5); if (Math.abs(p.deg - was) > 10) p.degNote = `your ${p.laps}-lap run said +${(was / 1000).toFixed(3)} s; weighed with the grid’s`; }
   }
-  for (const runs of [grid, mine]) orderTyres(runs);
+  for (const runs of [grid, mine]) { orderTyres(runs); degFromWear(runs); }
   fillTyres(grid, mine);
   return { grid, mine };
+}
+/**
+ * A tyre whose run measured no fall-off at all (a short run, or one that got quicker as the tyres came in) still falls
+ * off: it takes the next compound's fall-off, scaled by how much slower it wears. At Monza the hard came out at zero
+ * from three laps, so 24 laps on a used hard looked as good as new mediums.
+ */
+function degFromWear(runs) {
+  const near = { 18: [17, 16], 17: [16, 18], 16: [17, 18] };
+  for (const c of DRY) {
+    const x = runs[c]; if (!x || x.deg >= DEG_ZERO || !x.wear) continue;
+    const o = near[c].map(k => runs[k]).find(y => y && y.deg >= DEG_ZERO && y.wear);
+    if (o) { x.deg = o.deg * Math.min(1.5, x.wear / o.wear); x.degNote = `none measured: from the ${COMPOUNDS[near[c].find(k => runs[k] === o)][1].toLowerCase()}’s, scaled by the wear`; }
+  }
 }
 /**
  * A harder tyre measured as dropping off (or wearing) faster than a softer one can't be right: the run was probably
