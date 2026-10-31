@@ -423,13 +423,13 @@ function driverTitleFacts(c, s, id, ri, rnd = Math.random) {
     line: `It is ${L}’s ${ordWord(sN)} title in a row.`, ahead: `${L} is going for ${numWord(sN)} titles in a row.` });
   if (nat && !natTL.length) F.push({ score: 80, won: `FIRST ${ADJ} WORLD CHAMPION`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `${ADJ} HISTORY AWAITS`, 'A NATION HOLDS ITS BREATH']),
     line: `${L} is the first ${nat} world champion.`, ahead: `No ${nat} driver has ever been world champion.` });
-  // a nation with few champions (people, not titles: Max's four still leave the Netherlands one champion), on a first title only
-  else if (nat && natOthers.length < 3 && n === 1) F.push({ score: 70, won: `${_up(ordWord(natOthers.length + 1))} ${ADJ} WORLD CHAMPION`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `${ADJ} HISTORY AWAITS`]),
+  // a nation with one champion at most (people, not titles: Max's four still leave the Netherlands one champion), on a first title only
+  else if (nat && natOthers.length < 2 && n === 1) F.push({ score: 70, won: `${_up(ordWord(natOthers.length + 1))} ${ADJ} WORLD CHAMPION`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `${ADJ} HISTORY AWAITS`]),
     line: `${L} is only the ${ordWord(natOthers.length + 1)} ${nat} world champion, after ${listJoin(natOthers.map(k => `${nameOf(k)} (${TL.filter(x => x.key === k).map(x => x.year).join(', ')})`))}.`,
     ahead: `${L} would be only the ${ordWord(natOthers.length + 1)} ${nat} world champion, after ${listJoin(natOthers.map(nameOf))}.` });
   else if (nat && lastNat && s.year - lastNat.year >= 15) F.push({ score: 68, won: `FIRST ${ADJ} CHAMPION SINCE ${lastNat.year}`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `A ${s.year - lastNat.year}-YEAR WAIT COULD END`, `${ADJ} GLORY AWAITS`]),
     line: `${L} is the first ${nat} champion since ${nameOf(lastNat.key)} in ${lastNat.year}.`, ahead: `${nat} fans have waited ${s.year - lastNat.year} years, since ${nameOf(lastNat.key)} in ${lastNat.year}.` });
-  if (nat && natBest >= 1 && n > natBest && n - 1 <= natBest) F.push({ score: natOthers.length < 3 ? 66 : 60, won: `THE MOST SUCCESSFUL ${ADJ} CHAMPION`, pre: `${ADJ} HISTORY AWAITS`,
+  if (nat && natBest >= 1 && n > natBest && n - 1 <= natBest) F.push({ score: natOthers.length < 2 ? 66 : 60, won: `THE MOST SUCCESSFUL ${ADJ} CHAMPION`, pre: `${ADJ} HISTORY AWAITS`,
     line: `With ${n} titles, ${L} passes ${listJoin(natBestBy)} as the most successful ${nat} champion.`, ahead: `A ${ordWord(n)} title would take ${L} past ${listJoin(natBestBy)} as the most successful ${nat} champion.` });
   if (tm && !teamTL.length) F.push({ score: 75, won: `${TEAM}’S FIRST WORLD CHAMPION`, pre: choose(rnd, [`${TEAM}’S FIRST CROWN AWAITS`, `A FIRST FOR ${TEAM}`]),
     line: `${L} is ${tm.name}’s first world champion.`, ahead: `${tm.name} has never had a world champion.` });
