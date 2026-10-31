@@ -434,12 +434,12 @@ function driverTitleFacts(c, s, id, ri, rnd = Math.random) {
   const lastMine = TL.filter(x => x.key === id).pop();
   if (lastMine && s.year - lastMine.year >= 5) F.push({ score: 62, won: `FIRST TITLE SINCE ${lastMine.year}`, pre: choose(rnd, [`${_num(s.year - lastMine.year)} YEARS ON`, `ONE MORE, ${s.year - lastMine.year} YEARS LATER`]),
     line: `${L} is champion again ${plural(s.year - lastMine.year, 'year')} after the last title, in ${lastMine.year}.`, ahead: `${L} last won the title in ${lastMine.year}, ${plural(s.year - lastMine.year, 'year')} ago.` });
-  // age: the youngest to be champion (or to win this many), or the oldest
+  // age: the youngest to be champion (a first title only), or the oldest
   const born = bornOf(c, id), when = roundDate(s, activeRounds(s)[ri]); const age = born && when ? ageParts(born, when) : null;
   if (age) {
-    const young = titleAgeRecord(c, s, TL, n), old = titleAgeRecord(c, s, TL, n, true); const what = n === 1 ? '' : `${numWord(n)}-time `;
-    if (young && age.days < young.days) F.push({ score: n === 1 ? 92 : 88, won: n === 1 ? 'YOUNGEST WORLD CHAMPION' : `YOUNGEST ${NUM}-TIME CHAMPION`, pre: choose(rnd, [`HISTORY AT ${age.y}`, n === 1 ? 'THE YOUNGEST EVER?' : `THE YOUNGEST ${NUM}-TIME CHAMPION?`]),
-      line: `At ${age.y}, ${L} is the youngest ${what}world champion ever, younger than ${young.name} was (${young.y}).`, ahead: `At ${age.y}, ${L} would be the youngest ${what}world champion ever, beating ${young.name} (${young.y}).` });
+    const young = n === 1 ? titleAgeRecord(c, s, TL, 1) : null, old = titleAgeRecord(c, s, TL, n, true);
+    if (young && age.days < young.days) F.push({ score: 92, won: 'YOUNGEST WORLD CHAMPION', pre: choose(rnd, [`HISTORY AT ${age.y}`, 'THE YOUNGEST EVER?']),
+      line: `At ${age.y}, ${L} is the youngest world champion ever, younger than ${young.name} was (${young.y}).`, ahead: `At ${age.y}, ${L} would be the youngest world champion ever, beating ${young.name} (${young.y}).` });
     else if (old && age.days > old.days) F.push({ score: 92, won: 'OLDEST WORLD CHAMPION', pre: choose(rnd, ['AGE IS JUST A NUMBER', `HISTORY AT ${age.y}`]),
       line: `At ${age.y}, ${L} is the oldest world champion ever, older than ${old.name} was (${old.y}).`, ahead: `At ${age.y}, ${L} would be the oldest world champion ever, beating ${old.name} (${old.y}).` });
   }
