@@ -1,5 +1,7 @@
 # Pitwall — F1 25 Career Tracker
 
+Pitwall started as a college project back in 2022, and I decided to revitalize it using Claude Code to see what AI can do, and man, I am out of a job. AI is taking over. Anyway - it made the app pretty great, I won't lie, so here it is. I was never planning on releasing it, but I get use out of it, so maybe you will too.
+
 A desktop app for tracking your F1 25 driver career: every session result for every driver, fastest laps, championship standings, head-to-head stats, season goals and AI-driven media sessions.
 
 **[Download the latest version](https://github.com/CattywampusWiddershins/pitwall/releases/latest)** (Windows) · [What's new](CHANGELOG.md) · [Building it yourself](DEVELOPING.md)
