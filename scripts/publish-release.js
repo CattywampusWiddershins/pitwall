@@ -7,11 +7,15 @@ const version = require(root + '/package.json').version; const tag = `v${version
 const exe = path.join(root, 'dist', `Pitwall-Setup-${version}.exe`);
 if (!fs.existsSync(exe)) throw new Error('No installer at ' + exe);
 
-// the notes: this version's section of the changelog
+// the notes: this version's section of the changelog, or every version back to the one given
+// (`node scripts/publish-release.js 3.16.0` when versions in between weren't published)
 const cl = fs.readFileSync(root + '/CHANGELOG.md', 'utf8').replace(/\r\n/g, '\n');
-const m = cl.match(new RegExp(`\\n## ${version.replace(/\./g, '\\.')}\\n\\n([\\s\\S]*?)(?=\\n## |$)`));
-if (!m) throw new Error('No changelog entry for ' + version);
-const body = m[1].trim() + `\n\n**Install:** download \`Pitwall-Setup-${version}.exe\` below and run it (Windows SmartScreen: More info → Run anyway). Already have Pitwall 3.13 or later? It updates itself.`;
+const since = process.argv[2] || version;
+const secs = [...cl.matchAll(/\n## (\d+\.\d+(?:\.\d+)?)\n\n([\s\S]*?)(?=\n## |$)/g)].map(x => ({ v: x[1], text: x[2].trim() }));
+const at = secs.findIndex(x => x.v === version), to = secs.findIndex(x => x.v === since);
+if (at < 0 || to < at) throw new Error(`No changelog entries from ${version} back to ${since}`);
+const notes = secs.slice(at, to + 1); const many = notes.length > 1;
+const body = notes.map(x => many ? `## ${x.v}\n\n${x.text}` : x.text).join('\n\n') + `\n\n**Install:** download \`Pitwall-Setup-${version}.exe\` below and run it (Windows SmartScreen: More info → Run anyway). Already have Pitwall 3.13 or later? It updates itself.`;
 
 const cred = execFileSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
 const token = (cred.match(/^password=(.*)$/m) || [])[1]; if (!token) throw new Error('No saved GitHub sign-in');
