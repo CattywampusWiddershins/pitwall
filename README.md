@@ -33,7 +33,7 @@ Pitwall isn't code-signed, so the first time the installer runs Windows SmartScr
 
 ## Publishing an update
 
-Pitwall checks GitHub for a newer release when it starts, and offers it at the top of the page (and in **Settings → Updates**) with the release notes and an **Update now** button: it downloads the new installer, closes Pitwall, installs quietly and opens Pitwall again on the new version. To set it up once:
+Pitwall updates itself. When it starts it checks GitHub for a newer release and downloads it in the background; once it's ready, a bar at the top offers **Restart now** (Pitwall closes, installs quietly and opens again on the new version) or **Later**, and if you leave it, the update installs by itself when you close Pitwall. **Settings → Updates** shows your version, the download's progress and the release notes. To set it up once:
 
 1. Make a GitHub repository for Pitwall (public, so the app can read its releases without signing in).
 2. Put its name in `package.json` under `"pitwall": { "updateRepo": "your-name/your-repo" }`. Builds made before this is set don't check.
@@ -138,6 +138,8 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 **3.10.0:** a track map in Race Replay. Every car is drawn where it is round the lap, in its team colour, with your car outlined and on top. The outline is your own car's path from a weekend session at that track (kept from the first session logged there with telemetry, and replaced by later ones), so the cars sit exactly where they were; at a track you haven't driven yet it's the circuit drawing, with the cars placed by how far round the lap they are. Under the map you choose who's shown: everyone to start with, a tap on a driver hides them (greyed out) and another tap brings them back, and two presets, Top 10 and Around me (you and the two cars either side; the four behind when you lead, the four ahead when you're last), follow the order as it changes.
 
 **3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
+
+**3.13.1:** Pitwall updates itself without being asked. A new version downloads in the background as soon as Pitwall sees it; then **Restart now** puts it in, or **Later** leaves it to install by itself when you close Pitwall. No installer to click through, and the download's progress is in **Settings → Updates**.
 
 **3.13.0: an installer, and updates that install themselves.** Pitwall for Windows is now an installer (`Pitwall-Setup-<version>.exe`) instead of a portable .exe: it installs for your user with no administrator prompt, adds Start menu and desktop shortcuts, and uninstalls from Windows Settings. Your careers and settings were already in your user folder, so they carry straight over (install, then delete the old portable file). A new version on GitHub now shows **Update now**: Pitwall downloads the installer (with progress), closes, installs it quietly and opens again on the new version. Copies that weren't installed get a **Download** button instead.
 

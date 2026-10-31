@@ -1,47 +1,68 @@
 /* Pitwall — Settings, career setup and dialogs. Part of the renderer, split into files that load in order (see index.html). */
 'use strict';
 /* ---------------------------------------------------------------- updates */
-// A new version: asked of the GitHub releases when Pitwall starts (and from Settings), offered at the top of the page
-// with its notes and a download. "Not now" hides it until the next version. The desktop app only.
-let updateInfo = null; // { current, configured, latest, newer, notes, page, download, size, error, checking }
+// A new version: asked of the GitHub releases when Pitwall starts (and from Settings). Installed Pitwall downloads it
+// in the background straight away, then offers a restart; left for later, it installs itself when Pitwall closes. A
+// copy that wasn't installed (the old portable one) offers the download instead. The desktop app only.
+let updateInfo = null; // { current, configured, latest, newer, notes, page, download, size, canInstall, error, checking, pct, ready, later }
 async function checkUpdates(manual = false) {
   if (!window.api?.updates) return;
   updateInfo = { ...(updateInfo || {}), checking: true }; if (manual) render();
-  try { updateInfo = await window.api.updates.check(); } catch { updateInfo = { error: 'The check didn’t work' }; }
+  try { updateInfo = { ...(await window.api.updates.check()), ready: updateInfo.ready, later: updateInfo.later }; } catch { updateInfo = { error: 'The check didn’t work' }; }
   if (manual && updateInfo.configured && !updateInfo.newer && !updateInfo.error) toast(`Pitwall ${updateInfo.current} is the latest version`);
-  const a = document.activeElement; if (manual || (updateInfo.newer && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select')))) render();
+  if (updateInfo.newer && updateInfo.canInstall && !updateInfo.ready) downloadUpdate();
+  else redrawUpdate(manual);
+}
+/** Draws the page again for the update, unless you're in the middle of something (typing, a dialog). */
+function redrawUpdate(force = false) {
+  const a = document.activeElement; if (force || (!$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select')))) render();
+}
+async function downloadUpdate() {
+  const U = updateInfo; if (!U || U.pct != null) return;
+  U.pct = 0; if (ui.view === 'settings') redrawUpdate();
+  window.api.updates.onProgress?.((p) => { if (updateInfo && !updateInfo.ready) { updateInfo.pct = p.total ? Math.round(p.got / p.total * 100) : 0; const el = document.getElementById('upd-state'); if (el) el.textContent = updState(updateInfo); } });
+  const r = await window.api.updates.download().catch(() => ({ ok: false }));
+  if (!updateInfo) return;
+  if (r?.ok) { updateInfo.ready = true; updateInfo.pct = null; }
+  else { updateInfo.pct = null; updateInfo.dlError = r?.error || 'The download failed'; }
+  redrawUpdate();
 }
 const mbOf = (b) => b ? ` (${(b / 1048576).toFixed(0)} MB)` : '';
-const updLabel = (U) => U.installing ? (U.pct != null ? `Downloading ${U.pct}%` : 'Downloading…') : U.canInstall ? `Update now${mbOf(U.size)}` : `Download${mbOf(U.size)}`;
-/** Update now: the installer downloads, Pitwall closes, and it opens again on the new version. */
-async function installUpdate() {
-  const U = updateInfo; if (!U?.newer) return;
-  if (!U.canInstall) { window.api.updates.open(U.download); return; }
-  if (U.installing) return;
-  U.installing = true; U.pct = 0; render();
-  window.api.updates.onProgress?.((p) => { if (!updateInfo) return; updateInfo.pct = p.total ? Math.round(p.got / p.total * 100) : null; document.querySelectorAll('[data-act="update-get"]').forEach(b => { b.textContent = p.done ? 'Installing…' : updLabel(updateInfo); }); });
-  const r = await window.api.updates.install().catch(() => ({ ok: false }));
-  if (!r?.ok) { U.installing = false; render(); toast(`The update didn’t download${r?.error ? `: ${r.error}` : ''}. Try again, or get it from the release page.`); }
+function updState(U) {
+  if (U.checking) return 'Checking…';
+  if (!U.current) return '';
+  if (U.configured === false) return 'Update checks aren’t set up in this build.';
+  if (U.error) return `Couldn’t check: ${U.error}.`;
+  if (U.latest == null) return 'No releases published yet.';
+  if (!U.newer) return 'You have the latest version.';
+  if (U.ready) return `Pitwall ${U.latest} is ready to install.`;
+  if (U.pct != null) return `Downloading Pitwall ${U.latest}: ${U.pct}%`;
+  if (U.dlError) return `Pitwall ${U.latest} is out, but the download didn’t work (${U.dlError}).`;
+  return `Pitwall ${U.latest} is out.`;
 }
 function updateNoticeHtml() {
-  const U = updateInfo; if (!U?.newer || state.updateSkip === U.latest) return '';
-  return `<div class="callout update-notice"><span><b>Pitwall ${esc(U.latest)} is out</b> <span class="muted">· you have ${esc(U.current)}</span></span>
-    <span class="row" style="gap:6px">${U.notes ? '<button class="btn sm ghost" data-act="update-notes">What’s new</button>' : ''}<button class="btn sm primary" data-act="update-get" ${U.installing ? 'disabled' : ''}>${updLabel(U)}</button>${U.installing ? '' : '<button class="btn sm ghost" data-act="update-later">Not now</button>'}</span></div>`;
+  const U = updateInfo; if (!U?.newer) return '';
+  const notes = U.notes ? '<button class="btn sm ghost" data-act="update-notes">What’s new</button>' : '';
+  if (U.ready && !U.later) return `<div class="callout update-notice"><span><b>Pitwall ${esc(U.latest)} is ready</b> <span class="muted">· restart to update, or it installs when you close Pitwall</span></span>
+    <span class="row" style="gap:6px">${notes}<button class="btn sm primary" data-act="update-restart">Restart now</button><button class="btn sm ghost" data-act="update-later">Later</button></span></div>`;
+  if (!U.canInstall && state.updateSkip !== U.latest) return `<div class="callout update-notice"><span><b>Pitwall ${esc(U.latest)} is out</b> <span class="muted">· you have ${esc(U.current)}</span></span>
+    <span class="row" style="gap:6px">${notes}<button class="btn sm primary" data-act="update-get">Download${mbOf(U.size)}</button><button class="btn sm ghost" data-act="update-skip">Not now</button></span></div>`;
+  return '';
 }
 function updatesPanel() {
   if (!window.api?.updates) return '';
   const U = updateInfo || {};
-  const state1 = U.checking ? 'Checking…' : !U.current ? '' : U.configured === false ? 'Update checks aren’t set up in this build.' : U.error ? `Couldn’t check: ${esc(U.error)}.`
-    : U.latest == null ? 'No releases published yet.' : U.newer ? `<b>Pitwall ${esc(U.latest)} is out.</b>` : 'You have the latest version.';
+  const btns = !U.newer ? '' : U.ready ? '<button class="btn sm primary" data-act="update-restart">Restart now</button>' : !U.canInstall ? `<button class="btn sm primary" data-act="update-get">Download${mbOf(U.size)}</button>` : U.dlError && U.pct == null ? '<button class="btn sm" data-act="update-retry">Try again</button>' : '';
   return `<div class="panel"><div class="panel-h"><h2>Updates</h2><span class="muted" style="font-size:12px">Version ${esc(U.current || '')}</span></div><div class="panel-b stack" style="gap:8px">
-    <div class="row" style="gap:8px;flex-wrap:wrap"><span>${state1}</span>${U.newer ? `<button class="btn sm primary" data-act="update-get" ${U.installing ? 'disabled' : ''}>${updLabel(U)}</button>${U.notes ? '<button class="btn sm ghost" data-act="update-notes">What’s new</button>' : ''}` : ''}<button class="btn sm ghost" data-act="update-check" ${U.checking ? 'disabled' : ''}>Check now</button></div>
-    <p class="muted" style="font-size:12px;margin:0">Pitwall checks for a new version when it starts. ${U.canInstall || !U.current ? 'Update now downloads it, closes Pitwall and opens it again on the new version.' : 'The download is the Pitwall installer: run it to install the new version.'} Your careers and settings stay where they are.</p></div></div>`;
+    <div class="row" style="gap:8px;flex-wrap:wrap"><span id="upd-state">${esc(updState(U))}</span>${btns}${U.newer && U.notes ? '<button class="btn sm ghost" data-act="update-notes">What’s new</button>' : ''}<button class="btn sm ghost" data-act="update-check" ${U.checking ? 'disabled' : ''}>Check now</button></div>
+    <p class="muted" style="font-size:12px;margin:0">Pitwall looks for a new version when it starts and downloads it in the background. Restart when it’s ready, or it installs itself when you close Pitwall. Your careers and settings stay where they are.</p></div></div>`;
 }
 function updateNotesModal() {
   const U = updateInfo; if (!U) return;
+  const btn = U.ready ? '<button class="btn primary" data-act="update-restart">Restart now</button>' : !U.canInstall ? `<button class="btn primary" data-act="update-get">Download${mbOf(U.size)}</button>` : '';
   modal(`<div class="modal-h"><h2>What’s new in Pitwall ${esc(U.latest)}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><div style="white-space:pre-wrap;font-size:14px;line-height:1.5">${esc(U.notes || '')}</div>
-    <div class="row" style="gap:8px;margin-top:14px"><button class="btn primary" data-act="update-get">${updLabel(U)}</button>${U.page ? '<button class="btn ghost" data-act="update-page">Release page</button>' : ''}</div></div>`);
+    <div class="row" style="gap:8px;margin-top:14px">${btn}${U.page ? '<button class="btn ghost" data-act="update-page">Release page</button>' : ''}</div></div>`);
 }
 
 /* --------------------------------------------------------------- settings */

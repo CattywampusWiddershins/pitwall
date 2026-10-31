@@ -14,7 +14,8 @@ contextBridge.exposeInMainWorld('api', {
   updates: {
     check: () => ipcRenderer.invoke('update:check'),
     open: (url) => ipcRenderer.invoke('update:open', url),
-    install: () => ipcRenderer.invoke('update:install'),
+    download: () => ipcRenderer.invoke('update:download'),
+    apply: () => ipcRenderer.invoke('update:apply'),
     onProgress: (cb) => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
   },
   // edits made on a paired phone or tablet

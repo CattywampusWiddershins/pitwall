@@ -137,33 +137,44 @@ async function checkUpdate() {
   } catch (e) { return { current, configured: true, error: 'No connection to GitHub' }; }
 }
 ipcMain.handle('update:check', () => checkUpdate());
-/** Downloads the new installer (reporting progress), then runs it quietly and closes, so it can replace this version. */
-let updating = false;
-ipcMain.handle('update:install', async (e) => {
-  if (updating || !installed()) return { ok: false };
-  const U = await checkUpdate(); if (!U.newer || !U.canInstall) return { ok: false, error: 'No installer in the latest release' };
-  updating = true;
-  try {
-    const res = await fetch(U.download, { headers: { 'User-Agent': 'Pitwall' } });
-    if (!res.ok || !res.body) throw new Error(`GitHub said ${res.status}`);
-    const total = +res.headers.get('content-length') || U.size || 0;
+/**
+ * The new version, downloaded in the background (reporting progress) as soon as it's found. It goes in when you
+ * restart Pitwall from the app, or by itself when you close Pitwall: the installer runs quietly over this version.
+ */
+let downloading = null; let ready = null; let applying = false;
+ipcMain.handle('update:download', (e) => {
+  if (ready) return { ok: true, version: ready.version };
+  if (downloading) return downloading;
+  downloading = (async () => {
+    if (!installed()) return { ok: false };
+    const U = await checkUpdate(); if (!U.newer || !U.canInstall) return { ok: false, error: 'No installer in the latest release' };
     const file = path.join(app.getPath('temp'), `Pitwall-Setup-${U.latest}.exe`);
-    const out = fs.createWriteStream(file); let got = 0, last = 0;
-    const reader = res.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read(); if (done) break;
-      got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
-      const now = Date.now(); if (now - last > 200) { last = now; e.sender.send('update:progress', { got, total }); }
-    }
-    await new Promise((r, j) => out.end(err => err ? j(err) : r()));
-    if (U.size && got !== U.size) throw new Error('The download was incomplete');
-    e.sender.send('update:progress', { got, total, done: true });
-    // quiet install over this version, then open the new one
-    require('child_process').spawn(file, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
-    setTimeout(() => app.quit(), 500);
-    return { ok: true };
-  } catch (err) { updating = false; return { ok: false, error: err.message || 'The download failed' }; }
+    try {
+      if (!(U.size && fs.existsSync(file) && fs.statSync(file).size === U.size)) {
+        const res = await fetch(U.download, { headers: { 'User-Agent': 'Pitwall' } });
+        if (!res.ok || !res.body) throw new Error(`GitHub said ${res.status}`);
+        const total = +res.headers.get('content-length') || U.size || 0;
+        const out = fs.createWriteStream(file); let got = 0, last = 0;
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read(); if (done) break;
+          got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
+          const now = Date.now(); if (now - last > 500 && !e.sender.isDestroyed()) { last = now; e.sender.send('update:progress', { got, total }); }
+        }
+        await new Promise((r, j) => out.end(err => err ? j(err) : r()));
+        if (U.size && got !== U.size) { fs.rmSync(file, { force: true }); throw new Error('The download was incomplete'); }
+      }
+      ready = { file, version: U.latest };
+      return { ok: true, version: U.latest };
+    } catch (err) { return { ok: false, error: err.message || 'The download failed' }; }
+  })().finally(() => { downloading = null; });
+  return downloading;
 });
+const runInstaller = (reopen) => { require('child_process').spawn(ready.file, ['/S', '--updated', ...(reopen ? ['--force-run'] : [])], { detached: true, stdio: 'ignore' }).unref(); };
+// Restart now: install and open again on the new version
+ipcMain.handle('update:apply', () => { if (!ready) return { ok: false }; applying = true; runInstaller(true); setTimeout(() => app.quit(), 300); return { ok: true }; });
+// closing Pitwall with an update downloaded: it goes in quietly, ready for next time
+app.on('will-quit', () => { if (ready && !applying) { applying = true; try { runInstaller(false); } catch { } } });
 ipcMain.handle('update:open', (_e, url) => { if (/^https:\/\/github\.com\//.test(String(url))) shell.openExternal(url); });
 ipcMain.handle('data:load', () => { backupOnce(); return { state: readJson(dataFile(), null), rev: companion.rev() }; });
 ipcMain.handle('data:save', (_e, { state, baseRev }) => companion.commit(state, baseRev));
