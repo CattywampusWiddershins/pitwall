@@ -1031,3 +1031,10 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 /* the stories logo (Settings → Story graphics) in place of Pitwall's mark */
 .brand-logo { display: block; width: 120px; height: 34px; background: var(--fv-logo) left center / contain no-repeat; }
 .brand-logo.sm { width: 64px; height: 24px; }
+/* the constructors' cards: both drivers on the right, the logo over them */
+.pod-pair { position: absolute; right: 0; bottom: 0; height: 86%; width: 66%; display: flex; justify-content: flex-end; pointer-events: none; }
+.pod-pair img { height: 100%; width: 58%; margin-left: -16%; object-fit: cover; object-position: top center; mask-image: linear-gradient(to bottom, #000 72%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); }
+.pod-pair img:first-child { margin-left: 0; height: 92%; align-self: flex-end; }
+.pod-pair + .pod-logo { height: 40px; top: 10px; right: 10px; z-index: 1; }
+.pod-pair:has(.pod-body) { top: 10%; bottom: auto; height: 90%; align-items: flex-start; }
+.pod-pair img.pod-body { height: 190%; align-self: flex-start; mask-image: none; -webkit-mask-image: none; }

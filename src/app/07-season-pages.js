@@ -400,7 +400,9 @@ function standingsPodium(c, s, rows, team) {
   const card = (x, n) => {
     const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
     const body = !team && bodyOf(c, x.id);
-    const pic = team ? (teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : '') : body ? `<img class="pod-photo pod-body ${body.look === 'left' ? 'flip' : ''}" src="${esc(body.url)}" alt="">` : driverPhoto(c, x.id) ? `<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
+    // a team: both its drivers (full-body pictures, else their photos), with the logo over them
+    const pair = team ? (tm.drivers || []).filter(Boolean).slice(0, 2).map(d => { const b = bodyOf(c, d); const u = b?.url || driverPhoto(c, d); return u ? `<img class="${b ? 'pod-body' : ''}" src="${esc(u)}" alt="">` : ''; }).join('') : '';
+    const pic = team ? `${pair ? `<span class="pod-pair">${pair}</span>` : ''}${teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : ''}` : body ?`<img class="pod-photo pod-body ${body.look === 'left' ? 'flip' : ''}" src="${esc(body.url)}" alt="">` : driverPhoto(c, x.id) ? `<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
     const nm = team ? tm.name : lastName(dName(s, x.id));
     return `<button class="pod-card p${n}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
   };

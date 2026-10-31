@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.21.3
+
+- **Constructors' standings, Simple**: the top three teams' cards show both their drivers (full-body pictures cropped to the upper body, else their photos), with the logo over them.
+
 ## 3.21.2
 
 - The title wording only calls out age for the youngest first-time world champion (and the oldest champion); the youngest-to-win-their-nth wording is gone, so a driver's title count and streak lead again.
