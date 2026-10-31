@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.21.1
+
+- **Age** in the title wording: the youngest world champion (*Youngest world champion*, *History at 20*, *The youngest ever?*), the youngest to win their second to seventh, and the oldest (*Oldest world champion*, *Age is just a number*), against the record book and the career's champions.
+- **A long wait of their own**: a title five years or more after a driver's last (*First title since 2006*, *Twenty years on*). A nation's long wait no longer counts the driver's own titles.
+
 ## 3.21.0
 
 **3.21.0: titles that know their history.**

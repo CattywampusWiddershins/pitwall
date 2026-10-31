@@ -380,8 +380,23 @@ const _num = (n) => n <= 10 ? _up(numWord(n)) : String(n);
 function titleTimeline(c, s) {
   const first = c.seasons[0]?.year ?? s.year;
   const out = D.CHAMPIONS.filter(([y]) => y < first).map(([year, key, team]) => ({ year, key, team: team || '', root: null }));
-  for (const se of c.seasons.slice(0, s.index)) { const id = _champ(se, 'driver'); if (id) { const t = teamOf(se, id); out.push({ year: se.year, key: id, team: t?.name || '', root: t ? _root(t.id) : null }); } }
+  for (const se of c.seasons.slice(0, s.index)) { const id = _champ(se, 'driver'); if (id) { const t = teamOf(se, id); out.push({ year: se.year, key: id, team: t?.name || '', root: t ? _root(t.id) : null, se }); } }
   return out;
+}
+/**
+ * The age record to beat for a title: the youngest to win their nth (or, with oldest, the oldest champion), from the
+ * real record book and the career's champions before season s. { name, days, y } or null.
+ */
+function titleAgeRecord(c, s, TL, n, oldest = false) {
+  const real = D.RECORDS.find(x => x.id === (oldest ? 'oldTitle' : `youngTitle${n}`))?.holders?.[0];
+  const cands = []; if (real) { const a = ageParts(real.born, parseDay(real.date)); if (a) cands.push({ name: real.name, days: a.days, y: a.y }); }
+  const cnt = {};
+  for (const x of TL) {
+    cnt[x.key] = (cnt[x.key] || 0) + 1; if (!x.se || (!oldest && cnt[x.key] !== n)) continue;
+    const d = titleDecision(x.se, 'driver'); const born = bornOf(c, x.key); const a = d && born ? ageParts(born, roundDate(x.se, d.r)) : null;
+    if (a) cands.push({ name: x.key === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : dName(x.se, x.key) || anyName(x.key), days: a.days, y: a.y });
+  }
+  return cands.sort((a, b) => oldest ? b.days - a.days : a.days - b.days)[0] || null;
 }
 /**
  * The facts a driver's title would carry (or carries), most remarkable first. Each: { score, won, pre, line, ahead }:
@@ -415,6 +430,19 @@ function driverTitleFacts(c, s, id, ri, rnd = Math.random) {
     line: `${L} is the first driver ever to win ${n} world titles, passing ${listJoin(recBy)}.`, ahead: `A title would make ${L} the first driver ever to win ${n}, one more than ${listJoin(recBy)}.` });
   else if (n > 1 && n === rec) F.push({ score: 90, won: `RECORD-EQUALLING ${NUM}-TIME CHAMPION`, pre: choose(rnd, [`A RECORD-EQUALLING ${ORD} AWAITS`, `LEVEL WITH THE GREATEST`]),
     line: `${L} joins ${listJoin(recBy)} on a record ${n} titles.`, ahead: `A title would put ${L} level with ${listJoin(recBy)} on a record ${n}.` });
+  // their own long wait: a title five years or more after their last
+  const lastMine = TL.filter(x => x.key === id).pop();
+  if (lastMine && s.year - lastMine.year >= 5) F.push({ score: 62, won: `FIRST TITLE SINCE ${lastMine.year}`, pre: choose(rnd, [`${_num(s.year - lastMine.year)} YEARS ON`, `ONE MORE, ${s.year - lastMine.year} YEARS LATER`]),
+    line: `${L} is champion again ${plural(s.year - lastMine.year, 'year')} after the last title, in ${lastMine.year}.`, ahead: `${L} last won the title in ${lastMine.year}, ${plural(s.year - lastMine.year, 'year')} ago.` });
+  // age: the youngest to be champion (or to win this many), or the oldest
+  const born = bornOf(c, id), when = roundDate(s, activeRounds(s)[ri]); const age = born && when ? ageParts(born, when) : null;
+  if (age) {
+    const young = titleAgeRecord(c, s, TL, n), old = titleAgeRecord(c, s, TL, n, true); const what = n === 1 ? '' : `${numWord(n)}-time `;
+    if (young && age.days < young.days) F.push({ score: n === 1 ? 92 : 88, won: n === 1 ? 'YOUNGEST WORLD CHAMPION' : `YOUNGEST ${NUM}-TIME CHAMPION`, pre: choose(rnd, [`HISTORY AT ${age.y}`, n === 1 ? 'THE YOUNGEST EVER?' : `THE YOUNGEST ${NUM}-TIME CHAMPION?`]),
+      line: `At ${age.y}, ${L} is the youngest ${what}world champion ever, younger than ${young.name} was (${young.y}).`, ahead: `At ${age.y}, ${L} would be the youngest ${what}world champion ever, beating ${young.name} (${young.y}).` });
+    else if (old && age.days > old.days) F.push({ score: 92, won: 'OLDEST WORLD CHAMPION', pre: choose(rnd, ['AGE IS JUST A NUMBER', `HISTORY AT ${age.y}`]),
+      line: `At ${age.y}, ${L} is the oldest world champion ever, older than ${old.name} was (${old.y}).`, ahead: `At ${age.y}, ${L} would be the oldest world champion ever, beating ${old.name} (${old.y}).` });
+  }
   if (sN >= 2 && sN > recS) F.push({ score: 95, won: `A RECORD ${_num(sN)} IN A ROW`, pre: `A RECORD ${_num(sN)} IN A ROW AWAITS`,
     line: `No driver had ever won ${sN} titles in a row.`, ahead: `Nobody has won ${sN} titles in a row: the record is ${recS}.` });
   else if (sN >= 2 && sN === recS) F.push({ score: 85, won: `${_num(sN)} IN A ROW · RECORD EQUALLED`, pre: `A RECORD-EQUALLING ${_num(sN)} IN A ROW AWAITS`,
@@ -427,7 +455,7 @@ function driverTitleFacts(c, s, id, ri, rnd = Math.random) {
   else if (nat && natOthers.length < 2 && n === 1) F.push({ score: 70, won: `${_up(ordWord(natOthers.length + 1))} ${ADJ} WORLD CHAMPION`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `${ADJ} HISTORY AWAITS`]),
     line: `${L} is only the ${ordWord(natOthers.length + 1)} ${nat} world champion, after ${listJoin(natOthers.map(k => `${nameOf(k)} (${TL.filter(x => x.key === k).map(x => x.year).join(', ')})`))}.`,
     ahead: `${L} would be only the ${ordWord(natOthers.length + 1)} ${nat} world champion, after ${listJoin(natOthers.map(nameOf))}.` });
-  else if (nat && lastNat && s.year - lastNat.year >= 15) F.push({ score: 68, won: `FIRST ${ADJ} CHAMPION SINCE ${lastNat.year}`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `A ${s.year - lastNat.year}-YEAR WAIT COULD END`, `${ADJ} GLORY AWAITS`]),
+  else if (nat && lastNat && lastNat.key !== id && s.year - lastNat.year >= 15) F.push({ score: 68, won: `FIRST ${ADJ} CHAMPION SINCE ${lastNat.year}`, pre: choose(rnd, [`CARRYING ${ADJ} HOPES`, `A ${s.year - lastNat.year}-YEAR WAIT COULD END`, `${ADJ} GLORY AWAITS`]),
     line: `${L} is the first ${nat} champion since ${nameOf(lastNat.key)} in ${lastNat.year}.`, ahead: `${nat} fans have waited ${s.year - lastNat.year} years, since ${nameOf(lastNat.key)} in ${lastNat.year}.` });
   if (nat && natBest >= 1 && n > natBest && n - 1 <= natBest) F.push({ score: natOthers.length < 2 ? 66 : 60, won: `THE MOST SUCCESSFUL ${ADJ} CHAMPION`, pre: `${ADJ} HISTORY AWAITS`,
     line: `With ${n} titles, ${L} passes ${listJoin(natBestBy)} as the most successful ${nat} champion.`, ahead: `A ${ordWord(n)} title would take ${L} past ${listJoin(natBestBy)} as the most successful ${nat} champion.` });
