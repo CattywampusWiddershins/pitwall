@@ -139,6 +139,8 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 
 **3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
 
+**3.13.2:** updates come from the Pitwall repository on GitHub ([CattywampusWiddershins/pitwall](https://github.com/CattywampusWiddershins/pitwall)): from this version on, Pitwall checks its releases when it starts.
+
 **3.13.1:** Pitwall updates itself without being asked. A new version downloads in the background as soon as Pitwall sees it; then **Restart now** puts it in, or **Later** leaves it to install by itself when you close Pitwall. No installer to click through, and the download's progress is in **Settings → Updates**.
 
 **3.13.0: an installer, and updates that install themselves.** Pitwall for Windows is now an installer (`Pitwall-Setup-<version>.exe`) instead of a portable .exe: it installs for your user with no administrator prompt, adds Start menu and desktop shortcuts, and uninstalls from Windows Settings. Your careers and settings were already in your user folder, so they carry straight over (install, then delete the old portable file). A new version on GitHub now shows **Update now**: Pitwall downloads the installer (with progress), closes, installs it quietly and opens again on the new version. Copies that weren't installed get a **Download** button instead.
