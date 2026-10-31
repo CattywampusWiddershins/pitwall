@@ -19,24 +19,21 @@ npm start
 
 `npm install` is only needed the first time. After that, `npm start` opens the app.
 
-## Build a proper Windows app (.exe)
+## Build the Windows installer
 
 ```
 npm run dist:win
 ```
 
-This creates a `dist` folder containing:
-
-- `Pitwall-<version>-portable.exe` — a single file you can double-click from anywhere (pin it to your taskbar or put it on the desktop)
-- a `.zip` with the unpacked app
+This creates `dist/Pitwall-Setup-<version>.exe`, the installer. Running it installs Pitwall for your Windows user (no administrator prompt), adds it to the Start menu and the desktop, and opens it. Uninstall it from Windows Settings → Apps like any other app; your careers stay in your user folder (`AppData\Roaming\Pitwall`), so an uninstall or reinstall never touches them. Coming from the old portable `.exe`: install, then delete the portable file; everything carries over.
 
 On a Mac use `npm run dist:mac`; on Linux `npm run dist:linux`.
 
-Windows may show a SmartScreen warning the first time because the app isn't code-signed. Click **More info → Run anyway**.
+Pitwall isn't code-signed, so the first time the installer runs Windows SmartScreen says it "protected your PC": click **More info → Run anyway**. Updates installed from inside Pitwall don't ask again.
 
 ## Publishing an update
 
-Pitwall checks GitHub for a newer release when it starts, and offers it at the top of the page (and in **Settings → Updates**) with the release notes and a download button. To set it up once:
+Pitwall checks GitHub for a newer release when it starts, and offers it at the top of the page (and in **Settings → Updates**) with the release notes and an **Update now** button: it downloads the new installer, closes Pitwall, installs quietly and opens Pitwall again on the new version. To set it up once:
 
 1. Make a GitHub repository for Pitwall (public, so the app can read its releases without signing in).
 2. Put its name in `package.json` under `"pitwall": { "updateRepo": "your-name/your-repo" }`. Builds made before this is set don't check.
@@ -44,9 +41,9 @@ Pitwall checks GitHub for a newer release when it starts, and offers it at the t
 For each new version:
 
 1. Build it: `npm run dist:win`.
-2. On GitHub, open **Releases → Draft a new release**, make the tag `v<version>` (for example `v3.12.0`, matching `package.json`), paste that version's notes from below, attach `dist/Pitwall-<version>-portable.exe`, and publish.
+2. On GitHub, open **Releases → Draft a new release**, make the tag `v<version>` (for example `v3.12.0`, matching `package.json`), paste that version's notes from below, attach `dist/Pitwall-Setup-<version>.exe`, and publish.
 
-Everyone on an older version is offered it the next time they open Pitwall. The download is the new portable app: they close the old one and run the new one, and their careers and settings carry over (they live in the user's app data, not next to the .exe). The phone app updates itself from the desktop as before.
+Everyone on an older version is offered it the next time they open Pitwall, and their careers and settings carry over. A copy of Pitwall that wasn't installed (the old portable `.exe`) gets a **Download** button for the installer instead. The phone app updates itself from the desktop as before.
 
 ## How seasons work
 
@@ -141,6 +138,8 @@ With Pitwall open on the PC, each finished session is logged by itself: the care
 **3.10.0:** a track map in Race Replay. Every car is drawn where it is round the lap, in its team colour, with your car outlined and on top. The outline is your own car's path from a weekend session at that track (kept from the first session logged there with telemetry, and replaced by later ones), so the cars sit exactly where they were; at a track you haven't driven yet it's the circuit drawing, with the cars placed by how far round the lap they are. Under the map you choose who's shown: everyone to start with, a tap on a driver hides them (greyed out) and another tap brings them back, and two presets, Top 10 and Around me (you and the two cars either side; the four behind when you lead, the four ahead when you're last), follow the order as it changes.
 
 **3.10.1:** a story about contact or a battle opens its replay with only those two drivers on the track map, from the lap it happened. Everyone (or a tap on any driver) brings the rest back.
+
+**3.13.0: an installer, and updates that install themselves.** Pitwall for Windows is now an installer (`Pitwall-Setup-<version>.exe`) instead of a portable .exe: it installs for your user with no administrator prompt, adds Start menu and desktop shortcuts, and uninstalls from Windows Settings. Your careers and settings were already in your user folder, so they carry straight over (install, then delete the old portable file). A new version on GitHub now shows **Update now**: Pitwall downloads the installer (with progress), closes, installs it quietly and opens again on the new version. Copies that weren't installed get a **Download** button instead.
 
 **3.12.0: pictures included, and updates.** Pitwall now comes with photos for 36 real drivers, logos for 15 teams and pictures of 11 cars, so a new install has them from the start. Your own uploads take their place, and removing one that came with Pitwall keeps it removed (a **Default** button brings it back). Your own driver and My Team are still yours to add. **Updates:** Pitwall checks GitHub for a newer release a few seconds after it opens and shows it at the top of the page with the notes and a download; **Settings → Updates** shows your version and checks on demand. See *Publishing an update* above to set it up.
 

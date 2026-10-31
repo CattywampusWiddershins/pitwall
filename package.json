@@ -1,7 +1,7 @@
 {
   "name": "pitwall",
   "productName": "Pitwall",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "F1 25 career mode tracker: session results, standings, head-to-head, goals and AI media sessions.",
   "main": "main.js",
   "author": "Pitwall",
@@ -12,7 +12,7 @@
   "scripts": {
     "start": "electron .",
     "build:android": "powershell -NoProfile -ExecutionPolicy Bypass -File android/build.ps1",
-    "dist:win": "npm run build:android && electron-builder --win portable zip --x64",
+    "dist:win": "npm run build:android && electron-builder --win nsis --x64",
     "dist:mac": "electron-builder --mac dmg",
     "dist:linux": "electron-builder --linux AppImage"
   },
@@ -42,8 +42,15 @@
       "icon": "build/icon.png",
       "signAndEditExecutable": false
     },
-    "portable": {
-      "artifactName": "Pitwall-${version}-portable.exe"
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Pitwall",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Pitwall-Setup-${version}.exe"
     },
     "mac": {
       "icon": "build/icon.png",

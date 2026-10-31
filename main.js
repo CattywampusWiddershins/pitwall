@@ -115,9 +115,12 @@ function createWindow() {
 
 /*
   Updates: on start (and from Settings) Pitwall asks GitHub for the repository's latest release. A newer version is
-  offered in the app with its notes and a download button (the portable .exe from the release, else the release page).
-  The repository is "pitwall.updateRepo" in package.json (owner/name); left empty, there's no check.
+  offered in the app with its notes. Installed Pitwall downloads the release's installer, runs it quietly over itself
+  and opens again on the new version (careers and settings stay in the user folder); a copy that wasn't installed (the
+  old portable one, or run from the source) opens the download instead. The repository is "pitwall.updateRepo" in
+  package.json (owner/name); left empty, there's no check.
 */
+const installed = () => app.isPackaged && process.platform === 'win32' && !process.env.PORTABLE_EXECUTABLE_FILE;
 const UPDATE_REPO = (() => { try { return require('./package.json').pitwall?.updateRepo || ''; } catch { return ''; } })();
 const newer = (a, b) => { const p = (v) => String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0); const x = p(a), y = p(b); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
 async function checkUpdate() {
@@ -128,11 +131,39 @@ async function checkUpdate() {
     if (res.status === 404) return { current, configured: true, latest: null };
     if (!res.ok) return { current, configured: true, error: `GitHub said ${res.status}` };
     const r = await res.json(); const latest = String(r.tag_name || '').replace(/^v/, '');
-    const exe = (r.assets || []).find(a => /portable\.exe$/i.test(a.name)) || (r.assets || []).find(a => /\.exe$/i.test(a.name));
-    return { current, configured: true, latest, newer: newer(latest, current), notes: String(r.body || '').slice(0, 4000), page: r.html_url, download: exe?.browser_download_url || r.html_url, size: exe?.size || null };
+    const exe = (r.assets || []).find(a => /setup.*\.exe$/i.test(a.name)) || (r.assets || []).find(a => /\.exe$/i.test(a.name));
+    return { current, configured: true, latest, newer: newer(latest, current), notes: String(r.body || '').slice(0, 4000), page: r.html_url, download: exe?.browser_download_url || r.html_url, size: exe?.size || null,
+      canInstall: installed() && !!exe && /setup/i.test(exe.name) };
   } catch (e) { return { current, configured: true, error: 'No connection to GitHub' }; }
 }
 ipcMain.handle('update:check', () => checkUpdate());
+/** Downloads the new installer (reporting progress), then runs it quietly and closes, so it can replace this version. */
+let updating = false;
+ipcMain.handle('update:install', async (e) => {
+  if (updating || !installed()) return { ok: false };
+  const U = await checkUpdate(); if (!U.newer || !U.canInstall) return { ok: false, error: 'No installer in the latest release' };
+  updating = true;
+  try {
+    const res = await fetch(U.download, { headers: { 'User-Agent': 'Pitwall' } });
+    if (!res.ok || !res.body) throw new Error(`GitHub said ${res.status}`);
+    const total = +res.headers.get('content-length') || U.size || 0;
+    const file = path.join(app.getPath('temp'), `Pitwall-Setup-${U.latest}.exe`);
+    const out = fs.createWriteStream(file); let got = 0, last = 0;
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
+      const now = Date.now(); if (now - last > 200) { last = now; e.sender.send('update:progress', { got, total }); }
+    }
+    await new Promise((r, j) => out.end(err => err ? j(err) : r()));
+    if (U.size && got !== U.size) throw new Error('The download was incomplete');
+    e.sender.send('update:progress', { got, total, done: true });
+    // quiet install over this version, then open the new one
+    require('child_process').spawn(file, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => app.quit(), 500);
+    return { ok: true };
+  } catch (err) { updating = false; return { ok: false, error: err.message || 'The download failed' }; }
+});
 ipcMain.handle('update:open', (_e, url) => { if (/^https:\/\/github\.com\//.test(String(url))) shell.openExternal(url); });
 ipcMain.handle('data:load', () => { backupOnce(); return { state: readJson(dataFile(), null), rev: companion.rev() }; });
 ipcMain.handle('data:save', (_e, { state, baseRev }) => companion.commit(state, baseRev));

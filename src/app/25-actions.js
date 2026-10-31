@@ -606,7 +606,7 @@ Object.assign(actions, {
     render(); if (ui.modal?.kind === 'photo') drawPhotoModal();
   },
   'update-check'() { checkUpdates(true); },
-  'update-get'() { if (updateInfo?.download) window.api.updates.open(updateInfo.download); },
+  'update-get'() { if ($('#modal-root').innerHTML) closeModal(); installUpdate(); },
   'update-page'() { if (updateInfo?.page) window.api.updates.open(updateInfo.page); },
   'update-notes'() { updateNotesModal(); },
   'update-later'() { state.updateSkip = updateInfo?.latest || null; store.save(); render(); },
