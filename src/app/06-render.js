@@ -172,7 +172,7 @@ function renderTopbar() {
   const here = NAV.find(n => n[0] === navActive());
   const title = ui.view === 'weekend' && ui.round ? (curSeason()?.calendar.find(r => r.id === ui.round)?.name || 'Weekend') : here ? here[1] : 'Pitwall';
   return `${c ? `<button class="icon-btn menu-btn" data-act="nav-toggle" aria-label="Menu">${ICON.menu}</button>` : ''}
-    <div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div>
+    ${state.gfxLogo ? '<span class="brand-logo sm" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div>`}
     <div class="topbar-title">${esc(c ? title : 'Pitwall')}</div>`;
 }
 
@@ -181,7 +181,7 @@ function renderRail() {
   const s = curSeason();
   const nav = NAV.map(([id, label, ic]) => [id, label, ICON[ic]]);
   return `
-    <div class="brand"><div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div></div>
+    <div class="brand">${state.gfxLogo ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}</div>
     ${c ? `<div class="career-pill">
       ${c.myTeam ? `<div class="row" style="gap:8px;flex-wrap:nowrap">${teamBadge(c.myTeam, 28)}<span class="label">My Team · ${esc(c.myTeam.name)}</span></div>` : '<span class="label">Driver Career</span>'}
       ${isPrincipal(c) ? `<span class="who"><span class="n" style="font-size:12px">TP</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`

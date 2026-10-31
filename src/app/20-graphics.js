@@ -412,7 +412,10 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   if (n === 1) { lay = [{ cx: 370, top: 130, frac: 0.62, face: 'right' }]; tcx = 800; }
   else if (n === 2) lay = [{ cx: 310, top: 150, frac: 0.52, face: 'left' }, { cx: 770, top: 150, frac: 0.52, face: 'right' }];
   else if (n === 3) lay = [{ cx: 540, top: 150, frac: 0.66, face: 'center', front: true }, { cx: 235, top: 215, frac: 0.7, face: 'left' }, { cx: 845, top: 215, frac: 0.7, face: 'right' }];
+  // two teams: each pair stands together, back to back with the other
+  else if (team && n === 4 && ids.length === 2) lay = [{ cx: 175, top: 190, frac: 0.6, face: 'left' }, { cx: 390, top: 160, frac: 0.58, face: 'left' }, { cx: 690, top: 160, frac: 0.58, face: 'right' }, { cx: 905, top: 190, frac: 0.6, face: 'right' }];
   else { lay = figs.map((_, i) => ({ cx: 150 + i * (720 / (n - 1)), top: 140 + i * 28, frac: 0.5 + i * 0.02, face: 'right' })); tcx = 880; }
+  if (team) lay.forEach(p => { p.top += 90; }); // room above them for the team's logo
   // the background: night blue with light streaks and gold dots, or gold for the champion
   if (won) { const bg = g.createRadialGradient(W / 2, 420, 50, W / 2, 520, 1000); bg.addColorStop(0, '#8A6A1E'); bg.addColorStop(0.45, '#3A2A0A'); bg.addColorStop(1, '#120D04'); g.fillStyle = bg; }
   else { const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#101634'); bg.addColorStop(0.55, '#0B0F22'); bg.addColorStop(1, '#07080F'); g.fillStyle = bg; }
@@ -423,6 +426,16 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   for (let yy = 110; yy < 420; yy += 22) for (let xx = W - 300; xx < W; xx += 22) { const d = Math.hypot(W - xx, yy - 110) / 380; if (d < 1) { g.beginPath(); g.arc(xx, yy, 5 * (1 - d), 0, 7); g.fill(); } }
   if (won) { const rnd = seeded(`${s.index}-${ri}-confetti`); for (let i = 0; i < 70; i++) { g.save(); g.translate(rnd() * W, rnd() * H * 0.7); g.rotate(rnd() * 3); g.fillStyle = `rgba(${rnd() < 0.5 ? '243,217,139' : '255,255,255'},${0.35 + rnd() * 0.5})`; g.fillRect(-7, -3, 14, 6); g.restore(); } }
   g.restore();
+  // a team's logo, large and faded behind its drivers
+  if (team) for (const tid of ids) {
+    const at = lay.filter((p, i) => figs[i]?.tm?.id === tid); if (!at.length) continue;
+    const cx = at.reduce((a, p) => a + p.cx, 0) / at.length, bw = ids.length === 1 ? 1500 : ids.length === 2 ? 760 : 420, bh = ids.length === 1 ? 900 : bw * 0.7, tm = s.teams.find(t => t.id === tid), ly = ids.length === 1 ? 460 : 380; // huge, spilling past the edges
+    const lim = teamLogoUrl(c, tid) && await loadImg(teamLogoUrl(c, tid));
+    g.save(); g.globalAlpha = 0.26;
+    if (lim) { const sc = Math.min(bw / lim.width, bh / lim.height), w = lim.width * sc, h = lim.height * sc; g.drawImage(lim, cx - w / 2, ly - h / 2, w, h); }
+    else k.text(_up(D.TEAM_BIO[tid]?.short || tm?.name || ''), cx, ly, { size: bh * 0.5, weight: 900, align: 'center', max: bw });
+    g.restore();
+  }
   // one driver: the trophy fills the right side behind them, fading toward the middle
   const tro = trophyOf(team ? 'team' : 'driver'); const tim = tro && await loadImg(tro);
   // (or, for variety, even larger with its right half cut off by the edge)

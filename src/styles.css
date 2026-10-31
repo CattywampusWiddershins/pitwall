@@ -1028,3 +1028,6 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .trophy-slot { display: grid; gap: 6px; justify-items: start; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 200px; }
 .trophy-slot img { height: 90px; max-width: 160px; object-fit: contain; }
 .gfx-hero { display: grid; max-width: 560px; }
+/* the stories logo (Settings → Story graphics) in place of Pitwall's mark */
+.brand-logo { display: block; width: 120px; height: 34px; background: var(--fv-logo) left center / contain no-repeat; }
+.brand-logo.sm { width: 64px; height: 24px; }
