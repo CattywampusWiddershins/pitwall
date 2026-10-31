@@ -5,6 +5,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 ## 3.22.1
 
 - **The trophy fills the empty side** of a title graphic: when the drivers stand to one side (two looking the same way, or both straight ahead, as with a constructors' pair), the trophy fills the other, half cut off by the edge. When they stand across the middle, it stays in the middle, in front or behind them.
+- **Standings, Simple**: once a title is settled, the champion's points on their card turn gold, as in the graphics.
 - Two drivers with one looking straight ahead: the other stands on the side they look to, the pair centred.
 
 ## 3.22.0

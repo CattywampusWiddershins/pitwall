@@ -1037,3 +1037,5 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .pod-pair + .pod-logo { height: 40px; top: 10px; right: 10px; z-index: 1; }
 .pod-pair:has(.pod-body) { top: 10%; bottom: auto; height: 90%; align-items: flex-start; }
 .pod-pair img.pod-body { height: 190%; align-self: flex-start; mask-image: none; -webkit-mask-image: none; }
+/* the champion's points, in gold as in the graphics */
+.pod-card.champ .pod-pts b { background: linear-gradient(180deg, #F3D98B 0%, #D4AF37 50%, #B8901E 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
