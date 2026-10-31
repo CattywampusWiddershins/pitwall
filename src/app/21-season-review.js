@@ -312,6 +312,28 @@ function buildStories(c, s) {
       const pv = previewStory(c, s, i, mem, { name, last, tName });
       if (pv) out.push(pv);
     }
+    // practice: who was fastest, with the classification graphic
+    ['FP1', 'FP2', 'FP3', 'FP'].forEach((k, n) => {
+      const top = ses[k]?.done && ses[k].results?.find(x => x.d && !OUT.includes(x.st))?.d; if (!top) return;
+      const label = k === 'FP' ? 'practice' : `Practice ${n + 1}`;
+      out.push({ id: rid + k.toLowerCase(), seq: i * 10 + 0.1 + n * 0.1, kind: 'practice', sess: k, i, r, subject: top, outlet: outletFor(seeded(rid + k)), kicker: k === 'FP' ? 'Practice' : label,
+        headline: `${last(top)} fastest in ${label}`, body: [] });
+    });
+    // sprint qualifying: as qualifying, for the sprint's grid
+    if (r.sprint && ses.SQ?.done) {
+      const q = ses.SQ.results.filter(x => !OUT.includes(x.st)); const pole = q[0]?.d;
+      if (pole) {
+        const rnd = seeded(rid + 'sq');
+        const lap = ses.SQ.results[0]?.lap; const gap2 = parseGap(ses.SQ.results[1]?.gap);
+        out.push({
+          id: rid + 'sq', seq: i * 10 + 0.6, kind: 'quali', sess: 'SQ', i, r, subject: pole, outlet: outletFor(rnd), kicker: 'Sprint Qualifying',
+          headline: pole === PLAYER ? `Sprint pole for ${last(pole)} in ${gp}` : choose(rnd, [`${last(pole)} takes sprint pole in ${gp}`, `${last(pole)} quickest in ${gp} sprint qualifying`, `${gp}: sprint pole for ${last(pole)}`]),
+          standfirst: `${name(pole)} (${tName(pole)}) will start the ${gp} sprint from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
+          body: [`The top ten: ${q.slice(0, 10).map((x, k) => `${k + 1}. ${last(x.d)}`).join(', ')}.`,
+            q.findIndex(x => x.d === PLAYER) >= 10 ? `${name(PLAYER)} qualified ${ordWord(q.findIndex(x => x.d === PLAYER) + 1)}.` : ''].filter(Boolean),
+        });
+      }
+    }
     // qualifying
     if (ses.Q?.done) {
       const q = ses.Q.results.filter(x => !OUT.includes(x.st)); const pole = q[0]?.d;
@@ -319,7 +341,7 @@ function buildStories(c, s) {
         const rnd = seeded(rid + 'q');
         const lap = ses.Q.results[0]?.lap; const gap2 = parseGap(ses.Q.results[1]?.gap);
         out.push({
-          id: rid + 'q', seq: i * 10 + 1, kind: 'quali', i, r, subject: pole, outlet: outletFor(rnd), kicker: 'Qualifying',
+          id: rid + 'q', seq: i * 10 + (r.sprint ? 2.5 : 1), kind: 'quali', i, r, subject: pole, outlet: outletFor(rnd), kicker: 'Qualifying',
           headline: pole === PLAYER ? `Pole position for ${last(pole)} in ${gp}` : choose(rnd, [`${last(pole)} takes pole in ${gp}`, `${last(pole)} quickest in ${gp} qualifying`, `${gp}: pole for ${last(pole)}`]),
           standfirst: `${name(pole)} (${tName(pole)}) will start the ${gp} Grand Prix from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
           body: [`The top ten: ${q.slice(0, 10).map((x, k) => `${k + 1}. ${last(x.d)}`).join(', ')}.`,
@@ -742,7 +764,8 @@ function storyReplay(s, x) {
 function storyGfx(s, x) {
   if (!x.r) return [];
   const base = { si: s.index, ri: x.i }; const out = [];
-  if (x.kind === 'quali') out.push({ type: 'results', k: 'Q', ...base });
+  if (x.kind === 'quali') out.push({ type: 'results', k: x.sess || 'Q', ...base });
+  if (x.kind === 'practice') out.push({ type: 'class', k: x.sess, ...base });
   if (x.kind === 'sprint' && x.results) out.push({ type: 'results', k: 'SPR', ...base });
   if (x.kind === 'race' && x.results) out.push({ type: 'results', k: 'R', ...base }, { type: 'standings', kind: 'driver', ...base }, { type: 'standings', kind: 'team', ...base });
   if (x.fanVoice?.race?.length) out.push({ type: 'ratings', rows: x.fanVoice.race.slice(0, 10).map(o => ({ id: o.id, rating: +o.rating.toFixed(1) })), ...base });

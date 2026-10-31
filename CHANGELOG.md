@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.19.0
+
+**3.19.0: every session gets its story.**
+
+- **Practice**: a story for each practice session (*Leclerc fastest in Practice 2*) with the classification as a graphic, like F1's: every driver, their team, the gap to the fastest and, when logged, laps run.
+- **Sprint qualifying** gets a story and graphic in the qualifying format (*Norris takes sprint pole in the Netherlands*).
+- On sprint weekends, qualifying's story now follows the sprint's, the order they run in.
+
 ## 3.18.3
 
 - **Story graphics for the real seasons** (2016 to 2024) too: results, standings, ratings, permutations and the Driver of the Day cards, as in your own seasons.

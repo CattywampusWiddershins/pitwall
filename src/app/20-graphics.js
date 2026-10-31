@@ -43,7 +43,7 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${esc(r?.name || '')} · ${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
@@ -96,7 +96,7 @@ async function drawGraphic(spec) {
   const c = career(); const s = c.seasons[spec.si]; if (!s) return null;
   const cv = document.createElement('canvas'); cv.width = GFX_W; cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
-  const ok = await ({ standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -172,6 +172,39 @@ async function gfxResults(g, k, c, s, { k: key, ri }) {
     const pv = side(x, i + 1);
     k.text(quali ? pv : `${pv}`, tx + tw - (quali ? 20 : 60), y + rh / 2, { size: quali ? 26 : 34, weight: 700, color: '#15151E', align: 'right', max: 150 });
     if (!quali) k.text(+pv === 1 ? 'PT' : 'PTS', tx + tw - 20, y + rh / 2 + 4, { size: 16, weight: 600, color: '#15151E', align: 'right' });
+  }
+}
+
+/** A practice session's classification: every driver, the gap to the fastest and laps run (when logged). k: FP1–FP3 or FP. */
+async function gfxClass(g, k, c, s, { k: key, ri }) {
+  const r = activeRounds(s)[ri]; const res = s.weekends[r.id]?.sessions?.[key]?.results?.filter(x => x.d) || [];
+  if (res.length < 3) return false;
+  await gfxFrame(g, k, `${r.name.toUpperCase()} GRAND PRIX`, { sub: `${key === 'FP' ? 'PRACTICE' : 'PRACTICE ' + key.slice(2)}  ·  CLASSIFICATION` });
+  const laps = res.some(x => +x.laps > 0);
+  const best = parseLap(res[0].lap);
+  const gapOf = (x, i) => {
+    if (OUT.includes(x.st) && !x.lap) return x.st;
+    if (i === 0) return x.lap || '';
+    if (x.gap) return x.gap.startsWith('+') ? x.gap : `+${x.gap}`;
+    const t = parseLap(x.lap); return t != null && best != null ? `+${((t - best) / 1000).toFixed(3)}` : '';
+  };
+  const X = { pos: 80, name: 140, team: 640, gap: laps ? 810 : 900, laps: 975 }, top = 262;
+  g.fillStyle = GFX_RED; g.fillRect(40, top - 8, GFX_W - 80, 6);
+  const head = (t, x, align = 'center') => k.text(t, x, top + 20, { size: 20, weight: 600, color: '#9AA0AE', align, fam: k.body });
+  head('DRIVER', X.name, 'left'); head('TEAM', X.team); head('GAP TO FASTEST', X.gap); if (laps) head('LAPS', X.laps);
+  const y0 = top + 44, rh = Math.min(50, (GFX_H - 40 - y0) / res.length), fs = Math.round(rh * 0.56);
+  for (let i = 0; i < res.length; i++) {
+    const x = res[i]; const y = y0 + i * rh; const tm = teamAt(s, x.d, ri) || teamOf(s, x.d);
+    const ink = i === 0 ? '#15151E' : '#FFFFFF';
+    if (i === 0) { g.fillStyle = '#DCDCE0'; g.fillRect(40, y, GFX_W - 80, rh); }
+    k.text(String(i + 1), X.pos, y + rh / 2, { size: fs, weight: 700, color: ink, align: 'center' });
+    const full = (dName(s, x.d) || x.d).toUpperCase(); const ln = gfxLast(s, x.d); const fn = full.endsWith(ln) ? full.slice(0, full.length - ln.length).trim() : '';
+    g.font = k.font(fs, 500, k.body); const fw = fn ? g.measureText(fn + ' ').width : 0;
+    if (fn) k.text(fn, X.name, y + rh / 2, { size: fs, weight: 500, color: ink, fam: k.body });
+    k.text(ln, X.name + fw, y + rh / 2, { size: fs, weight: 800, color: ink, max: X.team - 60 - X.name - fw });
+    await gfxLogo(g, k, c, tm, X.team - 40, y + rh * 0.15, 80, rh * 0.7, ink);
+    k.text(gapOf(x, i), X.gap, y + rh / 2, { size: fs, weight: 600, color: ink, align: 'center', fam: k.body });
+    if (laps) k.text(String(x.laps || ''), X.laps, y + rh / 2, { size: fs, weight: 600, color: ink, align: 'center', fam: k.body });
   }
 }
 
