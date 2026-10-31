@@ -90,6 +90,62 @@ function liveFuel(x) {
 }
 /** The lap time a tyre gives in the race: its normalised pace and fall-off at that age, plus the fuel on board. */
 const livePace = (runs, c, age, fuelKg) => runs[c] ? runs[c].base + runs[c].deg * Math.max(0, age - 1) + (fuelKg || 0) * FUEL_MS : null;
+/*
+  Every car's pace in the race, for the undercut, the overcut and the odds. Each car runs on one model of what a tyre
+  gives at each age with the fuel on board: your own practice for your car, and for the rest the grid's (all the cars'
+  long runs together: one AI driver's practice is too noisy to go on, with their fuel loads and programmes all over the
+  place). The grid's figure for each tyre is first set by how the whole field is really lapping on it (the middle
+  car's offset among those on it: practice can have one tyre a second out against the others, and every car on it
+  would carry that error onto its next set). On top goes the car's own offset: how it's really lapping against that,
+  from its last three clean laps. That's the car, the driver and the track on the day, so it carries onto any tyre;
+  it's kept through a stop until the new set has laps of its own.
+*/
+/** How a car's last three clean laps on this set run against a model (ms, + slower), or null with none to go on. */
+function rawOffset(L, x, runs) {
+  if (!runs?.[x.c] || x.age == null) return null;
+  const sc = new Set(L.scLaps?.[x.i] || []); const pits = L.pitLaps?.[x.i] || []; const fuelAt = liveFuel(x);
+  const lapAge = (n) => x.age + 1 - (x.lap - n); // the lap of the set that lap n was
+  const laps = liveLaps(x).filter(l => l.valid && l.n < x.lap && lapAge(l.n) >= 2 && !sc.has(l.n) && !pits.includes(l.n) && !pits.includes(l.n - 1)).slice(-3);
+  if (!laps.length) return null;
+  return Math.max(-3000, Math.min(3000, median(laps.map(l => l.ms - livePace(runs, x.c, lapAge(l.n), fuelAt(l.n) ?? x.fuel ?? 0))) || 0));
+}
+const _carOff = new Map(); // the last offset measured for each car in each race
+function paceOffset(L, x, runs) {
+  const key = `${L.uid}:${x.i}`; const m = rawOffset(L, x, runs);
+  if (m == null) return _carOff.get(key) ?? 0;
+  _carOff.set(key, m); if (_carOff.size > 600) _carOff.clear(); return m;
+}
+const isMine = (s, id) => id === PLAYER || (career()?.type === 'myteam' && teamOf(s, id)?.id === s.playerTeamId);
+/** How the field is really lapping on each tyre against the grid's figures (ms): the middle car of three or more on it. */
+const _tyreBias = new Map();
+function tyreBias(s, r, L, idOf) {
+  const key = `${L.uid}:${Math.max(0, ...(L.field || []).map(x => x.lap || 0))}:${renderGen}`; const hit = _tyreBias.get(key); if (hit) return hit;
+  const g = strategyRuns(s, r).grid; const by = {};
+  for (const x of L.field || []) { if (x.st !== 2 || !g[x.c] || isMine(s, idOf(x.i))) continue; const o = rawOffset(L, x, g); if (o != null) (by[x.c] ||= []).push(o); }
+  const out = {}; for (const c in by) if (by[c].length >= 3) out[c] = median(by[c]);
+  _tyreBias.set(key, out); if (_tyreBias.size > 50) _tyreBias.clear(); return out;
+}
+/**
+ * The model a car's laps come from: your own practice for your drivers, the grid's for the rest (or theirs, for a tyre
+ * the grid has no runs on). The set a rival is on falls off as its own laps show: long stints wear tyres in a way short
+ * practice runs never do (an old hard can lose a second a lap that the practice figure doesn't see). Like your own,
+ * that takes five clean laps on the set (fuel taken out), weighed against the model's figure as eight.
+ */
+const _paceModel = new Map();
+function paceModel(s, r, x, idOf, L) {
+  const id = idOf(x.i); if (isMine(s, id)) return runsFor(s, r, id);
+  const g0 = strategyRuns(s, r).grid; if (!g0[x.c]) return runsFor(s, r, id);
+  const key = `${L?.uid}:${x.i}:${x.lap}:${x.c}:${x.age}:${renderGen}`; const hit = _paceModel.get(key); if (hit) return hit;
+  // the grid's figures, each tyre set by how the field is lapping on it
+  const B = L ? tyreBias(s, r, L, idOf) : {}; const base = Object.fromEntries(Object.entries(g0).map(([c, v]) => [c, B[c] ? { ...v, base: v.base + B[c] } : v]));
+  if (x.age == null) return base;
+  const fuelAt = liveFuel(x); const lapAge = (n) => x.age + 1 - (x.lap - n);
+  const clean = liveLaps(x).filter(l => l.valid && l.n < x.lap && lapAge(l.n) >= 2); const mid = median(clean.map(l => l.ms));
+  const pts = clean.filter(l => l.ms < mid + 2500).map(l => [lapAge(l.n), l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS]);
+  let runs = base;
+  if (pts.length >= 5) { const fit = fitLine(pts); if (fit && fit.b > 0) { const n = pts.length; runs = { ...base, [x.c]: { ...base[x.c], deg: (base[x.c].deg * 8 + fit.b * n) / (8 + n) } }; } }
+  _paceModel.set(key, runs); if (_paceModel.size > 400) _paceModel.clear(); return runs;
+}
 /**
  * The laps a car's tyres have left before the wear limit, counted from the start of the lap it's on (as the laps left
  * in the race are). The wear rate is what this set has put on in green-flag laps (mergeLive keeps the tally, the part
@@ -230,7 +286,11 @@ function rivalPlan(s, r, L, x, idOf) {
     if (runs[x.c]) {
       const curLife = tyreLifeLeft(x, runs[x.c], L.field);
       const usedOther = (L.used?.[x.i] || []).some(c2 => DRY.includes(c2) && c2 !== x.c) || L.key === 'SPR';
-      const pl = planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: racePitLoss(career(), trackOf(r), L).green, usedOther });
+      // a rival stops again only when it has to: its set won't reach the flag, or it still has a second compound to run.
+      // The AI doesn't take a stop just because fresh tyres would be quicker (at Zandvoort it ran hards 41 laps to the
+      // flag where the quickest plan had it stopping for softs with 13 to go)
+      const pl = usedOther && curLife >= left ? planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: 0, usedOther, onlyK: left })
+        : planRest({ runs, sets: null, cur: x.c, age: x.age || 0, curLife, left, loss: racePitLoss(career(), trackOf(r), L).green, usedOther });
       if (pl) p = { stops: pl.stints.length, next: pl.stints[0]?.c ?? null, k: pl.k, t: pl.t, stints: pl.stints };
     }
   }
@@ -264,7 +324,7 @@ function fightCards(c, s, r, L, me, idOf, ST) {
   const pits = (x) => L.pitLaps?.[x.i] || [];
   const ctx = fightContext(L, me); const T = ((L.mem || liveErs).fight ||= {})[me.i] ||= {};
   const PL = ST.PL; const myStops = ST.plan?.stints?.length || 0; const myNext = ST.plan?.stints?.[0]?.c ?? null;
-  const myRuns = runsFor(s, r, idOf(me.i)); const fuel = (x) => liveFuel(x)(x.lap) ?? x.fuel ?? 0;
+  const myRuns = runsFor(s, r, idOf(me.i)); const fuel = (x) => liveFuel(x)(x.lap) ?? x.fuel ?? 0; const myOff = paceOffset(L, me, myRuns);
   const stoppedSince = (x) => ctx && (x.stops || 0) > (ctx.stops[x.i] ?? x.stops ?? 0);
   // in the pit lane, and for the few seconds after it until the game has a gap for you again, the gaps jump about:
   // the cards stay as they were going in
@@ -295,11 +355,12 @@ function fightCards(c, s, r, L, me, idOf, ST) {
   if (A) {
     const gapNow = (me.gapL || 0) - (A.gapL || 0);
     if (myStops && (rpA?.stops ?? 0) > 0 && !stoppedSince(me) && !stoppedSince(A) && myNext != null) {
-      const theirOld = livePace(runsFor(s, r, idOf(A.i)), A.c, (A.age || 0) + 1, fuel(A)), myNew = livePace(myRuns, myNext, 1, fuel(me)) + OUTLAP_MS;
+      // each car's next lap as it's really going: its pace for the tyre and fuel, with how far it runs from that (myOff)
+      const rA = paceModel(s, r, A, idOf, L); const theirOld = livePace(rA, A.c, (A.age || 0) + 1, fuel(A)) + paceOffset(L, A, rA), myNew = livePace(myRuns, myNext, 1, fuel(me)) + myOff + OUTLAP_MS;
       const after = theirOld != null && myNew != null ? gapNow - (theirOld - myNew) : null;
       // the cars further up it would clear too (each stopping the lap after you)
       const more = byPos.filter(x => x.i !== me.i && x.pos < A.pos && x.pos >= A.pos - 3 && x.st === 2 && !stoppedSince(x)).filter(x => (rivalPlan(s, r, L, x, idOf)?.stops ?? 0) > 0).filter(x => {
-        const old = livePace(runsFor(s, r, idOf(x.i)), x.c, (x.age || 0) + 1, fuel(x)); return old != null && myNew != null && (me.gapL || 0) - (x.gapL || 0) - (old - myNew) < 0; }).map(x => `${nm(x)} (P${x.pos})`);
+        const rx = paceModel(s, r, x, idOf, L); const old = livePace(rx, x.c, (x.age || 0) + 1, fuel(x)) + paceOffset(L, x, rx); return old != null && myNew != null && (me.gapL || 0) - (x.gapL || 0) - (old - myNew) < 0; }).map(x => `${nm(x)} (P${x.pos})`);
       const alsoTxt = more.length && after < 0 ? ` It would also clear ${listJoin(more.reverse())}.` : '';
       if (after != null) out.push(card('Undercut', `on ${nm(A)} · ${stopsTxt(rpA)}`, A, me, after, true, `if you stop this lap and ${nm(A)} the next: ${after < 0 ? 'you come out ahead' : 'still behind'}.${alsoTxt}${hardPass}`));
     } else if (stoppedSince(me) && !stoppedSince(A) && (rpA?.stops ?? 0) > 0) {
@@ -322,7 +383,7 @@ function fightCards(c, s, r, L, me, idOf, ST) {
   if (B) {
     const gapNow = (B.gapL || 0) - (me.gapL || 0);
     if (myStops && (rpB?.stops ?? 0) > 0 && !stoppedSince(me) && !stoppedSince(B) && rpB.next != null) {
-      const myOld = livePace(myRuns, me.c, (me.age || 0) + 1, fuel(me)), theirNew = livePace(runsFor(s, r, idOf(B.i)), rpB.next, 1, fuel(B)) + OUTLAP_MS;
+      const rB = paceModel(s, r, B, idOf, L); const myOld = livePace(myRuns, me.c, (me.age || 0) + 1, fuel(me)) + myOff, theirNew = livePace(rB, rpB.next, 1, fuel(B)) + paceOffset(L, B, rB) + OUTLAP_MS;
       const after = myOld != null && theirNew != null ? gapNow - (myOld - theirNew) : null;
       if (after != null) out.push(card('Overcut', `${nm(B)}’s undercut on you · ${stopsTxt(rpB)}`, me, B, after, false, `if ${nm(B)} stops this lap and you the next: ${after < 0 ? 'they come out ahead' : 'you stay ahead'}`));
       else out.push(battleCard(s, idOf, me, B, me, ST.left, { pits, stopLeft: false, extra: stopsTxt(rpB) }));
@@ -388,17 +449,26 @@ const _odds = new Map();
  * fails tries again three laps later. Under a safety car, nobody passes on track, the cars due to stop soon take the
  * cheap stop, and the field bunches up for the restart (within a second of each other nine times in ten).
  */
+/**
+ * A car's laps as it's really going: its pace offset on every lap, and its own fuel burning off lap by lap (the offset
+ * was measured with the fuel in, and cars on different loads run different laps: 7 kg is a quarter of a second).
+ */
+function withOffset(v, off, x = null) {
+  const F = x && liveFuel(x); const kg = x?.fuel ?? null; const burn = F?.burn || 0;
+  if (!off && kg == null) return v;
+  return { ...v, laps: v.laps.map((ms, j) => ms + off + (kg != null ? Math.max(0, kg - burn * (j + 0.5)) * FUEL_MS : 0)) };
+}
 function raceOdds(s, r, L, me, idOf, ST, plans) {
   const sc = ST.sc || 0; const tick = Math.floor((L.simT ?? Date.now()) / 5000);
   const sig = (p) => `${p.k}:${p.stints.map(x => x.c + x.L + '/' + (x.wear || 0)).join(',')}`;
   const key = `${L.uid}:${me.i}:${me.lap}:${me.stops}:${ST.cur}:${sc}:${tick}:${plans.map(sig).join('|')}:${(ST.runs[ST.cur]?.deg || 0).toFixed(1)}`;
   const hit = _odds.get(key); if (hit) return hit;
   const pass = overtakeOf(career(), trackOf(r)).p; const G = raceGaps(L.field); const left = ST.left; const loss = ST.PL.green; const lossNow = ST.lossNow ?? loss;
-  const meDown = G[me.i]?.down || 0;
+  const meDown = G[me.i]?.down || 0; const myOff = paceOffset(L, me, ST.runs);
   const cars = L.field.filter(x => x.i !== me.i && x.st === 2 && x.pos > 0 && G[x.i] && G[x.i].down <= meDown).map(x => {
     const id = idOf(x.i); const rp = id ? rivalPlan(s, r, L, x, idOf) : null; let V = [];
     if (rp?.stints && DRY.includes(x.c)) {
-      const runs = runsFor(s, r, id); const age = x.age || 0;
+      const runs = paceModel(s, r, x, idOf, L); const age = x.age || 0;
       if (runs[x.c]) {
         if (rp.stops) for (const [dk, w] of RIVAL_JITTER) { const k2 = rp.k + dk; const st = rp.stints.map((y, n) => n === 0 ? { ...y, L: y.L - dk } : y); if (k2 >= 1 && k2 < left && st[0].L >= 1) V.push({ w, ...planLaps(runs, x.c, age, { k: k2, stints: st }, left, loss) }); }
         if (!V.length) V.push({ w: 1, ...planLaps(runs, x.c, age, rp, left, loss) });
@@ -409,15 +479,16 @@ function raceOdds(s, r, L, me, idOf, ST, plans) {
         }
       }
     }
-    if (!V.length) { // no plan for this car: its recent clean laps, on an empty tank, to the flag
-      const l = liveLaps(x).filter(y => y.valid).slice(-3); if (!l.length) return null; const F = liveFuel(x);
-      V = [{ w: 1, laps: Array(left).fill(avg(l.map(y => y.ms - (F(y.n) ?? 0) * FUEL_MS))), pits: new Set() }];
+    if (!V.length) { // no plan for this car: its recent clean laps to the flag (fuel in, like everyone else's laps)
+      const l = liveLaps(x).filter(y => y.valid).slice(-3); if (!l.length) return null;
+      V = [{ w: 1, laps: Array(left).fill(avg(l.map(y => y.ms))), pits: new Set() }];
     }
+    else if (rp?.stints) { const off = paceOffset(L, x, paceModel(s, r, x, idOf, L)); V = V.map(v => withOffset(v, off, x)); } // as it's really lapping
     const tot = V.reduce((a, v) => a + v.w, 0); let acc = 0; V.forEach(v => { acc += v.w / tot; v.cum = acc; });
     return { g: G[x.i].g, V };
   }).filter(Boolean);
   const out = plans.map(p => {
-    const mine = { g: G[me.i]?.g ?? (me.gapL || 0), ...planLaps(ST.runs, ST.cur, ST.age, p, left, loss, sc && p.k === 1 ? lossNow : loss) };
+    const mine = { g: G[me.i]?.g ?? (me.gapL || 0), ...withOffset(planLaps(ST.runs, ST.cur, ST.age, p, left, loss, sc && p.k === 1 ? lossNow : loss), myOff, me) };
     const n = cars.length + 1; const dist = Array(n + 1).fill(0);
     for (let run = 0; run < SIM_RUNS; run++) {
       const rnd = mulberry(`odds-${run}`);
