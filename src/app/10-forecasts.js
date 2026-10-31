@@ -859,7 +859,7 @@ function renderFanVoice(c, s, head) {
 function fvBars(c, s, rows, { ri = null, dotd = null } = {}) {
   return `<ol class="fvg">${rows.map((x, k) => {
     const tm = (ri != null && teamAt(s, x.id, ri)) || teamOf(s, x.id); const col = tm?.color || '#5E6A82';
-    const v = x.rating.toFixed(1); const tie = rows.filter(o => o.rating.toFixed(1) === v).length > 1; const rank = rows.findIndex(o => o.rating.toFixed(1) === v) + 1;
+    const v = gfxR(x.rating); const tie = rows.filter(o => gfxR(o.rating) === v).length > 1; const rank = rows.findIndex(o => gfxR(o.rating) === v) + 1;
     const ph = driverPhoto(c, x.id);
     return `<li class="${k === 0 ? 'top' : ''} ${x.id === PLAYER ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="open-driver" data-id="${x.id}">
       <span class="fvg-n">${rank}${tie ? '=' : ''}</span><span class="fvg-logo">${tm ? teamLogo(c, tm, 28) : ''}</span>${ph ? `<img class="fvg-ph" src="${esc(ph)}" alt="">` : ''}

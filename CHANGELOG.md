@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.19.1
+
+- A perfect rating shows as **10**, not 10.0, in the graphics and on the Fan Voice page, so it fits its box.
+- Half points (2021's Belgian Grand Prix) fit their boxes in the standings and results graphics.
+
 ## 3.19.0
 
 **3.19.0: every session gets its story.**
