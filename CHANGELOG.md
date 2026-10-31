@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.14.2
+
+**3.14.2: fair pace, fixed.** At Monza the strategy had the hard at 1:24.1, two seconds slower than any lap driven on it. Two things were wrong. **Boost:** each lap is put on the same footing for the ERS energy it deployed, at 1.1 ms a kJ; measured on the 2026 season's practice laps it's 0.35 ms (your own laps; 0.07 across the grid), so a lap with a big deployment was made a second and a half slower than it was. It's 0.35 ms now, against your usual deployment over the whole weekend (each session used to have its own reference, and laps below it weren't corrected at all). **Runs that get quicker:** a run whose laps got faster had its pace taken from the line through them followed back to its first lap, which made it slower than any lap driven; it's the run's average now. Monza on a new set and an empty tank: soft 1:20.08, medium 1:20.51, hard 1:21.84 (it was 1:20.92, 1:20.86 and 1:24.10), and the plan is soft then hard.
+
 ## 3.14.1
 
 **3.14.1: faster updates.** A version just published downloads slowly from GitHub until its servers have a copy (175 KB/s against 12 MB/s once they do), and the first person to update got the slow one. Pitwall now downloads an update in four pieces at once, so even then it's about four times quicker, and checks the whole file is the size GitHub lists before installing it. Publishing a release also fetches the installer once straight away, so GitHub's servers have it before anyone updates.

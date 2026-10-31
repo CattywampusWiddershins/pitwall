@@ -36,30 +36,38 @@ function strategyKeys(s, round) {
 /*
   Normalising lap times. Laps run on different fuel loads and with different amounts of boost don't compare as they
   stand, so every lap used for pace is put on the same footing first: as if the tank were empty (FUEL_MS a kg, from
-  the fuel the game reports at the end of each lap plus half a lap's burn), and as if the driver had used no more
-  energy than on their most frugal laps of the session (ERS_MS a kJ over that). Both need F1 25 data from 3.4 on;
-  older sessions are used as they are. A plan then adds the fuel back lap by lap where it matters (Live Race), but
-  between plans it cancels out.
+  the fuel the game reports at the end of each lap plus half a lap's burn), and as if the driver had deployed their
+  usual energy that weekend (ERS_MS a kJ either side of it: one reference for every session of the weekend, so a run
+  in FP2 and one in FP3 are on the same footing). Both need F1 25 data from 3.4 on; older sessions are used as they
+  are. A plan then adds the fuel back lap by lap where it matters (Live Race), but between plans it cancels out.
+  ERS_MS was measured on the 2026 season's practice laps (3.14.2): within a run, each extra kJ deployed took 0.34 ms
+  off the player's lap (0.07 ms across the grid); the 1.1 ms used before made a lap with a big deployment look a
+  second and a half slower than it was.
 */
 const FUEL_MS = 35; // ms a lap per kg of fuel
-const ERS_MS = 1.1; // ms a lap per kJ of extra ERS deployment
+const ERS_MS = 0.35; // ms a lap per kJ of ERS deployment, against the driver's usual
+/** A driver's usual ERS deployment a lap (kJ) across these sessions: the reference the laps are put on. */
+function ersRef(sds, d) {
+  const all = sds.flatMap(sd => (sd?.game?.ersDep?.[d] || []).filter(x => x > 0));
+  return all.length >= 3 ? median(all) : null;
+}
 /** One driver's laps in a session, normalised: [ms] by lap (null where there's no time). Also the fuel burn a lap. */
-function normLaps(sd, d) {
+function normLaps(sd, d, ref = ersRef([sd], d)) {
   const laps = sd.game.laps?.[d] || []; const fuel = sd.game.fuel?.[d] || []; const dep = sd.game.ersDep?.[d] || [];
   const drops = fuel.map((v, k) => k && fuel[k - 1] != null && v != null ? fuel[k - 1] - v : null).filter(x => x != null && x > 0.2 && x < 5);
   const burn = median(drops) || 0;
-  const used = dep.filter(x => x > 0).sort((a, b) => a - b); const base = used.length >= 3 ? used[Math.floor(used.length * 0.2)] : null;
   return { burn, laps: laps.map((l, k) => { if (!l?.[0]) return null; let ms = l[0];
     if (fuel[k] != null) ms -= (fuel[k] + burn / 2) * FUEL_MS;
-    if (base != null && dep[k] > base) ms += (dep[k] - base) * ERS_MS;
+    if (ref != null && dep[k] > 0) ms += (dep[k] - ref) * ERS_MS;
     return ms; }) };
 }
 function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
   const w = s.weekends[round.id]; const out = {}; let ref = Infinity;
+  const eRef = ersRef(keys.map(k => w?.sessions?.[k]).filter(sd => sd?.game && !sd.estimated), d); // one boost reference for the weekend
   for (const k of keys) {
     const sd = w?.sessions?.[k]; if (!sd?.game || sd.estimated) continue;
     const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
-    const N = normLaps(sd, d).laps; // fuel- and ERS-normalised times
+    const N = normLaps(sd, d, eRef).laps; // fuel- and ERS-normalised times
     laps.forEach((l, k) => { if (l[0] && l[1] && N[k]) ref = Math.min(ref, N[k]); });
     for (const x of stintsOf(sd, d)) {
       if (!DRY.includes(x.c)) continue; // intermediates and wets depend too much on the conditions
@@ -77,8 +85,12 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
       // the life are what a new set would give
       const a0 = wr && wr.b > 0.05 && wr.a > wr.b * 1.5 ? wr.a / wr.b : 0;
       const life = wr && wr.b > 0.05 ? Math.floor((WEAR_LIMIT - (a0 ? 0 : wr.a)) / wr.b) : null;
+      // the pace on a new set: the run's lap at age 1 along the fall-off. A run that got quicker (the tyres coming in,
+      // a lap with traffic early on) has no fall-off to follow, so it's the run's average: following the downhill line
+      // back to age 1 would make it slower than any lap that was driven
+      const atOne = deg > 0 && pace ? pace.a + deg : avg(longest.map(r => r.ms));
       const prev = out[x.c];
-      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, base: (pace?.a ?? avg(longest.map(r => r.ms))) + deg - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
+      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, base: atOne - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
     }
   }
   for (const c in out) out[c].ref = isFinite(ref) ? ref : Math.min(...Object.values(out).map(x => x.base));
