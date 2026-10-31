@@ -12,10 +12,14 @@ const _gfxSpecs = new Map(); // placeholder key → spec, filled as stories are 
 const _gfxDone = new Map(); // spec signature → image URL
 /** A placeholder for a graphic in a story; it's drawn when it scrolls into view. */
 function gfxSlot(spec) {
-  const key = JSON.stringify(spec); _gfxSpecs.set(key, spec);
+  const key = gfxKey(spec);
   const url = _gfxDone.get(gfxSig(spec));
   return `<button class="gfx" data-act="gfx-open" data-gfx="${esc(key)}" title="Open to save the image">${url ? `<img src="${url}" alt="">` : '<span class="spinner"></span>'}</button>`;
 }
+/** Registers a spec, for a button that opens its graphic (data-act="gfx-open"). */
+function gfxKey(spec) { const key = JSON.stringify(spec); _gfxSpecs.set(key, spec); return key; }
+/** Ratings for every driver run taller than the portrait 1080×1350. */
+const gfxHeight = (spec) => spec.type === 'ratings' && spec.rows?.length > 10 ? 300 + spec.rows.length * 84 : GFX_H;
 const gfxSig = (spec) => JSON.stringify(spec) + ':' + (state.gfxLogo ? state.gfxLogo.length : 0) + ':' + renderGen;
 /** After a page is drawn: draw the graphics in view (and the rest as they scroll in). */
 let _gfxObs = null;
@@ -39,11 +43,11 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying' }[spec.k], ratings: spec.season ? 'season-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase() }[spec.type];
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase() }[spec.type];
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${esc(r?.name || '')} · ${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
-    <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">1080 × 1350 PNG, sized for social posts.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`);
+    <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">1080 × ${gfxHeight(spec)} PNG${gfxHeight(spec) === GFX_H ? ', sized for social posts' : ''}.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`);
 }
 
 // ---- drawing
@@ -65,9 +69,10 @@ function gfxKit(g) {
 }
 /** The frame: dark background, the red stripes either side of the logo slot, and the title. */
 async function gfxFrame(g, k, title, { sub = '' } = {}) {
-  g.fillStyle = GFX_BG; g.fillRect(0, 0, GFX_W, GFX_H);
+  const H = g.canvas.height;
+  g.fillStyle = GFX_BG; g.fillRect(0, 0, GFX_W, H);
   g.save(); g.globalAlpha = 0.06; g.strokeStyle = '#FFFFFF'; g.lineWidth = 3;
-  for (let x = -400; x < GFX_W + 400; x += 70) { g.beginPath(); g.moveTo(x, GFX_H); g.lineTo(x + 500, 0); g.stroke(); }
+  for (let x = -400 - H * 0.4; x < GFX_W + 400; x += 70) { g.beginPath(); g.moveTo(x, H); g.lineTo(x + H * 0.37, 0); g.stroke(); }
   g.restore();
   g.fillStyle = GFX_RED; g.fillRect(0, 34, 390, 14); g.fillRect(0, 56, 390, 14); g.fillRect(GFX_W - 390, 34, 390, 14); g.fillRect(GFX_W - 390, 56, 390, 14);
   if (!(state.gfxLogo && await k.img(state.gfxLogo, 410, 18, 260, 66))) k.text('PITWALL', GFX_W / 2, 52, { size: 46, weight: 800, align: 'center' });
@@ -89,7 +94,7 @@ function goldFill(g, x, y, w, h) { const gr = g.createLinearGradient(x, y, x, y 
 
 async function drawGraphic(spec) {
   const c = career(); const s = c.seasons[spec.si]; if (!s) return null;
-  const cv = document.createElement('canvas'); cv.width = GFX_W; cv.height = GFX_H; const g = cv.getContext('2d'); const k = gfxKit(g);
+  const cv = document.createElement('canvas'); cv.width = GFX_W; cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   const ok = await ({ standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
@@ -169,24 +174,25 @@ async function gfxResults(g, k, c, s, { k: key, ri }) {
   }
 }
 
-/** Driver ratings for a race: the top ten. rows: [{ id, rating }] */
-async function gfxRatings(g, k, c, s, { ri, rows, season = false }) {
+/** Driver ratings: a race's top ten (or every driver), the season's averages or the last 5 races'. rows: [{ id, rating }] */
+async function gfxRatings(g, k, c, s, { ri, rows, season = false, span = '', all = false }) {
   const r = activeRounds(s)[ri]; if (!rows?.length) return false;
-  await gfxFrame(g, k, 'DRIVER RATINGS', { sub: season ? `${s.year} SEASON SO FAR  ·  AVERAGE AFTER ROUND ${ri + 1}` : `${r.name.toUpperCase()} GRAND PRIX` });
-  const y0 = 250, rh = 104;
-  for (let i = 0; i < Math.min(10, rows.length); i++) {
+  await gfxFrame(g, k, 'DRIVER RATINGS', { sub: season ? `${s.year} SEASON SO FAR  ·  AVERAGE AFTER ROUND ${ri + 1}` : span === 'last5' ? `${s.year}  ·  AVERAGE OVER THE LAST 5 RACES` : `${r.name.toUpperCase()} GRAND PRIX` });
+  const n = all ? rows.length : Math.min(10, rows.length);
+  const y0 = 250, rh = n > 10 ? 84 : 104, z = rh / 104;
+  for (let i = 0; i < n; i++) {
     const x = rows[i]; const y = y0 + i * rh; const tm = teamAt(s, x.id, ri) || teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
     const gr = g.createLinearGradient(30, 0, GFX_W - 30, 0); gr.addColorStop(0, mixHex(col, '#0E3A8A', 0.5)); gr.addColorStop(0.35, col); gr.addColorStop(1, mixHex(col, '#000000', 0.25));
     g.fillStyle = gr; g.beginPath(); g.roundRect(30, y, GFX_W - 60, rh - 12, 14); g.fill();
     if (i === 0) { g.lineWidth = 3; g.strokeStyle = '#FFFFFF'; g.stroke(); }
     const tie = rows.filter(o => o.rating.toFixed(1) === x.rating.toFixed(1)).length > 1;
     const rank = rows.findIndex(o => o.rating.toFixed(1) === x.rating.toFixed(1)) + 1;
-    k.text(`${rank}${tie ? '=' : ''}`, 90, y + rh / 2 - 6, { size: 48, weight: 800, color: ink, align: 'center' });
+    k.text(`${rank}${tie ? '=' : ''}`, 90, y + rh / 2 - 6, { size: Math.round(48 * z), weight: 800, color: ink, align: 'center' });
     await gfxLogo(g, k, c, tm, 150, y + 16, 120, rh - 44, ink);
     const ph = driverPhoto(c, x.id); if (ph) await k.img(ph, 300, y, 96, rh - 12, { cover: true });
-    k.text(gfxLast(s, x.id), 640, y + rh / 2 - 6, { size: 42, weight: 800, color: ink, align: 'center', max: 400 });
+    k.text(gfxLast(s, x.id), 640, y + rh / 2 - 6, { size: Math.round(42 * z), weight: 800, color: ink, align: 'center', max: 400 });
     g.fillStyle = '#22D04A'; g.beginPath(); g.roundRect(GFX_W - 200, y + 14, 140, rh - 40, 10); g.fill();
-    k.text(x.rating.toFixed(1), GFX_W - 130, y + rh / 2 - 6, { size: 50, weight: 800, color: '#0B1A0B', align: 'center' });
+    k.text(x.rating.toFixed(1), GFX_W - 130, y + rh / 2 - 6, { size: Math.round(50 * z), weight: 800, color: '#0B1A0B', align: 'center' });
   }
 }
 

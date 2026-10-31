@@ -553,11 +553,13 @@ function renderPerformance() {
   </tbody></table>`;
   const pairs = s.teams.map(t => ({ t, d: t.drivers.filter(Boolean) })).filter(x => x.d.length === 2).sort((a, b) => (b.t.id === s.playerTeamId) - (a.t.id === s.playerTeamId));
   const mode = last5 ? 'last 5' : 'season';
-  const drivers = ui.perfView === 'drivers';
-  const head = `<div class="page-head"><div><h1>Performance</h1><div class="sub">${drivers
-      ? 'The F1 Fan Voice driver ratings for every Grand Prix, then each driver’s pace measured from your logged times.'
+  const drivers = ui.perfView === 'drivers', fan = ui.perfView === 'fanvoice';
+  const head = `<div class="page-head"><div><h1>Performance</h1><div class="sub">${fan
+      ? 'The F1 Fan Voice driver ratings: every driver for the Grand Prix you pick, and the top ten over the last 5 races and the season.'
+      : drivers ? 'Each driver’s pace, measured from your logged times.'
       : 'Car pace from your logged times. Race pace uses the winner’s time plus each gap, averaged over both cars and divided by the laps run at that weekend’s race distance. Gaps are relative to the fastest team.'}</div></div>
-      <div class="row">${seasonPicker(c, s.index)}<div class="seg">${[['teams', 'Teams'], ['drivers', 'Drivers']].map(([v, l]) => `<button data-act="perf-view" data-v="${v}" class="${(ui.perfView || 'teams') === v ? 'on' : ''}">${l}</button>`).join('')}</div><div class="seg">${[['season', 'Season'], ['last5', 'Last 5']].map(([v, l]) => `<button data-act="perf-mode" data-v="${v}" class="${ui.perf === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>`;
+      <div class="row">${seasonPicker(c, s.index)}<div class="seg">${[['teams', 'Teams'], ['drivers', 'Drivers'], ['fanvoice', 'Fan Voice']].map(([v, l]) => `<button data-act="perf-view" data-v="${v}" class="${(ui.perfView || 'teams') === v ? 'on' : ''}">${l}</button>`).join('')}</div>${fan ? '' : `<div class="seg">${[['season', 'Season'], ['last5', 'Last 5']].map(([v, l]) => `<button data-act="perf-mode" data-v="${v}" class="${ui.perf === v ? 'on' : ''}">${l}</button>`).join('')}</div>`}</div></div>`;
+  if (fan) return renderFanVoice(c, s, head);
   if (drivers) return renderDriverPerformance(c, s, last5, head, mode);
   return `<div class="page">
     ${head}
@@ -595,47 +597,8 @@ function renderDriverPerformance(c, s, last5, head, mode) {
   const matrix = (P) => !P.sessions.length ? '' : `<table class="matrix"><thead><tr><th>Driver</th>${P.sessions.map(x => `<th title="${esc(x.r.name)}">${esc(x.r.id.toUpperCase())}</th>`).join('')}</tr></thead><tbody>
     ${P.rows.map(o => `<tr class="${o.id === PLAYER ? 'me' : ''}"><td><div class="drv"><span class="chip" style="--c:${color(o.id)}"></span>${esc(dAbbr(s, o.id))}</div></td>${P.sessions.map(x => { const v = o.byRound[x.r.id]; return `<td class="num">${v == null ? '<span class="dim">·</span>' : v === 'lap' ? '<span class="dim">Lap</span>' : v === 0 ? '<b style="color:var(--purple)">0.000</b>' : `<span style="opacity:${Math.max(0.45, 1 - v / 3000)}">${(v / 1000).toFixed(3)}</span>`}</td>`; }).join('')}</tr>`).join('')}
   </tbody></table>`;
-  // ratings out of 10 and the awards
-  const SR = seasonRatings(s);
-  const dots = driverOfTheSeason(s);
-  const rated = Object.values(SR.by).sort((a, b) => (last5 ? b.last5 - a.last5 : b.avg - a.avg) || b.dotd - a.dotd);
-  const ratedRounds = activeRounds(s).map((r, ri) => ({ r, ri })).filter(x => raceRatings(s, x.ri));
-  // F1 Fan Voice: the chosen race's verdict, the season table, Driver of the Day and of the Season
-  const fvRi = ratedRounds.some(x => x.ri === ui.fvRound) ? ui.fvRound : ratedRounds[ratedRounds.length - 1]?.ri;
-  const fvR = fvRi != null ? raceRatings(s, fvRi) : null;
-  const fvRace = fvR ? Object.values(fvR).sort((a, b) => b.rating - a.rating) : [];
-  const fvDotd = fvRi != null ? driverOfTheDay(s, fvRi) : null;
-  const fvRound = fvRi != null ? activeRounds(s)[fvRi] : null;
-  const podium = fvRace.slice(0, 3);
-  const awards = !SR.rated ? `<section class="fv-hero"><div>${fvMark()}<h1>Driver Ratings</h1><p>After every Grand Prix, fans rate each driver out of 10. Log a race to open the vote.</p></div></section>` : `
-    <section class="fv-hero">
-      <div>${fvMark()}<h1>Driver Ratings</h1><p>After every Grand Prix, fans rate each driver out of 10: mostly the race result against the car, plus places made, the winning margin, the teammate battle and a little for qualifying.</p></div>
-      <label class="fv-pick"><span class="label">Grand Prix</span><select data-ch="fv-round">${ratedRounds.map(x => `<option value="${x.ri}" ${x.ri === fvRi ? 'selected' : ''}>R${x.ri + 1} · ${esc(x.r.name)}</option>`).join('')}</select></label>
-    </section>
-    <div class="fv-podium">${podium.map((x, k) => `<button class="fv-card p${k + 1}" data-act="open-driver" data-id="${x.id}" style="--tc:${color(x.id)}">
-      <span class="fv-place">${k + 1}</span>${avatar(c, s, x.id, k === 0 ? 112 : 88)}
-      <span class="fv-card-name">${esc(dName(s, x.id))}</span><small>${esc(teamOf(s, x.id)?.name || '')} · ${x.dnf ? 'DNF' : 'P' + x.finish}</small>
-      <span class="fv-big" style="color:${ratingColor(x.rating)}">${x.rating.toFixed(1)}</span>${fvDotd?.id === x.id ? '<span class="tag next">Driver of the Day</span>' : ''}</button>`).join('')}</div>
-    <div class="grid-2">
-      <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${esc(fvRound.name)} Grand Prix</span><h2>The fans’ verdict</h2></div></div><div class="panel-b tight">${fvList(c, s, fvRace.map(x => ({ id: x.id, rating: x.rating, sub: `${teamOf(s, x.id)?.name || ''} · ${x.dnf ? 'DNF' : 'P' + x.finish}${x.reasons.length ? ' · ' + x.reasons[0] : ''}` })))}</div></div>
-      <div class="stack">
-        ${dots ? `<div class="panel award-panel fv-panel"><div class="panel-h"><div><span class="label">${dots.final ? `${s.year} Driver of the Season` : 'Driver of the Season · leading'}</span></div><button class="btn sm" data-act="award-card" data-kind="dots">${ICON.camera} Image</button></div>
-          <div class="panel-b row" style="gap:14px;flex-wrap:nowrap">${avatar(c, s, dots.id, 64)}<div><div class="hof-name">${esc(dName(s, dots.id))}</div><span class="muted">${plural(dots.dotd, 'Driver of the Day award')} · ${dots.avg.toFixed(1)}/10 average</span></div></div></div>` : ''}
-        <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${s.year} · ${last5 ? 'last 5 races' : 'season average'}</span><h2>Season ratings</h2></div></div><div class="panel-b tight">${fvList(c, s, rated.slice(0, 10).map(o => ({ id: o.id, rating: last5 ? o.last5 : o.avg, sub: `${teamOf(s, o.id)?.name || ''} · ${plural(o.list.length, 'race')}${o.dotd ? ` · ${plural(o.dotd, 'DOTD')}` : ''}` })))}</div></div>
-        <div class="panel fv-panel"><div class="panel-h"><div><span class="label">Voted by the fans</span><h2>Driver of the Day</h2></div></div><div class="panel-b tight">
-          ${SR.dotd.slice().reverse().map(x => `<div class="dotd-row"><span class="label">R${x.ri + 1}</span>${avatar(c, s, x.id, 30)}<div style="min-width:0;flex:1"><b>${esc(dName(s, x.id))}</b> <span class="muted">· ${esc(x.r.name)}</span><div class="muted" style="font-size:12px">${esc(x.reasons.join(', ') || `${ordWord(x.finish)} at the flag`)}</div></div>
-            <span class="v" style="color:${ratingColor(x.rating)}">${x.rating.toFixed(1)}</span><button class="icon-btn" title="Image" data-act="award-card" data-kind="dotd" data-ri="${x.ri}">${ICON.camera}</button></div>`).join('')}
-        </div></div>
-      </div>
-    </div>
-    <details class="panel fv-panel"><summary class="panel-h"><h2>Every rating, every round</h2><span class="muted" style="font-size:12px">Driver of the Day outlined · tap to open</span></summary><div class="panel-b tight table-wrap">
-      <table class="matrix"><thead><tr><th>Driver</th>${ratedRounds.map(x => `<th title="${esc(x.r.name)}">${esc(x.r.id.toUpperCase())}</th>`).join('')}</tr></thead><tbody>
-        ${rated.map(o => `<tr class="${o.id === PLAYER ? 'me' : ''}"><td><div class="drv"><span class="chip" style="--c:${color(o.id)}"></span>${esc(dAbbr(s, o.id))}</div></td>${ratedRounds.map(x => { const v = raceRatings(s, x.ri)[o.id]; const isD = SR.dotd.find(d => d.ri === x.ri)?.id === o.id; return `<td class="num">${v ? `<span class="rating-cell ${isD ? 'is-dotd' : ''}" style="color:${ratingColor(v.rating)}" title="${esc(v.reasons.join(', '))}">${v.rating.toFixed(1)}</span>` : '<span class="dim">·</span>'}</td>`; }).join('')}</tr>`).join('')}
-      </tbody></table></div></details>`;
   return `<div class="page">
     ${head}
-    ${awards}
-    <div class="section-title" style="margin-top:8px"><h2>Pace data</h2><span class="muted" style="font-size:13px">Measured from your logged times</span></div>
     <div class="grid-2">
       <div class="panel"><div class="panel-h"><h2>Driver race pace</h2><span class="muted" style="font-size:12px">${race.sessions.length ? `${mode} · ${plural(race.sessions.length, 'race')}` : ''}</span></div><div class="panel-b tight table-wrap">${board(race, 'race')}</div></div>
       <div class="panel"><div class="panel-h"><h2>Driver qualifying pace</h2><span class="muted" style="font-size:12px">${quali.sessions.length ? `${mode} · ${plural(quali.sessions.length, 'session')}` : ''}</span></div><div class="panel-b tight table-wrap">${board(quali, 'quali')}</div></div>
@@ -827,7 +790,7 @@ function seasonRatingsTo(s, ri) {
 }
 /* F1 Fan Voice: the ratings, presented as the fans' verdict after every Grand Prix. */
 const FAN_VOICE = 'F1 Fan Voice';
-const fvMark = (small = false) => `<span class="fv-mark ${small ? 'sm' : ''}"><span class="fv-f1">F1</span><span class="fv-name">FAN VOICE</span></span>`;
+const fvMark = (small = false) => `<span class="fv-mark ${small ? 'sm' : ''}">${state.gfxLogo ? '<span class="fv-f1 logo" role="img" aria-label="F1"></span>' : '<span class="fv-f1">F1</span>'}<span class="fv-name">FAN VOICE</span></span>`;
 /** A ranked list of drivers with photo, team and rating pill. rows: [{ id, rating, sub? }] */
 function fvList(c, s, rows, { start = 1 } = {}) {
   return `<ol class="fv-list">${rows.map((x, k) => `<li class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}">
@@ -848,6 +811,60 @@ function fanVoiceStory(c, s, ri) {
   return { id: `${s.index}-${r.id}-fv`, seq: ri * 10 + 4, kind: 'ratings', i: ri, r, outlet: FAN_VOICE, kicker: 'Driver Ratings', headline,
     standfirst: `Fans rated every driver out of 10 after the ${r.name} Grand Prix. ${dName(s, top.id)} came out on top with ${top.rating.toFixed(1)}${lowest && lowest.id !== top.id ? `, while ${dName(s, lowest.id)} had the toughest afternoon on ${lowest.rating.toFixed(1)}` : ''}.`,
     body: [], fanVoice: { race: race.map(x => ({ id: x.id, rating: x.rating, sub: `${teamOf(s, x.id)?.name || ''} · ${x.dnf ? 'DNF' : 'P' + x.finish}` })), season: season.map(x => ({ id: x.id, rating: x.avg, sub: `${teamOf(s, x.id)?.name || ''} · ${plural(x.n, 'race')}` })), round: ri } };
+}
+/** The F1 Fan Voice page: every driver for the chosen Grand Prix, the top ten over the last 5 races and the season. */
+function renderFanVoice(c, s, head) {
+  const SR = seasonRatings(s);
+  const dots = driverOfTheSeason(s);
+  const ratedRounds = activeRounds(s).map((r, ri) => ({ r, ri })).filter(x => raceRatings(s, x.ri));
+  const fvRi = ratedRounds.some(x => x.ri === ui.fvRound) ? ui.fvRound : ratedRounds[ratedRounds.length - 1]?.ri;
+  const color = (id) => teamOf(s, id)?.color || '#5E6A82';
+  const intro = '<p>After every Grand Prix, fans rate each driver out of 10: mostly the race result against the car, plus places made, the winning margin, the teammate battle and a little for qualifying.</p>';
+  if (!SR.rated) return `<div class="page">${head}<section class="fv-hero"><div>${fvMark()}<h1>Driver Ratings</h1><p>After every Grand Prix, fans rate each driver out of 10. Log a race to open the vote.</p></div></section></div>`;
+  const fvR = raceRatings(s, fvRi); const fvRound = activeRounds(s)[fvRi]; const fvDotd = driverOfTheDay(s, fvRi);
+  const race = Object.values(fvR).sort((a, b) => b.rating - a.rating).map(x => ({ id: x.id, rating: +x.rating.toFixed(1), sub: `${teamAt(s, x.id, fvRi)?.name || teamOf(s, x.id)?.name || ''} · ${x.dnf ? 'DNF' : 'P' + x.finish}${x.reasons.length ? ' · ' + x.reasons[0] : ''}` }));
+  const lastRi = ratedRounds[ratedRounds.length - 1].ri;
+  const table = (key) => Object.values(SR.by).sort((a, b) => b[key] - a[key] || b.dotd - a.dotd).slice(0, 10)
+    .map(o => ({ id: o.id, rating: +o[key].toFixed(1), sub: `${teamOf(s, o.id)?.name || ''} · ${plural(key === 'last5' ? Math.min(5, o.list.length) : o.list.length, 'race')}${o.dotd ? ` · ${plural(o.dotd, 'DOTD')}` : ''}` }));
+  const season = table('avg'), last5 = table('last5');
+  const strip = (rows) => rows.map(({ id, rating }) => ({ id, rating }));
+  const img = (spec) => `<button class="btn sm" data-act="gfx-open" data-gfx="${esc(gfxKey(spec))}">${ICON.camera} Image</button>`;
+  const rated = Object.values(SR.by).sort((a, b) => b.avg - a.avg || b.dotd - a.dotd);
+  return `<div class="page">
+    ${head}
+    <section class="fv-hero">
+      <div>${fvMark()}<h1>Driver Ratings</h1>${intro}</div>
+      <label class="fv-pick"><span class="label">Grand Prix</span><select data-ch="fv-round">${ratedRounds.map(x => `<option value="${x.ri}" ${x.ri === fvRi ? 'selected' : ''}>R${x.ri + 1} · ${esc(x.r.name)}</option>`).join('')}</select></label>
+    </section>
+    <div class="grid-2">
+      <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${esc(fvRound.name)} Grand Prix</span><h2>Every driver</h2></div>${img({ type: 'ratings', si: s.index, ri: fvRi, all: true, rows: strip(race) })}</div>${fvBars(c, s, race, { ri: fvRi, dotd: fvDotd?.id })}</div>
+      <div class="stack">
+        <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${s.year} · average over each driver’s last 5 races</span><h2>Last 5</h2></div>${img({ type: 'ratings', si: s.index, ri: lastRi, span: 'last5', rows: strip(last5) })}</div>${fvBars(c, s, last5)}</div>
+        <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${s.year} · season average</span><h2>Season</h2></div>${img({ type: 'ratings', si: s.index, ri: lastRi, season: true, rows: strip(season) })}</div>${fvBars(c, s, season)}</div>
+        ${dots ? `<div class="panel award-panel fv-panel"><div class="panel-h"><div><span class="label">${dots.final ? `${s.year} Driver of the Season` : 'Driver of the Season · leading'}</span></div><button class="btn sm" data-act="award-card" data-kind="dots">${ICON.camera} Image</button></div>
+          <div class="panel-b row" style="gap:14px;flex-wrap:nowrap">${avatar(c, s, dots.id, 64)}<div><div class="hof-name">${esc(dName(s, dots.id))}</div><span class="muted">${plural(dots.dotd, 'Driver of the Day award')} · ${dots.avg.toFixed(1)}/10 average</span></div></div></div>` : ''}
+        <div class="panel fv-panel"><div class="panel-h"><div><span class="label">Voted by the fans</span><h2>Driver of the Day</h2></div></div><div class="panel-b tight">
+          ${SR.dotd.slice().reverse().map(x => `<div class="dotd-row"><span class="label">R${x.ri + 1}</span>${avatar(c, s, x.id, 30)}<div style="min-width:0;flex:1"><b>${esc(dName(s, x.id))}</b> <span class="muted">· ${esc(x.r.name)}</span><div class="muted" style="font-size:12px">${esc(x.reasons.join(', ') || `${ordWord(x.finish)} at the flag`)}</div></div>
+            <span class="v" style="color:${ratingColor(x.rating)}">${x.rating.toFixed(1)}</span><button class="icon-btn" title="Image" data-act="award-card" data-kind="dotd" data-ri="${x.ri}">${ICON.camera}</button></div>`).join('')}
+        </div></div>
+      </div>
+    </div>
+    <details class="panel fv-panel"><summary class="panel-h"><h2>Every rating, every round</h2><span class="muted" style="font-size:12px">Driver of the Day outlined · tap to open</span></summary><div class="panel-b tight table-wrap">
+      <table class="matrix"><thead><tr><th>Driver</th>${ratedRounds.map(x => `<th title="${esc(x.r.name)}">${esc(x.r.id.toUpperCase())}</th>`).join('')}</tr></thead><tbody>
+        ${rated.map(o => `<tr class="${o.id === PLAYER ? 'me' : ''}"><td><div class="drv"><span class="chip" style="--c:${color(o.id)}"></span>${esc(dAbbr(s, o.id))}</div></td>${ratedRounds.map(x => { const v = raceRatings(s, x.ri)[o.id]; const isD = SR.dotd.find(d => d.ri === x.ri)?.id === o.id; return `<td class="num">${v ? `<span class="rating-cell ${isD ? 'is-dotd' : ''}" style="color:${ratingColor(v.rating)}" title="${esc(v.reasons.join(', '))}">${v.rating.toFixed(1)}</span>` : '<span class="dim">·</span>'}</td>`; }).join('')}</tr>`).join('')}
+      </tbody></table></div></details>
+  </div>`;
+}
+/** Ratings as the graphics draw them: team-colour bars, the logo, the photo, the name and a green score. rows: [{ id, rating, sub? }] */
+function fvBars(c, s, rows, { ri = null, dotd = null } = {}) {
+  return `<ol class="fvg">${rows.map((x, k) => {
+    const tm = (ri != null && teamAt(s, x.id, ri)) || teamOf(s, x.id); const col = tm?.color || '#5E6A82';
+    const v = x.rating.toFixed(1); const tie = rows.filter(o => o.rating.toFixed(1) === v).length > 1; const rank = rows.findIndex(o => o.rating.toFixed(1) === v) + 1;
+    const ph = driverPhoto(c, x.id);
+    return `<li class="${k === 0 ? 'top' : ''} ${x.id === PLAYER ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="open-driver" data-id="${x.id}">
+      <span class="fvg-n">${rank}${tie ? '=' : ''}</span><span class="fvg-logo">${tm ? teamLogo(c, tm, 28) : ''}</span>${ph ? `<img class="fvg-ph" src="${esc(ph)}" alt="">` : ''}
+      <span class="fvg-who"><b>${esc(lastName(dName(s, x.id) || x.id))}</b>${x.sub ? `<small>${esc(x.sub)}</small>` : ''}</span>${dotd === x.id ? '<span class="fvg-dotd" title="Driver of the Day">DOTD</span>' : ''}<span class="fvg-score">${v}</span></li>`;
+  }).join('')}</ol>`;
 }
 /** Driver of the Season: most Driver of the Day awards, then the better season rating. */
 function driverOfTheSeason(s) {

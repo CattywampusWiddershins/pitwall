@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.18.1
+
+**3.18.1: F1 Fan Voice gets its own tab.**
+
+- **Performance → Fan Voice**, next to Teams and Drivers. Drivers now shows only pace measured from your times.
+- Fan Voice is drawn like the story graphics (team-colour bars, logo, photo, name and a green score): every driver for the Grand Prix you pick, and the top ten over the last 5 races and the season, side by side. Each list saves as an image; the race's has every driver, so it runs taller than the usual 1080 × 1350.
+- The logo uploaded in Settings → Story graphics stands in for the F1 in *F1 Fan Voice*; without one, it says F1.
+
 ## 3.18.0
 
 **3.18.0: looks, and permutations for every title.**

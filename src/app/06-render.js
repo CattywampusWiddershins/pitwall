@@ -80,6 +80,7 @@ function applyTheme() {
   st.setProperty('--team-ink', contrastInk(th.accent));
   st.setProperty('--team-2', th.accent2);
   st.setProperty('--team-2-ink', contrastInk(th.accent2));
+  st.setProperty('--fv-logo', state.gfxLogo ? `url("${state.gfxLogo}")` : 'none');
   const look = uiStyle(); document.documentElement.dataset.style = look;
   if (LOOK_PALETTES[look]) { THEME_VARS.forEach((v, i) => st.setProperty(v, LOOK_PALETTES[look][i])); return; }
   if (look === 'livery') { // a dark shade of the team's colour throughout

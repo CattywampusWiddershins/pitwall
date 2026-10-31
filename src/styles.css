@@ -967,3 +967,22 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 [data-style="livery"] .hero .stripes { width: 46%; right: 0; background: repeating-linear-gradient(115deg, transparent 0 22px, color-mix(in srgb, var(--team-2) 45%, transparent) 22px 30px); }
 [data-style="livery"] .tile { border-radius: var(--r); }
 [data-style="livery"] tr.me td { background: color-mix(in srgb, var(--team) 26%, transparent); }
+
+/* F1 Fan Voice: the ratings drawn like the graphics, and the stories logo in place of the F1 text */
+.fv-mark .fv-f1.logo { min-width: 44px; background: #15151E var(--fv-logo) center / contain no-repeat; background-origin: content-box; padding: 4px 8px; }
+.fv-mark.sm .fv-f1.logo { min-width: 26px; padding: 2px 5px; }
+.fvg { list-style: none; margin: 0; padding: 10px; display: grid; gap: 6px; }
+.fvg li { display: flex; align-items: center; gap: 10px; min-height: 54px; padding-right: 8px; border-radius: 10px; overflow: hidden; cursor: pointer; color: var(--i); font-family: var(--font-display);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 50%, #0E3A8A) 0%, var(--c) 35%, color-mix(in srgb, var(--c) 75%, #000) 100%); }
+.fvg li:hover { filter: brightness(1.08); }
+.fvg li.top { box-shadow: inset 0 0 0 2px #fff; }
+.fvg li.me { box-shadow: inset 5px 0 0 #fff; } .fvg li.me.top { box-shadow: inset 0 0 0 2px #fff, inset 5px 0 0 #fff; }
+.fvg-n { width: 46px; flex: none; text-align: center; font-size: 22px; font-weight: 800; }
+.fvg-logo { width: 40px; flex: none; display: grid; place-items: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+.fvg-ph { width: 50px; height: 54px; flex: none; align-self: flex-end; object-fit: cover; object-position: top; }
+.fvg-who { flex: 1; min-width: 0; display: grid; }
+.fvg-who b { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fvg-who small { font-family: var(--font-body); font-size: 11px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fvg-dotd { flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 3px 7px; border-radius: 99px; background: rgba(0,0,0,.35); color: #fff; }
+.fvg-score { flex: none; min-width: 62px; text-align: center; padding: 6px 8px; border-radius: 8px; background: #22D04A; color: #0B1A0B; font-size: 22px; font-weight: 800; }
+@media (max-width: 640px) { .fvg { padding: 6px; } .fvg-n { width: 32px; font-size: 18px; } .fvg-logo { width: 30px; } .fvg-ph { width: 40px; } .fvg-who b { font-size: 15px; } .fvg-dotd { display: none; } .fvg-score { min-width: 50px; font-size: 18px; } }

@@ -467,7 +467,7 @@ Object.assign(changes, {
   'mt-sponsor-status'(el) { career().myTeam.sponsors.find(x => x.id === el.dataset.id).status = el.value; store.save(); render(); },
   async 'gfx-logo'(el) {
     const file = el.files?.[0]; if (!file) return;
-    try { state.gfxLogo = await readImage(file, { max: 700 }); store.save(); render(); toast('Logo saved'); } catch (e) { toast(e.message); }
+    try { state.gfxLogo = await readImage(file, { max: 700 }); store.save(); applyTheme(); render(); toast('Logo saved'); } catch (e) { toast(e.message); }
   },
   async 'pic-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
@@ -507,7 +507,7 @@ Object.assign(actions, {
   'race-length'(el) { const s = curSeason(); weekend(s, ui.round, true).raceLength = +el.dataset.v; store.save(); render(); },
   'perf-mode'(el) { ui.perf = el.dataset.v; render(); },
   'perf-view'(el) { ui.perfView = el.dataset.v; render(); },
-  'fv-open'(el) { ui.view = 'performance'; ui.perfView = 'drivers'; ui.fvRound = +el.dataset.ri; render(); },
+  'fv-open'(el) { ui.view = 'performance'; ui.perfView = 'fanvoice'; ui.fvRound = +el.dataset.ri; render(); },
   'lb-sort'(el) { ui.lb.sort = el.dataset.k; render(); },
   'lb-scope'(el) { ui.lb.scope = el.dataset.v; render(); },
   'add-scope'(el) { state.addScope = el.dataset.v; store.save(); render(); },
@@ -650,7 +650,7 @@ Object.assign(actions, {
   'weekend-card'(el) { weekendCardModal(el.dataset.round); },
   'gfx-open'(el) { gfxModal(el.dataset.gfx); },
   'ui-style'(el) { state.uiStyle = el.dataset.v; store.save(); applyTheme(); render(); },
-  'gfx-logo-clear'() { delete state.gfxLogo; store.save(); render(); },
+  'gfx-logo-clear'() { delete state.gfxLogo; store.save(); applyTheme(); render(); },
   'award-card'(el) { awardCardModal(el.dataset.kind, el.dataset.ri != null ? +el.dataset.ri : null); },
   async 'card-save'() {
     const m = ui.modal; if (!m?.url) return;
