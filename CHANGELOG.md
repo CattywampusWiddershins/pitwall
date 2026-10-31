@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.20.1
+
+- **Title showdown graphics** have two trophy versions, picked per graphic for variety: huge and half in frame, rising out of the bottom in front of the drivers, or massive and towering behind them.
+
 ## 3.20.0
 
 **3.20.0: title showdowns, full-body pictures and trophies.**

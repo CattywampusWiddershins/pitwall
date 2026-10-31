@@ -430,6 +430,13 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
     gfxGlow(g, W - tw * 0.42, 560, 520, '#F3D98B', won ? 0.4 : 0.22);
     g.drawImage(gfxFaded(tim, tw, th, { left: true }), W - tw * 0.86, 40);
   }
+  // more than one: the trophy either rises huge out of the bottom in front of them, half in frame, or towers behind them
+  const behind = tim && n > 1 && seeded(`${s.index}-${ri}-${kind}-${mode}-${stage}-${ids.join()}-trophy`)() < 0.5;
+  if (behind) {
+    const th = 1750, tw = tim.width * th / tim.height;
+    gfxGlow(g, tcx, 420, 680, '#F3D98B', won ? 0.45 : 0.3);
+    g.save(); g.globalAlpha = 0.8; g.drawImage(gfxFaded(tim, tw, th), tcx - tw / 2, -10); g.restore();
+  }
   // the glows, then the drivers (back ones first)
   const order = lay.map((p, i) => ({ ...p, f: figs[i] })).sort((a, b) => (a.front ? 1 : 0) - (b.front ? 1 : 0) || b.top - a.top);
   for (const p of order) gfxGlow(g, p.cx, p.top + 330, n === 1 ? 460 : 380, won ? mixHex(p.f.tm?.color || '#D4AF37', '#F3D98B', 0.6) : p.f.tm?.color || '#5E6A82', won ? 0.6 : 0.55);
@@ -444,8 +451,13 @@ async function gfxTitle(g, k, c, s, { kind, ri, stage = '', mode = 'pre', ids = 
   // the lower part darkens for the words
   const fade = g.createLinearGradient(0, 760, 0, 1140); fade.addColorStop(0, won ? 'rgba(18,13,4,0)' : 'rgba(7,8,15,0)'); fade.addColorStop(1, won ? 'rgba(18,13,4,0.96)' : 'rgba(7,8,15,0.96)');
   g.fillStyle = fade; g.fillRect(0, 760, W, 380); g.fillStyle = won ? 'rgba(18,13,4,0.96)' : 'rgba(7,8,15,0.96)'; g.fillRect(0, 1140, W, H - 1140);
-  // more than one: the trophy stands in front of them, fading into the words
-  if (tim && n > 1) { const th = 800, tw = tim.width * th / tim.height, ty = 1290 - th; gfxGlow(g, tcx, ty + th * 0.4, th * 0.55, '#F3D98B', won ? 0.4 : 0.22); g.drawImage(gfxFaded(tim, tw, th), tcx - tw / 2, ty); }
+  if (tim && n > 1 && !behind) {
+    const th = 1400, tw = tim.width * th / tim.height, ty = 700; // the top half in frame, sinking into the words
+    gfxGlow(g, tcx, ty + 220, 520, '#F3D98B', won ? 0.4 : 0.25);
+    g.drawImage(tim, tcx - tw / 2, ty, tw, th);
+    const sink = g.createLinearGradient(0, 1010, 0, 1180); const ink = won ? '18,13,4' : '7,8,15';
+    sink.addColorStop(0, `rgba(${ink},0)`); sink.addColorStop(1, `rgba(${ink},0.94)`); g.fillStyle = sink; g.fillRect(0, 1010, W, 170); g.fillStyle = `rgba(${ink},0.94)`; g.fillRect(0, 1180, W, H - 1180);
+  }
   // the header, over everything
   g.fillStyle = GFX_RED; g.fillRect(0, 34, 390, 14); g.fillRect(0, 56, 390, 14); g.fillRect(W - 390, 34, 390, 14); g.fillRect(W - 390, 56, 390, 14);
   if (!(state.gfxLogo && await k.img(state.gfxLogo, 410, 18, 260, 66))) k.text('PITWALL', W / 2, 52, { size: 46, weight: 800, align: 'center' });
