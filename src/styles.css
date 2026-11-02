@@ -1039,11 +1039,12 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .pod-pair { position: absolute; right: 0; bottom: 0; height: 86%; width: 66%; display: flex; justify-content: flex-end; pointer-events: none; }
 .pod-pair img { height: 100%; width: 58%; margin-left: -16%; object-fit: cover; object-position: top center; mask-image: linear-gradient(to bottom, #000 72%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); }
 .pod-pair img:first-child { margin-left: 0; height: 92%; align-self: flex-end; }
-.pod-pair.body { width: 78%; height: 92%; justify-content: flex-start; padding-left: 8%; }
-.pod-pair.body img { width: auto; max-width: 62%; height: 100%; object-fit: contain; object-position: bottom; margin-left: -22%; mask-image: linear-gradient(to bottom, #000 80%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent); }
-.pod-pair.body img:first-child { margin-left: 0; height: 100%; position: relative; z-index: 1; }
-.pod-pair.body ~ .pod-name, .pod-pair.body ~ .pod-pts { z-index: 2; }
-.pod-pair.body img + img { height: 92%; align-self: flex-end; filter: brightness(.8); }
+/* a team's two drivers in full body, cropped to the torso: the lead driver in front, the teammate a step behind and to the right */
+.pod-pair.body { position: absolute; top: 0; right: 0; bottom: 0; width: 72%; height: auto; overflow: hidden; display: block; padding: 0; }
+.pod-pair.body img { position: absolute; top: 9%; left: 46%; height: 250%; width: auto; max-width: none; margin: 0; transform: translateX(-50%); object-fit: contain; object-position: top; mask-image: none; -webkit-mask-image: none; }
+.pod-pair.body img:first-child { z-index: 1; }
+.pod-pair.body img + img { left: 80%; top: 13%; height: 235%; filter: brightness(.8); }
+.pod-pair.body ~ .pod-name, .pod-pair.body ~ .pod-pts, .pod-pair.body ~ .pod-n { position: relative; z-index: 2; }
 .pod-pair + .pod-logo { height: 40px; top: 10px; right: 10px; z-index: 1; }
 /* the champion's points, in gold as in the graphics */
 .pod-card.champ .pod-pts b { background: linear-gradient(180deg, #F3D98B 0%, #D4AF37 50%, #B8901E 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }

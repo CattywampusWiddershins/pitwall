@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.1
+
+- **Constructors’ standings, Simple**: the two drivers on each team card are larger, cropped at the waist, and stand apart: the lead driver in front, the teammate a step behind and to the right, both clear of the team’s name.
+
 ## 3.24.0
 
 - **New story graphics**: pole (team colour, two white bars, "POLE" across the driver), race winner (two white lines at the top, the name spread over "WINNER", "FIRST WIN" for a first), race preview (home drivers, then title rivals, the champion and other champions, in front of the host's flag with the Grand Prix's name glowing in gold), the calendar (new venues outlined in yellow, the round-by-round text folded away), breaking news for signings, extensions, exits and retirements ("BREAKING · X to retire at the end of the 2026 season"), framed in the new team's colour (or the current one's) with diagonal texture and the team's logo in the triangle, records and milestones, and quotes: contact, battles and wheel-to-wheel rivals put both drivers' words on one graphic; your interview and the media pen show the headline quote.
