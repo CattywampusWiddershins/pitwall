@@ -6,6 +6,29 @@ function allDriversInCareer(c) {
   for (const s of c.seasons) for (const id of gridIds(s)) map[id] = s.drivers[id];
   return map;
 }
+/** The leaderboard columns: [key, label]. */
+const LB_COLS = [['titles', 'Titles'], ['starts', 'Starts'], ['wins', 'Wins'], ['podiums', 'Podiums'], ['poles', 'Poles'], ['pts', 'Points']];
+/** The all-time leaderboard in the Simple standings look: every stat in red, the sorted one marked; drivers off the grid in grey. */
+function lbBoard(c, latest, board, lk, add) {
+  const fmt = (k, v) => k === 'pts' ? fmtPts(v) : k === 'titles' ? (v || '–') : v;
+  return `<div class="lbx"><div class="lbx-row lbx-h"><span></span><span>Driver</span>${LB_COLS.map(([k, l]) => `<span class="sortable ${lk === k ? 'on' : ''}" data-act="lb-sort" data-k="${k}">${l}${lk === k ? ' ▼' : ''}</span>`).join('')}</div>
+    ${board.map((x, i) => { const col = x.team?.color; const ph = headOf(c, x.id, latest);
+      return `<div class="lbx-row ${x.team ? '' : 'off'} ${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}" style="--c:${col || '#3A3F4A'};--i:${col ? contrastInk(col) : '#fff'}"><span class="lbx-p">${i + 1}</span>
+        <span class="lbx-bar">${x.team ? `<span class="sgx-logo">${teamLogo(c, x.team, 24)}</span>` : ''}${ph ? `<img class="sgx-ph" src="${esc(ph)}" alt="">` : ''}<b>${esc(lastName(x.name).toUpperCase())}</b><small>${esc(x.name.split(' ').slice(0, -1).join(' '))}</small></span>
+        ${LB_COLS.map(([k]) => `<span class="lbx-v ${lk === k ? 'sort' : ''}">${fmt(k, x[k])}${k !== 'titles' ? add(x, k, k === 'pts' ? fmtPts : undefined) : ''}</span>`).join('')}</div>`; }).join('')}</div>`;
+}
+/** The export dialog: which stats go on the image (the sorted one always does). */
+function lbExportModal() {
+  ui.modal = { kind: 'lb-export', pick: ui.lbPick || { [ui.lb.sort]: true } };
+  drawLbExportModal();
+}
+function drawLbExportModal() {
+  const m = ui.modal; const lk = ui.lb.sort;
+  modal(`<div class="modal-h"><h2>Export the top 10</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+    <div class="modal-b"><p class="muted" style="margin:0">Sorted by <b>${LB_COLS.find(x => x[0] === lk)[1]}</b>, which is always on the image. Pick any other stats to add.</p>
+      <div class="row" style="gap:14px;flex-wrap:wrap">${LB_COLS.map(([k, l]) => `<label class="row" style="gap:6px"><input type="checkbox" data-ch="lb-pick" data-k="${k}" ${k === lk || m.pick[k] ? 'checked' : ''} ${k === lk ? 'disabled' : ''}> ${l}</label>`).join('')}</div></div>
+    <div class="modal-f"><button class="btn ghost" data-act="modal-close">Cancel</button><button class="btn primary" data-act="lb-export-go">Make the image</button></div>`);
+}
 function renderH2H() {
   const c = career();
   const scope = ui.h2h.scope;
@@ -44,6 +67,7 @@ function renderH2H() {
   return `<div class="page">
     <div class="page-head"><div><h1>Head to Head</h1><div class="sub">Compare any two drivers on the grid. Defaults to you against your teammate.</div></div>
     <div class="row">${scopeSel}</div></div>
+    <div class="gfx-hero h2h-gfx">${gfxSlot({ type: 'h2h', si: c.seasons.length - 1, ri: 0, a, b, scope })}</div>
     <div class="panel"><div class="panel-b">
       <div class="h2h-head">
         ${side(a, ca, false)}
@@ -182,6 +206,7 @@ function renderStats() {
   });
   const lk = ui.lb.sort;
   board.sort((a, b) => (b[lk] - a[lk]) || b.wins - a.wins || b.pts - a.pts || a.name.localeCompare(b.name));
+  ui.lbLast = { full, rows: board.slice(0, 10).map(x => ({ id: x.id, name: x.name, team: x.team?.id || null, ...Object.fromEntries(LB_COLS.map(([k]) => [k, x[k]])) })) };
   const lth = (key, label) => `<th class="num sortable ${lk === key ? 'on' : ''}" data-act="lb-sort" data-k="${key}">${label}</th>`;
   const lbAdd = (x, k, fmt) => full ? plus(x[k] - x.from[k], fmt) : '';
 
@@ -211,12 +236,7 @@ function renderStats() {
     </table></div></div>
     <div class="panel"><div class="panel-h"><div><h2>All-time leaderboard</h2><span class="muted" style="font-size:12px">${full ? `Entire F1 careers: real records up to ${firstPlayed(c).year - 1} plus your career (shown in green)` : `Only what each driver has done since ${firstPlayed(c).year} in your career`}. The ${latest.year} grid plus everyone who has raced since ${c.seasons[0].year}. Click a column to sort.</span></div>
       ${full ? addScopeSeg() : ''}<div class="seg">${[['full', 'Entire careers'], ['career', 'This career only']].map(([v, l]) => `<button data-act="lb-scope" data-v="${v}" class="${ui.lb.scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-      <div class="panel-b tight table-wrap"><table>
-        <thead><tr><th>#</th><th>Driver</th><th>${latest.year} team</th>${lth('titles', 'Titles')}${lth('starts', 'Starts')}${lth('wins', 'Wins')}${lth('podiums', 'Podiums')}${lth('poles', 'Poles')}${lth('pts', 'Points')}</tr></thead>
-        <tbody>${board.map((x, i) => `<tr class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}"><td class="muted num">${i + 1}</td><td>${drvCell(latest, x.id, { name: x.name })}</td>
-          <td class="muted">${x.team ? `<div class="drv">${teamLogo(c, x.team, 20)}${esc(x.team.name)}</div>` : 'Not on the grid'}</td>
-          <td class="num">${x.titles || '–'}</td><td class="num">${x.starts}${lbAdd(x, 'starts')}</td><td class="num">${x.wins}${lbAdd(x, 'wins')}</td><td class="num">${x.podiums}${lbAdd(x, 'podiums')}</td><td class="num">${x.poles}${lbAdd(x, 'poles')}</td><td class="num"><b>${fmtPts(x.pts)}</b>${lbAdd(x, 'pts', fmtPts)}</td></tr>`).join('')}</tbody>
-      </table></div></div>
+      <div class="panel-b"><div class="row" style="justify-content:flex-end;margin-bottom:8px"><button class="btn sm primary" data-act="lb-export">${ICON.camera} Export top 10 as image</button></div>${lbBoard(c, latest, board, lk, full ? lbAdd : () => '')}</div></div>
     <div>
       <div class="panel"><div class="panel-h"><h2>Your records</h2></div><div class="panel-b">
         <dl class="kv">
@@ -610,7 +630,8 @@ function renderTeam() {
         <span class="label">Constructors’ championships</span>
         <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${tot.conTitles.length}</div>
         <span class="muted" style="font-size:13px;max-width:260px">${tot.conTitles.length ? esc(tot.conTitles.join(', ')) : tot.bestCon ? `Best: P${tot.bestCon}` : 'No titles yet'}</span>
-        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}</div>
+        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}${fallbackControls('team', D.TEAM_BIO[id]?.lineage?.[0] || id)}</div>
+        <span class="muted" style="font-size:11px;max-width:260px">Default driver: a full body in ${esc(meta.name)} kit, shown for any of its drivers without a picture.</span>
       </div>
     </section>
 

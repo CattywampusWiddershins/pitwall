@@ -84,6 +84,9 @@ function renderSettings() {
       <div class="trophy-row">${[['driver', 'Drivers’ championship'], ['team', 'Constructors’ championship']].map(([k, l]) => `<div class="trophy-slot">${trophyOf(k) ? `<img src="${esc(trophyOf(k))}" alt="">` : '<span class="muted">No trophy</span>'}<b>${l}</b>
         <div class="row" style="gap:6px"><label class="btn sm file-btn">${ICON.camera} ${trophyOf(k) ? 'Replace' : 'Upload'}<input type="file" accept="image/png,image/webp" data-ch="trophy-upload" data-kind="${k}" hidden></label>${trophyOf(k) ? `<button class="btn sm ghost danger" data-act="trophy-clear" data-kind="${k}">Remove</button>` : ''}</div></div>`).join('')}</div>
       <p class="muted" style="font-size:12px;margin:0">Shown on the title showdown, title weekend and champion graphics. Use a cut-out on a transparent background.</p>
+      <h3 style="margin-top:6px">Default driver</h3>
+      <div class="trophy-row"><div class="trophy-slot">${state.images?.defaultBody?.url ? `<img src="${esc(state.images.defaultBody.url)}" alt="">` : '<span class="muted">None</span>'}<b>Any driver</b><div class="row" style="gap:6px">${fallbackControls('default')}</div></div></div>
+      <p class="muted" style="font-size:12px;margin:0">A full-body cut-out used for a driver with no picture whose team has no default driver either (each team's is on its page). Full-body pictures also give drivers without a photo their headshot.</p>
       <details class="body-list"><summary><h3 style="display:inline">Full-body driver pictures</h3> <span class="muted" style="font-size:12px">· ${s.teams.flatMap(t => t.drivers.filter(Boolean)).filter(id => bodyOf(c, id)).length} of ${s.teams.flatMap(t => t.drivers.filter(Boolean)).length} added</span></summary>
         <p class="muted" style="font-size:12px">For the title showdown, permutation, ratings and Driver of the Day graphics. Use a cut-out on a transparent background, head to toe, and say which way the driver faces in it: the graphics mirror them to face where they need.</p>
         <div class="body-grid">${s.teams.flatMap(t => t.drivers.filter(Boolean).map(id => `<div class="body-item">${avatar(c, s, id, 32)}<div style="min-width:0;display:grid;gap:4px"><b>${esc(dName(s, id))}</b><span class="muted" style="font-size:12px">${esc(t.name)}</span>${bodyControls(c, id)}</div></div>`)).join('')}</div>
@@ -509,7 +512,10 @@ function nextSeasonModal() {
   const keep = base.teams.some(t => t.id === want) ? want : base.teams.some(t => t.id === s.playerTeamId) ? s.playerTeamId : base.teams[0].id;
   const keepTeam = base.teams.find(t => t.id === keep);
   const defaultSeat = myMove && keepTeam.drivers.includes(null) ? null : keepTeam.drivers.find(d => d) || null;
-  ui.modal = { kind: 'next', index, base, teamId: keep, seat: defaultSeat, goals: s.goals.map(g => ({ ...g, id: uid(), done: false })) };
+  const was = ui.nextKeep; ui.nextKeep = null;
+  // a move already signed for next season settles where you drive: no need to ask
+  const settled = !!myMove || !!realTeam || isPrincipal(c);
+  ui.modal = { kind: 'next', index, base, teamId: keep, seat: defaultSeat, settled, tab: was?.tab || (settled ? 'grid' : 'seat'), goals: was?.goals || s.goals.map(g => ({ ...g, id: uid(), done: false })) };
   drawNextSeasonModal();
 }
 function drawNextSeasonModal() {
@@ -527,12 +533,14 @@ function drawNextSeasonModal() {
       <div class="kv"><dt>${s.year} result</dt><dd><b>${myPos ? 'P' + myPos : '–'}</b> in the drivers' championship with ${st[PLAYER]?.pts || 0} points</dd><dt>Champion</dt><dd>${esc(dName(s, ds[0]?.id))}</dd></div>
       ${apxNote}
       ${extraAsk}
-      ${realDriverOf(c) && m.base.teams.some(t => t.drivers.includes(c.realDriver)) ? `<div><h3 style="margin-bottom:6px">Your ${year} seat</h3><p class="muted" style="margin:0">${esc(m.base.drivers[c.realDriver]?.name || anyName(c.realDriver))} races for <b>${esc(m.base.teams.find(t => t.drivers.includes(c.realDriver)).name)}</b> in ${year}, as in real life${year <= HIST_TO ? ', and any moves during the season happen when they really did' : ''}.</p></div>`
+      <div class="seg seg-wrap">${[...(m.settled ? [] : [['seat', 'Your seat']]), ['grid', `${year} grid`], ['calendar', 'Calendar'], ['goals', 'Goals']].map(([v, l]) => `<button data-act="next-tab" data-v="${v}" class="${m.tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      ${m.tab === 'grid' ? `<div class="stack"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><p class="muted" style="margin:0;font-size:13px">Next season’s line-up with every move signed so far. Tap a driver, or make a new transfer, exactly as on the Transfers page: it takes effect from ${year} and the press reports it.</p><button class="btn sm primary" data-act="next-transfer">New transfer for ${year}</button></div>${gridCards(c, s, nextLineup(c, s).teams, nextLineup(c, s).drivers, { act: 'next-transfer', year })}</div>` : ''}
+      ${m.tab === 'calendar' ? `${renderNextSeason(c, s, 'cal')}<p class="muted" style="font-size:12px;margin:0">A calendar never announced, or changed since it was, is announced in the stories when the season starts.</p>` : ''}
+      ${m.tab === 'seat' ? `${realDriverOf(c) && m.base.teams.some(t => t.drivers.includes(c.realDriver)) ? `<div><h3 style="margin-bottom:6px">Your ${year} seat</h3><p class="muted" style="margin:0">${esc(m.base.drivers[c.realDriver]?.name || anyName(c.realDriver))} races for <b>${esc(m.base.teams.find(t => t.drivers.includes(c.realDriver)).name)}</b> in ${year}, as in real life${year <= HIST_TO ? ', and any moves during the season happen when they really did' : ''}.</p></div>`
         : realDriverOf(c) ? `<div class="callout">${esc(anyName(c.realDriver))} didn’t start the ${year} season in real life${year > HIST_TO ? ' (or the real data has run out)' : ''}. Pick the seat they take below.</div>` : ''}
       ${realDriverOf(c) && m.base.teams.some(t => t.drivers.includes(c.realDriver)) ? '' : isPrincipal(c) ? `<div><h3 style="margin-bottom:6px">Your ${year} line-up</h3><p class="muted">${esc(m.base.teams.find(t => t.id === MYTEAM)?.drivers.filter(Boolean).map(d => m.base.drivers[d]?.name || d).join(' and ') || 'No drivers signed')}. Sign or release drivers in Transfers.</p></div>` : `<div><h3 style="margin-bottom:10px">Your ${year} seat</h3><div class="choices">${m.base.teams.map(t => `<div class="choice team-choice ${m.teamId === t.id ? 'on' : ''}" style="--c:${t.color}"><span class="bar"></span><div class="inner"><b>${esc(t.name)}</b>
-        <div class="row" style="gap:6px">${t.drivers.map((d, i) => `<button class="seat ${m.teamId === t.id && m.seat === d ? 'on' : ''}" data-act="next-seat" data-team="${t.id}" data-seat="${d ?? ''}" data-i="${i}">${d ? esc(m.base.drivers[d]?.name || d) : 'Empty seat'}</button>`).join('')}</div></div></div>`).join('')}</div></div>`}
-      <div><h3 style="margin-bottom:10px">${year} goals</h3>${goalEditor(m.goals, 'modal')}</div>
-      <p class="muted" style="font-size:13px">You can change the full roster and calendar for ${year} in Settings afterwards to match transfers in your save.</p>
+        <div class="row" style="gap:6px">${t.drivers.map((d, i) => `<button class="seat ${m.teamId === t.id && m.seat === d ? 'on' : ''}" data-act="next-seat" data-team="${t.id}" data-seat="${d ?? ''}" data-i="${i}">${d ? esc(m.base.drivers[d]?.name || d) : 'Empty seat'}</button>`).join('')}</div></div></div>`).join('')}</div></div>`}` : ''}
+      ${m.tab === 'goals' ? `<div><h3 style="margin-bottom:10px">${year} goals</h3>${goalEditor(m.goals, 'modal')}</div>` : ''}
     </div>
     <div class="modal-f"><button class="btn ghost" data-act="modal-close">Cancel</button><button class="btn primary" data-act="next-confirm">Start ${year}</button></div>`, 'wide');
 }

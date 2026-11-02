@@ -2,6 +2,26 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.0
+
+- **New story graphics**: pole (team colour, two white bars, "POLE" across the driver), race winner (two white lines at the top, the name spread over "WINNER", "FIRST WIN" for a first), race preview (home drivers, then title rivals, the champion and other champions, in front of the host's flag with the Grand Prix's name glowing in gold), the calendar (new venues outlined in yellow, the round-by-round text folded away), breaking news for signings, extensions, exits and retirements ("BREAKING · X to retire at the end of the 2026 season"), framed in the new team's colour (or the current one's) with diagonal texture and the team's logo in the triangle, records and milestones, and quotes: contact, battles and wheel-to-wheel rivals put both drivers' words on one graphic; your interview and the media pen show the headline quote.
+- **Points graphs**, landscape and flat, names and points only: the title decider (everyone still in it), the season review (the top five, or everyone still in it three rounds from the end) and title-rivalry stories (the gap to the leader over the last five races).
+- **Permutations**: the finishes that win it whatever happens fold into one row ("P3 or higher") with "NORRIS IS CHAMPION" across the rivals in the team's colour; "+FL" in fastest-lap seasons. A team's pair stands lead driver in front, teammate a step behind.
+- **The story logo recolours itself**: red on most graphics, white on the winner graphic, one upload for all.
+- The constructors' standings graphic shows every team.
+- **Default drivers**: each team page takes a full-body "default driver" in its kit, and Settings → Story graphics a default driver for anyone else. A driver without a picture uses their team's, then the default. Full-body pictures also give drivers without a photo their headshot, so one upload covers both. The constructors' Simple standings cards stand both drivers in full body.
+- **Live Race**: F1's lap counter with the safety car / VSC box under it; the championship as it stands in F1's style, always five rows with team logos, the points gained this race and the gap to the leader. On a title weekend it shows the top five with the driver who'd be champion and the verdict ("As it stands: X will be world champion" or "The fight goes on to …"), and scrolls down to your car for five seconds when it changes place. Rows slide past each other as places change. A gold champion card at the flag. Projected finish is its own block. Overtaking difficulty can adjust itself from the passes in your races at each track.
+- **Fastest lap head to head** on Current Weekend: any two drivers' quickest laps of the weekend, the map coloured by who was quicker where, both cars starting together on it, the speed trace and the gap through the lap, and full throttle / braking / cornering shares. Pitwall now records every car's speed, throttle, brake and line through the lap while it's connected to the game.
+- **Dashboard**: the standings in the Simple look (no cards), the constructors' standings, the teammate battle as Head to Head bars, and the last five graphics from Stories in place of "Latest from the paddock".
+- **Season**: the next race across the top of the page. **Starting a new season** no longer asks where you drive when a move is already signed; it has tabs for the grid (make transfers for any driver, as on the Transfers page), the calendar and your goals. A calendar never announced, or changed since it was, is announced when the season starts.
+- **Standings, Detailed**, and the **Forecast**, in the live championship's look, with all the same columns. Before a weekend that can decide the title, "On current form" says whether it predicts the title there or the fight going on.
+- **Current Weekend and Performance** use the practice results' look: team-colour rows with logos and photos, the bars inside, each opening the driver or team. Race and qualifying pace by round stay as they were.
+- **Stories**: a filter for each race weekend.
+- **Transfers**: the grid and contracts as F1's team cards (yellow: final year; black: retiring).
+- **Career stats**: the leaderboard in the Simple look with every stat in red and drivers off the grid in grey; export the top 10 as an image, by the column you sort on, with the stats you pick.
+- **Head to Head** draws an F1-style graphic of the comparison above the numbers.
+- Fixed: removing a trophy picture in Settings did nothing.
+
 ## 3.23.0
 
 - **Phones**: the Media page no longer runs off the side of the screen (the reputation meter and the quick answers wrap), and names on the Simple standings cards shrink to fit, whatever font you've uploaded.

@@ -557,7 +557,8 @@ function buildStories(c, s) {
     const rnd = seeded(`${s.index}-${e.r.id}-${e.type}-${e.rid || ''}-${e.id || ''}`);
     if (e.type === 'milestones') {
       const top = e.items[0];
-      out.push({ id: `${s.index}-${e.r.id}-ms`, seq: e.ri * 10 + 5, kind: 'milestone', i: e.ri, r: e.r, subject: top.id, outlet: choose(rnd, D.OUTLETS), kicker: 'Milestones',
+      const num = /(d+)(?:st|nd|rd|th)/.exec(top.text)?.[1] || (/first/i.test(top.text) ? '1ST' : null);
+      out.push({ id: `${s.index}-${e.r.id}-ms`, seq: e.ri * 10 + 5, kind: 'milestone', i: e.ri, r: e.r, subject: top.id, recGfx: num && s.drivers[top.id] ? { kind: 'milestone', ids: [top.id], big: num, what: top.text, prev: '' } : null, outlet: choose(rnd, D.OUTLETS), kicker: 'Milestones',
         headline: e.items.length > 1 ? `${e.r.name} milestones: ${top.text} and more` : `${top.text} in ${e.r.name}`, standfirst: '', list: e.items.length > 1 ? e.items.map(x => ({ id: x.id, text: x.text })) : null });
     } else {
       const R = tl.recs[e.rid];
@@ -569,7 +570,9 @@ function buildStories(c, s) {
       const prevWhen = recPrev(e).map(h => h.when).filter(Boolean)[0];
       const many = e.team || !!e.co;
       const verb = e.co ? (e.kind === 'broken' ? 'share a new' : 'share') : many ? (e.kind === 'broken' ? 'break' : 'equal') : (e.kind === 'broken' ? 'breaks' : 'equals');
-      out.push({ id: `${s.index}-${e.r.id}-${e.rid}-${e.id}`, seq: e.ri * 10 + 5, kind: 'record', i: e.ri, r: e.r, subject: e.team ? null : e.id, outlet: choose(rnd, D.OUTLETS), kicker: e.kind === 'broken' ? 'Record broken' : 'Record equalled',
+      const rids = [e, ...(e.co || [])].filter(x => !x.team).map(x => x.id);
+      const recGfx = e.team || e.rid === 'winless' || !rids.length ? null : { ids: rids, big: R.group === 'age' ? String(parseInt(e.disp, 10) || '') : R.pct ? `${e.value.toFixed(0)}%` : fmtPts(e.value), what: R.group === 'age' ? `${R.label} · ${e.disp}` : R.label, share: !!e.co, prev: prevNames ? `Previous record${prevDisp ? `: ${prevDisp}` : ''}, ${prevNames}${prevWhen ? ` (${prevWhen})` : ''}` : '' };
+      out.push({ id: `${s.index}-${e.r.id}-${e.rid}-${e.id}`, recGfx, seq: e.ri * 10 + 5, kind: 'record', i: e.ri, r: e.r, subject: e.team ? null : e.id, outlet: choose(rnd, D.OUTLETS), kicker: e.kind === 'broken' ? 'Record broken' : 'Record equalled',
         headline: e.rid === 'youngTitle8' ? `${short} becomes the first eight-time world champion` : `${short} ${verb}${e.co && e.kind === 'broken' ? '' : ' the'} record for the ${R.label}`,
         standfirst: e.kind === 'broken'
           ? `${who} now ${e.co ? 'share' : e.team ? 'hold' : 'holds'} the record for the ${R.label}: ${disp}, set at the ${e.r.name} Grand Prix.${prevNames ? ` The previous record${prevDisp ? ` of ${prevDisp}` : ''} belonged to ${prevNames}${prevWhen ? ` (${prevWhen})` : ''}.` : ''}`
@@ -796,21 +799,42 @@ function contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, seq) 
 }
 /** The graphics that go with a story: results, standings, ratings and each contender's permutations. */
 function storyGfx(s, x) {
-  if (!x.r) return [];
+  if (!x.r) return x.calGfx ? [{ type: 'calendar', ...x.calGfx, si: s.index, ri: 0 }] : [];
   const base = { si: s.index, ri: x.i }; const out = [];
   if (x.titleGfx?.ids?.length) {
     out.push({ type: 'title', ...x.titleGfx, ...base });
   }
+  if (x.kind === 'quali' && !x.sess) out.push({ type: 'pole', ...base });
   if (x.kind === 'quali') out.push({ type: 'results', k: x.sess || 'Q', ...base });
   if (x.kind === 'practice') out.push({ type: 'class', k: x.sess, ...base });
   if (x.kind === 'sprint' && x.results) out.push({ type: 'results', k: 'SPR', ...base });
-  if (x.kind === 'race' && x.results) out.push({ type: 'results', k: 'R', ...base }, { type: 'standings', kind: 'driver', ...base }, { type: 'standings', kind: 'team', ...base });
+  if (x.kind === 'race' && x.results) out.push({ type: 'winner', ...base }, { type: 'results', k: 'R', ...base }, { type: 'standings', kind: 'driver', ...base }, { type: 'standings', kind: 'team', ...base });
   if (x.fanVoice?.race?.length) out.push({ type: 'ratings', rows: x.fanVoice.race.slice(0, 10).map(o => ({ id: o.id, rating: +o.rating.toFixed(1) })), ...base });
   if (x.fanVoice?.season?.length) out.push({ type: 'ratings', season: true, rows: x.fanVoice.season.slice(0, 10).map(o => ({ id: o.id, rating: +o.rating.toFixed(1) })), ...base });
   if (x.dotd) out.push({ type: 'award', kind: 'dotd', ...base });
   if (x.dots) out.push({ type: 'award', kind: 'dots', ...base });
   for (const who of x.permGfx?.who || []) out.push({ type: 'perm', kind: x.permGfx.kind, stage: x.permGfx.stage || '', who, ...base });
+  if (x.permGfx?.kind === 'driver' && x.permGfx.stage !== 'sprint') out.push({ type: 'graph', mode: 'decider', ...base });
+  if (x.kind === 'review') out.push({ type: 'graph', mode: 'review', ...base });
+  if (x.graphIds?.length >= 2) out.push({ type: 'graph', mode: 'rivalry', ids: x.graphIds, ...base });
+  if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
+  if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
+  if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });
+  if (x.recGfx) out.push({ type: 'record', ...x.recGfx, ...base });
+  const qg = quoteGfx(s, x); if (qg) out.push({ ...qg, ...base });
   return out;
+}
+/** The quote graphic for a story with drivers' words: both drivers on one for contact, battles and rivals; your interview's headline quote alone. */
+function quoteGfx(s, x) {
+  if (x.media && !isPrincipal(career())) {
+    const h = /“([^”]+)”/.exec(x.headline || ''); const best = h ? h[1] : (x.media.questions || []).map(q => q.answer || '').filter(a => a && !/^no comment/i.test(a)).sort((a, b) => b.length - a.length)[0];
+    return best ? { type: 'quote', kicker: `Your interview · ${x.r.name}`, headline: x.headline, quotes: [{ id: PLAYER, text: best }], solo: true } : null;
+  }
+  if (x.kind === 'pen' && x.subject && x.qa?.length) return { type: 'quote', kicker: `In the pen · ${x.r.name}`, headline: x.headline, quotes: [{ id: x.subject, text: x.qa[0][1].split(/(?<=[.!?])s/)[0] }], solo: true };
+  if (!['incident', 'battle'].includes(x.kind) && !x.pair) return null;
+  const q = (x.quotes || []).filter(o => o && o.id && !o.team && s.drivers[o.id]).slice(0, 2);
+  if (!q.length) return null;
+  return { type: 'quote', kicker: x.kicker, headline: x.headline, quotes: q.map(o => ({ id: o.id, text: o.text })), solo: q.length === 1 };
 }
 function storyHtml(c, s, x, lead = false) {
   const G = storyGfx(s, x); const has = (t) => G.some(o => o.type === t);
@@ -822,6 +846,7 @@ function storyHtml(c, s, x, lead = false) {
     <div class="row" style="gap:14px;flex-wrap:nowrap;align-items:flex-start">${x.subject ? avatar(c, s, x.subject, lead ? 64 : 48) : ''}<div style="min-width:0;display:grid;gap:6px"><div class="headline">${esc(x.headline)}</div>${x.standfirst ? `<p class="standfirst">${esc(x.standfirst)}</p>` : ''}</div></div>
     ${x.body?.length ? `<div class="body">${x.body.map(p => `<p>${esc(p)}</p>`).join('')}</div>` : ''}
     ${x.chartHtml || ''}
+    ${x.more ? `<details class="perms-more"><summary>${esc(x.more.title)}</summary><div class="perms-box">${x.more.lines.map(p => `<p>${esc(p)}</p>`).join('')}</div></details>` : ''}
     ${x.review ? `<details class="review-more"><summary>Read it race by race: all ${x.review.n} rounds</summary>${reviewHtml(c, s, x.review)}</details><div><button class="btn sm ghost" data-act="open-review" data-idx="${s.index}">Open the season review</button></div>` : ''}
     ${has('title') ? `<div class="gfx-hero">${G.filter(o => o.type === 'title').map(gfxSlot).join('')}</div>` : ''}
     ${x.list && !(x.hideList && has('title')) ? `<ul class="ms-list">${x.list.map(o => `<li>${avatar(c, s, o.id, 26)}<span>${esc(o.text)}</span></li>`).join('')}</ul>` : ''}
@@ -846,8 +871,11 @@ function renderStories() {
   const c = career(); const s = curSeason();
   const all = buildStories(c, s);
   const f = STORY_FILTERS.find(x => x[0] === ui.stories) || STORY_FILTERS[0];
-  const list = f[2] ? all.filter(x => f[2].includes(x.kind)) : all;
   const nr = nextRound(s); const rounds = activeRounds(s);
+  // a filter per race weekend too: pre-season (before round 1), each round, and the off-season after the last
+  const rf = ui.storyRound ?? 'all'; const inRound = (x) => rf === 'all' || (rf === 'pre' ? x.i < 0 : rf === 'post' ? x.i >= rounds.length : x.i === +rf);
+  const list = (f[2] ? all.filter(x => f[2].includes(x.kind)) : all).filter(inRound);
+  const used = new Set(all.map(x => x.i));
   const dm = titleMath(s, 'driver'); const P = roundPerms(dm);
   const tm = titleMath(s, 'team'); const TP = roundPerms(tm);
   const rumours = (c.rumours || []).filter(x => x.seasonIdx === s.index).slice().reverse();
@@ -856,6 +884,7 @@ function renderStories() {
     <div class="page-head"><div><h1>Stories</h1><div class="sub">The ${s.year} season as the paddock press tells it: race reports, the title fight, interviews and rumours. Articles update when you edit results.</div></div>
       <div class="row">${seasonPicker(c, s.index)}${isHist(s) ? '' : '<button class="btn" data-act="rv-new">Start a rivalry</button><button class="btn primary" data-act="rm-new">Start a rumour</button>'}</div></div>
     <div class="row"><div class="seg seg-wrap">${STORY_FILTERS.map(([id, l]) => `<button data-act="stories-filter" data-v="${id}" class="${f[0] === id ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="story-rounds">${[['all', 'Every race'], ...(used.has(-1) ? [['pre', 'Pre-season']] : []), ...rounds.map((r, i) => used.has(i) ? [String(i), `R${i + 1} ${r.name}`, r] : null).filter(Boolean), ...([...used].some(i => i >= rounds.length) ? [['post', 'Off-season']] : [])].map(([v, l, r]) => `<button data-act="story-round" data-v="${v}" class="${String(rf) === v ? 'on' : ''}">${r ? countryFlag(D.TRACKS[trackOf(r)]?.country, 11) + ' ' : ''}${esc(l)}</button>`).join('')}</div>
     <div class="grid-main">
       <div class="panel">${list.length ? list.map((x, k) => storyHtml(c, s, x, k === 0)).join('') : `<div class="empty">No stories yet. Log a qualifying session or race and the press will write it up.</div>`}
         ${list.some(x => x.quotes?.length || x.qa) ? '<div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Quotes from other drivers are invented for your career and are not real statements.</div>' : ''}</div>

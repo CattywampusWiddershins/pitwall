@@ -2,6 +2,15 @@
 'use strict';
 /* ---------------------------------------------------------------- actions */
 const actions = {
+  'trophy-clear'(el) { if (state.gfxTrophy) delete state.gfxTrophy[el.dataset.kind]; store.save(); render(); },
+  'lb-export'() { lbExportModal(); },
+  async 'lb-export-go'() {
+    const lk = ui.lb.sort; const cols = LB_COLS.filter(([k]) => k === lk || ui.modal.pick[k]).map(([k]) => k);
+    const spec = { type: 'leaderboard', si: career().seasons.length - 1, ri: 0, sort: lk, cols, full: ui.lbLast.full, rows: ui.lbLast.rows };
+    closeModal(); gfxModal(gfxKey(spec));
+  },
+  'story-round'(el) { ui.storyRound = el.dataset.v; render(); },
+  'fallback-clear'(el) { const im = state.images || {}; if (el.dataset.scope === 'team') delete im.teamBodies?.[el.dataset.id]; else delete im.defaultBody; store.save(); renderGen++; render(); },
   'conflict-pick'(el) { ui.conflicts[+el.dataset.i].pick = el.dataset.v; conflictModal(ui.conflicts); },
   'conflict-all'(el) { ui.conflicts.forEach(x => { x.pick = el.dataset.v; }); conflictModal(ui.conflicts); },
   'conflict-done'() {
@@ -195,6 +204,10 @@ const actions = {
   'modal-bg'(el, e) { if (e.target === el) closeModal(); },
   'confirm-ok'() { const f = ui.confirmFn; closeModal(); f && f(); },
   'next-season'() { nextSeasonModal(); },
+  'next-tab'(el) { ui.modal.tab = el.dataset.v; drawNextSeasonModal(); },
+  // a transfer from the start-of-season window: the window comes back once it's confirmed
+  'next-transfer'(el) { ui.nextKeep = { tab: ui.modal.tab, goals: ui.modal.goals }; transferModal({ nextOnly: true, driver: el.dataset.driver || null }); },
+  'tr-new-next-d'(el) { transferModal({ nextOnly: true, driver: el.dataset.driver || null }); },
   'next-seat'(el) { ui.modal.teamId = el.dataset.team; ui.modal.seat = el.dataset.seat || null; ui.modal.seatIdx = +el.dataset.i; drawNextSeasonModal(); },
   'next-extra'(el) { const c = career(); const m = ui.modal; m.extra = el.dataset.v; c.extraTeam2025 = el.dataset.v || null; const keep = { goals: m.goals, extra: m.extra }; nextSeasonModal(); Object.assign(ui.modal, keep); drawNextSeasonModal(); },
   'next-confirm'() {
@@ -203,6 +216,9 @@ const actions = {
     backupNow('season');
     const s = newSeason(c, m.index, { teamId: m.teamId, seatDriverId: m.seat, goals: m.goals });
     c.seasons.push(s); syncNumbers(c);
+    // a calendar never announced, or changed since it was, is announced as the season starts
+    const ann = c.calAnnounced?.[s.year]; const sig = (cal) => JSON.stringify(cal.map(r => [roundTrackId(r), !!r.sprint]));
+    if (!ann || sig(ann.cal) !== sig(activeRounds(s))) { const was = new Set(activeRounds(c.seasons[m.index - 1]).map(roundTrackId)); (c.calReannounced ||= {})[s.year] = { si: s.index, ri: -1, at: new Date().toISOString(), cal: clone(activeRounds(s)), newTracks: [...new Set(activeRounds(s).map(roundTrackId).filter(t => !was.has(t)))] }; }
     closeModal(); ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render();
     toast(`${s.year} season started with ${s.teams.find(t => t.id === s.playerTeamId).name}`);
   },
@@ -339,6 +355,9 @@ const changes = {
   'rp-keep'(el) { const c = career(); c.replayKeep = +el.value || 0; store.save(); replayPrune.done = null; render(); },
   'rp-seek'(el) { if (!RP) return; RP.T = +el.value; replayShow(true); },
   'rp-speed'(el) { if (!RP) return; RP.speed = +el.value; const b = document.getElementById('rp-speed'); if (b) b.textContent = RP.speed + 'x'; },
+  'lb-pick'(el) { ui.modal.pick[el.dataset.k] = el.checked; ui.lbPick = ui.modal.pick; },
+  'fl-pick'(el) { ui[el.dataset.k === 'a' ? 'flA' : 'flB'] = el.value; render(); },
+  'overtake-auto'(el) { const c = career(); (c.overtakeAuto ||= {})[el.dataset.track] = el.checked; store.save(); render(); },
   'overtake'(el) { const c = career(); (c.overtake ||= {})[el.dataset.track] = Math.max(0, Math.min(100, +el.value || 0)); store.save(); render(); },
   'pit-loss'(el) {
     const c = career(); const tid = el.dataset.track; const cur = pitLoss(c, tid); const v = Math.max(0, Math.min(60, +el.value || 0));
@@ -479,7 +498,10 @@ Object.assign(changes, {
     const file = el.files?.[0]; if (!file) return;
     try { (state.gfxTrophy ||= {})[el.dataset.kind] = await readImage(file, { max: 1000, type: 'image/webp' }); store.save(); render(); toast('Trophy saved'); } catch (e) { toast(e.message); }
   },
-  'trophy-clear'(el) { if (state.gfxTrophy) delete state.gfxTrophy[el.dataset.kind]; store.save(); render(); },
+  async 'fallback-upload'(el) {
+    const file = el.files?.[0]; if (!file) return; const im = (state.images ||= {});
+    try { const v = { url: await readBody(file), look: 'center' }; if (el.dataset.scope === 'team') (im.teamBodies ||= {})[el.dataset.id] = v; else im.defaultBody = v; store.save(); renderGen++; render(); toast('Default driver saved'); } catch (e) { toast(e.message); }
+  },
   async 'pic-upload'(el) {
     const file = el.files?.[0]; if (!file) return;
     const { kind, id } = el.dataset; const c = career();

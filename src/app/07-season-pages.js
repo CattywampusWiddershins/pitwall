@@ -17,8 +17,10 @@ function renderDashboard() {
   const gap = myRow && leader ? leader.pts - myRow.pts : 0;
   const h = h2hCompare([s], PLAYER, mate);
   const lastArticle = [...c.media].reverse().find(m => m.article && m.seasonIdx === s.index);
-  const top = ds.slice(0, 6);
+  const top = ds.slice(0, 10);
   if (myRow && !top.some(x => x.id === PLAYER)) top.push(myRow);
+  const cs = constructorStandings(s, stats);
+  const prevD = done > 1 ? driverStandings(s, seasonStats(s, done - 1)) : null;
 
   return `<div class="page">
     <section class="hero">
@@ -78,25 +80,34 @@ function renderDashboard() {
       <div class="stack">
         <div class="panel">
           <div class="panel-h"><h2>Drivers' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
-          <div class="panel-b tight"><table><tbody>${top.map(x => `<tr class="${x.id === PLAYER ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div>
+          <div class="panel-b">${standingsBars(c, s, top, false, prevD)}</div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>Constructors' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
+          <div class="panel-b">${standingsBars(c, s, cs, true, null)}</div>
         </div>
         ${rivalryPanel(c, s, { mineOnly: true })}
         <div class="panel">
           <div class="panel-h"><h2>Teammate battle</h2><button class="btn sm ghost" data-act="nav" data-view="h2h">Details</button></div>
-          <div class="panel-b stack">
-            ${miniH2H('Qualifying', h.q[0], h.q[1], s, mate)}
-            ${miniH2H('Race', h.r[0], h.r[1], s, mate)}
-            ${miniH2H('Points', h.pts[0], h.pts[1], s, mate)}
-          </div>
+          <div class="panel-b">${mateBars(s, mate, h)}</div>
         </div>
         <div class="panel">
-          <div class="panel-h"><h2>Latest from the paddock</h2><button class="btn sm ghost" data-act="nav" data-view="media">Media</button></div>
-          ${lastArticle ? `<div class="article"><span class="outlet">${esc(lastArticle.article.outlet)}</span><div class="headline" style="font-size:18px">${esc(lastArticle.article.headline)}</div><div class="body" style="font-size:13px">${esc(lastArticle.article.summary || lastArticle.article.body?.[0] || '')}</div></div>`
-          : `<div class="empty">No media sessions yet. Face the press after a qualifying or race.<button class="btn sm" data-act="new-media">Start a media session</button></div>`}
+          <div class="panel-h"><h2>Latest graphics</h2><button class="btn sm ghost" data-act="nav" data-view="stories">Stories</button></div>
+          ${(() => { const G = latestGraphics(c, s, 5); return G.length ? `<div class="panel-b dash-gfx">${G.map(gfxSlot).join('')}</div>` : '<div class="empty">The graphics made in Stories show up here as your season goes.</div>'; })()}
         </div>
       </div>
     </div>
   </div>`;
+}
+/** The teammate battle as Head to Head draws it: bars meeting in the middle, no pictures. */
+function mateBars(s, mate, h) {
+  const ca = teamColor(s, PLAYER); const cb = ca === teamColor(s, mate) ? '#8B97AF' : teamColor(s, mate);
+  const row = (label, va, vb) => { const t = va + vb; const pa = t ? va / t * 100 : 50; return `<div class="h2h-row"><span class="v ${va > vb ? 'win' : va < vb ? 'lose' : ''}">${va}</span><div class="h2h-bar l"><i style="--c:${ca};width:${pa}%"></i></div><span class="k">${label}</span><div class="h2h-bar"><i style="--c:${cb};width:${100 - pa}%"></i></div><span class="v r ${vb > va ? 'win' : vb < va ? 'lose' : ''}">${vb}</span></div>`; };
+  return `<div class="row" style="justify-content:space-between;margin-bottom:6px"><b style="color:${ca}">You</b><b style="color:${cb}">${esc(lastName(dName(s, mate)))}</b></div>${row('Qualifying', h.q[0], h.q[1])}${row('Race', h.r[0], h.r[1])}${row('Points', h.pts[0], h.pts[1])}`;
+}
+/** The newest graphics made in Stories, newest first. */
+function latestGraphics(c, s, n) {
+  try { return buildStories(c, s).flatMap(x => storyGfx(s, x)).slice(0, n); } catch { return []; }
 }
 function miniH2H(label, a, b, s, mate) {
   const tot = a + b || 1;
@@ -121,6 +132,7 @@ function renderCalendar() {
       <div><h1>${s.year} Calendar</h1><div class="sub">${rounds.length} rounds · ${rounds.filter(r => r.sprint).length} sprint weekends · ${roundsDone(s)} logged</div></div>
       <div class="row">${isLatest ? calTabs() : ''}${seasonPicker(c, s.index)}${roundsDone(s) ? `<button class="btn" data-act="open-review" data-idx="${s.index}">Season review</button>` : ''}${isLatest ? `<button class="btn ${nr ? '' : 'primary'}" data-act="next-season">Start ${s.year + 1} season</button>` : ''}</div>
     </div>
+    ${nr ? nextRaceHero(s, nr, rounds) : ''}
     <div class="rounds">${rounds.map((r, i) => {
       const w = s.weekends[r.id];
       const keys = sessionsFor(s, r);
@@ -137,6 +149,14 @@ function renderCalendar() {
   </div>`;
 }
 
+/** The next race across the top of the Season page, so it never has to be looked for (it stays in the list too). */
+function nextRaceHero(s, r, rounds) {
+  const ri = rounds.indexOf(r); const code = A.country[D.TRACKS[trackOf(r)]?.country]; const flag = code && A.flags[code];
+  const M = titleMath(s, 'driver'); const dec = !M.decided && !!roundPerms(M)?.clinch?.length && M.left[0]?.r.id === r.id;
+  return `<button class="next-hero" data-act="open-round" data-round="${r.id}">${flag ? `<span class="nh-flag">${flag}</span>` : ''}<span class="nh-rn">R${ri + 1}</span>
+    <span class="nh-mid"><span class="tag next">Next race</span><b>${esc(r.name)} Grand Prix</b><span class="muted">${esc(r.venue)} · ${weekendTxt(s, r)}${r.sprint ? ' · sprint weekend' : ''}${dec ? ' · title decider' : ''}</span></span>
+    <span class="btn primary nh-go">Open weekend</span></button>`;
+}
 /* --------------------------------------------------------------- weekend */
 function renderWeekend() {
   const s = curSeason();
@@ -401,8 +421,12 @@ function standingsPodium(c, s, rows, team) {
   const card = (x, n) => {
     const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
     // headshots only (the full-body pictures are for the story graphics); a team shows both its drivers, the logo over them
-    const pair = team ? (tm.drivers || []).filter(Boolean).slice(0, 2).map(d => driverPhoto(c, d) ? `<img src="${esc(driverPhoto(c, d))}" alt="">` : '').join('') : '';
-    const pic = team ? `${pair ? `<span class="pod-pair">${pair}</span>` : ''}${teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : ''}` : driverPhoto(c, x.id) ?`<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
+    // a team stands both drivers in full body, the better-placed one in front (headshots when there are no full bodies)
+    const st2 = team ? seasonStatsCache(s) : null; const two = team ? (tm.drivers || []).filter(Boolean).slice(0, 2).sort((p, q) => (st2[q]?.pts || 0) - (st2[p]?.pts || 0)) : [];
+    const bodies = two.map(d => bodyFor(c, d, s)).filter(b => b && b.fallback !== 'default').map(b => b.url); // the generic default driver would make every team look alike
+    const pair = team ? (bodies.length ? bodies.map(u => `<img src="${esc(u)}" alt="">`).join('') : two.map(d => headOf(c, d, s) ? `<img src="${esc(headOf(c, d, s))}" alt="">` : '').join('')) : '';
+    const pairCls = bodies.length ? 'pod-pair body' : 'pod-pair';
+    const pic = team ? `${pair ? `<span class="${pairCls}">${pair}</span>` : ''}${teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : ''}` : driverPhoto(c, x.id) ?`<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
     const nm = team ? tm.name : lastName(dName(s, x.id));
     // the champion, once the title is settled, gets gold points as in the graphics
     return `<button class="pod-card p${n} ${n === 1 && champ ? 'champ' : ''}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name fit">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
@@ -415,10 +439,37 @@ function standingsBars(c, s, rows, team, prev) {
     const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82';
     const id = team ? tm.id : x.id; const me = team ? id === s.playerTeamId : id === PLAYER;
     const was = prev ? prev.findIndex(p => (team ? p.team.id : p.id) === id) + 1 : 0; const mv = was ? was - x.pos : 0;
-    const ph = !team && driverPhoto(c, id);
+    const ph = !team && headOf(c, id, s);
     return `<li class="${me ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${id}">
       <span class="sgx-pos">${x.pos}</span><span class="sgx-bar"><span class="sgx-logo">${teamLogo(c, tm, 28)}</span>${ph ? `<img class="sgx-ph" src="${esc(ph)}" alt="">` : ''}<b>${esc(team ? tm.name : lastName(dName(s, id)))}</b></span>
       <span class="sgx-pts">${fmtPts(x.pts)}</span>${team ? '' : `<span class="sgx-mv ${mv > 0 ? 'up' : mv < 0 ? 'down' : ''}">${mv > 0 ? '▲' + mv : mv < 0 ? '▼' + -mv : '–'}</span>`}</li>`;
+  }).join('')}</ol>`;
+}
+/**
+ * A table in the live championship's look (Live Race): dark, heavy type, a team-colour chip per row. cols: [{ h, w, num }]
+ * (w a CSS grid width); rows: [{ cells, me, act, id }]. side: HTML for a verdict box beside it (the forecast's).
+ */
+function tvBoard(title, cols, rows, side = '') {
+  const tpl = cols.map(c => c.w || 'minmax(0, 1fr)').join(' ');
+  const line = (cells, extra = '') => cells.map((v, k) => `<span class="${cols[k].num ? 'n' : ''}">${v}</span>`).join('');
+  return `<div class="tvb ${side ? 'has-side' : ''}"><div class="tvb-main"><span class="cb-ttl">${esc(title)}</span><div class="tvb-scroll"><div class="tvb-in" style="--tpl:${tpl}">
+    <div class="tvb-h">${line(cols.map(c => c.h))}</div>
+    ${rows.map(r => `<div class="tvb-r ${r.me ? 'me' : ''}" ${r.act ? `data-act="${r.act}" data-id="${esc(r.id)}"` : ''}>${line(r.cells)}</div>`).join('')}
+  </div></div></div>${side}</div>`;
+}
+/** The team's logo beside a name on a board (its badge when no logo is uploaded). */
+const tvLogo = (c, tm) => tm ? `<span class="tvb-logo">${teamLogo(c, tm, 22)}</span>` : '';
+/**
+ * Rows in the practice classification's look (the story graphic): team-colour bar with logo and photo, the name and a
+ * line under it, a progress bar inside, the figure in red. Each opens the driver's or team's profile.
+ * rows: [{ id, team (the team, for a team row), name, sub, val, pct, me }]
+ */
+function practiceRows(c, s, rows) {
+  return `<ol class="sgx prx">${rows.map((o, k) => {
+    const tm = o.team || teamOf(s, o.id); const col = tm?.color || '#5E6A82'; const ph = !o.team && headOf(c, o.id, s);
+    return `<li class="${o.me ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="${o.team ? 'open-team' : 'open-driver'}" data-id="${o.team ? tm.id : o.id}">
+      <span class="sgx-pos">${o.pos ?? k + 1}</span><span class="sgx-bar"><span class="sgx-logo">${tm ? teamLogo(c, tm, 26) : ''}</span>${ph ? `<img class="sgx-ph" src="${esc(ph)}" alt="">` : ''}<span class="prx-who"><b>${esc(o.name)}</b>${o.sub ? `<small>${o.sub}</small>` : ''}</span>${o.pct != null ? `<span class="prx-bar"><i style="width:${Math.max(2, Math.min(100, o.pct))}%"></i></span>` : ''}</span>
+      <span class="sgx-pts prx-val">${o.val}</span></li>`;
   }).join('')}</ol>`;
 }
 function renderStandings() {
@@ -437,17 +488,12 @@ function renderStandings() {
   } else if (simple && tab === 'constructors') {
     body = standingsBars(c, s, cs.slice(3), true, null);
   } else if (tab === 'drivers') {
-    body = `<table><thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th class="num">Wins</th><th class="num">Podiums</th><th class="num">Poles</th><th class="num">FL</th><th class="num">DNF</th><th class="num">Avg Q</th><th class="num">Avg finish</th><th class="num">Pts</th></tr></thead><tbody>
-      ${ds.map(x => `<tr class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}" title="Driver profile"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="muted">${esc(teamOf(s, x.id)?.name || '')}</td>
-      <td class="num">${x.wins}</td><td class="num">${x.podiums}</td><td class="num">${x.poles}</td><td class="num">${x.fls ? `<span class="fl">${x.fls}</span>` : 0}</td><td class="num">${x.dnfs}</td><td class="num">${fmtAvg(avg(x.qPos))}</td><td class="num">${fmtAvg(avg(x.finPos))}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}
-    </tbody></table>`;
+    body = tvBoard(`Drivers’ championship · after round ${roundsDone(s)}`, [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(130px, 1.4fr)' }, { h: 'Team', w: 'minmax(110px, 1fr)' }, ...['Wins', 'Podiums', 'Poles', 'FL', 'DNF', 'Avg Q', 'Avg finish'].map(h => ({ h, w: '64px', num: true })), { h: 'Pts', w: '64px', num: true }],
+      ds.map(x => ({ me: x.id === PLAYER, act: 'open-driver', id: x.id, cells: [x.pos, tvLogo(c, teamOf(s, x.id)), `<b>${esc(dName(s, x.id).toUpperCase())}</b>`, `<small>${esc(teamOf(s, x.id)?.name || '')}</small>`, x.wins, x.podiums, x.poles, x.fls ? `<span class="fl">${x.fls}</span>` : 0, x.dnfs, fmtAvg(avg(x.qPos)), fmtAvg(avg(x.finPos)), `<b>${x.pts}</b>`] })));
   } else if (tab === 'constructors') {
     const max = cs[0]?.pts || 1;
-    body = `<table><thead><tr><th>Pos</th><th>Team</th><th>Drivers</th><th class="num">Wins</th><th class="num">Podiums</th><th style="width:30%"></th><th class="num">Pts</th></tr></thead><tbody>
-      ${cs.map(x => `<tr class="${x.team.id === s.playerTeamId ? 'me' : ''}" data-act="open-team" data-id="${x.team.id}" title="Team profile"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td><div class="drv">${teamMark(c, x.team)}<b>${esc(x.team.name)}</b></div></td>
-      <td class="muted">${x.team.drivers.filter(Boolean).map(d => esc(dAbbr(s, d))).join(' · ')}</td><td class="num">${x.wins}</td><td class="num">${x.podiums}</td>
-      <td><div class="h2h-bar"><i style="--c:${x.team.color};width:${x.pts / max * 100}%"></i></div></td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}
-    </tbody></table>`;
+    body = tvBoard(`Constructors’ championship · after round ${roundsDone(s)}`, [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: 'Team', w: 'minmax(130px, 1.4fr)' }, { h: 'Drivers', w: 'minmax(90px, 1fr)' }, { h: 'Wins', w: '64px', num: true }, { h: 'Podiums', w: '64px', num: true }, { h: '', w: 'minmax(80px, 1fr)' }, { h: 'Pts', w: '64px', num: true }],
+      cs.map(x => ({ me: x.team.id === s.playerTeamId, act: 'open-team', id: x.team.id, cells: [x.pos, tvLogo(c, x.team), `<b>${esc(x.team.name.toUpperCase())}</b>`, `<small>${x.team.drivers.filter(Boolean).map(d => esc(dAbbr(s, d))).join(' · ')}</small>`, x.wins, x.podiums, `<span class="tvb-bar"><i style="--c:${x.team.color};width:${x.pts / max * 100}%"></i></span>`, `<b>${x.pts}</b>`] })));
   } else if (tab === 'progress') {
     const dp = progression(s, 'driver'); const tp = progression(s, 'team');
     body = !dp.n ? '<div class="empty">Log a race to see how the championship develops.</div>' : `<div class="panel-b stack">
@@ -471,6 +517,6 @@ function renderStandings() {
     <div class="page-head"><div><h1>${s.year} Standings</h1><div class="sub">After ${roundsDone(s)} of ${rounds.length} rounds</div></div>
     <div class="row">${seasonPicker(c, s.index)}${tab === 'drivers' || tab === 'constructors' ? `<div class="seg">${[['simple', 'Simple'], ['detailed', 'Detailed']].map(([v, l]) => `<button data-act="standings-detail" data-v="${v}" class="${(ui.standingsDetail || 'simple') === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}${standingsTabs(tab)}</div></div>
     ${simple && tab === 'drivers' ? standingsPodium(c, s, ds, false) : simple && tab === 'constructors' ? standingsPodium(c, s, cs, true) : ''}
-    ${simple && (tab === 'drivers' || tab === 'constructors') ? body : `<div class="panel"><div class="panel-b tight table-wrap">${body}</div></div>`}
+    ${(tab === 'drivers' || tab === 'constructors') ? body : `<div class="panel"><div class="panel-b tight table-wrap">${body}</div></div>`}
   </div>`;
 }

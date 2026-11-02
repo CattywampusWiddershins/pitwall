@@ -135,6 +135,7 @@ function confirmTransfer() {
   const rm = (c.rumours || []).find(x => x.id === m.rumourId); if (rm) rm.status = 'confirmed';
   (s.transfers ||= []).push(tr);
   closeModal(); store.save(); render(); toast('Transfer confirmed. The press has the story.');
+  if (ui.nextKeep) nextSeasonModal(); // back to the start-of-season window it came from
 }
 function undoTransfer() {
   const c = career(); const s = latestSeason(); const tr = s.transfers?.[s.transfers.length - 1]; if (!tr) return;
@@ -170,6 +171,32 @@ function poolPanel(c, s) {
       <div class="row" style="gap:6px;margin-top:8px">${P.retired.map(id => btn(id)).join('')}</div></details>
   </div>`;
 }
+/**
+ * The grid as F1 shows it: a card per team in its colours, both drivers with their picture, number, nationality and
+ * contract (yellow: the deal ends this season; black: retiring; grey: future undecided). Clicking a driver opens a
+ * transfer for them. teams/drivers: the line-up to show (this season's, or next season's as it stands).
+ */
+function gridCards(c, s, teams, drivers, { act = 'tr-new', year = s.year } = {}) {
+  const name = (d) => d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : drivers[d]?.name || anyName(d);
+  const card = (t) => {
+    const col = t.color || '#5E6A82'; const ink = contrastInk(col);
+    const seat = (d) => {
+      if (!d) return `<div class="gc-d gc-empty"><span>Empty seat</span></div>`;
+      // their own full body, else their photo, else the team's (or the default) driver
+      const photo = !bodyOf(c, d) && driverPhoto(c, d); const pic = !photo && bodyFor(c, d, s)?.url; const head = photo || (!pic && headOf(c, d, s));
+      const u = c.retired?.[d] != null ? 'ret' : c.pending?.[d] ? 'pend' : null; const until = u ? null : contractUntil(c, s, d);
+      const tag = u === 'ret' ? 'RETIRING' : u === 'pend' ? 'UNDECIDED' : until == null ? '' : until <= year ? `FINAL YEAR` : `TO ${until}`;
+      const cls = u === 'ret' ? 'ret' : u === 'pend' ? 'pend' : until != null && until <= year ? 'exp' : '';
+      const num = drivers[d]?.number ?? (d === PLAYER_ID ? c.profile.number : '');
+      return `<button class="gc-d ${d === PLAYER ? 'me' : ''}" data-act="${trPick(c, d) ? act : 'open-driver'}" data-driver="${d}" data-id="${d}" title="${esc(contractTxt(c, s, d))}">
+        <span class="gc-num">${esc(String(num ?? ''))}</span>${tag ? `<span class="gc-ctr ${cls}">${tag}</span>` : ''}
+        ${pic ? `<img class="gc-body" src="${esc(pic)}" alt="">` : head ? `<img class="gc-head" src="${esc(head)}" alt="">` : ''}
+        <span class="gc-lbl">${natFlag(gfxNat(c, d), 11)}<b>${esc(lastName(name(d)))}</b><small>${esc(name(d).split(' ').slice(0, -1).join(' '))}</small></span></button>`;
+    };
+    return `<div class="gc-team ${t.id === s.playerTeamId ? 'me' : ''}" style="--c:${col};--i:${ink}"><div class="gc-h">${teamLogo(c, t, 24)}<b>${esc(t.name)}</b></div><div class="gc-ds">${(t.drivers.length ? t.drivers : [null, null]).slice(0, 2).map(seat).join('')}</div></div>`;
+  };
+  return `<div class="gc-grid">${teams.map(card).join('')}</div>`;
+}
 function renderTransfers() {
   const c = career(); const s = latestSeason();
   const open = (c.rumours || []).filter(rm => rm.seasonIdx === s.index && rm.status === 'open' && trPick(c, rm.driver));
@@ -179,7 +206,6 @@ function renderTransfers() {
   const bench = Object.keys(known).filter(id => id !== PLAYER_ID && !grid.includes(id) && !c.pending?.[id]);
   const history = (s.transfers || []).slice().reverse().map(tr => ({ se: s, tr })); // this season's only
   const last = s.transfers?.[s.transfers.length - 1];
-  const cell = (d) => d ? `<td>${!trPick(c, d) ? drvCell(s, d) : `<button class="link-btn drv-btn" data-act="tr-new" data-driver="${d}">${drvCell(s, d)}</button>`}</td><td class="muted" style="font-size:13px">${esc(contractTxt(c, s, d))}</td>` : '<td class="muted">Empty seat</td><td></td>';
   return `<div class="page">
     <div class="page-head"><div><h1>Transfers</h1><div class="sub">The ${s.year} driver market. Moves update the grid now or from ${s.year + 1}, and the press reports every one.</div></div>
       <button class="btn primary" data-act="tr-new">New transfer</button></div>
@@ -189,10 +215,8 @@ function renderTransfers() {
     ${open.length ? `<div class="panel"><div class="panel-h"><h2>From the rumour mill</h2><span class="muted" style="font-size:12px">Tap one to make it official</span></div><div class="panel-b"><div class="tr-picks">
       ${open.map(rm => `<button class="tr-pick" data-act="tr-rumour" data-id="${rm.id}">${avatar(c, s, rm.driver, 30)}<span><b>${esc(lastName(trName(c, s, rm.driver)))}</b> <span class="muted">${rm.kind === 'retire' ? 'retires' : rm.kind === 'stay' ? 'signs a new deal' : '→ ' + esc(trTeam(c, s, rm.team))}</span></span><span class="tag ${rm.strength === 'strong' ? 'sprint' : ''}">${rm.strength === 'strong' ? 'Strong' : 'Whisper'}</span></button>`).join('')}
     </div></div></div>` : ''}
-    <div class="panel"><div class="panel-h"><h2>${s.year} grid & contracts</h2><span class="muted" style="font-size:12px">Tap a driver to move them</span></div>
-      <div class="panel-b tight table-wrap"><table><thead><tr><th>Team</th><th>Driver</th><th>Contract</th><th>Driver</th><th>Contract</th></tr></thead><tbody>
-        ${s.teams.map(t => `<tr class="${t.id === s.playerTeamId ? 'me' : ''}"><td><div class="drv">${teamLogo(c, t, 22)}<b>${esc(t.name)}</b></div></td>${cell(t.drivers[0])}${cell(t.drivers[1])}</tr>`).join('')}
-      </tbody></table></div>
+    <div class="panel"><div class="panel-h"><h2>${s.year} grid & contracts</h2><span class="muted" style="font-size:12px">Tap a driver to move them · yellow: final year · black: retiring</span></div>
+      <div class="panel-b">${gridCards(c, s, s.teams, s.drivers)}</div>
     </div>
     ${poolPanel(c, s)}
     <div class="panel"><div class="panel-h"><h2>${s.year} transfers</h2></div>
@@ -262,7 +286,7 @@ function transferStory(c, s, tr) {
   const chain = tr.steps.length > 1 ? tr.steps.slice(1).map(st => ({ id: st.driver, text: trLine(c, s, st) })) : null;
   if (chain) body.push('The knock-on effects:');
   const ri = tr.at - 1;
-  return { id: 'tr' + tr.id, seq: ri * 10 + 9, kind: 'transfer', i: ri, r: rounds[ri] || null, outlet: choose(rnd, D.OUTLETS), kicker, headline, standfirst, body: body.filter(Boolean), list: chain, subject: m0.driver, massive, t: Date.parse(tr.createdAt) || 0 };
+  return { id: 'tr' + tr.id, trId: tr.id, seq: ri * 10 + 9, kind: 'transfer', i: ri, r: rounds[ri] || null, outlet: choose(rnd, D.OUTLETS), kicker, headline, standfirst, body: body.filter(Boolean), list: chain, subject: m0.driver, massive, t: Date.parse(tr.createdAt) || 0 };
 }
 
 /* ------------------------------------------------------------------ media */

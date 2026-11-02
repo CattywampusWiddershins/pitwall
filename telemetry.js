@@ -15,6 +15,7 @@ const raceType = (t) => t >= 15 && t <= 17;
 const LIVE_MS = 1000; // a race sends your battery this often, and the whole profile each new lap
 const HEADER = 29;
 const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } : { cars: 22, part: 57, wide: false };
+const TRACE_BIN = 50; // metres: each car's lap trace (speed, throttle, brake, place on track) is kept in slices this long
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
 
 function header(b) {
@@ -72,6 +73,10 @@ const stride = (b, L, base, tail = 0) => {
 };
 /** Your car's position on the map (world x and z, in metres). */
 function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return o + 12 > b.length ? null : { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }; }
+/** Every car's place on the map (world x and z). */
+function allMotion(b, L) { const w = stride(b, L, 60); const out = []; for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 12 > b.length) break; out.push({ x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }); } return out; }
+/** Every car's speed (km/h), throttle and brake (0 to 1). */
+function allTelemetry(b, L) { const w = stride(b, L, 60, 3); const out = []; for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 14 > b.length) break; out.push({ spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10) }); } return out; }
 /** Your car's speed (km/h), throttle and brake (0 to 1), and whether DRS is open. */
 function playerTelemetry(b, L, p) {
   const w = stride(b, L, 60, 3); const o = HEADER + p * w; if (o + 19 > b.length) return null;
@@ -238,6 +243,37 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
     onLive(msg);
   }
+  // Every car, every lap: speed, throttle, brake and place on the map in 50 m slices, for the fastest-lap head to head.
+  // Only the last few laps are kept while driving; the fastest valid one goes out with the result.
+  function logTraces(s, lap) {
+    if (!s.telAll) return; const T = s.traces ||= {};
+    lap.forEach((c, i) => {
+      const t = s.telAll[i]; if (!t || !c.lap || c.dist < 0 || c.pit || c.status !== 2) return;
+      const laps = T[i] ||= {}; const L1 = laps[c.lap] ||= { bins: [] };
+      if (c.invalid) L1.invalid = true;
+      const o = L1.bins[Math.floor(c.dist / TRACE_BIN)] ||= [0, 0, 0, 0, 0, 0]; const m = s.motAll?.[i];
+      o[0]++; o[1] += t.spd; o[2] += t.thr; o[3] += t.brk; if (m) { o[4] += m.x; o[5] += m.z; }
+      for (const k of Object.keys(laps)) if (+k < c.lap - 6 && +k !== laps.best) delete laps[k];
+      // the lap just finished, if it's this car's quickest valid one, is kept
+      const prev = laps[c.lap - 1]; const hist = (s.laps[i] || [])[c.lap - 2];
+      if (prev && !prev.done && hist) { prev.done = true; prev.ms = hist[0]; if (!prev.invalid && (hist[1] & 1) && (!laps.best || laps[laps.best]?.ms > prev.ms)) laps.best = c.lap - 1; }
+    });
+  }
+  function packTrace(s, i) {
+    const laps = s.traces?.[i]; if (!laps) return null;
+    // the quickest valid lap in the lap history that has a full trace
+    let best = null;
+    for (const [k, L1] of Object.entries(laps)) {
+      if (k === 'best') continue; const hist = (s.laps[i] || [])[+k - 1]; if (!hist || !(hist[1] & 1) || L1.invalid) continue;
+      const n = L1.bins.length, have = L1.bins.filter(Boolean).length; if (!n || have < n * 0.9) continue;
+      if (!best || hist[0] < best.ms) best = { lap: +k, ms: hist[0], L1 };
+    }
+    if (!best) return null;
+    const r = (v) => Math.round(v);
+    const bins = Array.from(best.L1.bins, x => x || null);
+    return { lap: best.lap, ms: best.ms, bin: TRACE_BIN, spd: bins.map(x => x ? r(x[1] / x[0]) : null), thr: bins.map(x => x ? r(x[2] / x[0] * 100) : null), brk: bins.map(x => x ? r(x[3] / x[0] * 100) : null),
+      x: bins.map(x => x ? r(x[4] / x[0]) : null), z: bins.map(x => x ? r(x[5] / x[0]) : null) };
+  }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
     s.sent = true;
@@ -257,7 +293,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       // the stint still running at the flag (or when the car stopped) ends on lap 255: it really ends on the car's last lap
       const stints = (s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints).map(t => ({ ...t, end: Math.min(t.end, x.laps || t.end) }));
       return { ...x, name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
-        lapTimes: s.laps[x.idx] || [], stints, wear: s.wear[x.idx] || [], fuel: s.fuel[x.idx] || [], ersDep: s.dep[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
+        lapTimes: s.laps[x.idx] || [], trace: packTrace(s, x.idx), stints, wear: s.wear[x.idx] || [], fuel: s.fuel[x.idx] || [], ersDep: s.dep[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
@@ -298,8 +334,8 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       const list = D.raw[h.type] ||= [];
       if (list.length < 4 && h.time - (D.last[h.type] ?? -99) > 20 && (s.tel?.spd || 0) > 150 && !s.pit[h.player]) { D.last[h.type] = h.time; list.push({ t: Math.round(h.time * 10) / 10, b64: b.toString('base64') }); }
     }
-    if (h.type === PACKET.MOTION) s.mot = playerMotion(b, L, h.player) || s.mot;
-    else if (h.type === PACKET.TELEMETRY) s.tel = playerTelemetry(b, L, h.player) || s.tel;
+    if (h.type === PACKET.MOTION) { s.mot = playerMotion(b, L, h.player) || s.mot; s.motAll = allMotion(b, L); }
+    else if (h.type === PACKET.TELEMETRY) { s.tel = playerTelemetry(b, L, h.player) || s.tel; s.telAll = allTelemetry(b, L); }
     else if (h.type === PACKET.STATUS) { s.stat = playerStatus(b, L, h.player) || s.stat; s.tyres = allTyres(b, L); s.tyres.forEach((x, i) => { if (isFinite(x.dep)) s.depMax[i] = Math.max(s.depMax[i] || 0, x.dep); }); }
     else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
@@ -325,7 +361,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
         if (c.status === 2 && c.lead) s.lead[i] = c.lead;
         else if (c.status === 3 && s.leadFin[i] == null) s.leadFin[i] = c.lead || s.lead[i] || null;
       });
-      if (ersSession(s.info)) { logErs(s, lap[h.player]); live(s, lap[h.player]); }
+      if (ersSession(s.info)) { logErs(s, lap[h.player]); live(s, lap[h.player]); logTraces(s, lap); }
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
       const race = s.info && (s.info.sessionType === 15 || s.info.sessionType === 16);
       if (race) lap.forEach((c, i) => {

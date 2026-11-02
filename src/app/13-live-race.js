@@ -448,11 +448,11 @@ function passLearned(c, tid) {
 }
 /** The overtaking difficulty slider for a track. */
 function overtakeRow(c, tid) {
-  const OV = overtakeOf(c, tid); const PS = passLearned(c, tid);
-  return `<div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span>Overtaking difficulty${OV.own ? ' (yours)' : ''}:</span><input type="range" min="0" max="100" step="5" value="${OV.hard}" data-ch="overtake" data-track="${tid}" style="width:180px"><b>${OV.hard}%</b><span class="muted" style="font-size:12px">a driver who catches the car ahead gets by ${Math.round(OV.p * 100)}% of the time; the live strategy weighs track position with it</span>${OV.own ? `<button class="btn sm ghost" data-act="overtake-reset" data-track="${tid}">Default</button>` : ''}</div>${PS.f ? `<div class="muted" style="font-size:12px;margin-top:4px">From your races here: ${PS.p} pass${PS.p === 1 ? '' : 'es'} from ${plural(PS.f, 'chance')} (a car within a second of the one ahead, a go every three laps)${PS.hard != null ? `, which suggests ${PS.hard}%. ${PS.hard !== OV.hard ? `<button class="btn sm ghost" data-act="overtake-use" data-track="${tid}" data-v="${PS.hard}">Use ${PS.hard}%</button>` : ''}` : ': a few more races here and it can suggest a value.'}</div>` : ''}`;
+  const OV = overtakeOf(c, tid); const PS = passLearned(c, tid); const auto = !!c?.overtakeAuto?.[tid];
+  return `<label class="row" style="gap:8px;margin-top:6px;align-items:center"><input type="checkbox" data-ch="overtake-auto" data-track="${tid}" ${auto ? 'checked' : ''}> <span>Adjust overtaking difficulty automatically</span><span class="muted" style="font-size:12px">${auto ? (PS.hard != null ? `from ${PS.p} passes in ${PS.f} chances in your races here` : 'needs 8 chances to pass in your races here; the slider until then') : 'learns from the passes in your races here'}</span></label><div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center;${auto && PS.hard != null ? 'opacity:.5' : ''}"><span>Overtaking difficulty${auto && PS.hard != null ? ' (learned)' : OV.own ? ' (yours)' : ''}:</span><input type="range" min="0" max="100" step="5" value="${OV.hard}" data-ch="overtake" data-track="${tid}" style="width:180px" ${auto && PS.hard != null ? 'disabled' : ''}><b>${OV.hard}%</b><span class="muted" style="font-size:12px">a driver who catches the car ahead gets by ${Math.round(OV.p * 100)}% of the time; the live strategy weighs track position with it</span>${OV.own ? `<button class="btn sm ghost" data-act="overtake-reset" data-track="${tid}">Default</button>` : ''}</div>${PS.f ? `<div class="muted" style="font-size:12px;margin-top:4px">From your races here: ${PS.p} pass${PS.p === 1 ? '' : 'es'} from ${plural(PS.f, 'chance')} (a car within a second of the one ahead, a go every three laps)${PS.hard != null ? `, which suggests ${PS.hard}%. ${PS.hard !== OV.hard ? `<button class="btn sm ghost" data-act="overtake-use" data-track="${tid}" data-v="${PS.hard}">Use ${PS.hard}%</button>` : ''}` : ': a few more races here and it can suggest a value.'}</div>` : ''}`;
 }
 /** A track's overtaking difficulty (%), and the chance a driver who catches the car ahead gets by. */
-function overtakeOf(c, track) { const v = c?.overtake?.[track]; const hard = v ?? OVERTAKE_HARD[track] ?? 60; return { hard, p: (100 - hard) / 100, own: v != null }; }
+function overtakeOf(c, track) { const learned = c?.overtakeAuto?.[track] ? passLearned(c, track).hard : null; const v = learned ?? c?.overtake?.[track]; const hard = v ?? OVERTAKE_HARD[track] ?? 60; return { hard, p: (100 - hard) / 100, own: v != null }; }
 const SIM_RUNS = 300;
 const PASS_GAIN = 300, STUCK_GAP = 400; // ms: what a pass costs the passed car; how far back a car that can't pass sits
 // ms: what a pass costs the car making it (the laps in dirty air before it, the move itself): half a second where passing
@@ -657,15 +657,67 @@ function liveStandings(c, s, r, L, idOf) {
   const decidedNow = rows.length > 1 && rows[0].pts - rows[1].pts > after;
   return { rows, teams, canDecide, decidedNow, after };
 }
-function champCard(c, s, r, L, idOf, mineIds) {
-  const S = liveStandings(c, s, r, L, idOf); const me = S.rows.findIndex(x => mineIds.includes(x.id));
-  const near = S.rows.slice(Math.max(0, me - 2), Math.max(5, me + 3));
-  const row = (x) => `<tr class="${mineIds.includes(x.id) ? 'me' : ''}"><td class="num">${x.pos}</td><td>${drvCell(s, x.id, { team: true })}</td><td class="num"><b>${x.pts}</b>${x.now ? ` <small class="muted">+${x.now}</small>` : ''}</td></tr>`;
+/*
+  The TV graphics: the lap counter with the safety car under it, and the championship as it stands in F1's style. The
+  championship always shows five drivers. On a title weekend it shows the top five, with the driver who'd be champion
+  and the verdict beside them; when one of your cars changes place lower down, it scrolls down to them for five seconds
+  and back. Otherwise it shows the five around you. Rows slide past each other as places change.
+*/
+const CB_ROW = 30; // px per row
+function lapBox(L, n) {
+  const lead = L.field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos)[0]; const lap = Math.max(1, Math.min(n, lead?.lap || 1));
+  return `<div class="lapbox"><div class="lb-top">${state.gfxLogo ? '<span class="lb-mark" role="img" aria-label="F1"></span>' : '<span class="lb-f1">F1</span>'}<small>FIA FORMULA 1 WORLD CHAMPIONSHIP</small></div>
+    <div class="lb-lap">LAP <b>${lap}</b> / ${n}</div>${L.sc ? `<div class="lb-sc"><span class="lb-fia">FIA</span>${L.sc === 1 ? 'SAFETY CAR' : 'VIRTUAL SAFETY CAR'}</div>` : ''}</div>`;
+}
+function champBar(c, s, r, L, idOf, mineIds) {
+  const S = liveStandings(c, s, r, L, idOf); if (!S.rows.length) return '';
+  const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
+  const before = driverStandings(s, seasonStatsCache(s)); const was = Object.fromEntries(before.map(x => [x.id, x.pos]));
+  const lead = S.rows[0]; const sprint = L.key === 'SPR';
+  const finished = L.field.some(x => x.pos === 1 && x.st === 3);
+  const row = (x, i) => {
+    const tm = teamOf(s, x.id); const mv = was[x.id] ? was[x.id] - x.pos : 0;
+    return `<div class="cb-row ${mineIds.includes(x.id) ? 'me' : ''}" data-id="${x.id}" style="top:${i * CB_ROW}px"><span class="cb-p">${x.pos}</span><span class="cb-logo">${tm ? teamLogo(c, tm, 18) : ''}</span><span class="cb-n">${esc(lastName(dName(s, x.id)).toUpperCase())}${mv > 0 ? `<i class="up">▲${mv}</i>` : mv < 0 ? `<i class="dn">▼${-mv}</i>` : ''}</span><span class="cb-d">${x.now ? '+' + x.now : ''}</span><span class="cb-g">${i ? '−' + fmtPts(lead.pts - x.pts) : ''}</span><span class="cb-pt">${fmtPts(x.pts)}</span></div>`;
+  };
+  const dec = S.canDecide;
+  const next = sprint ? 'the Grand Prix' : rounds[ri + 1]?.name || 'the next round';
+  const champ = S.decidedNow ? lead.id : null; const ct = champ && teamOf(s, champ); const face = champ ? (bodyFor(c, champ, s)?.url || headOf(c, champ, s)) : null;
+  const verdict = !dec ? '' : `<div class="cb-face" style="--c:${ct?.color || '#2A2A36'}">${champ ? `<span class="cb-num">${esc(String(s.drivers[champ]?.number ?? ''))}</span>${face ? `<img src="${esc(face)}" alt="">` : ''}` : ''}</div>
+    <div class="cb-verdict"><small>${finished ? '' : 'AS IT STANDS'}</small><b>${champ ? `${esc(lastName(dName(s, champ)))} ${finished ? 'is' : 'will be'} world champion` : `The fight goes on to ${esc(next)}`}</b></div>`;
+  const celebrate = champ && finished ? `<div class="panel live-card champ-anim"><div class="ca-fig">${bodyFor(c, champ, s)?.url ? `<img src="${esc(bodyFor(c, champ, s).url)}" alt="">` : face ? `<img class="ca-head" src="${esc(face)}" alt="">` : ''}</div><div class="ca-txt"><small>${s.year} FORMULA 1</small><b>WORLD CHAMPION</b><small>${esc(dName(s, champ).toUpperCase())}</small></div></div>` : '';
   const trow = (x) => `<tr class="${x.t.id === s.playerTeamId ? 'me' : ''}"><td class="num">${x.pos}</td><td>${esc(x.t.name)}</td><td class="num"><b>${x.pts}</b></td></tr>`;
-  const lead = S.rows[0]; const title = S.canDecide ? `<div class="callout live-title">${S.decidedNow ? `<b>${esc(dName(s, lead.id))} will be champion if the race finishes as it is.</b>` : `As it stands, the championship goes on to the next round.`}</div>` : '';
-  return `<div class="panel live-card"><div class="panel-h"><h2>Championship, as it stands</h2></div>${title}
-    <div class="panel-b tight table-wrap"><table><tbody>${near.map(row).join('')}</tbody></table></div>
-    <div class="panel-b"><details><summary class="muted" style="cursor:pointer;font-size:12px">Full tables</summary><div class="grid-2" style="margin-top:8px"><div class="table-wrap"><table><tbody>${S.rows.map(row).join('')}</tbody></table></div><div class="table-wrap"><table><tbody>${S.teams.map(trow).join('')}</tbody></table></div></div></details></div></div>`;
+  const frow = (x) => `<tr class="${mineIds.includes(x.id) ? 'me' : ''}"><td class="num">${x.pos}</td><td>${drvCell(s, x.id, { team: true })}</td><td class="num"><b>${x.pts}</b>${x.now ? ` <small class="muted">+${x.now}</small>` : ''}</td></tr>`;
+  return `${celebrate}<div class="panel live-card champ-bar ${dec ? 'decider' : ''}" data-keep="champ" data-dec="${dec ? 1 : 0}" data-mine="${esc(mineIds.join(','))}">
+    <div class="cb-tbl"><span class="cb-ttl">DRIVERS’ CHAMPIONSHIP</span><div class="cb-hdr"><span></span><span></span><span></span><span>${sprint ? 'SPRINT' : 'RACE'}</span><span>GAP</span><span>PTS</span></div>
+      <div class="cb-win" style="height:${Math.min(5, S.rows.length) * CB_ROW}px"><div class="cb-list">${S.rows.map(row).join('')}</div></div></div>${verdict}</div>
+    <div class="panel live-card"><div class="panel-b"><details><summary class="muted" style="cursor:pointer;font-size:12px">Full tables</summary><div class="grid-2" style="margin-top:8px"><div class="table-wrap"><table><tbody>${S.rows.map(frow).join('')}</tbody></table></div><div class="table-wrap"><table><tbody>${S.teams.map(trow).join('')}</tbody></table></div></div></details></div></div>`;
+}
+const _cb = { mine: null, until: 0, t: null };
+/** Where the championship window sits: the top on a title weekend (your car for five seconds after it changes place), around you otherwise. */
+function champBarView(el) {
+  const rows = [...el.querySelectorAll('.cb-row')]; if (!rows.length) return;
+  const order = rows.slice().sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)); const n = order.length;
+  const mine = el.dataset.mine.split(','); const at = order.findIndex(x => mine.includes(x.dataset.id));
+  const now = Date.now(); const key = order.filter(x => mine.includes(x.dataset.id)).map(x => x.dataset.id + ':' + order.indexOf(x)).join();
+  if (_cb.mine != null && key !== _cb.mine && at >= 5) { _cb.until = now + 5000; clearTimeout(_cb.t); _cb.t = setTimeout(() => document.querySelectorAll('.champ-bar').forEach(champBarView), 5100); }
+  _cb.mine = key;
+  const around = Math.max(0, Math.min(n - 5, at - 2));
+  const off = el.dataset.dec === '1' ? (now < _cb.until && at >= 5 ? around : 0) : (at < 0 ? 0 : around);
+  el.querySelector('.cb-list').style.transform = `translateY(${-off * CB_ROW}px)`;
+}
+/** Live updates keep the rows, so they slide to their new places (and in or out of view) instead of jumping. */
+function updateChampBar(x, y) {
+  if (x.className !== y.className) return false;
+  for (const sel of ['.cb-hdr', '.cb-face', '.cb-verdict']) { const a = x.querySelector(sel), b = y.querySelector(sel); if (a && b && a.outerHTML !== b.outerHTML) a.replaceWith(b); }
+  x.dataset.mine = y.dataset.mine; const list = x.querySelector('.cb-list'); const have = new Map([...list.children].map(e => [e.dataset.id, e]));
+  for (const nr of y.querySelectorAll('.cb-row')) {
+    const old = have.get(nr.dataset.id); have.delete(nr.dataset.id);
+    if (!old) { const to = nr.style.top; nr.style.top = (list.children.length * CB_ROW) + 'px'; list.appendChild(nr); requestAnimationFrame(() => requestAnimationFrame(() => { nr.style.top = to; })); continue; }
+    if (old.innerHTML !== nr.innerHTML) old.innerHTML = nr.innerHTML;
+    old.className = nr.className; old.style.top = nr.style.top;
+  }
+  for (const e of have.values()) e.remove();
+  champBarView(x); return true;
 }
 /** The odds line under the strategy: where this plan should finish, and why it beat the quickest one. */
 function posNoteHtml(P, me) {
@@ -711,8 +763,8 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
         <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
-        ${ST.posNote ? posNoteHtml(ST.posNote, me) : ''}
         <div class="rejoin"><span class="label" title="${ST.PL.n ? `Pit loss from ${plural(ST.PL.n, 'stop')} in this race (the track's figure is ${(ST.PL.track / 1000).toFixed(1)} s)` : 'The track’s pit loss: it changes to this race’s own once a stop is measured'}">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''}${ST.PL.n ? `, from ${plural(ST.PL.n, 'stop')} today` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
+    ${ST.posNote ? `<div class="panel live-card"><div class="panel-h"><h2>Projected finish</h2><span class="muted" style="font-size:12px">${ST.posNote.best === ST.posNote.worst ? `P${ST.posNote.best}` : `P${ST.posNote.best}–P${ST.posNote.worst}`}</span></div><div class="panel-b stack" style="gap:6px"><div class="live-pos" style="font-size:34px">P${ST.posNote.mode}</div>${posNoteHtml(ST.posNote, me)}</div></div>` : ''}
     ${ST.none ? `${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft: false })}${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft: false })}` : fightCards(c, s, r, L, me, idOf, ST)}
   </div>`;
 }
@@ -736,6 +788,7 @@ function patchCards(a, b) {
   if (A.length !== B.length) { B.forEach(y => liveSrc.set(y, y.outerHTML)); a.replaceChildren(...B); return; }
   A.forEach((x, k) => {
     const y = B[k]; const src = y.outerHTML; if (liveSrc.get(x) === src) return;
+    if (x.dataset.keep === 'champ' && y.dataset.keep === 'champ' && updateChampBar(x, y)) { liveSrc.set(x, src); return; }
     const box = x.tagName === y.tagName && (x.matches('.live-grid, .live-col') && y.matches('.live-grid, .live-col'));
     if (box && !x.contains(document.activeElement)) { x.className = y.className; patchCards(x, y); liveSrc.set(x, src); }
     else if (!x.contains(document.activeElement)) { liveSrc.set(y, src); x.replaceWith(y); }
@@ -763,10 +816,10 @@ function renderLiveRace() {
   const shown = mineIds.length > 1 ? (follow === 'both' ? cars : follow === 'mate' ? cars.filter(x => x.i !== L.player) : [meP]) : [meP];
   const P = liveErsPlan(c, s, r);
   return `<div class="page live-page">${tabs}
-    <div class="row live-head"><span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · ${esc(r.name)}</b>${L.sc ? `<span class="tag ${L.sc === 1 ? 'sc' : 'vsc'}">${L.sc === 1 ? 'Safety car' : 'Virtual safety car'}</span>` : ''}
+    <div class="row live-head">${lapBox(L, L.totalLaps || (L.key === 'SPR' ? Math.ceil(raceLaps(s, r.id) / 3) : raceLaps(s, r.id)))}<span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · ${esc(r.name)}</b>
       ${mineIds.length > 1 ? `<div class="seg" style="margin-left:auto">${[['player', 'Your car'], ['mate', 'Teammate'], ['both', 'Both']].map(([v, l]) => `<button data-act="live-follow" data-v="${v}" class="${follow === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div>
     <div id="live-root"><div class="live-grid ${shown.length > 1 ? 'split' : ''}">${shown.filter(Boolean).map(me => liveDriverCol(c, s, r, L, w, me, idOf(me.i), idOf)).join('')}
-      <div class="live-col">${champCard(c, s, r, L, idOf, mineIds)}${weatherCard(L)}
+      <div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}${weatherCard(L)}
         ${P && !P.none && P.map ? `<div class="panel live-card"><div class="panel-h"><h2>ERS: where to boost</h2><span class="muted" style="font-size:12px" id="ers-live-now">${liveNowHtml(liveErs)}</span></div><div class="panel-b">${ersMapSvg(P, 'plan', !!c.ersFlip?.[trackOf(r)])}<div class="muted" style="font-size:12px">${P.planned.length ? P.planned.map((z, k) => `${k + 1}: ${Math.round(z.plan.at)}–${Math.round(z.plan.to)} m`).join(' · ') : 'No boost fits right now.'}</div></div></div>` : ''}</div></div></div>
   </div>`;
 }

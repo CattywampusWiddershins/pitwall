@@ -49,12 +49,11 @@ function lastHeld(c, tid, before) {
   for (const [yr, h] of Object.entries(H.seasons || {})) if (+yr < before && h.rounds.some(r => (r.track || H.roundTrack[r.id] || r.id) === tid)) y = Math.max(y || 0, +yr);
   return y;
 }
-function renderNextSeason(c, s) {
+function renderNextSeason(c, s, only = null) {
   const year = s.year + 1; const base = nextLineup(c, s); const cal = nextCal(c, s);
   const onNow = new Set(activeRounds(s).map(roundTrackId));
   const own = !!c.nextCal?.[year]; const ann = c.calAnnounced?.[year];
   const changedSince = ann && JSON.stringify(ann.cal.map(r => [r.id, !!r.sprint])) !== JSON.stringify(cal.map(r => [r.id, !!r.sprint]));
-  const teams = base.teams.map(t => `<div class="ns-team" style="--c:${t.color || 'var(--line)'}"><span class="bar"></span><b>${esc(t.name)}</b>${t.drivers.map(d => `<div>${d ? esc(d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : base.drivers[d]?.name || anyName(d)) : '<span class="muted">Seat open</span>'}</div>`).join('')}</div>`).join('');
   const onCal = new Set(cal.map(roundTrackId));
   const addable = [...new Set([...Object.keys(D.TRACKS), ...Object.values(H.seasons || {}).flatMap(h => h.rounds.map(r => r.track || H.roundTrack[r.id] || r.id))])].filter(tid => !onCal.has(tid) && (D.TRACKS[tid] || trackGp(tid).name !== tid)).sort((a, b) => trackGp(a).name.localeCompare(trackGp(b).name));
   const rows = cal.map((r, i) => {
@@ -64,14 +63,13 @@ function renderNextSeason(c, s) {
       <td style="white-space:nowrap"><label class="row" style="gap:4px;flex-wrap:nowrap" title="Seasons left on the deal, not counting ${s.year}"><input type="number" min="0" max="20" value="${left ?? ''}" placeholder="–" data-ch="nc-contract" data-track="${tid}" style="width:56px"> ${left != null ? `yr${left === 1 ? '' : 's'}${until ? ` <span class="muted">(${left > 0 ? `${s.year + 1}–${until}` : until < s.year ? `ended ${until}` : `ends ${until}`})</span>` : ''}` : '<span class="muted">no deal</span>'}</label></td>
       <td><div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:flex-end"><button class="icon-btn sm" data-act="nc-move" data-i="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} title="Earlier">↑</button><button class="icon-btn sm" data-act="nc-move" data-i="${i}" data-dir="1" ${i === cal.length - 1 ? 'disabled' : ''} title="Later">↓</button><button class="icon-btn sm" data-act="nc-remove" data-i="${i}" title="Remove">${ICON.x}</button></div></td></tr>`;
   }).join('');
-  return `<div class="stack">
-    <div class="panel"><div class="panel-h"><h2>${year} line-up, as it stands</h2><button class="btn sm primary" data-act="tr-new-next">New transfer for ${year}</button></div>
-      <div class="panel-b"><div class="ns-grid">${teams}</div><p class="muted" style="font-size:12px;margin:8px 0 0">This season’s grid with only the moves confirmed for ${year}: nothing is predicted. Transfers made here take effect from ${year}, never mid-season.</p></div></div>
-    <div class="panel"><div class="panel-h"><h2>The ${year} calendar</h2><div class="row" style="gap:6px">${own ? `<button class="btn sm ghost" data-act="nc-reset">Back to the default</button>` : ''}<button class="btn sm ${ann && !changedSince ? '' : 'primary'}" data-act="nc-announce">${ann ? (changedSince ? 'Announce the changes' : 'Announced') : 'Announce'}</button></div></div>
+  const lineup = `<div class="panel"><div class="panel-h"><h2>${year} line-up, as it stands</h2><button class="btn sm primary" data-act="tr-new-next">New transfer for ${year}</button></div>
+      <div class="panel-b">${gridCards(c, s, base.teams, base.drivers, { act: 'tr-new-next-d', year })}<p class="muted" style="font-size:12px;margin:8px 0 0">This season’s grid with only the moves confirmed for ${year}: nothing is predicted. Transfers made here take effect from ${year}, never mid-season.</p></div></div>`;
+  const calendar = `<div class="panel"><div class="panel-h"><h2>The ${year} calendar</h2><div class="row" style="gap:6px">${own ? `<button class="btn sm ghost" data-act="nc-reset">Back to the default</button>` : ''}<button class="btn sm ${ann && !changedSince ? '' : 'primary'}" data-act="nc-announce">${ann ? (changedSince ? 'Announce the changes' : 'Announced') : 'Announce'}</button></div></div>
       <div class="panel-b tight table-wrap"><table><thead><tr><th class="num">#</th><th>Grand Prix</th><th></th><th>Contract</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
       <div class="panel-b row" style="gap:8px"><select data-ch="nc-add"><option value="">+ Add a track…</option>${addable.map(tid => `<option value="${tid}">${esc(trackGp(tid).name)}${D.TRACKS[tid]?.circuit ? ` · ${esc(D.TRACKS[tid].circuit)}` : ''}</option>`).join('')}</select><span class="muted" style="font-size:12px">${plural(cal.length, 'round')} · ${cal.filter(r => r.sprint).length} sprints</span></div>
-      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Contracts: seasons left after ${s.year}. Change one and the press reports the new deal. Announce the calendar and it goes in the stories, round by round${addable.length ? ', with a breaking story for any venue new to the calendar' : ''}.</div></div>
-  </div>`;
+      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Contracts: seasons left after ${s.year}. Change one and the press reports the new deal. Announce the calendar and it goes in the stories, round by round${addable.length ? ', with a breaking story for any venue new to the calendar' : ''}.</div></div>`;
+  return only === 'cal' ? calendar : only === 'lineup' ? lineup : `<div class="stack">${lineup}${calendar}</div>`;
 }
 /** The calendar announcement, new venues and track deals, as stories in the season they happened. */
 function calendarStories(c, s) {
@@ -79,19 +77,19 @@ function calendarStories(c, s) {
   const ann = c.calAnnounced?.[s.year + 1];
   // a driver's name as of a season they raced (they may not be on this year's grid)
   const name = (d, s2 = s) => d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : (s2.drivers[d] ? dName(s2, d) : null) || refName(d);
-  if (ann && ann.si === s.index) {
-    const y = s.year + 1; const rnd = seeded(`cal-${y}-${ann.at}`); const r0 = rounds[ann.ri] || null;
+  // the announcement for next season, and a fresh one when this season started on a calendar never announced or changed since
+  for (const [ann, y] of [[c.calAnnounced?.[s.year + 1], s.year + 1], [c.calReannounced?.[s.year], s.year]]) if (ann && ann.si === s.index) { const rnd = seeded(`cal-${y}-${ann.at}`); const r0 = rounds[ann.ri] || null;
     const lines = ann.cal.map((r, k) => {
       const tid = roundTrackId(r); const W = trackWinners(c, tid); const most = Object.entries(W.reduce((a, x) => (a[x.d] = (a[x.d] || 0) + 1, a), {})).sort((a, b) => b[1] - a[1])[0];
       const isNew = ann.newTracks.includes(tid); const last = isNew ? lastHeld(c, tid, y) : null;
       return `Round ${k + 1}: ${r.name}${r.venue ? ` (${r.venue})` : ''}${r.sprint ? ', a sprint weekend' : ''}.${isNew ? (last ? ` Back on the calendar for the first time since ${last}.` : ' A new venue for Formula 1.') : ''}${W[0] ? ` Last winner: ${name(W[0].d, W[0].s)} (${W[0].year}).` : ''}${most && most[1] >= 2 ? ` Most wins: ${name(most[0], W.find(x => x.d === most[0]).s)}, ${most[1]}.` : ''}`;
     });
-    out.push({ id: `cal-${y}`, seq: ann.ri * 10 + 9, kind: 'calendar', i: ann.ri, r: r0, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Calendar', massive: true,
+    out.push({ id: `cal-${y}${ann.ri < 0 ? '-re' : ''}`, seq: ann.ri * 10 + 9, kind: 'calendar', i: ann.ri, r: r0, subject: null, calGfx: { year: y, cal: ann.cal.map(r => [r.id, r.name, r.venue, roundTrackId(r)]), fresh: ann.cal.map((r, k) => ann.newTracks.includes(roundTrackId(r)) ? k : -1).filter(k => k >= 0) }, outlet: choose(rnd, D.OUTLETS), kicker: 'Calendar', massive: true,
       headline: choose(rnd, [`F1 reveals the ${y} calendar: ${ann.cal.length} rounds`, `${ann.cal.length} races, ${ann.cal.filter(r => r.sprint).length} sprints: the ${y} calendar is out`, `From ${ann.cal[0].name} to ${ann.cal[ann.cal.length - 1].name}: F1’s ${y} schedule`]),
-      standfirst: `The ${y} season opens in ${ann.cal[0].name} and ends in ${ann.cal[ann.cal.length - 1].name}${ann.newTracks.length ? `, with ${listJoin(ann.newTracks.map(t => trackGp(t).name))} new to the calendar` : ''}.`, body: lines, quotes: [] });
+      standfirst: `The ${y} season opens in ${ann.cal[0].name} and ends in ${ann.cal[ann.cal.length - 1].name}${ann.newTracks.length ? `, with ${listJoin(ann.newTracks.map(t => trackGp(t).name))} new to the calendar` : ''}.`, body: [], more: { title: 'Round by round', lines }, quotes: [] });
     for (const tid of ann.newTracks) {
       const last = lastHeld(c, tid, y); const deal = (c.trackDeals || []).filter(d => d.tid === tid && d.si === s.index).pop(); const T = D.TRACKS[tid]; const nm = trackGp(tid).name;
-      out.push({ id: `cal-new-${y}-${tid}`, seq: ann.ri * 10 + 9.1, kind: 'calendar', i: ann.ri, r: r0, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
+      out.push({ id: `cal-new-${y}-${tid}${ann.ri < 0 ? '-re' : ''}`, seq: ann.ri * 10 + 9.1, kind: 'calendar', i: ann.ri, r: r0, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
         headline: `BREAKING: F1 to race in ${T?.country || nm}`, standfirst: `${nm}${T?.circuit ? ` (${T.circuit})` : ''} joins the ${y} calendar${last ? `, the first race there since ${last}` : ', a brand-new venue for Formula 1'}${deal ? ` on a deal to the end of ${deal.to}` : ''}.`, body: [], quotes: [] });
     }
   }

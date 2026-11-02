@@ -482,6 +482,8 @@ function rivalryStories(c, s) {
   const gkey = (e) => `${e.ri}|${e.kind}|${e.type}|${e.a}`;
   const groups = {}; for (const e of R.events) if (e.si === s.index && groupable(e)) (groups[gkey(e)] ||= []).push(e);
   const told = new Set();
+  // everyone in the drivers' title fight at that round, for the graph of the last five races
+  const fight = (e, also) => e.kind !== 'driver' ? null : [...new Set([e.a, ...also, ...rivalsAt(c, s, e.ri).active.filter(x => x.kind === 'driver').flatMap(x => [x.a, x.b])])].filter(id => s.drivers[id]);
   // how far back a chaser has dropped, in race wins (drivers) or points
   const behind = (e, B, A) => e.kind === 'driver' && e.gap > 25 ? `${B} drops ${e.gap > 75 ? 'more than three race wins' : e.gap > 50 ? 'more than two race wins' : 'beyond a race win'} behind ${A}` : `${B} drops ${plural(e.gap, 'point')} behind ${A}`;
   for (const e of R.events) {
@@ -494,7 +496,7 @@ function rivalryStories(c, s) {
       const A = short(e.kind, e.a); const Bs = grp.map(x => short(e.kind, x.b)); const who = listJoin(Bs); const all = listJoin([A, ...Bs]);
       const cup = e.kind === 'team' ? 'constructors’ title' : 'title';
       const gaps = listJoin(grp.map(x => `${short(e.kind, x.b)} ${x.gap ? plural(x.gap, 'point') + ' back' : 'level'}`));
-      const base = { id: `rivg-${s.index}-${e.ri}-${e.type}-${e.kind}-${e.a}`, seq: e.ri * 10 + 5, kind: 'rivalry', i: e.ri, r, outlet: choose(rnd, D.OUTLETS), subject: null, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals' };
+      const base = { id: `rivg-${s.index}-${e.ri}-${e.type}-${e.kind}-${e.a}`, graphIds: fight(e, grp.map(x => x.b)), seq: e.ri * 10 + 5, kind: 'rivalry', i: e.ri, r, outlet: choose(rnd, D.OUTLETS), subject: null, kicker: e.kind === 'team' ? 'Constructors’ title rivals' : 'Title rivals' };
       if (e.type === 'start') out.push({ ...base, headline: choose(rnd, [`A ${cup} battle takes shape between ${all}`, `${all}: the ${cup} fight is on`]), standfirst: `After ${gp}, a ${cup} battle seems to be developing between ${all}: ${gaps} of ${A}.`, body: [] });
       else if (e.type === 'hot') out.push({ ...base, headline: choose(rnd, [`${who} close in on ${A}`, `${A} under pressure from ${who}`]), standfirst: `${gp} brings ${who} right up to ${A}: ${gaps}. Nobody can afford a slip now.`, body: [] });
       else if (e.type === 'cool') out.push({ ...base, headline: choose(rnd, [`${who} slip back`, `${A} pulls clear of ${who}`]), standfirst: `After ${gp}, ${listJoin(grp.map(x => behind(x, short(e.kind, x.b), A)))}. They need something to change, and soon.`, body: [] });
@@ -504,7 +506,7 @@ function rivalryStories(c, s) {
     const r = rounds[e.ri]; const rnd = seeded(`riv-${s.index}-${e.ri}-${e.type}-${e.a}-${e.b}`);
     const A = short(e.kind, e.a), B = short(e.kind, e.b), gp = r?.name || '';
     const cup = e.kind === 'team' ? 'constructors’ title' : 'title';
-    const base = { id: `riv-${s.index}-${e.ri}-${e.type}-${e.kind}-${e.a}-${e.b}`, seq: e.ri * 10 + 5, kind: 'rivalry', i: e.ri, r, outlet: choose(rnd, D.OUTLETS), subject: e.kind === 'driver' ? e.b : null };
+    const base = { id: `riv-${s.index}-${e.ri}-${e.type}-${e.kind}-${e.a}-${e.b}`, graphIds: fight(e, [e.b]), seq: e.ri * 10 + 5, kind: 'rivalry', i: e.ri, r, outlet: choose(rnd, D.OUTLETS), subject: e.kind === 'driver' ? e.b : null };
     if (e.type === 'start') {
       if (e.rematch) {
         const o = archSeason(c, e.kind, e.a, e.b, e.rematch.year);

@@ -347,14 +347,14 @@ function projectionHtml(c, s, m) {
       <div class="tile"><span class="label">Races left</span><span class="v">${m.left.length}</span><span class="muted" style="font-size:12px">${Pj.sprints ? `+ ${Pj.sprints} sprint${Pj.sprints > 1 ? 's' : ''}` : 'no sprints'}</span></div>
     </div>
     <div class="panel-b">${lineChart(series, labels, { names })}</div>
-    <div class="panel-b tight table-wrap"><table>
-      <thead><tr><th>Proj</th><th></th><th>${team ? 'Team' : 'Driver'}</th><th class="num">Now</th>${team ? '<th>Drivers</th>' : '<th>Last 5 races</th>'}<th class="num">Avg / race</th>${Pj.sprints ? `<th class="num">${team ? 'Sprint pts' : 'Sprint pick'}</th>` : ''}<th class="num">To come</th><th class="num">Projected</th></tr></thead>
-      <tbody>${Pj.rows.map(x => `<tr class="${isMe(x) ? 'me' : ''}" ${team ? `data-act="open-team" data-id="${x.id}"` : `data-act="open-driver" data-id="${x.id}"`}>
-        <td class="pos ${x.ppos <= 3 ? 'p' + x.ppos : ''}">${x.ppos}</td><td class="num">${mv(x.move)}</td><td>${who(x)}</td><td class="num muted">${x.pts}</td>
-        <td>${team ? `<span class="muted">${x.ds.map(d => esc(dAbbr(s, d))).join(' + ')}</span>` : x.form.length ? formCell(x) : '<span class="dim">No races yet</span>'}</td>
-        <td class="num">${x.form.length ? x.racePts.toFixed(1) : '–'}</td>
-        ${Pj.sprints ? `<td class="num">${team ? x.sprPts : x.sprPos ? `P${x.sprPos} <span class="muted">(${x.sprPts})</span>` : '–'}</td>` : ''}
-        <td class="num muted">+${x.gain.toFixed(1)}</td><td class="num"><b>${x.final}</b></td></tr>`).join('')}</tbody></table></div>
+    <div class="panel-b">${(() => {
+      // a weekend that can decide the title (its sprint included) gets the verdict: predicted to win it, or to go on
+      const P0 = roundPerms(m); const S0 = sprintPerms(m); const decWeekend = !m.decided && !!(P0?.clinch?.length || S0?.clinch?.length);
+      const wins = decWeekend && Pj.decider === m.left[0]; const nxt = m.left[1]?.r.name;
+      const side = decWeekend ? `<div class="cb-face" style="--c:${colorOf(L)}">${!team && (bodyFor(c, L.id, s)?.url || headOf(c, L.id, s)) ? `<img src="${esc(bodyFor(c, L.id, s)?.url || headOf(c, L.id, s))}" alt="">` : ''}</div><div class="cb-verdict"><small>PREDICTED</small><b>${wins ? `${esc(team ? L.name : lastName(L.name))} ${team ? 'win' : 'wins'} the title in ${esc(m.left[0].r.name)}` : `The fight goes on to ${esc(nxt || 'the final round')}`}</b></div>` : '';
+      return tvBoard('On current form', [{ h: 'Proj', w: '40px' }, { h: '', w: '40px' }, { h: '', w: '26px' }, { h: team ? 'Team' : 'Driver', w: 'minmax(130px, 1.3fr)' }, { h: 'Now', w: '56px', num: true }, { h: team ? 'Drivers' : 'Last 5 races', w: 'minmax(150px, 1.4fr)' }, { h: 'Avg / race', w: '72px', num: true }, ...(Pj.sprints ? [{ h: team ? 'Sprint pts' : 'Sprint pick', w: '80px', num: true }] : []), { h: 'To come', w: '64px', num: true }, { h: 'Projected', w: '72px', num: true }],
+        Pj.rows.map(x => ({ me: isMe(x), act: team ? 'open-team' : 'open-driver', id: x.id, cells: [x.ppos, mv(x.move), tvLogo(c, team ? s.teams.find(t => t.id === x.id) : teamOf(s, x.id)), `<b>${esc(x.name.toUpperCase())}</b>`, x.pts, team ? `<small>${x.ds.map(d => esc(dAbbr(s, d))).join(' + ')}</small>` : x.form.length ? formCell(x) : '<small>No races yet</small>', x.form.length ? x.racePts.toFixed(1) : '–', ...(Pj.sprints ? [team ? x.sprPts : x.sprPos ? `P${x.sprPos} <small>(${x.sprPts})</small>` : '–'] : []), '+' + x.gain.toFixed(1), `<b>${x.final}</b>`] })), side);
+    })()}</div>
     <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">A DNF counts as 0 points, at the place it was classified. ${prior ? `Faded results are from ${c.seasons[s.index - 1]?.year}, used to make up 5 races. ` : ''}Projected totals are rounded to the nearest point; ties go to the current championship order.</div>
   </div>`;
 }
@@ -397,15 +397,12 @@ function renderForecast() {
       <div class="tile"><span class="label">Rounds left</span><span class="v">${m.left.length}</span></div>
     </div>
     <div class="panel"><div class="panel-h"><h2>${m.decided ? 'Final picture' : 'Still in with a chance'}</h2><span class="muted" style="font-size:12px">Bar: points now to the most still possible. The line marks the leader’s current total.</span></div>
-      <div class="panel-b tight table-wrap"><table>
-      <thead><tr><th>Pos</th><th>${team ? 'Team' : 'Driver'}</th><th class="num">Pts</th><th class="num">Gap</th><th class="num">Max</th><th style="width:30%">Range</th><th>Earliest title</th><th class="num">Needs per round</th></tr></thead>
-      <tbody>${(m.decided ? m.rows.slice(0, 1) : alive).map(x => {
-        const e = m.decided ? null : earliestClinch(m, x);
-        const per = m.left.length && x.gap > 0 ? (x.gap / m.left.length).toFixed(1) : null;
-        return `<tr class="${isMe(x) ? 'me' : ''}" ${team ? `data-act="open-team" data-id="${x.id}"` : `data-act="open-driver" data-id="${x.id}"`}><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${who(x)}</td><td class="num"><b>${x.pts}</b></td><td class="num">${x.gap ? '−' + x.gap : '–'}</td><td class="num">${x.maxPts}</td>
-          <td><div class="range"><i style="left:${x.pts / scale * 100}%;width:${(x.maxPts - x.pts) / scale * 100}%;--c:${team ? s.teams.find(t => t.id === x.id)?.color : teamColor(s, x.id)}"></i><b style="left:${m.lead / scale * 100}%"></b></div></td>
-          <td class="muted">${m.decided ? 'Champion' : e ? rLabel(e) : '–'}</td><td class="num muted">${per ? `+${per} on ${esc(L.name.split(' ').slice(-1)[0])}` : x.pos === 1 ? 'Leads' : 'Level'}</td></tr>`;
-      }).join('')}</tbody></table></div>
+      <div class="panel-b">${tvBoard(m.decided ? 'Final picture' : 'Still in with a chance', [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: team ? 'Team' : 'Driver', w: 'minmax(130px, 1.3fr)' }, { h: 'Pts', w: '56px', num: true }, { h: 'Gap', w: '56px', num: true }, { h: 'Max', w: '56px', num: true }, { h: 'Range', w: 'minmax(100px, 1.2fr)' }, { h: 'Earliest title', w: 'minmax(110px, 1fr)' }, { h: 'Needs per round', w: 'minmax(110px, 1fr)', num: true }],
+        (m.decided ? m.rows.slice(0, 1) : alive).map(x => {
+          const e = m.decided ? null : earliestClinch(m, x); const per = m.left.length && x.gap > 0 ? (x.gap / m.left.length).toFixed(1) : null; const col = team ? s.teams.find(t => t.id === x.id)?.color : teamColor(s, x.id);
+          return { me: isMe(x), act: team ? 'open-team' : 'open-driver', id: x.id, cells: [x.pos, tvLogo(c, team ? s.teams.find(t => t.id === x.id) : teamOf(s, x.id)), `<b>${esc(x.name.toUpperCase())}</b>`, `<b>${x.pts}</b>`, x.gap ? '−' + x.gap : '–', x.maxPts,
+            `<span class="range"><i style="left:${x.pts / scale * 100}%;width:${(x.maxPts - x.pts) / scale * 100}%;--c:${col}"></i><b style="left:${m.lead / scale * 100}%"></b></span>`, `<small>${m.decided ? 'Champion' : e ? rLabel(e) : '–'}</small>`, `<small>${per ? `+${per} on ${esc(L.name.split(' ').slice(-1)[0])}` : x.pos === 1 ? 'Leads' : 'Level'}</small>`] };
+        }))}</div>
       ${dead.length ? `<div class="panel-b muted" style="font-size:13px;border-top:1px solid var(--line)"><b style="color:var(--fg)">Out of contention:</b> ${dead.map(x => `${esc(x.name)}${hist.outAt[x.id] ? ` <span class="dim">(R${hist.outAt[x.id].i + 1})</span>` : ''}`).join(', ')}</div>` : ''}
     </div>
     ${P ? `<div class="panel"><div class="panel-h"><div><span class="label">Permutations · Round ${P.nx.i + 1} of ${rounds.length}${P.nx.spr ? ' · sprint weekend' : ''}</span><h2>${esc(P.nx.r.name)} Grand Prix</h2></div>
@@ -570,12 +567,7 @@ function renderPerformance() {
   const board = (P, label) => {
     if (!P.sessions.length) return `<div class="empty">${label === 'race' ? 'Enter the winner’s race time and the gaps to the winner in a race to see race pace.' : 'Enter lap times in qualifying to see qualifying pace.'}</div>`;
     const max = Math.max(0.001, ...P.rows.filter(o => o.rel != null).map(o => o.rel));
-    return `<table><thead><tr><th>Pos</th><th>Team</th><th class="num">${label === 'race' ? 'Pace per lap' : 'Gap'}</th><th style="width:34%"></th><th class="num" title="Sessions with a valid time">${label === 'race' ? 'Races' : 'Sessions'}</th></tr></thead><tbody>
-      ${P.rows.map((o, k) => `<tr class="${o.team.id === s.playerTeamId ? 'me' : ''}" data-act="open-team" data-id="${o.team.id}"><td class="pos ${k < 3 ? 'p' + (k + 1) : ''}">${k + 1}</td><td><div class="drv">${teamLogo(c, o.team, 22)}<b>${esc(o.team.name)}</b></div></td>
-        <td class="num">${o.rel == null ? `<span class="muted">&gt; ${gapS(o.floor)}</span> <span class="tag">${label === 'race' ? 'Lapped' : 'No time'}</span>` : k === 0 ? '<b>Fastest</b>' : gapS(o.rel)}</td>
-        <td><div class="h2h-bar"><i style="--c:${o.team.color};width:${o.rel == null ? 100 : Math.max(2, 100 - o.rel / max * 70)}%"></i></div></td>
-        <td class="num muted">${o.counted}/${o.entered}</td></tr>`).join('')}
-    </tbody></table>`;
+    return practiceRows(c, s, P.rows.map((o, k) => ({ team: o.team, me: o.team.id === s.playerTeamId, name: o.team.name, sub: `${o.counted}/${o.entered} ${label === 'race' ? 'races' : 'sessions'} with a valid time${o.rel == null ? (label === 'race' ? ' · lapped' : ' · no time') : ''}`, val: o.rel == null ? `&gt; ${gapS(o.floor)}` : k === 0 ? 'Fastest' : gapS(o.rel), pct: o.rel == null ? 100 : 100 - o.rel / max * 70 })));
   };
   const matrix = (P) => !P.sessions.length ? '' : `<table class="matrix"><thead><tr><th>Team</th>${P.sessions.map(x => `<th title="${esc(x.r.name)}">${esc(x.r.id.toUpperCase())}</th>`).join('')}</tr></thead><tbody>
     ${P.rows.map(o => `<tr class="${o.team.id === s.playerTeamId ? 'me' : ''}"><td><div class="drv">${teamLogo(c, o.team, 18)}${esc(o.team.name)}</div></td>${P.sessions.map(x => { const v = o.byRound[x.r.id]; return `<td class="num">${v == null ? '<span class="dim">·</span>' : v === 'lap' ? '<span class="dim">Lap</span>' : v === 0 ? '<b style="color:var(--purple)">0.000</b>' : `<span style="opacity:${Math.max(0.45, 1 - v / 3000)}">${(v / 1000).toFixed(3)}</span>`}</td>`; }).join('')}</tr>`).join('')}
@@ -597,13 +589,8 @@ function renderPerformance() {
       <div class="panel"><div class="panel-h"><h2>Qualifying pace</h2><span class="muted" style="font-size:12px">${quali.sessions.length ? `${mode} · ${plural(quali.sessions.length, 'session')}` : ''}</span></div><div class="panel-b tight table-wrap">${board(quali, 'quali')}</div></div>
     </div>
     <div class="panel"><div class="panel-h"><h2>Teammate comparison</h2><span class="muted" style="font-size:12px">Whole season. Qualifying sessions where a driver set no time or was more than 2 s off the teammate are left out.</span></div>
-      <div class="panel-b tight table-wrap"><table><thead><tr><th>Team</th><th>Drivers</th><th class="num">Quali gap</th><th class="num">Quali H2H</th><th class="num">Counted</th><th class="num">Race pace / lap</th><th class="num">Races</th></tr></thead><tbody>
-      ${pairs.map(({ t, d: [a, b] }) => { const g = teammateGaps(s, a, b); const who = (v) => v == null ? '–' : Math.abs(v) < 0.5 ? 'Level' : `${esc(dAbbr(s, v < 0 ? a : b))} ${gapS(-Math.abs(v))}`; return `<tr class="${t.id === s.playerTeamId ? 'me' : ''}">
-        <td><div class="drv">${teamLogo(c, t, 20)}${esc(t.name)}</div></td>
-        <td><div class="row" style="gap:6px;flex-wrap:nowrap">${avatar(c, s, a, 22)}<b>${esc(dAbbr(s, a))}</b><span class="muted">vs</span>${avatar(c, s, b, 22)}<b>${esc(dAbbr(s, b))}</b></div></td>
-        <td class="num">${who(g.q)}</td><td class="num">${g.qn ? `${g.qa}–${g.qb}` : '–'}</td><td class="num muted">${g.qn}${g.skipped ? ` <span title="Left out">(+${g.skipped})</span>` : ''}</td>
-        <td class="num">${who(g.r)}</td><td class="num muted">${g.rn}</td></tr>`; }).join('')}
-      </tbody></table></div>
+      <div class="panel-b">${practiceRows(c, s, pairs.map(({ t, d: [a, b] }) => { const g = teammateGaps(s, a, b); const who = (v) => v == null ? '–' : Math.abs(v) < 0.5 ? 'Level' : `${esc(dAbbr(s, v < 0 ? a : b))} ${gapS(-Math.abs(v))}`;
+        return { team: t, me: t.id === s.playerTeamId, name: `${dAbbr(s, a)} v ${dAbbr(s, b)}`, sub: `Quali H2H ${g.qn ? `${g.qa}–${g.qb}` : '–'} · ${g.qn} counted${g.skipped ? ` (+${g.skipped} left out)` : ''} · race pace ${who(g.r)} over ${g.rn}`, val: who(g.q), pct: g.qn ? g.qa / g.qn * 100 : null }; }))}</div>
       <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Gaps show who is quicker on average and by how much: “NOR −0.124s” means Norris is 0.124 s faster than the teammate.</div>
     </div>
     ${race.sessions.length ? `<div class="panel"><div class="panel-h"><h2>Race pace by round</h2><span class="muted" style="font-size:12px">Seconds per lap behind the fastest team. “Lap” means the team was only classified laps down.</span></div><div class="panel-b tight table-wrap">${matrix(race)}</div></div>` : ''}
@@ -616,12 +603,7 @@ function renderDriverPerformance(c, s, last5, head, mode) {
   const board = (P, label) => {
     if (!P.sessions.length) return `<div class="empty">${label === 'race' ? 'Enter the winner’s race time and the gaps to the winner in a race to see race pace.' : 'Enter lap times in qualifying to see qualifying pace.'}</div>`;
     const max = Math.max(0.001, ...P.rows.filter(o => o.rel != null).map(o => o.rel));
-    return `<table><thead><tr><th>Pos</th><th>Driver</th><th class="num">${label === 'race' ? 'Pace per lap' : 'Gap'}</th><th style="width:30%"></th><th class="num" title="Sessions with a valid time">${label === 'race' ? 'Races' : 'Sessions'}</th></tr></thead><tbody>
-      ${P.rows.map((o, k) => `<tr class="${o.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${o.id}"><td class="pos ${k < 3 ? 'p' + (k + 1) : ''}">${k + 1}</td><td>${drvCell(s, o.id)}</td>
-        <td class="num">${o.rel == null ? `<span class="muted">&gt; ${gapS(o.floor)}</span> <span class="tag">${label === 'race' ? 'Lapped' : 'No time'}</span>` : k === 0 ? '<b>Fastest</b>' : gapS(o.rel)}</td>
-        <td><div class="h2h-bar"><i style="--c:${color(o.id)};width:${o.rel == null ? 100 : Math.max(2, 100 - o.rel / max * 70)}%"></i></div></td>
-        <td class="num muted">${o.counted}/${o.entered}${o.skipped ? ` <span title="Laps more than 2 s off the teammate, left out">(+${o.skipped})</span>` : ''}</td></tr>`).join('')}
-    </tbody></table>`;
+    return practiceRows(c, s, P.rows.map((o, k) => ({ id: o.id, me: o.id === PLAYER, name: lastName(dName(s, o.id)), sub: `${esc(teamOf(s, o.id)?.name || '')} · ${o.counted}/${o.entered} ${label === 'race' ? 'races' : 'sessions'}${o.skipped ? ` (+${o.skipped} left out)` : ''}${o.rel == null ? (label === 'race' ? ' · lapped' : ' · no time') : ''}`, val: o.rel == null ? `&gt; ${gapS(o.floor)}` : k === 0 ? 'Fastest' : gapS(o.rel), pct: o.rel == null ? 100 : 100 - o.rel / max * 70 })));
   };
   const matrix = (P) => !P.sessions.length ? '' : `<table class="matrix"><thead><tr><th>Driver</th>${P.sessions.map(x => `<th title="${esc(x.r.name)}">${esc(x.r.id.toUpperCase())}</th>`).join('')}</tr></thead><tbody>
     ${P.rows.map(o => `<tr class="${o.id === PLAYER ? 'me' : ''}"><td><div class="drv"><span class="chip" style="--c:${color(o.id)}"></span>${esc(dAbbr(s, o.id))}</div></td>${P.sessions.map(x => { const v = o.byRound[x.r.id]; return `<td class="num">${v == null ? '<span class="dim">·</span>' : v === 'lap' ? '<span class="dim">Lap</span>' : v === 0 ? '<b style="color:var(--purple)">0.000</b>' : `<span style="opacity:${Math.max(0.45, 1 - v / 3000)}">${(v / 1000).toFixed(3)}</span>`}</td>`; }).join('')}</tr>`).join('')}
@@ -889,7 +871,7 @@ function fvBars(c, s, rows, { ri = null, dotd = null } = {}) {
   return `<ol class="fvg">${rows.map((x, k) => {
     const tm = (ri != null && teamAt(s, x.id, ri)) || teamOf(s, x.id); const col = tm?.color || '#5E6A82';
     const v = gfxR(x.rating); const tie = rows.filter(o => gfxR(o.rating) === v).length > 1; const rank = rows.findIndex(o => gfxR(o.rating) === v) + 1;
-    const ph = driverPhoto(c, x.id);
+    const ph = headOf(c, x.id, s);
     return `<li class="${k === 0 ? 'top' : ''} ${x.id === PLAYER ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="open-driver" data-id="${x.id}">
       <span class="fvg-n">${rank}${tie ? '=' : ''}</span><span class="fvg-logo">${tm ? teamLogo(c, tm, 28) : ''}</span>${ph ? `<img class="fvg-ph" src="${esc(ph)}" alt="">` : ''}
       <span class="fvg-who"><b>${esc(lastName(dName(s, x.id) || x.id))}</b>${x.sub ? `<small>${esc(x.sub)}</small>` : ''}</span>${dotd === x.id ? '<span class="fvg-dotd" title="Driver of the Day">DOTD</span>' : ''}<span class="fvg-score">${v}</span></li>`;

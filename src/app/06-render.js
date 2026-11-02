@@ -141,6 +141,9 @@ function render() {
   main.dataset.view = viewKey();
   if (typeof fillGraphics === 'function') setTimeout(fillGraphics, 0);
   fitText(main);
+  if (typeof flAnimate === 'function') flAnimate();
+  if (ui.modal?.kind === 'next' && typeof drawNextSeasonModal === 'function') drawNextSeasonModal(); // the calendar edited inside it
+  if (typeof champBarView === 'function') main.querySelectorAll('.champ-bar').forEach(champBarView);
   main.scrollTop = keepScroll ? top : 0;
 }
 /** Names in fixed-width cards (.fit) shrink until they fit, so a wide uploaded font never cuts them off. */
@@ -272,6 +275,34 @@ function driverPhoto(c, id) {
   const cd = c?.customDrivers?.find(x => x.id === id);
   return cd ? cd.photo || null : picOf('drivers', id);
 }
+/*
+  Headshots from full-body pictures: a driver with no photo is shown with a square cut from the top of their full body
+  (their own, else their team's default driver, else the default driver), so one upload covers both.
+*/
+const _heads = new Map(); let _headWait = null;
+function bodyHead(url) {
+  if (!url) return null; if (_heads.has(url)) return _heads.get(url);
+  _heads.set(url, null);
+  loadImg(url).then(im => {
+    if (!im) return;
+    const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height; const sc = Math.min(1, 400 / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch; const x = cv.getContext('2d'); x.drawImage(im, 0, 0, cw, ch);
+    const d = x.getImageData(0, 0, cw, ch).data; const op = (xx, yy) => d[(yy * cw + xx) * 4 + 3] > 24;
+    let y0 = 0, y1 = ch - 1; while (y0 < ch && ![...Array(cw).keys()].some(xx => op(xx, y0))) y0++; while (y1 > y0 && ![...Array(cw).keys()].some(xx => op(xx, y1))) y1--;
+    const bh = y1 - y0 + 1; const ym = Math.min(ch - 1, y0 + Math.round(bh * 0.06)); let a = cw, b = -1; for (let xx = 0; xx < cw; xx++) if (op(xx, ym)) { if (xx < a) a = xx; if (xx > b) b = xx; }
+    const cx = b < 0 ? cw / 2 : (a + b) / 2; const side = Math.max(8, bh * 0.2);
+    const out = document.createElement('canvas'); out.width = out.height = 160;
+    out.getContext('2d').drawImage(cv, cx - side / 2, y0 - side * 0.04, side, side, 0, 0, 160, 160);
+    _heads.set(url, out.toDataURL('image/png'));
+    clearTimeout(_headWait); _headWait = setTimeout(() => render(), 80);
+  });
+  return null;
+}
+/** The face to show for a driver: their photo, else a head cut from their full-body picture (or its fallbacks). */
+function headOf(c, id, s = curSeason()) { return driverPhoto(c, id) || bodyHead(bodyFor(c, id, s)?.url); }
+/** headOf for the story graphics, waiting for the cut. */
+async function headOfAsync(c, id, s) { const p = driverPhoto(c, id); if (p) return p; const u = bodyFor(c, id, s)?.url; if (!u) return null; bodyHead(u); for (let n = 0; n < 40 && !_heads.get(u); n++) await new Promise(r => setTimeout(r, 25)); return _heads.get(u) || null; }
 function setDriverPhoto(c, id, url) {
   if (id === PLAYER_ID) { c.profile.photo = url; return; }
   const cd = c?.customDrivers?.find(x => x.id === id);
@@ -287,6 +318,16 @@ function setDriverPhoto(c, id, url) {
 const bodyKey = (c, id) => id === PLAYER_ID || c?.customDrivers?.some(x => x.id === id) ? `${c?.id}:${id}` : id;
 /** { url, look } or null. */
 function bodyOf(c, id) { const b = state.images?.bodies?.[bodyKey(c, id)]; return b?.url ? b : null; }
+/**
+ * The picture a driver is shown with: their own full body, else their team's default driver (Team page), else the
+ * default driver (Settings → Pictures). s: the season that says which team they drive for.
+ */
+function bodyFor(c, id, s = null) {
+  const own = bodyOf(c, id); if (own) return own;
+  const tm = s && teamOf(s, id); const root = tm && (D.TEAM_BIO[tm.id]?.lineage?.[0] || tm.id);
+  const tb = root && state.images?.teamBodies?.[root]; if (tb?.url) return { look: 'center', ...tb, fallback: 'team' };
+  const df = state.images?.defaultBody; return df?.url ? { look: 'center', ...df, fallback: 'default' } : null;
+}
 function setBody(c, id, patch) {
   const all = (imgStore().bodies ||= {}); const k = bodyKey(c, id);
   if (patch === null) delete all[k]; else all[k] = { look: 'center', ...all[k], ...patch };
@@ -311,7 +352,7 @@ function initials(name) {
 /** Round driver picture: the uploaded photo, or initials in the team's colours. */
 function avatar(c, s, id, size = 28) {
   const col = (s && teamOf(s, id)?.color) || '#5E6A82';
-  const url = driverPhoto(c, id);
+  const url = headOf(c, id, s);
   const st = `width:${size}px;height:${size}px;--c:${col}`;
   if (url) return `<img class="avatar" src="${esc(url)}" alt="" style="${st}">`;
   const name = id === PLAYER_ID && c ? `${c.profile.first} ${c.profile.last}` : s?.drivers[id]?.name || D.DRIVERS[id]?.name || c?.customDrivers?.find(x => x.id === id)?.name || D.HIST_DRIVERS[id] || id;
@@ -356,6 +397,11 @@ const readCar = (file) => readImage(file, { max: 1000, type: 'image/webp' });
 const carPhoto = (c, id) => !id ? null : id === MYTEAM ? c?.myTeam?.car || null : picOf('cars', id) || picOf('cars', teamRoot(id));
 
 /** Upload / remove controls for a driver photo or team logo. kind: driver | team | setup */
+/** Upload and remove for a fallback driver picture: scope 'team' (id: the team) or 'default'. */
+function fallbackControls(scope, id = '') {
+  const has = scope === 'team' ? !!state.images?.teamBodies?.[id]?.url : !!state.images?.defaultBody?.url;
+  return `<label class="btn sm file-btn">${ICON.camera} ${has ? 'Replace' : 'Upload'} default driver<input type="file" accept="image/png,image/webp" data-ch="fallback-upload" data-scope="${scope}" data-id="${esc(id)}" hidden></label>${has ? `<button class="btn sm ghost danger" data-act="fallback-clear" data-scope="${scope}" data-id="${esc(id)}">Remove</button>` : ''}`;
+}
 function pictureControls(kind, id, has, label = kind === 'team' ? 'logo' : 'photo') {
   const pk = { driver: 'drivers', team: 'teams', car: 'cars' }[kind];
   return `<label class="btn sm file-btn">${ICON.camera} ${has ? 'Replace' : 'Upload'} ${label}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" data-ch="pic-upload" data-kind="${kind}" data-id="${esc(id)}" hidden></label>
