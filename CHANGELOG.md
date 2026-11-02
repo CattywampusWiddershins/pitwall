@@ -2,6 +2,18 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.23.0
+
+- **Phones**: the Media page no longer runs off the side of the screen (the reputation meter and the quick answers wrap), and names on the Simple standings cards shrink to fit, whatever font you've uploaded.
+- **Title permutations, fastest-lap seasons** (2019–24): the point for fastest lap is now counted, so a finish can need the fastest lap ("P2 with the fastest lap") and a rival's condition can be "P4 or lower, or P3 without the fastest lap". Constructors' tables count it too.
+- **Permutations in words** fold the finishes that win it outright into one line ("Verstappen finishes P3 or higher: Verstappen is champion") instead of listing every place. Two contenders who can both be champion "can both" leave as champion, not "can all".
+- **Records set by two drivers at the same race**: matching a record someone set earlier that weekend now shares it ("Hamilton and Vettel share a new record") instead of a second story saying one equalled the other; going past it the same weekend takes the story over.
+- **Media**: no question is asked twice in a season (the defending-champion question comes once). New questions when a driver closes in or moves past you in the championship, when you take or lose the lead, when the title is won, and when it can be won tomorrow. **Post-sprint** interviews are a new session type. An interview story no longer repeats its opening line.
+- **Driver type and media personality** are gone from new careers and Settings: they did nothing.
+- **New careers** start on this year by default.
+- **Race reports**: a winner who leads the championship, or is a world champion, can get a line saying so ("This is why Verstappen is a four-time world champion"). A champion comes first for the opening four rounds, the leader from round five. The old "showing why the title is theirs" line is gone.
+- **Rivalries** are told without the workings showing: archrivals "just cannot be separated this season" rather than "title rivals for 9 of 12 rounds", and wheel-to-wheel rivals "keep finding each other on track" rather than "a third race running".
+
 ## 3.22.3
 
 - **Standings open in Simple** by default; Detailed is one click away.

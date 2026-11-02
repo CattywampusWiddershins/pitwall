@@ -300,7 +300,7 @@ function buildStories(c, s) {
         headline: (!inSprint && showHead) || (solo ? (kind === 'team' ? `${solo.name} can seal the constructors’ crown in ${where}` : `${who(solo)} can clinch the title in ${where}`) : `${kind === 'team' ? 'Constructors’ title' : 'Championship'} could be settled in ${where}`),
         standfirst: `${L.name} ${afterSpr ? `lead${kind === 'team' ? '' : 's'} after the sprint` : `arrive${kind === 'team' ? '' : 's'} at ${r.venue}`} ${m.margin ? `with a ${m.margin}-point lead over ${R2.name}` : `level on points with ${R2.name}`}, and ${m.R} points are left to play for. Here is what has to happen${inSprint ? ' in the sprint' : ''}.`,
         body: SD && !inSprint ? SD.lines : [`${afterSpr ? 'After the sprint' : `Going into round ${i + 1}`}, the top three are ${listJoin(m.rows.slice(0, 3).map(x => `${x.name} (${x.pts})`))}. ${P.G} points are available ${inSprint ? 'in the sprint' : afterSpr ? 'in the race' : 'this weekend'}${P.nx.spr && !inSprint ? ' across the sprint and the race' : ''}, leaving ${P.Rp} after it.`,
-          P.clinch.length > 1 ? `${listJoin(P.clinch.map(x => x.x.name))} can all leave ${where} as champion${kind === 'team' ? 's' : ''}.` : '',
+          P.clinch.length > 1 ? `${listJoin(P.clinch.map(x => x.x.name))} can ${P.clinch.length === 2 ? 'both' : 'all'} leave ${where} as champion${kind === 'team' ? 's' : ''}.` : '',
           showdown && !inSprint ? `It is the final race of the season and nothing is settled. ${alive.length >= 3 ? `A ${numWord(alive.length)}-way decider is the stuff of legend: the last one in Formula 1 was 2010.` : 'One race, winner takes all.'}` : ''].filter(Boolean),
         permsHtml: inSprint || (kind === 'team' && P.clinch.some(t => t.table)) ? tablePermsHtml(m, P) : permsHtml(m, P, { compact: true }),
         permGfx: { kind, stage, who: (P.clinch || []).filter(t => t.table?.length).map(t => t.x.id) },
@@ -415,7 +415,7 @@ function buildStories(c, s) {
     const narr = RF ? raceNarrative(RF, last, seeded(rid + 'narr'), { duelsNow: new Set(duels(s).events.filter(e => e.type === 'duelStart' && e.i === i && e.key === 'R').map(e => pairKey(e.a, e.b))), duelsOn: new Set(duelsAt(s, i - 1).map(x => pairKey(x.a, x.b))) }) : '';
     if (narr) body.push(narr);
     body.push(notes.join(' '));
-    const memLine = raceMemoryLine(mem, res, W, last, name, rnd);
+    const memLine = raceMemoryLine(mem, res, W, last, name, rnd, { ri: i, titles: titleTally(c, s, 'driver', W).n, leader: titleMath(s, 'driver', i + 1).rows[0]?.id === W });
     if (memLine) body.push(memLine);
     const rivLines = rivalryRaceLines(c, s, i, res, last, rnd); if (rivLines.length) body.push(rivLines.join(' '));
     const dd = driverOfTheDay(s, i);
@@ -548,7 +548,7 @@ function buildStories(c, s) {
   for (const m of c.media) {
     if (!m.article || m.seasonIdx !== s.index) continue;
     const ri = m.roundId ? rounds.findIndex(x => x.id === m.roundId) : m.kind === 'preseason' ? -1 : m.kind === 'endseason' ? rounds.length : Math.max(0, Math.floor(rounds.length / 2) - 1);
-    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'quali' ? 3 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: m.article.headline, standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).slice(0, 2), media: m });
+    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: m.article.headline, standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
   }
   // milestones and records from the career timeline
   const tl = careerTimeline(c);
@@ -561,17 +561,18 @@ function buildStories(c, s) {
         headline: e.items.length > 1 ? `${e.r.name} milestones: ${top.text} and more` : `${top.text} in ${e.r.name}`, standfirst: '', list: e.items.length > 1 ? e.items.map(x => ({ id: x.id, text: x.text })) : null });
     } else {
       const R = tl.recs[e.rid];
-      const who = e.team ? e.team.name : tl.nameOf(e.id);
-      const short = e.team ? e.team.name : e.id === PLAYER_ID ? c.profile.last : lastName(who);
+      const names = recNames(tl, e); const who = listJoin(names);
+      const short = listJoin([e, ...(e.co || [])].map((x, k) => x.team ? x.team.name : x.id === PLAYER_ID ? c.profile.last : lastName(names[k])));
       const disp = R.group === 'age' ? e.disp : R.pct ? `${e.value.toFixed(1)}%` : fmtPts(e.value);
-      const prevNames = listJoin(e.prev.holders.filter(h => h.id !== e.id).map(h => h.name));
+      const prevNames = listJoin(recPrev(e).map(h => h.name));
       const prevDisp = R.group === 'age' ? e.prev.holders[0]?.disp : e.prev.value == null ? null : R.pct ? `${e.prev.value.toFixed(1)}%` : fmtPts(e.prev.value);
-      const prevWhen = e.prev.holders.filter(h => h.id !== e.id).map(h => h.when).filter(Boolean)[0];
-      const verb = e.team ? (e.kind === 'broken' ? 'break' : 'equal') : (e.kind === 'broken' ? 'breaks' : 'equals');
+      const prevWhen = recPrev(e).map(h => h.when).filter(Boolean)[0];
+      const many = e.team || !!e.co;
+      const verb = e.co ? (e.kind === 'broken' ? 'share a new' : 'share') : many ? (e.kind === 'broken' ? 'break' : 'equal') : (e.kind === 'broken' ? 'breaks' : 'equals');
       out.push({ id: `${s.index}-${e.r.id}-${e.rid}-${e.id}`, seq: e.ri * 10 + 5, kind: 'record', i: e.ri, r: e.r, subject: e.team ? null : e.id, outlet: choose(rnd, D.OUTLETS), kicker: e.kind === 'broken' ? 'Record broken' : 'Record equalled',
-        headline: e.rid === 'youngTitle8' ? `${short} becomes the first eight-time world champion` : `${short} ${verb} the record for the ${R.label}`,
+        headline: e.rid === 'youngTitle8' ? `${short} becomes the first eight-time world champion` : `${short} ${verb}${e.co && e.kind === 'broken' ? '' : ' the'} record for the ${R.label}`,
         standfirst: e.kind === 'broken'
-          ? `${who} now ${e.team ? 'hold' : 'holds'} the record for the ${R.label}: ${disp}, set at the ${e.r.name} Grand Prix.${prevNames ? ` The previous record${prevDisp ? ` of ${prevDisp}` : ''} belonged to ${prevNames}${prevWhen ? ` (${prevWhen})` : ''}.` : ''}`
+          ? `${who} now ${e.co ? 'share' : e.team ? 'hold' : 'holds'} the record for the ${R.label}: ${disp}, set at the ${e.r.name} Grand Prix.${prevNames ? ` The previous record${prevDisp ? ` of ${prevDisp}` : ''} belonged to ${prevNames}${prevWhen ? ` (${prevWhen})` : ''}.` : ''}`
           : `${who} ${e.team ? 'have' : 'has'} matched ${prevNames || 'the record'} for the ${R.label}, with ${disp}.`,
         body: [] });
     }

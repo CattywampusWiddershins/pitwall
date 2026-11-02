@@ -67,7 +67,7 @@ function fightHistory(s, kind) {
 /** Every way the title can be won, and every way a contender can drop out, at the next round. */
 function roundPerms(m) {
   const nx = m.left[0]; if (!nx || m.decided) return null;
-  const G = nx.max, Rp = m.R - G;
+  const G = nx.max, Rp = m.R - G, fl = m.s.scoring?.fl || 0;
   const exact = !m.team && !nx.spr; // a single race: positions map straight onto points
   const alive = m.rows.filter(x => x.alive);
   // the final race of a drivers' title: compare the final points, and on a tie, countback
@@ -75,7 +75,7 @@ function roundPerms(m) {
     const clinch = [];
     for (const x of alive) {
       const rivals = m.rows.filter(y => y !== x && y.alive && y.pts + G >= x.pts); // one who can outscore x but can't be champion doesn't come into it
-      const table = clinchTableFinal(x, rivals);
+      const table = clinchTableFinal(x, rivals, fl);
       if (table.length) clinch.push({ x, rivals: rivals.map(y => ({ y, need: x.pts - y.pts })), table });
     }
     return { nx, G, Rp, exact, final: true, clinch, out: [], safe: [] };
@@ -88,13 +88,13 @@ function roundPerms(m) {
     // x is champion if it beats every rival y by `need` points or more this weekend (rivals who can't be champion
     // themselves don't come into it: they can't end up ahead of the one who would be)
     const rivals = others.filter(y => y.alive).map(y => ({ y, need: Rp - (x.pts - y.pts) + 1 })).filter(o => o.need > -G);
-    clinch.push({ x, rivals, table: exact ? clinchTable(rivals) : m.team && !nx.spr ? teamTable(rivals, D.RACE_POINTS) : null });
+    clinch.push({ x, rivals, table: exact ? clinchTable(rivals, fl) : m.team && !nx.spr ? teamTable(rivals, D.RACE_POINTS, fl) : null });
   }
   const out = [];
   for (const j of alive) {
     // k knocks j out if it ends the weekend more than Rp ahead; j survives k while gj - gk >= -e
     const threats = m.rows.filter(k => k !== j && k.pts + G - j.pts > Rp).map(k => ({ k, e: j.pts + Rp - k.pts }));
-    if (threats.length) out.push({ j, threats: threats.map(t => ({ ...t, table: exact ? elimTable(t.e) : null })) });
+    if (threats.length) out.push({ j, threats: threats.map(t => ({ ...t, table: exact ? elimTable(t.e, fl) : null })) });
   }
   return { nx, G, Rp, exact, clinch, out, safe: alive.filter(j => !out.some(o => o.j === j)) };
 }
@@ -130,11 +130,15 @@ function clinchTableP(rivals, pts, nop) {
 }
 /**
  * A team's clinch table by points: for each haul both cars can score (P: the points scale), the most each rival
- * may score. [{ pts, combo, conds: [{ y, max }] }] (max null: no limit), the hauls that still win it.
+ * may score. [{ pts, combo, conds: [{ y, max }] }] (max null: no limit), the hauls that still win it. fl: a point for
+ * fastest lap, which a car in the points can add.
  */
-function teamTable(rivals, P) {
+function teamTable(rivals, P, fl = 0) {
   const hauls = new Map(); const n = P.length;
-  for (let a = 0; a <= n; a++) for (let b = a + 1; b <= n + 1; b++) { const v = (P[a] || 0) + (P[b] || 0); if (!hauls.has(v)) hauls.set(v, [a + 1, b + 1]); }
+  for (let a = 0; a <= n; a++) for (let b = a + 1; b <= n + 1; b++) {
+    const v = (P[a] || 0) + (P[b] || 0); if (!hauls.has(v)) hauls.set(v, [a + 1, b + 1]);
+    if (fl && a < n && !hauls.has(v + fl)) hauls.set(v + fl, [a + 1, b + 1, true]);
+  }
   const all = [...hauls.keys()].sort((x, y) => y - x); const top = all[0];
   const rows = [];
   for (const v of all) {
@@ -143,27 +147,43 @@ function teamTable(rivals, P) {
       const most = v - o.need; if (most < 0) return rows;
       conds.push({ y: o.y, max: most >= top ? null : all.find(t => t <= most) ?? 0 });
     }
-    const [a, b] = hauls.get(v); rows.push({ pts: v, combo: `${a > n ? '–' : a}-${b > n ? '–' : b}`, conds });
+    const [a, b, f] = hauls.get(v); rows.push({ pts: v, combo: `${a > n ? '–' : a}-${b > n ? '–' : b}${f ? ' +FL' : ''}`, conds });
   }
   return rows;
 }
-function clinchTable(rivals) {
-  const rows = [];
-  for (let p = 1; p <= NO_PTS; p++) {
+/** A race's finishes, best first, by the points they're worth: with a point for fastest lap (2019–24), each scoring place with and without it. */
+function raceLadder(fl = 0) {
+  const L = [];
+  for (let p = 1; p < NO_PTS; p++) { if (fl) L.push({ p, fl: true, pts: posPts(p) + fl }); L.push({ p, fl: false, pts: posPts(p) }); }
+  L.push({ p: NO_PTS, fl: false, pts: 0 });
+  return L;
+}
+// two cars can't share a place (outside the points aside) or the fastest lap
+const clash = (a, b) => (a.p === b.p && a.p < NO_PTS) || (a.fl && b.fl);
+/** A finish with the fastest lap folds into the same finish without it when the conditions come out the same. */
+function mergeFl(rows, key) {
+  return rows.filter((r, i) => !(r.fl && rows[i + 1] && rows[i + 1].q === r.q && rows[i + 1].p === r.p && key(rows[i + 1]) === key(r)));
+}
+const condKey = (r) => JSON.stringify(r.conds.map(c => [c.q, c.nofl]));
+/** A rival's condition: the best finish it may take (q 0: anywhere); nofl: that place only without the fastest lap. */
+const rivalCond = (y, ok, e, own, fl) => ({ y, q: e === ok[0] ? 0 : e.p, nofl: !!fl && !own.fl && !e.fl && e.p < NO_PTS && e !== ok[0] });
+function clinchTable(rivals, fl = 0) {
+  const L = raceLadder(fl); const rows = [];
+  for (const o of L) {
     const conds = [];
-    for (const o of rivals) {
-      const limit = posPts(p) - o.need; // the most the rival may score
-      if (limit < 0) return rows;
-      let q = 1; while (q === p || posPts(q) > limit) q++;
-      conds.push({ y: o.y, q: q === 1 || (q === 2 && p === 1) ? 0 : q });
+    for (const r of rivals) {
+      const limit = o.pts - r.need; // the most the rival may score
+      if (limit < 0) return mergeFl(rows, condKey);
+      const ok = L.filter(e => !clash(o, e));
+      conds.push(rivalCond(r.y, ok, ok.find(e => e.pts <= limit), o, fl));
     }
-    rows.push({ p, conds });
+    rows.push({ p: o.p, fl: o.fl, conds });
   }
-  return rows;
+  return mergeFl(rows, condKey);
 }
 /** After the final race with x finishing p and y finishing q: >0 x ahead, <0 y ahead, 0 dead level (countback included). */
-function finalCmp(x, p, y, q) {
-  const px = x.pts + posPts(p), py = y.pts + posPts(q);
+function finalCmp(x, p, y, q, xfl = 0, yfl = 0) {
+  const px = x.pts + posPts(p) + xfl, py = y.pts + posPts(q) + yfl;
   if (px !== py) return px - py;
   const vx = (x.posCount || []).slice(), vy = (y.posCount || []).slice();
   vx[Math.min(p, NO_PTS) - 1] = (vx[Math.min(p, NO_PTS) - 1] || 0) + 1;
@@ -172,33 +192,42 @@ function finalCmp(x, p, y, q) {
   return 0;
 }
 /** Final-race clinch table: for each finish of x, how far down each rival has to finish for x to be champion. */
-function clinchTableFinal(x, rivals) {
-  const rows = [];
-  for (let p = 1; p <= NO_PTS; p++) {
+function clinchTableFinal(x, rivals, fl = 0) {
+  const L = raceLadder(fl); const rows = [];
+  for (const o of L) {
     const conds = [];
     for (const y of rivals) {
-      // the highest place y can take with x still ahead after countback
-      let qmin = null;
-      for (let q = NO_PTS; q >= 1; q--) { if (q === p && p < NO_PTS) continue; if (finalCmp(x, p, y, q) > 0) qmin = q; else break; }
-      if (qmin == null) return rows; // x can't be champion finishing here, or lower
-      conds.push({ y, q: qmin === 1 || (qmin === 2 && p === 1) ? 0 : qmin });
+      // the best finish y can take with x still ahead after countback
+      const ok = L.filter(e => !clash(o, e)); let best = null;
+      for (let k = ok.length - 1; k >= 0; k--) { if (finalCmp(x, o.p, y, ok[k].p, o.fl ? fl : 0, ok[k].fl ? fl : 0) > 0) best = ok[k]; else break; }
+      if (!best) return mergeFl(rows, condKey); // x can't be champion finishing here, or lower
+      conds.push(rivalCond(y, ok, best, o, fl));
     }
-    rows.push({ p, conds });
+    rows.push({ p: o.p, fl: o.fl, conds });
   }
-  return rows;
+  return mergeFl(rows, condKey);
 }
-function elimTable(e) {
-  const rows = [];
-  for (let q = 1; q <= NO_PTS; q++) {
-    const need = posPts(q) - e;
-    if (need <= 0) { rows.push({ q, safe: true }); break; }
-    let pmax = 0; for (let p = 1; p < NO_PTS; p++) if (posPts(p) >= need) pmax = p;
-    const worst = pmax === q ? q - 1 : pmax;
-    rows.push(worst < 1 ? { q, out: true } : { q, p: worst });
+/** For each finish of a threat (q), the worst finish that keeps j in the fight (p), or safe / out. */
+function elimTable(e, fl = 0) {
+  const L = raceLadder(fl); const rows = [];
+  for (const k of L) {
+    const need = k.pts - e;
+    if (need <= 0) { rows.push({ q: k.p, fl: k.fl, safe: true }); break; }
+    const w = L.filter(x => !clash(k, x) && x.pts >= need).pop();
+    rows.push(w ? { q: k.p, fl: k.fl, p: w.p, pfl: w.fl } : { q: k.p, fl: k.fl, out: true });
   }
-  return rows;
+  return mergeFl(rows, (r) => JSON.stringify([r.p, r.pfl, r.safe, r.out]));
 }
 const posTxt = (p) => p >= NO_PTS ? 'outside the points' : 'P' + p;
+const finTxt = (p, fl) => posTxt(p) + (fl ? ' with the fastest lap' : '');
+/** A rival's condition: "P4 or lower", or with fastest-lap points "P4 or lower, or P3 without the fastest lap". */
+const orLowerTxt = (c) => c.q >= NO_PTS ? 'outside the points' : c.nofl ? `${c.q + 1 >= NO_PTS ? 'outside the points' : posTxt(c.q + 1) + ' or lower'}, or ${posTxt(c.q)} without the fastest lap` : posTxt(c.q) + ' or lower';
+/** The finishes below a table's last row: "P5 or lower", "P4 without the fastest lap, or lower". */
+const belowTxt = (r) => r.fl ? `${posTxt(r.p)} without the fastest lap, or lower` : r.p + 1 >= NO_PTS ? 'outside the points' : posTxt(r.p + 1) + ' or lower';
+/** A clinch table split at the lowest finish that wins it whatever the others do: { sure (that row, or null), rest }. */
+function sureSplit(table) { let k = 0; while (k < table.length && table[k].conds.every(c => !c.q)) k++; return { sure: k ? table[k - 1] : null, rest: table.slice(k) }; }
+/** "wins", "finishes P3 or higher". */
+const sureTxt = (r) => r.p === 1 ? (r.fl ? 'wins with the fastest lap' : 'wins') : `finishes ${finTxt(r.p, r.fl)} or higher`;
 /** "x must outscore y by…" for a weekend where only points totals can be compared. */
 function marginTxt(a, b, n) {
   if (n > 0) return `${a} must outscore ${b} by at least ${n} point${n === 1 ? '' : 's'}`;
@@ -211,8 +240,8 @@ function permsHtml(m, P, { compact = false } = {}) {
   let html = '';
   if (P.clinch.length) {
     html += P.clinch.map(({ x, rivals, table }) => `<div class="perm"><h3>${nm(x)} ${m.team ? 'are champions' : 'is champion'} in ${gp} if…</h3>
-      ${table ? `<ul class="perm-list">${table.map(r => `<li><b>${nm(x)} finishes ${posTxt(r.p)}</b>${r.conds.every(c => !c.q) ? ': champion whatever the others do' : ' and ' + r.conds.filter(c => c.q).map(c => `${nm(c.y)} finishes ${c.q >= NO_PTS ? 'outside the points' : posTxt(c.q) + ' or lower'}`).join(', and ')}</li>`).join('')}
-        ${table.length < NO_PTS ? `<li class="muted">${nm(x)} cannot be champion here finishing ${posTxt(table.length + 1)} or lower.</li>` : ''}</ul>`
+      ${table ? (({ sure, rest }, last) => `<ul class="perm-list">${sure ? `<li><b>${nm(x)} ${sureTxt(sure)}</b>: ${nm(x)} ${m.team ? 'are champions' : 'is champion'}</li>` : ''}${rest.map(r => `<li><b>${nm(x)} finishes ${finTxt(r.p, r.fl)}</b>${' and ' + r.conds.filter(c => c.q).map(c => `${nm(c.y)} finishes ${orLowerTxt(c)}`).join(', and ')}</li>`).join('')}
+        ${last.p < NO_PTS ? `<li class="muted">${nm(x)} cannot be champion finishing ${belowTxt(last)}.</li>` : ''}</ul>`)(sureSplit(table), table[table.length - 1])
       : `<ul class="perm-list">${rivals.map(o => `<li>${marginTxt(nm(x), nm(o.y), o.need)}</li>`).join('')}</ul>`}
     </div>`).join('');
   } else if (!compact) {
@@ -224,7 +253,7 @@ function permsHtml(m, P, { compact = false } = {}) {
     html += `<h3 style="margin-top:6px">Who can drop out of the fight in ${gp}</h3>`;
     html += P.out.map(({ j, threats }) => `<details class="perm" ${P.out.length <= 3 ? 'open' : ''}><summary><b>${nm(j)}</b> <span class="muted">${j.pts} pts · stays in the fight if…</span></summary>
       ${threats.length > 1 ? `<p class="muted" style="font-size:12px">${threats.map(t => nm(t.k)).join(' and ')} can each end it, so every condition below has to hold.</p>` : ''}
-      ${threats.map(t => t.table ? `<ul class="perm-list">${t.table.map(r => `<li>If <b>${nm(t.k)}</b> finishes ${r.q >= NO_PTS ? 'outside the points' : posTxt(r.q)}${r.safe && r.q < NO_PTS ? ' or lower' : ''}, ${r.safe ? `${nm(j)} stays in the fight` : r.out ? `<span class="neg">${nm(j)} is out</span>` : r.p === 1 ? `${nm(j)} must win` : `${nm(j)} must finish ${posTxt(r.p)} or higher`}</li>`).join('')}</ul>`
+      ${threats.map(t => t.table ? `<ul class="perm-list">${t.table.map(r => `<li>If <b>${nm(t.k)}</b> finishes ${finTxt(r.q, r.fl)}${r.safe && r.q < NO_PTS ? ' or lower' : ''}, ${r.safe ? `${nm(j)} stays in the fight` : r.out ? `<span class="neg">${nm(j)} is out</span>` : r.p === 1 ? `${nm(j)} must win${r.pfl ? ' with the fastest lap' : ''}` : `${nm(j)} must finish ${finTxt(r.p, r.pfl)} or higher`}</li>`).join('')}</ul>`
         : `<ul class="perm-list"><li>${marginTxt(nm(j), nm(t.k), -t.e)}</li></ul>`).join('')}
     </details>`).join('');
   }

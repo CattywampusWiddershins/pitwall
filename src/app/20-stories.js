@@ -151,10 +151,9 @@ function titleNeeds(s, i) {
     const cl = P.clinch.find(o => o.x === x);
     const o = { id: x.id, pts: x.pts, gap: lead.pts - x.pts, leader: x === lead, wins: x.wins };
     if (P.exact && cl?.table?.length) {
-      const t = cl.table; let sure = 0;
-      for (const r of t) { if (r.conds.every(cc => !cc.q)) sure = r.p; else break; }
-      o.sure = sure || null; o.maxP = t.length;
-      o.cond = t[sure] || null; // the first finish that needs help from the others
+      const t = cl.table; const { sure, rest } = sureSplit(t);
+      o.sure = sure?.p || null; o.sureFl = !!sure?.fl; o.maxP = t[t.length - 1].p; o.maxFl = !!t[t.length - 1].fl;
+      o.cond = rest[0] || null; // the first finish that needs help from the others
       o.top = t[0];
     } else if (cl) o.margins = cl.rivals;
     return o;
@@ -162,7 +161,7 @@ function titleNeeds(s, i) {
 }
 /** The conditions on the others in a permutation row, in words: "Hamilton finishes fourth or lower". */
 function condTxt(row, L, past) {
-  return listJoin(row.conds.filter(c => c.q).map(c => `${L(c.y.id)} ${past ? 'finished' : 'finishes'} ${c.q >= NO_PTS ? 'outside the points' : `${ordWord(c.q)} or lower`}`));
+  return listJoin(row.conds.filter(c => c.q).map(c => `${L(c.y.id)} ${past ? 'finished' : 'finishes'} ${c.q >= NO_PTS ? 'outside the points' : c.nofl ? `${c.q + 1 >= NO_PTS ? 'outside the points' : `${ordWord(c.q + 1)} or lower`} (or ${ordWord(c.q)} without the fastest lap)` : `${ordWord(c.q)} or lower`}`));
 }
 /** One sentence per contender: what they needed (past) or need (present) to be champion. */
 function needsLines(N, L, past = true) {
@@ -171,16 +170,17 @@ function needsLines(N, L, past = true) {
     const who = L(o.id);
     if (o.margins) return `${who} ${v('needs', 'needed')} ${listJoin(o.margins.map(m => m.need > 0 ? `to outscore ${L(m.y.id)} by ${plural(m.need, 'point')}` : m.need === 0 ? `to match ${L(m.y.id)}’s score` : `to stay within ${plural(-m.need, 'point')} of ${L(m.y.id)}`))} across the weekend.`;
     if (o.sure) {
-      const base = o.sure === 1 ? `${who} ${v('has', 'had')} to win to be sure of the title`
-        : `${who} only ${v('needs', 'needed')} ${ordWord(o.sure)} place to be champion, whatever ${v('happens', 'happened')} behind`;
-      const extra = o.cond ? `; ${ordWord(o.cond.p)} ${v('would', 'would')} also do, as long as ${condTxt(o.cond, L, past)}` : '';
+      const flTxt = (f) => f ? ' with the fastest lap' : '';
+      const base = o.sure === 1 ? `${who} ${v('has', 'had')} to win${flTxt(o.sureFl)} to be sure of the title`
+        : `${who} only ${v('needs', 'needed')} ${ordWord(o.sure)} place${flTxt(o.sureFl)} to be champion, whatever ${v('happens', 'happened')} behind`;
+      const extra = o.cond ? `; ${ordWord(o.cond.p)}${flTxt(o.cond.fl)} ${v('would', 'would')} also do, as long as ${condTxt(o.cond, L, past)}` : '';
       return `${base}${extra}.`;
     }
     if (!o.top) return `${who} ${v('cannot', 'could not')} win it any more.`;
     const helped = o.top.conds.some(c => c.q);
     return o.maxP === 1
-      ? `${who} ${v('has', 'had')} to win${helped ? `, and even that ${v('is', 'was')} only enough if ${condTxt(o.top, L, past)}` : ''}.`
-      : `${who} ${v('needs', 'needed')} at least ${ordWord(o.maxP)} place and for results to go ${v('their', 'their')} way: ${helped ? `a win ${v('is', 'would be')} enough only if ${condTxt(o.top, L, past)}` : `a win ${v('does', 'would do')} it`}.`;
+      ? `${who} ${v('has', 'had')} to win${o.maxFl ? ' with the fastest lap' : ''}${helped ? `, and even that ${v('is', 'was')} only enough if ${condTxt(o.top, L, past)}` : ''}.`
+      : `${who} ${v('needs', 'needed')} at least ${ordWord(o.maxP)} place${o.maxFl ? ' with the fastest lap' : ''} and for results to go ${v('their', 'their')} way: ${helped ? `a win ${v('is', 'would be')} enough only if ${condTxt(o.top, L, past)}` : `a win ${v('does', 'would do')} it`}.`;
   });
 }
 /** The scene going in: the gaps, in a sentence. */
@@ -445,7 +445,17 @@ function qualiMemory(mem, q, pole, last, rnd) {
   if (streaker && rnd() < 0.8) bits.push(`${last(streaker)}, on a run of ${streakWord(mem.run(streaker).wins)} straight wins, starts ${ordWord(q.findIndex(x => x.d === streaker) + 1)}.`);
   return bits.join(' ') || null;
 }
-function raceMemoryLine(mem, res, W, last, name, rnd) {
+/**
+ * What a win says about the winner: why they lead the championship, or why they are a (several-time) world champion.
+ * A champion who also leads is a champion first for the opening four rounds, the leader from round five.
+ */
+function winnerStatusLine(W, last, rnd, { ri, titles, leader }) {
+  const champ = titles > 0 && (!leader || ri < 4);
+  if (champ) { const what = titles === 1 ? 'a world champion' : `a ${numWord(titles)}-time world champion`; return choose(rnd, [`A drive that showed why ${last(W)} is ${what}.`, `This is why ${last(W)} is ${what}.`, `Proof, if any were needed, of why ${last(W)} is ${what}.`]); }
+  if (leader) return choose(rnd, [`A drive that showed why ${last(W)} leads the championship.`, `This is why ${last(W)} is top of the standings.`, `${last(W)} showed exactly why the championship lead belongs where it is.`]);
+  return null;
+}
+function raceMemoryLine(mem, res, W, last, name, rnd, status = null) {
   const bits = [];
   const runW = mem.run(W);
   if (runW.wins >= 1) bits.push(runW.wins + 1 >= 3 ? `${last(W)} has now won ${streakWord(runW.wins + 1)} in a row.` : `It is back-to-back wins for ${last(W)}.`);
@@ -459,7 +469,7 @@ function raceMemoryLine(mem, res, W, last, name, rnd) {
   if (pod) bits.push(`${last(pod.d)} is on the podium for a ${ordWord(mem.run(pod.d).podiums + 1)} race running.`);
   if (mem.lastWinner && mem.lastWinner !== W) { const x = res.find(y => y.d === mem.lastWinner); if (x) bits.push(`${mem.lastRound ? `${mem.lastRound.name} winner` : 'Last time out’s winner'} ${last(x.d)} ${OUT.includes(x.st) ? 'did not finish' : `finished ${ordWord(res.indexOf(x) + 1)}`} this time.`); }
   if (mem.defending && mem.defending !== W && mem.defending !== mem.lastWinner) { const x = res.find(y => y.d === mem.defending); if (x && rnd() < 0.7) bits.push(`Defending champion ${name(x.d)} ${OUT.includes(x.st) ? 'retired' : `came home ${ordWord(res.indexOf(x) + 1)}`}.`); }
-  else if (mem.defending && mem.defending === W) bits.unshift(`Defending champion ${last(W)} is showing why the title is theirs.`);
+  const why = status && rnd() < 0.55 && winnerStatusLine(W, last, rnd, status); if (why) bits.unshift(why);
   return bits.slice(0, 3).join(' ') || null;
 }
 function penMemoryQuestion(mem, subj, fpos, isOut, last, rnd) {
@@ -615,7 +625,7 @@ function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) 
     let t = b.forLead && b.posW === 1 ? w('battle-lead', [`${A} and ${B} fought over the lead${span}, the lead changing hands ${times(b.leadN || 1)} before ${A} came out in front.`, `Up front, ${A} and ${B} traded the lead ${times(b.leadN || 1)}${span}, ${A} ending up ahead.`, `The battle for the lead between ${A} and ${B}${span} went ${A}’s way in the end, after the lead changed hands ${times(b.leadN || 1)}.`])
       : b.forLead ? w('battle-lead-lost', [`${A} and ${B} fought over the lead${span}, but the fight may have cost them both the win: ${A} finished ${o(b.posW)}${b.posL < 99 ? `, ${B} ${o(b.posL)}` : ''}.`, `${A} and ${B} went toe to toe for first${span}, yet slipped down the order: ${A} ended up ${o(b.posW)}${b.posL < 99 ? ` and ${B} ${o(b.posL)}` : ''}.`, `For a while, ${A} and ${B} were fighting for the win${span}. It didn’t last: ${A} came home ${o(b.posW)}.`])
       : w('battle', [`${A} and ${B} had a great battle${span}, ${A} coming out on top${where}.`, `The fight of the race was ${A} against ${B}${span}, and ${A} had the last word${where}.`, `${B} and ${A} went at it wheel to wheel${span} before ${A} made it stick${where}.`, `${A} and ${B} put on a show${span}; ${A} finished ahead${where}.`, `${A} and ${B} could not shake each other off${span}, ${A} ahead at the end${where}.`, `Lap after lap, ${A} and ${B} fought it out${span} before ${A} came out in front${where}.`]);
-    if (duelsNow.has(k)) t += ' ' + w('duel-born', ['They had gone wheel to wheel in each of the last two races too, and we can’t wait for the next round.', 'It’s becoming a habit: a third race running with these two at it.', 'Another fight between them, and already we’re looking forward to the next one.']);
+    if (duelsNow.has(k)) t += ' ' + w('duel-born', ['These two keep finding each other on track, and we can’t wait for the next round.', 'It’s becoming a habit with these two.', 'Another fight between them, and already we’re looking forward to the next one.']);
     else if (duelsOn.has(k)) t += ' ' + w('duel-on', ['The two rivals battled on track once more.', 'These two just keep finding each other.', 'Another chapter between two drivers who never give an inch to each other.']);
     add('battle', 3.5 + Math.min(4, (b.n - 8) / 2) + (b.forLead ? 4 : b.posW <= 5 ? 2 : 0) + (duelsNow.has(k) ? 3 : 0) + (isC(b.a) || isC(b.b) ? 2 : 0) + ([b.a, b.b].some(mine) ? 1.5 : 0), t, [b.a, b.b]);
   }

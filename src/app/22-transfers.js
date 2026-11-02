@@ -277,7 +277,7 @@ function renderMedia() {
   const rep = reputation(c);
   const repLabel = rep >= 6 ? 'Paddock favourite' : rep >= 2 ? 'Well liked' : rep > -2 ? 'Neutral' : rep > -6 ? 'Divisive' : 'Villain of the paddock';
   return `<div class="page">
-    <div class="page-head"><div><h1>Media</h1><div class="sub">Press conferences shaped by your results, driver type and personality.</div></div>
+    <div class="page-head"><div><h1>Media</h1><div class="sub">Press conferences shaped by your results.</div></div>
       <div class="row">${!settings.hasKey && window.api ? '<span class="muted" style="font-size:12px">Offline questions · add an API key in Settings for AI journalists</span>' : ''}<button class="btn primary" data-act="new-media">${ICON.mic} New media session</button></div></div>
     <div class="panel"><div class="panel-b"><div class="rep-meter"><span class="label" style="width:130px">Media reputation</span><div class="track"><span class="knob" style="left:${(rep + 10) / 20 * 100}%"></span></div><b style="width:170px;text-align:right;font-family:var(--font-display)">${repLabel}</b></div></div></div>
     ${open ? renderMediaSession(c, open) : ''}
@@ -289,7 +289,7 @@ function renderMedia() {
 function mediaTitle(c, m) {
   const s = c.seasons[m.seasonIdx];
   const r = s?.calendar.find(x => x.id === m.roundId);
-  const kind = { preseason: 'Pre-season media day', quali: 'Post-qualifying press conference', race: 'Post-race press conference', midseason: 'Mid-season interview', endseason: 'End-of-season interview' }[m.kind] || 'Media session';
+  const kind = { preseason: 'Pre-season media day', quali: 'Post-qualifying press conference', sprint: 'Post-sprint interview', race: 'Post-race press conference', midseason: 'Mid-season interview', endseason: 'End-of-season interview' }[m.kind] || 'Media session';
   return `${kind}${r ? ' · ' + r.name : ''} · ${s?.year || ''}`;
 }
 function renderMediaSession(c, m) {

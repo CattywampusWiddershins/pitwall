@@ -576,6 +576,11 @@ details.fv-panel:not([open]) > summary { border-bottom: 0; }
   .page-head > .row, .page-head > .seg { max-width: 100%; overflow-x: auto; }
   .seg { max-width: 100%; overflow-x: auto; }
   .seg button { white-space: nowrap; }
+  .rep-meter { flex-wrap: wrap; }
+  .rep-meter > .label, .rep-meter > b { width: auto !important; }
+  .rep-meter .track { order: 3; flex: 1 0 100%; }
+  .tone-picks .btn { white-space: normal; text-align: left; }
+  .q, .qt { min-width: 0; overflow-wrap: anywhere; }
 }
 
 /* Touch screens: bigger targets, and 16px inputs so the keyboard doesn't zoom the page. */
@@ -905,7 +910,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .pod-n { position: absolute; left: 14px; top: 6px; font-size: 72px; font-weight: 900; line-height: 1; color: #fff; opacity: .9; text-shadow: 0 2px 10px rgba(0,0,0,.25); }
 .pod-photo { position: absolute; right: 0; bottom: 0; height: 88%; width: 62%; object-fit: cover; object-position: top; mask-image: linear-gradient(to left, #000 60%, transparent); -webkit-mask-image: linear-gradient(to left, #000 60%, transparent); }
 .pod-logo { position: absolute; right: 12px; top: 14px; height: 54px; max-width: 55%; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
-.pod-name { position: relative; font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; text-shadow: 0 1px 6px rgba(0,0,0,.25); }
+.pod-name { position: relative; display: block; white-space: nowrap; overflow: hidden; font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; text-shadow: 0 1px 6px rgba(0,0,0,.25); }
 .pod-pts { position: relative; display: flex; align-items: baseline; gap: 4px; }
 .pod-pts b { font-size: 30px; font-weight: 900; } .pod-pts small { font-size: 12px; font-weight: 700; opacity: .8; }
 @media (max-width: 640px) { .podium { gap: 6px; } .pod-card { min-height: 150px; padding: 10px; } .pod-card.p1 { min-height: 180px; } .pod-n { font-size: 48px; } .pod-name { font-size: 15px; } .pod-pts b { font-size: 20px; } }

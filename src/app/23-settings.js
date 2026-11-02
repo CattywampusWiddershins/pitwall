@@ -106,7 +106,6 @@ function renderSettings() {
         <label class="field"><span>Last name</span><input type="text" id="pf-last" value="${esc(c.profile.last)}"></label>
         <label class="field"><span>Nationality</span><input type="text" id="pf-nat" value="${esc(c.profile.nationality)}"></label>
         <label class="field"><span>Date of birth</span><input type="date" id="pf-born" value="${esc(c.profile.born || '')}"></label>
-        <label class="field"><span>Media personality</span><select id="pf-pers">${D.PERSONALITIES.map(a => `<option value="${a.id}" ${a.id === c.profile.personality ? 'selected' : ''}>${a.name}</option>`).join('')}</select></label>
       </div>
       <label class="field"><span>Backstory (used by the media)</span><textarea id="pf-bio">${esc(c.profile.bio || '')}</textarea></label>
       <p class="muted" style="font-size:12px;margin:0">Rivals aren't picked: they come from the rivalry system as title fights and archrivalries develop.</p>
@@ -119,8 +118,6 @@ function renderSettings() {
         <label class="field"><span>Number</span><input type="number" id="pf-number" min="1" max="99" value="${esc(c.profile.number)}"></label>
         <label class="field"><span>Nationality</span><input type="text" id="pf-nat" value="${esc(c.profile.nationality)}"></label>
         <label class="field"><span>Date of birth</span><input type="date" id="pf-born" value="${esc(c.profile.born || '')}"></label>
-        <label class="field"><span>Driver type</span><select id="pf-arch">${D.ARCHETYPES.map(a => `<option value="${a.id}" ${a.id === c.profile.archetype ? 'selected' : ''}>${a.name}</option>`).join('')}</select></label>
-        <label class="field"><span>Media personality</span><select id="pf-pers">${D.PERSONALITIES.map(a => `<option value="${a.id}" ${a.id === c.profile.personality ? 'selected' : ''}>${a.name}</option>`).join('')}</select></label>
       </div>
       <label class="field"><span>Backstory (used by the media)</span><textarea id="pf-bio">${esc(c.profile.bio || '')}</textarea></label>
       <p class="muted" style="font-size:12px;margin:0">Rivals aren't picked: they come from the rivalry system as title fights and archrivalries develop.</p>
@@ -249,14 +246,18 @@ function allKnownDrivers(c, s) {
 }
 
 /* ------------------------------------------------------------------ setup */
+/** The first season a new career offers: this year on the device, never before the history starts. */
+const setupStartYear = () => Math.max(HIST_FROM, new Date().getFullYear());
 function defaultSetup() {
-  return {
-    year: 2025, first: '', last: '', abbr: '', number: 27, nationality: '', archetype: 'prodigy', personality: 'confident', bio: '',
+  const u = {
+    year: setupStartYear(), first: '', last: '', abbr: '', number: 27, nationality: '', bio: '',
     teamId: 'williams', seat: 'SAI', extra: '', practice: 'full', rival: '',
     goals: [{ id: uid(), scope: 'team', type: 'constructor_pos', target: 6 }, { id: uid(), scope: 'driver', type: 'beat_teammate' }, { id: uid(), scope: 'driver', type: 'champ_pos', target: 10 }],
     type: 'driver', role: 'principal', newDrivers: [], nd: {},
     team: { name: '', short: '', color: '#00A19B', color2: '#F2F2F2', logo: null, base: '', engine: 'Mercedes', mate: 'BOT', seats: ['PER', 'BOT'] },
   };
+  if (u.year > 2026) Object.assign(u, { futureGrid: D.GRID_2026.map(t => ({ ...t, drivers: [...t.drivers] })), futureCal: D.CAL_2026.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint })) });
+  return u;
 }
 /** Inline form for a brand-new driver (used when signing drivers at setup and in transfers). */
 function newDriverForm(scope, key, nd) {
@@ -410,14 +411,6 @@ function renderSetup() {
       </div>`}
     </div></div>
 
-    ${principal ? '' : `<div class="panel"><div class="panel-h"><h2>Driver type</h2><span class="muted" style="font-size:12px">Sets what the press expects from you</span></div><div class="panel-b">
-      <div class="choices">${D.ARCHETYPES.map(a => `<button class="choice ${u.archetype === a.id ? 'on' : ''}" data-act="setup-pick" data-k="archetype" data-v="${a.id}"><b>${a.name}</b><small>${a.blurb}</small></button>`).join('')}</div>
-    </div></div>`}
-
-    <div class="panel"><div class="panel-h"><h2>Media personality</h2><span class="muted" style="font-size:12px">How you come across in interviews</span></div><div class="panel-b">
-      <div class="choices">${D.PERSONALITIES.map(a => `<button class="choice ${u.personality === a.id ? 'on' : ''}" data-act="setup-pick" data-k="personality" data-v="${a.id}"><b>${a.name}</b><small>${a.blurb}</small></button>`).join('')}</div>
-    </div></div>
-
     ${u.year === 2025 && u.type !== 'myteam' ? `<div class="panel"><div class="panel-h"><h2>11th team</h2><span class="muted" style="font-size:12px">Did you add APXGP or Konnersport to your F1 25 career? They race 2025 only.</span></div><div class="panel-b">${extraPicker(u.extra, 'setup-pick')}</div></div>` : ''}
     ${u.type === 'myteam' ? `<div class="panel"><div class="panel-h"><h2>Your team</h2><span class="muted" style="font-size:12px">${u.year <= 2025 ? 'Your team is the 11th team' : 'Joins the grid as an extra team'}. Everything can be changed later in My Team.</span></div><div class="panel-b stack">
       ${teamIdentityForm(u.team, 'setup')}
@@ -552,16 +545,17 @@ function newMediaModal(roundId) {
   const withR = rounds.filter(r => season.weekends[r.id]?.sessions?.R?.done);
   const withQ = rounds.filter(r => season.weekends[r.id]?.sessions?.Q?.done);
   const defRound = roundId || withR[withR.length - 1]?.id || withQ[withQ.length - 1]?.id || '';
-  const defKind = roundId ? (season.weekends[roundId]?.sessions?.R?.done ? 'race' : 'quali') : (withR.length ? 'race' : 'preseason');
+  const ws = (id) => season.weekends[id]?.sessions || {};
+  const defKind = roundId ? (ws(roundId).R?.done ? 'race' : ws(roundId).SPR?.done ? 'sprint' : 'quali') : (withR.length ? 'race' : 'preseason');
   ui.modal = { kind: 'media', seasonIdx: season.index, roundId: defRound, mkind: defKind };
   drawMediaModal();
 }
 function drawMediaModal() {
   const c = career(); const m = ui.modal; const s = c.seasons[m.seasonIdx];
-  const needsRound = m.mkind === 'quali' || m.mkind === 'race';
+  const needsRound = ['quali', 'sprint', 'race'].includes(m.mkind);
   modal(`<div class="modal-h"><h2>New media session</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b">
-      <div class="choices">${[['preseason', 'Pre-season media day', 'Expectations, targets and your new team.'], ['quali', 'Post-qualifying', 'Your grid slot and Sunday’s plan.'], ['race', 'Post-race', 'The result, the battles, the fallout.'], ['midseason', 'Mid-season interview', 'Form, standings and the teammate battle.'], ['endseason', 'End-of-season interview', 'Verdict on the year and what comes next.']].map(([id, n, b]) => `<button class="choice ${m.mkind === id ? 'on' : ''}" data-act="media-kind" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
+      <div class="choices">${[['preseason', 'Pre-season media day', 'Expectations, targets and your new team.'], ['quali', 'Post-qualifying', 'Your grid slot and Sunday’s plan.'], ['sprint', 'Post-sprint', 'The sprint result and what it means for Sunday.'], ['race', 'Post-race', 'The result, the battles, the fallout.'], ['midseason', 'Mid-season interview', 'Form, standings and the teammate battle.'], ['endseason', 'End-of-season interview', 'Verdict on the year and what comes next.']].map(([id, n, b]) => `<button class="choice ${m.mkind === id ? 'on' : ''}" data-act="media-kind" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
       <div class="form-grid">
         <label class="field"><span>Season</span><select data-ch="media-season">${playedSeasons(c).map(x => `<option value="${x.index}" ${x.index === m.seasonIdx ? 'selected' : ''}>${x.year}</option>`).join('')}</select></label>
         ${needsRound ? `<label class="field"><span>Round</span><select data-ch="media-round">${activeRounds(s).map((r, i) => `<option value="${r.id}" ${r.id === m.roundId ? 'selected' : ''}>R${i + 1} · ${esc(r.name)}</option>`).join('')}</select></label>` : ''}

@@ -78,7 +78,7 @@ const actions = {
     const abbr = (u.abbr || u.last.slice(0, 3)).toUpperCase();
     const c = {
       id: uid(), createdAt: new Date().toISOString(), type: u.type,
-      profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), archetype: u.archetype, personality: u.personality, bio: u.bio.trim(), rival: '', rivalTeam: null, photo: u.photo || null, born: u.born || null },
+      profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), bio: u.bio.trim(), rival: '', rivalTeam: null, photo: u.photo || null, born: u.born || null },
       customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
       generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
       startYear: u.year, ...(real ? { realDriver: real } : {}),
@@ -210,7 +210,7 @@ const actions = {
   'media-kind'(el) { ui.modal.mkind = el.dataset.v; drawMediaModal(); },
   async 'media-start'() {
     const c = career(); const m = ui.modal;
-    const needsRound = m.mkind === 'quali' || m.mkind === 'race';
+    const needsRound = ['quali', 'sprint', 'race'].includes(m.mkind);
     ui.busy = true; drawMediaModal();
     const { questions } = await generateQuestions(c, m.seasonIdx, needsRound ? m.roundId : null, m.mkind);
     ui.busy = false;
@@ -249,8 +249,8 @@ const actions = {
   'save-profile'() {
     const c = career(); const p = c.profile;
     p.first = $('#pf-first').value.trim() || p.first; p.last = $('#pf-last').value.trim() || p.last;
-    if ($('#pf-abbr')) { p.abbr = ($('#pf-abbr').value.trim() || p.abbr).toUpperCase(); p.number = +$('#pf-number').value || p.number; p.archetype = $('#pf-arch').value; }
-    p.nationality = $('#pf-nat').value.trim(); p.born = $('#pf-born').value || null; p.personality = $('#pf-pers').value; p.bio = $('#pf-bio').value.trim();
+    if ($('#pf-abbr')) { p.abbr = ($('#pf-abbr').value.trim() || p.abbr).toUpperCase(); p.number = +$('#pf-number').value || p.number }
+    p.nationality = $('#pf-nat').value.trim(); p.born = $('#pf-born').value || null; p.bio = $('#pf-bio').value.trim();
     if (!isPrincipal(c)) for (const s of playedSeasons(c)) s.drivers[PLAYER_ID] = playerDriver(c);
     store.save(); render(); toast('Profile saved');
   },

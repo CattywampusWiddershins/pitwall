@@ -405,7 +405,7 @@ function standingsPodium(c, s, rows, team) {
     const pic = team ? `${pair ? `<span class="pod-pair">${pair}</span>` : ''}${teamLogoUrl(c, tm.id) ? `<img class="pod-logo" src="${esc(teamLogoUrl(c, tm.id))}" alt="">` : ''}` : driverPhoto(c, x.id) ?`<img class="pod-photo" src="${esc(driverPhoto(c, x.id))}" alt="">` : '';
     const nm = team ? tm.name : lastName(dName(s, x.id));
     // the champion, once the title is settled, gets gold points as in the graphics
-    return `<button class="pod-card p${n} ${n === 1 && champ ? 'champ' : ''}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
+    return `<button class="pod-card p${n} ${n === 1 && champ ? 'champ' : ''}" style="--c:${col};--i:${ink}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${team ? tm.id : x.id}"><span class="pod-n">${n}</span>${pic}<span class="pod-name fit">${esc(nm)}</span><span class="pod-pts"><b>${fmtPts(x.pts)}</b><small>PTS</small></span></button>`;
   };
   return `<div class="podium">${card(rows[1], 2)}${card(rows[0], 1)}${card(rows[2], 3)}</div>`;
 }

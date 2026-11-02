@@ -140,8 +140,18 @@ function render() {
   main.innerHTML = (ui.view === 'setup' ? '' : updateNoticeHtml() + gameNoticeHtml()) + renderView();
   main.dataset.view = viewKey();
   if (typeof fillGraphics === 'function') setTimeout(fillGraphics, 0);
+  fitText(main);
   main.scrollTop = keepScroll ? top : 0;
 }
+/** Names in fixed-width cards (.fit) shrink until they fit, so a wide uploaded font never cuts them off. */
+function fitText(root) {
+  for (const el of root.querySelectorAll('.fit')) {
+    el.style.fontSize = ''; let sz = parseFloat(getComputedStyle(el).fontSize);
+    while (sz > 9 && el.scrollWidth > el.clientWidth + 1) { sz -= 1; el.style.fontSize = sz + 'px'; }
+  }
+}
+window.addEventListener('resize', () => fitText(document));
+document.fonts?.addEventListener?.('loadingdone', () => fitText(document));
 const viewKey = () => `${ui.view}|${ui.round}|${ui.session}|${ui.seasonIdx}|${ui.driverId}|${ui.trackId}|${ui.teamId}`;
 
 const NAV = [

@@ -107,6 +107,10 @@ function careerTimeline(c) {
   if (!v || v.gen !== renderGen) { v = { gen: renderGen, tl: buildTimeline(c) }; _tlCache.set(c, v); }
   return v.tl;
 }
+/** Who set a record event: the driver (or team) and anyone who matched them at the same event. */
+const recNames = (tl, e) => [e, ...(e.co || [])].map(x => x.team ? x.team.name : tl.nameOf(x.id));
+/** The holders before a record event, without the ones who set it. */
+const recPrev = (e) => e.prev.holders.filter(h => h.id !== e.id && !e.co?.some(o => o.id === h.id));
 /**
  * Replays the whole career in date order, starting from each driver's and team's real record at the
  * start of 2025. Produces the live record book and a list of milestones and records set along the way.
@@ -135,9 +139,13 @@ function buildTimeline(c) {
     const R = recs[rid]; if (value == null) return;
     const better = R.value == null || (R.cmp === 'max' ? value > R.value : value < R.value);
     const holder = { id, name: team ? team.name : nameOf(id), team: !!team, when: when || where.when, disp, career: !where.hist, real: !!where.hist, seasonIdx: where.seasonIdx };
+    // a record set earlier at this same event, by someone else: going past it at the same event takes over that
+    // event (against the record as it stood before the weekend); matching it shares it
+    const key = `${where.seasonIdx}:${where.ri}`; const same = R.last?.key === key && R.last.ev.id !== id && !R.last.ev.co?.some(o => o.id === id) ? R.last.ev : null;
     if (better) {
       const self = R.holders.length === 1 && R.holders[0].id === id;
-      if (!self) events.push({ type: 'record', kind: 'broken', rid, id, team, value, disp, prev: { value: R.value, holders: R.holders.map(h => ({ ...h })) }, ...where });
+      if (same) events.splice(events.indexOf(same), 1);
+      if (!self) { const ev = { type: 'record', kind: 'broken', rid, id, team, value, disp, prev: same ? same.prev : { value: R.value, holders: R.holders.map(h => ({ ...h })) }, ...where }; events.push(ev); R.last = { key, ev }; }
       if (self && R.group === 'total') {
         // a holder adding to their own record keeps it: show the span, and only tag it if it was set in the career
         const old = R.holders[0]; const since = old.since || /^(\d{4})/.exec(old.when || '')?.[1];
@@ -145,6 +153,8 @@ function buildTimeline(c) {
         if (since) holder.when = since === String(where.year) ? since : `${since}–${where.year}`;
       }
       R.value = value; R.holders = [holder];
+    } else if (value === R.value && same) {
+      (same.co ||= []).push(team ? { id, team } : { id }); R.holders.push(holder);
     } else if (value === R.value && !R.holders.some(h => h.id === id)) {
       events.push({ type: 'record', kind: 'equalled', rid, id, team, value, disp, prev: { value: R.value, holders: R.holders.map(h => ({ ...h })) }, ...where });
       R.holders.push(holder);
@@ -306,8 +316,8 @@ function renderRecords() {
     <div class="panel"><div class="panel-h"><h2>Records set in your career</h2></div>
       ${broken.length ? `<div class="panel-b tight table-wrap"><table><thead><tr><th>When</th><th>Record</th><th>By</th><th class="num">Mark</th><th>Previous</th></tr></thead><tbody>
         ${broken.slice().reverse().map(e => { const R = tl.recs[e.rid]; return `<tr><td class="muted">${esc(e.when)}<div style="font-size:12px">${fmtDay(e.date, true)}</div></td><td>${esc(R.label[0].toUpperCase() + R.label.slice(1))} <span class="tag ${e.kind === 'broken' ? 'next' : ''}">${e.kind}</span></td>
-          <td><b>${esc(e.team ? e.team.name : tl.nameOf(e.id))}</b></td><td class="num">${R.group === 'age' ? esc(e.disp) : R.pct ? e.value.toFixed(1) + '%' : fmtPts(e.value)}</td>
-          <td class="muted">${esc(listJoin(e.prev.holders.filter(h => h.id !== e.id).map(h => h.name)) || '–')}</td></tr>`; }).join('')}</tbody></table></div>`
+          <td><b>${esc(listJoin(recNames(tl, e)))}</b></td><td class="num">${R.group === 'age' ? esc(e.disp) : R.pct ? e.value.toFixed(1) + '%' : fmtPts(e.value)}</td>
+          <td class="muted">${esc(listJoin(recPrev(e).map(h => h.name)) || '–')}</td></tr>`; }).join('')}</tbody></table></div>`
       : '<div class="empty">No records broken yet. They will appear here, and in Stories, as your career writes them.</div>'}
     </div>
   </div>`;
@@ -529,7 +539,7 @@ function rivalryStories(c, s) {
       const was = e.replaced.map(x => `${short(e.kind, x.id)}’s rivalry with ${short(e.kind, x.old)} from ${x.year}`);
       out.push({ ...base, massive: true, kicker: 'Archrivals',
         headline: choose(rnd, [`${A} and ${B}: archrivals`, `${A} v ${B}: a rivalry for the ages`, `${A} and ${B}, the rivalry that defines ${s.year}`]),
-        standfirst: `Title rivals for ${e.rounds} of the ${e.of} rounds so far, ${A} and ${B} are now each other’s archrival.`,
+        standfirst: choose(rnd, [`${A} and ${B} just cannot be separated this season, and the paddock knows it: this is the rivalry of ${s.year}.`, `Round after round it has been ${A} against ${B}. There is no pretending otherwise any more: they are archrivals.`, `Neither ${A} nor ${B} has been able to shake the other all year. This has become something bigger than a title fight.`, `Wherever ${A} goes, ${B} is never far behind, and the other way round. ${s.year} has made them true archrivals.`]),
         body: [was.length ? `It eclipses ${listJoin(was)}.` : '', 'Whatever happens from here, every time these two meet on track, it will mean that little bit more.'].filter(Boolean),
         quotes: quotes({ ...e, gap: 0 }, rnd) });
     }
@@ -698,8 +708,8 @@ function duelStoriesEach(c, s) {
         headline: e.again ? choose(rnd, [`${A} and ${B} are at it again`, `${A} v ${B}: the on-track war is back on`, `They can’t stay apart: ${A} and ${B} renew hostilities`])
           : touched ? choose(rnd, [`${A} v ${B}: a rivalry born in contact`, `${A} and ${B}: elbows out, again`, `Bumping and barging: ${A} and ${B} make it personal`])
           : choose(rnd, [`${A} and ${B} can’t stay away from each other`, `${A} and ${B}, the battle that keeps on giving`, `${A} v ${B} is the fight to watch`]),
-        standfirst: choose(rnd, [`${A} and ${B} battled hard in ${gpOf(last2[0])}, and again in ${gpOf(last2[1])}. We’re excited to see the next fight between these two.`, `First ${gpOf(last2[0])}, then ${gpOf(last2[1])}: wherever ${A} and ${B} meet on track, sparks fly. Bring on the next one.`, `The two rivals battled on track in ${gpOf(last2[0])} and again in ${gpOf(last2[1])}, and neither looks ready to give an inch.`]),
-        body: [last2[0].ahead === last2[1].ahead ? `${L(last2[1].ahead)} came out ahead both times, and ${L(last2[1].ahead === e.a ? e.b : e.a)} will want to turn that around.` : `They have one each: ${L(last2[0].ahead)} had the final say first time, ${L(last2[1].ahead)} the second.`,
+        standfirst: choose(rnd, [`Wherever ${A} and ${B} meet on track, sparks fly. We’re already looking forward to the next one.`, `${A} and ${B} keep finding each other out there, and neither ever gives an inch.`, `It isn’t the first time ${A} and ${B} have gone at it, and it surely won’t be the last.`, `Some drivers just bring the best out of each other. ${A} and ${B} are turning into one of those pairings.`]),
+        body: [last2[0].ahead === last2[1].ahead ? `${L(last2[1].ahead)} has had the better of their fights lately, and ${L(last2[1].ahead === e.a ? e.b : e.a)} will want to turn that around.` : `Neither has been able to keep the upper hand for long: they have been trading blows.`,
           touched ? 'The two have already made contact along the way, and neither looks in the mood to back down.' : choose(rnd, ['It has been hard, clean racing so far. Long may it continue.', 'So far it has stayed clean. With these two, that may not last.'])],
         quotes: [e.a, e.b].map(id => ({ id, text: choose(rnd, DUEL_QUOTES[touched ? 'needle' : 'respect']) })) });
     } else if (false) { // it dies down quietly: no story (kept for reference)
