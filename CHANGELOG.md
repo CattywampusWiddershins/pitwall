@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.25.0
+
+- **Race Replay has two tabs: Race replays and Fastest laps.** Fastest laps lists every weekend Pitwall recorded laps from the game, kept for good: the track and circuit, how many drivers have a representative lap (recorded in full, line to line), and the quickest one. Open a weekend to compare any two drivers' quickest laps corner by corner, long after the weekend is over.
+
 ## 3.24.8
 
 - **Fastest lap head to head**: a corner you brake for now has a band across the whole dip in speed, from where the braking starts to where the car is nearly back up to speed, instead of just the apex. Fast corners without a real dip keep a narrow band.

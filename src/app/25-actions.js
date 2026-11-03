@@ -2,6 +2,9 @@
 'use strict';
 /* ---------------------------------------------------------------- actions */
 const actions = {
+  'rp-tab'(el) { ui.rpTab = el.dataset.v; ui.flOpen = null; render(); },
+  'fl-open'(el) { ui.flOpen = { si: +el.dataset.si, rid: el.dataset.rid }; ui.flA = ui.flB = null; render(); },
+  'fl-close'() { ui.flOpen = null; render(); },
   'trophy-clear'(el) { if (state.gfxTrophy) delete state.gfxTrophy[el.dataset.kind]; store.save(); render(); },
   'lb-export'() { lbExportModal(); },
   async 'lb-export-go'() {

@@ -121,7 +121,8 @@ async function openReplay(item) {
 }
 function renderReplay() {
   const c = career();
-  const head = (sub) => `<div class="page-head"><div><h1>Race Replay</h1><div class="sub">${sub}</div></div></div>`;
+  const head = (sub) => `<div class="page-head"><div><h1>Race Replay</h1><div class="sub">${sub}</div></div>${replayTabs()}</div>`;
+  if (ui.rpTab === 'laps' && !RP) return renderLapReplays(c);
   if (replayList == null) { replayApi().list().then(l => { replayList = l || []; render(); }).catch(() => { replayList = []; render(); }); return `<div class="page">${head('Loading the recordings…')}</div>`; }
   if (RP) return replayView(c);
   replayPrune(c);
@@ -137,6 +138,42 @@ function renderReplay() {
     ${Object.entries(bySeason).sort((a, b) => b[0] - a[0]).map(([y, xs]) => `<div class="panel"><div class="panel-h"><h2>${y}</h2><button class="btn sm ghost" data-act="rp-del-season" data-y="${y}">Delete ${y}’s recordings</button></div><div class="panel-b tight table-wrap"><table><tbody>
       ${xs.map(x => `<tr><td class="num">R${x.s.calendar.filter(q => !q.off).indexOf(x.r) + 1}</td><td><b>${esc(x.r.name)}</b> <span class="muted">${esc(SESSION_LABEL[x.k] || x.k)}</span>${x.x.rebuilt ? ' <span class="tag">Lap by lap</span>' : ''}</td><td class="muted">${x.x.laps ? plural(x.x.laps, 'lap') : ''}</td><td class="muted">${x.x.bytes ? mb(x.x.bytes) : ''}</td>
         <td style="text-align:right"><button class="btn sm primary" data-act="rp-open" data-k="${esc(x.x.key)}">Watch</button> ${x.x.rebuilt ? '' : `<button class="btn sm ghost" data-act="rp-del" data-k="${esc(x.x.key)}">Delete</button>`}</td></tr>`).join('')}
+    </tbody></table></div></div>`).join('')}</div>`;
+}
+const replayTabs = () => `<div class="seg">${[['races', 'Race replays'], ['laps', 'Fastest laps']].map(([v, l]) => `<button data-act="rp-tab" data-v="${v}" class="${(ui.rpTab || 'races') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+/**
+ * Fastest laps, kept for good: every weekend where Pitwall recorded laps from the game, with how many drivers have a
+ * lap recorded in full (a fair comparison). Opening one shows the head to head as it was on Current Weekend.
+ */
+function lapWeekends(c) {
+  const out = [];
+  for (const s of c.seasons) {
+    if (isHist(s)) continue;
+    activeRounds(s).forEach((r, i) => {
+      const T = s.weekends[r.id]?.traces; if (!T) return;
+      const len = Math.max(0, ...Object.values(T).map(t => t?.spd?.length || 0));
+      const whole = Object.entries(T).filter(([id, t]) => s.drivers[id] && flWhole(t, len)).sort((a, b) => a[1].ms - b[1].ms);
+      if (whole.length) out.push({ s, r, i, n: whole.length, best: whole[0], sessions: [...new Set(whole.map(([, t]) => t.key).filter(Boolean))] });
+    });
+  }
+  return out.reverse();
+}
+function renderLapReplays(c) {
+  const head = (sub, back = '') => `<div class="page-head"><div><h1>Race Replay</h1><div class="sub">${sub}</div></div><div class="row">${back}${replayTabs()}</div></div>`;
+  const open = ui.flOpen && c.seasons[ui.flOpen.si]?.calendar.find(r => r.id === ui.flOpen.rid);
+  if (open) {
+    const s = c.seasons[ui.flOpen.si]; const t = D.TRACKS[trackOf(open)];
+    return `<div class="page">${head(`${s.year} · Round ${activeRounds(s).indexOf(open) + 1} · ${esc(open.name)} Grand Prix${t?.circuit ? ` · ${esc(t.circuit)}` : ''}`, '<button class="btn" data-act="fl-close">All fastest laps</button>')}${flLapPanel(c, s, open)}</div>`;
+  }
+  const list = lapWeekends(c);
+  const sub = 'Every weekend Pitwall recorded laps from the game is kept here: compare any two drivers’ quickest laps, corner by corner, whenever you want to find where the time went. A representative lap is one recorded in full, from line to line.';
+  if (!list.length) return `<div class="page">${head(sub)}<div class="panel"><div class="panel-b muted">No laps recorded yet. Drive a session with telemetry on and every car’s quickest lap is kept here.</div></div></div>`;
+  const bySeason = {}; list.forEach(x => (bySeason[x.s.year] ||= []).push(x));
+  return `<div class="page">${head(sub)}
+    ${Object.entries(bySeason).sort((a, b) => b[0] - a[0]).map(([y, xs]) => `<div class="panel"><div class="panel-h"><h2>${y}</h2><span class="muted" style="font-size:12px">${plural(xs.length, 'weekend')}</span></div><div class="panel-b tight table-wrap"><table><tbody>
+      ${xs.map(x => { const t = D.TRACKS[trackOf(x.r)]; return `<tr><td class="num">R${x.i + 1}</td><td>${countryFlag(t?.country, 13)} <b>${esc(x.r.name)}</b> <span class="muted">${esc(t?.circuit || x.r.venue || '')}</span></td>
+        <td>${x.n} driver${x.n === 1 ? '' : 's'} with a representative lap</td><td class="muted">Quickest: ${esc(lastName(dName(x.s, x.best[0])))} ${fmtLap(x.best[1].ms)}${x.sessions.length ? ` · ${x.sessions.map(k => SESSION_SHORT[k] || k).join(', ')}` : ''}</td>
+        <td style="text-align:right">${x.n >= 2 ? `<button class="btn sm primary" data-act="fl-open" data-si="${x.s.index}" data-rid="${x.r.id}">Compare</button>` : '<span class="muted" style="font-size:12px">Needs two drivers</span>'}</td></tr>`; }).join('')}
     </tbody></table></div></div>`).join('')}</div>`;
 }
 /** Deletes this career's recordings older than the seasons it keeps (once per listing). */
