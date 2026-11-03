@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.7
+
+- **Fastest lap head to head, corners**: every apex counts, so a long sweep with two apexes is two corners and the little kink before the main straight is found too. The bands on the graphs are wider and touch where corners are close together, shaded in turn, and a run of corners at the same speed shares one label across them ("HIGH SPEED" over 11, 12, 13). Corner numbers shrink to fit narrow bands.
+- **Laps are recorded twice as finely** (every 25 m instead of 50 m), so tight sequences like Baku's castle (10 and 11) come out as separate corners. Laps recorded before this still work, slightly less precisely, and give way to new ones.
+
 ## 3.24.6
 
 - **Fastest lap head to head, corners**: corners now come from the line on the map, wherever the direction changes sharply, so fast sweeps count as well as the slow ones you brake for, and a chicane is two corners. How sharp a bend has to be is tuned to the circuit's official number of corners (Baku: 20), so the numbering follows the real one closely. Every corner is numbered on the map, outside its bend, and gets its own band on the graphs; corners that run into each other share one.

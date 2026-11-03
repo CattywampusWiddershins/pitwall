@@ -15,7 +15,7 @@ const raceType = (t) => t >= 15 && t <= 17;
 const LIVE_MS = 1000; // a race sends your battery this often, and the whole profile each new lap
 const HEADER = 29;
 const layout = (format) => format >= 2026 ? { cars: 24, part: 60, wide: true } : { cars: 22, part: 57, wide: false };
-const TRACE_BIN = 50; // metres: each car's lap trace (speed, throttle, brake, place on track) is kept in slices this long
+const TRACE_BIN = 25; // metres (fine enough to tell corners apart in a chicane): each car's lap trace (speed, throttle, brake, place on track) is kept in slices this long
 const SETTLE_MS = 2500; // after the final classification the game sends every car's lap history once more
 
 function header(b) {
