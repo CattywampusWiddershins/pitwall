@@ -149,6 +149,37 @@ function flCorners(spd) {
   for (const z of zones) z.kind = z.min < 120 ? 'LOW SPEED' : z.min < 200 ? 'MEDIUM SPEED' : 'HIGH SPEED';
   return zones;
 }
+/**
+ * The corners of a lap from its line on the map: wherever the direction changes sharply. Left then right (a chicane)
+ * are two corners, and fast sweeps count as much as hairpins. How sharp a bend has to be is tuned until the count
+ * matches the circuit's official number of corners, so the numbering follows the real one closely.
+ * [{ from, to, peak, deg }], numbered in order from the line.
+ */
+function flTurns(xs, zs, target) {
+  const n = xs.length; const at = (i) => (i + n) % n; const wrap = (a) => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  const h = xs.map((_, i) => Math.atan2(zs[at(i + 1)] - zs[at(i - 1)], xs[at(i + 1)] - xs[at(i - 1)]));
+  const d = h.map((v, i) => wrap(h[at(i + 1)] - v) * 180 / Math.PI); // degrees of turn through each slice
+  const find = (th) => {
+    const out = []; let cur = null;
+    for (let i = 0; i < n; i++) {
+      const v = d[i]; const sg = Math.sign(v); if (Math.abs(v) < th) continue;
+      if (cur && cur.sg === sg && i - cur.to <= 1) { cur.to = i; cur.deg += v; if (Math.abs(v) > Math.abs(d[cur.peak])) cur.peak = i; }
+      else out.push(cur = { from: i, to: i, sg, deg: v, peak: i });
+    }
+    return out.filter(c => Math.abs(c.deg) >= th * 1.2);
+  };
+  let best = [];
+  for (let th = 40; th >= 3; th -= 0.5) { const c = find(th); if (Math.abs(c.length - target) < Math.abs(best.length - target) || !best.length) best = c; if (c.length >= target) break; }
+  return best;
+}
+/** Corners next to each other share a band on the graphs ("8 9"), labelled by the slowest speed through it. */
+function flBands(turns, spd) {
+  const bands = [];
+  turns.forEach((t, k) => { const b = bands[bands.length - 1]; const from = t.from, to = Math.min(spd.length - 1, Math.max(t.to, t.from + 1));
+    if (b && from <= b.to) { b.to = Math.max(b.to, to); b.turns.push(k + 1); } else bands.push({ from: b ? Math.max(from, b.to) : from, to, turns: [k + 1] }); });
+  for (const b of bands) { b.min = Math.min(...spd.slice(b.from, b.to + 1)); b.kind = b.min < 120 ? 'LOW SPEED' : b.min < 200 ? 'MEDIUM SPEED' : 'HIGH SPEED'; }
+  return bands;
+}
 /** A smooth line through points: [[x, y]] → an SVG path (Catmull-Rom as curves). */
 function flPath(P) {
   if (P.length < 2) return '';
@@ -185,12 +216,16 @@ function flLapPanel(c, s, r) {
   // the timing line: across the track at the start, with a dot, as on the ERS map
   const [sx, sz] = pts[0], [nx, nz] = pts[1]; const dl = Math.hypot(nx - sx, nz - sz) || 1; const px = -(nz - sz) / dl * 11, pz = (nx - sx) / dl * 11;
   const line = `<line x1="${(sx - px).toFixed(1)}" y1="${(sz - pz).toFixed(1)}" x2="${(sx + px).toFixed(1)}" y2="${(sz + pz).toFixed(1)}" stroke="#fff" stroke-width="3"/><circle cx="${sx.toFixed(1)}" cy="${sz.toFixed(1)}" r="4" fill="#fff"/>`;
+  const target = D.TRACKS[trackOf(r)]?.corners || 0; // the circuit's official number of corners
+  const turns = target ? flTurns(xs, zs, target) : [];
+  const tlabels = turns.map((t, k) => { const i = t.peak; const q = pts[i], a0 = pts[(i - 2 + n) % n], a1 = pts[(i + 2) % n]; let vx = q[0] - (a0[0] + a1[0]) / 2, vz = q[1] - (a0[1] + a1[1]) / 2; const l = Math.hypot(vx, vz) || 1; vx /= l; vz /= l;
+    return `<text x="${(q[0] + vx * 15).toFixed(1)}" y="${(q[1] + vz * 15 + 4).toFixed(1)}" fill="#C9CFDC" font-size="11" font-weight="700" text-anchor="middle">${k + 1}</text>`; }).join('');
   const anim = JSON.stringify({ p: pts.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]), a: tA.map(v => Math.round(v * 1000)), b: tB.map(v => Math.round(v * 1000)) });
   // the speed trace and the gap, with the braking zones marked
-  const zones = flCorners(sA);
+  const zones = turns.length ? flBands(turns, sA) : flCorners(sA);
   const vmax = Math.max(...sA, ...sB), vmin = Math.min(...sA, ...sB);
-  const CW = 1000, CH = 250, top = 34; const cx = (i) => 40 + i * (CW - 60) / (n - 1); const cy = (v) => top + (1 - (v - vmin) / ((vmax - vmin) || 1)) * (CH - top - 14);
-  const band = (h, labels) => zones.map((z, k) => `<rect x="${cx(z.from).toFixed(1)}" y="${labels ? top - 8 : 0}" width="${(cx(z.to) - cx(z.from)).toFixed(1)}" height="${labels ? h - top + 8 : h}" fill="#fff" opacity="${k % 2 ? 0.05 : 0.08}"/>${labels ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="${top - 13}" fill="#fff" font-size="13" font-weight="800" text-anchor="middle">${z.turns.join(' ')}</text>${cx(z.to) - cx(z.from) >= 64 ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="11" fill="#9AA" font-size="8.5" text-anchor="middle">${z.kind}</text>` : ''}` : ''}`).join('');
+  const CW = 1000, CH = 256, top = 40; const cx = (i) => 40 + i * (CW - 60) / (n - 1); const cy = (v) => top + (1 - (v - vmin) / ((vmax - vmin) || 1)) * (CH - top - 14);
+  const band = (h, labels) => zones.map((z, k) => `<rect x="${cx(z.from).toFixed(1)}" y="${labels ? top - 8 : 0}" width="${(cx(z.to) - cx(z.from)).toFixed(1)}" height="${labels ? h - top + 8 : h}" fill="#fff" opacity="${k % 2 ? 0.05 : 0.08}"/>${labels ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="${top - 4}" fill="#fff" font-size="12" font-weight="800" text-anchor="middle">${z.turns.join(' ')}</text>${cx(z.to) - cx(z.from) >= 64 ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="10" fill="#9AA" font-size="8" text-anchor="middle">${z.kind}</text>` : ''}` : ''}`).join('');
   const curve = (arr, col) => `<path d="${flPath(arr.map((v, i) => [cx(i), cy(v)]))}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
   const dlt = flSmooth(tA.map((v, i) => v - tB[i])); const dm = Math.max(0.05, ...dlt.map(Math.abs));
   const dy = (v) => 50 + v / dm * 40; // a negative gap (the first driver ahead) is up
@@ -201,7 +236,7 @@ function flLapPanel(c, s, r) {
   return `<div class="panel">${head}<div class="panel-b stack">
     <div class="row" style="gap:8px;flex-wrap:wrap">${sel('a', a)}<span class="muted">v</span>${sel('b', b)}</div>
     <div class="flh">${side(a, A, shA, colA, false)}
-      <div class="flh-map"><svg viewBox="0 0 ${W} ${H}" data-flanim='${esc(anim)}'><g>${segs}</g>${line}<circle class="fl-car" data-k="b" r="8" fill="${colB}" stroke="#111" stroke-width="2" cx="${sx}" cy="${sz}"/><circle class="fl-car" data-k="a" r="8" fill="${colA}" stroke="#fff" stroke-width="2" cx="${sx}" cy="${sz}"/></svg>
+      <div class="flh-map"><svg viewBox="0 0 ${W} ${H}" data-flanim='${esc(anim)}'><g>${segs}</g>${line}${tlabels}<circle class="fl-car" data-k="b" r="8" fill="${colB}" stroke="#111" stroke-width="2" cx="${sx}" cy="${sz}"/><circle class="fl-car" data-k="a" r="8" fill="${colA}" stroke="#fff" stroke-width="2" cx="${sx}" cy="${sz}"/></svg>
         <div class="muted" style="font-size:11px;text-align:center"><span style="color:${colA}">■</span> ${esc(lastName(dName(s, a)))} quicker · <span style="color:${colB}">■</span> ${esc(lastName(dName(s, b)))} quicker · both laps start together</div></div>
       ${side(b, B, shB, colB, true)}</div>
     <svg class="flh-chart" viewBox="0 0 ${CW} ${CH}">${band(CH, true)}<text x="4" y="${top + 4}" fill="#9AA" font-size="10">${Math.round(vmax)}</text><text x="4" y="${CH - 10}" fill="#9AA" font-size="10">${Math.round(vmin)}</text><text x="4" y="${(top + CH) / 2}" fill="#9AA" font-size="9">KM/H</text>${curve(sB, colB)}${curve(sA, colA)}</svg>

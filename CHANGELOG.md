@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.6
+
+- **Fastest lap head to head, corners**: corners now come from the line on the map, wherever the direction changes sharply, so fast sweeps count as well as the slow ones you brake for, and a chicane is two corners. How sharp a bend has to be is tuned to the circuit's official number of corners (Baku: 20), so the numbering follows the real one closely. Every corner is numbered on the map, outside its bend, and gets its own band on the graphs; corners that run into each other share one.
+
 ## 3.24.5
 
 - **Fastest lap head to head**: the cars glide round the map instead of jumping from point to point, and keep their place when the page redraws. The speed and gap graphs are smooth curves, with every braking zone marked and numbered (corners straight after one another share a zone, as on TV) and labelled low, medium or high speed. The map's line is closed at the start/finish, with the timing line drawn across it.
