@@ -779,7 +779,8 @@ async function gfxWinner(g, k, c, s, { ri, k: key = 'R' }) {
  */
 function previewPicks(c, s, ri) {
   const r = activeRounds(s)[ri]; const cc = A.country[D.TRACKS[trackOf(r)]?.country];
-  const grid = gridIds(s); const rnd = seeded(`pv-${s.index}-${r.id}`);
+  const ses = s.weekends[r.id]?.sessions || {}; const field = (ses.R?.done ? ses.R : ses.Q?.done ? ses.Q : null)?.results.map(x => x.d);
+  const grid = field?.length ? field : gridIds(s); const rnd = seeded(`pv-${s.index}-${r.id}`);
   const m = titleMath(s, 'driver', ri); const lead = m.rows[0];
   const home = grid.filter(id => cc && A.nat[gfxNat(c, id)] === cc);
   const rivals = m.rows.filter(x => x.alive && x.pts > 0 && (x === lead || lead.pts - x.pts <= 50)).slice(0, 3).map(x => x.id);
@@ -1004,12 +1005,12 @@ async function gfxH2H(g, k, c, s, { a, b, scope }) {
   const top = 680, rh = (GFX_H - 60 - top) / rows.length;
   rows.forEach(([lab, va, vb, low], j) => {
     const y = top + j * rh + rh / 2; const na = va ?? 0, nb = vb ?? 0; const t = na + nb || 1; const aBetter = va != null && vb != null && va !== vb && (low ? va < vb : va > vb), bBetter = va != null && vb != null && va !== vb && !aBetter;
-    const pa = va == null || vb == null ? 0.5 : low ? nb / t : na / t; const bw = 340, mid = GFX_W / 2, gap = 120;
+    const pa = va == null || vb == null ? 0.5 : low ? nb / t : na / t; const bw = 290, mid = GFX_W / 2, gap = 120;
     g.fillStyle = '#2A2A34'; g.fillRect(mid - gap - bw, y - 14, bw, 28); g.fillRect(mid + gap, y - 14, bw, 28);
     g.fillStyle = ca; g.fillRect(mid - gap - bw * pa, y - 14, bw * pa, 28); g.fillStyle = cb; g.fillRect(mid + gap, y - 14, bw * (1 - pa), 28);
     const f = (v) => v == null ? '–' : low ? v.toFixed(1) : fmtPts(v);
-    k.text(f(va), mid - gap - bw - 24, y, { size: 44, weight: 800, align: 'right', color: bBetter ? '#7C8293' : '#FFFFFF' });
-    k.text(f(vb), mid + gap + bw + 24, y, { size: 44, weight: 800, color: aBetter ? '#7C8293' : '#FFFFFF' });
+    k.text(f(va), mid - gap - bw - 20, y, { size: 44, weight: 800, align: 'right', color: bBetter ? '#7C8293' : '#FFFFFF', max: mid - gap - bw - 50 });
+    k.text(f(vb), mid + gap + bw + 20, y, { size: 44, weight: 800, color: aBetter ? '#7C8293' : '#FFFFFF', max: mid - gap - bw - 50 });
     k.text(lab, mid, y, { size: 22, weight: 700, color: '#C9CFDC', align: 'center', max: gap * 2 - 10 });
   });
 }

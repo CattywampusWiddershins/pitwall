@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.2
+
+- **Head to Head graphic**: the figures at each end stay inside the image.
+- **Performance, teammate comparison**: each team in a block in the middle, a driver either side, and the bar between them split in two: qualifying on top, race pace below, each growing towards the quicker driver by how much quicker. The quali wins, gaps and how many sessions and races counted are all still there.
+- **Race previews stay** in Stories for every round, each told as things stood going into that weekend, and their graphics keep the drivers picked from that weekend’s field.
+
 ## 3.24.1
 
 - **Constructors’ standings, Simple**: the two drivers on each team card are larger, cropped at the waist, and stand apart: the lead driver in front, the teammate a step behind and to the right, both clear of the team’s name.

@@ -311,8 +311,9 @@ function buildStories(c, s) {
       // a decider: each contender's season so far, with their own graphic
       if (showdown && !inSprint) alive.forEach((x, kk) => out.push(contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, i * 10 + (afterSpr ? 3 : 0) - 0.1 - kk * 0.01)));
     }
-    // the next round: a preview built from what has happened so far (unless a title decider preview covers it)
-    if (i === nri && i > 0 && !ses.Q?.done && !out.some(x => x.kind === 'preview' && x.i === i)) {
+    // every round up to the next one gets a preview, built from what had happened before it (unless a title decider
+    // preview covers it), so past previews stay in the stories as they were
+    if (i <= nri && i > 0 && !out.some(x => x.kind === 'preview' && x.i === i)) {
       const pv = previewStory(c, s, i, mem, { name, last, tName });
       if (pv) out.push(pv);
     }

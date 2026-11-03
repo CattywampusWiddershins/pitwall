@@ -560,6 +560,27 @@ function teammateGaps(s, a, b) {
 }
 const gapS = (ms, d = 3) => `${ms >= 0 ? '+' : '−'}${Math.abs(ms / 1000).toFixed(d)}s`;
 
+/**
+ * Teammates, one team a row: the team in a block in the middle, a driver either side, and the bar between them split in
+ * two: qualifying on top, race pace below, each growing towards the quicker driver by how much quicker.
+ */
+function mateRows(c, s, pairs) {
+  const G = pairs.map(({ t, d: [a, b] }) => ({ t, a, b, g: teammateGaps(s, a, b) }));
+  const qMax = Math.max(50, ...G.map(x => Math.abs(x.g.q || 0))), rMax = Math.max(50, ...G.map(x => Math.abs(x.g.r || 0)));
+  // a half-bar: from the middle towards the quicker side (v < 0: the first driver)
+  const half = (v, max, mine) => v == null || Math.abs(v) < 0.5 || (v < 0) !== mine ? '' : `<i style="width:${Math.max(4, Math.abs(v) / max * 100)}%"></i>`;
+  const side = (id, right, q, r, wins) => `<div class="tm-side ${right ? 'r' : ''} ${id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${id}">${headOf(c, id, s) ? `<img src="${esc(headOf(c, id, s))}" alt="">` : ''}<div><b>${esc(lastName(dName(s, id)).toUpperCase())}</b><small>${wins} quali wins</small></div>
+    <div class="tm-vals"><span class="${q ? 'win' : ''}">Q ${q ? gapS(-Math.abs(q)) : '–'}</span><span class="${r ? 'win' : ''}">R ${r ? gapS(-Math.abs(r)) : '–'}</span></div></div>`;
+  return `<div class="tm-list">${G.map(({ t, a, b, g }) => {
+    const qa = g.q != null && g.q < -0.5 ? g.q : 0, qb = g.q != null && g.q > 0.5 ? g.q : 0, ra = g.r != null && g.r < -0.5 ? g.r : 0, rb = g.r != null && g.r > 0.5 ? g.r : 0;
+    return `<div class="tm-row ${t.id === s.playerTeamId ? 'mine' : ''}" style="--c:${t.color || '#5E6A82'};--i:${contrastInk(t.color || '#5E6A82')}">
+      ${side(a, false, qa, ra, g.qa)}
+      <div class="tm-bar l"><span>${half(g.q, qMax, true)}</span><span>${half(g.r, rMax, true)}</span></div>
+      <div class="tm-team" data-act="open-team" data-id="${t.id}">${teamLogo(c, t, 22)}<b>${esc(t.name)}</b><small>${g.qn} quali counted${g.skipped ? ` (+${g.skipped} left out)` : ''} · ${g.rn} races</small></div>
+      <div class="tm-bar"><span>${half(g.q, qMax, false)}</span><span>${half(g.r, rMax, false)}</span></div>
+      ${side(b, true, qb, rb, g.qb)}</div>`;
+  }).join('')}</div>`;
+}
 function renderPerformance() {
   const c = career(); const s = curSeason();
   const last5 = ui.perf === 'last5';
@@ -589,9 +610,8 @@ function renderPerformance() {
       <div class="panel"><div class="panel-h"><h2>Qualifying pace</h2><span class="muted" style="font-size:12px">${quali.sessions.length ? `${mode} · ${plural(quali.sessions.length, 'session')}` : ''}</span></div><div class="panel-b tight table-wrap">${board(quali, 'quali')}</div></div>
     </div>
     <div class="panel"><div class="panel-h"><h2>Teammate comparison</h2><span class="muted" style="font-size:12px">Whole season. Qualifying sessions where a driver set no time or was more than 2 s off the teammate are left out.</span></div>
-      <div class="panel-b">${practiceRows(c, s, pairs.map(({ t, d: [a, b] }) => { const g = teammateGaps(s, a, b); const who = (v) => v == null ? '–' : Math.abs(v) < 0.5 ? 'Level' : `${esc(dAbbr(s, v < 0 ? a : b))} ${gapS(-Math.abs(v))}`;
-        return { team: t, me: t.id === s.playerTeamId, name: `${dAbbr(s, a)} v ${dAbbr(s, b)}`, sub: `Quali H2H ${g.qn ? `${g.qa}–${g.qb}` : '–'} · ${g.qn} counted${g.skipped ? ` (+${g.skipped} left out)` : ''} · race pace ${who(g.r)} over ${g.rn}`, val: who(g.q), pct: g.qn ? g.qa / g.qn * 100 : null }; }))}</div>
-      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Gaps show who is quicker on average and by how much: “NOR −0.124s” means Norris is 0.124 s faster than the teammate.</div>
+      <div class="panel-b">${mateRows(c, s, pairs)}</div>
+      <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">The top half of each bar is qualifying, the bottom half race pace: it grows towards the quicker driver, by how much quicker. “−0.124s” is that driver’s average advantage over the teammate.</div>
     </div>
     ${race.sessions.length ? `<div class="panel"><div class="panel-h"><h2>Race pace by round</h2><span class="muted" style="font-size:12px">Seconds per lap behind the fastest team. “Lap” means the team was only classified laps down.</span></div><div class="panel-b tight table-wrap">${matrix(race)}</div></div>` : ''}
     ${quali.sessions.length ? `<div class="panel"><div class="panel-h"><h2>Qualifying pace by round</h2><span class="muted" style="font-size:12px">Seconds behind the fastest team’s average lap</span></div><div class="panel-b tight table-wrap">${matrix(quali)}</div></div>` : ''}

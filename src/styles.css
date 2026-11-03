@@ -1191,3 +1191,28 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .lbx-v .plus, .lbx-v small { font-size: 10px; font-weight: 600; color: #FFE0DE; }
 .lbx-row:hover .lbx-bar { filter: brightness(1.08); }
 .h2h-gfx { max-width: 460px; }
+
+/* Performance: teammate comparison, team in the middle, qualifying above and race pace below in each bar */
+.tm-list { display: grid; gap: 6px; }
+.tm-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(60px, 1.2fr) minmax(130px, 170px) minmax(60px, 1.2fr) minmax(150px, 1fr); align-items: stretch; gap: 0; background: var(--panel-2); border-radius: var(--r); overflow: hidden; font-family: var(--font-display); }
+.tm-row.mine { box-shadow: inset 0 0 0 2px var(--fg); }
+.tm-side { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; min-width: 0; }
+.tm-side.r { flex-direction: row-reverse; text-align: right; }
+.tm-side img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; object-position: top; flex: none; background: var(--panel-3); }
+.tm-side b { display: block; font-size: 16px; font-weight: 800; white-space: nowrap; } .tm-side small { font-size: 11px; color: var(--muted); }
+.tm-side.me b { color: var(--team); }
+.tm-vals { margin-left: auto; display: grid; gap: 2px; font-size: 12px; white-space: nowrap; color: var(--muted); text-align: right; } .tm-side.r .tm-vals { margin-left: 0; margin-right: auto; text-align: left; }
+.tm-vals .win { color: var(--fg); font-weight: 700; }
+.tm-bar { display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 10px 0; }
+.tm-bar span { position: relative; background: rgba(255,255,255,.06); }
+.tm-bar i { position: absolute; top: 0; bottom: 0; left: 0; background: var(--c); }
+.tm-bar.l i { left: auto; right: 0; }
+.tm-team { display: grid; place-content: center; justify-items: center; text-align: center; gap: 2px; padding: 6px 8px; background: var(--c); color: var(--i); cursor: pointer; }
+.tm-team b { font-size: 14px; font-weight: 900; text-transform: uppercase; line-height: 1.05; } .tm-team small { font-family: var(--font-body); font-size: 10px; opacity: .85; }
+@media (max-width: 900px) {
+  .tm-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .tm-team { grid-column: 1 / -1; grid-row: 1; padding: 6px; }
+  .tm-side { grid-row: 2; } .tm-side.r { grid-column: 2; }
+  .tm-bar { grid-row: 3; padding: 0 10px 10px; } .tm-bar.l { grid-column: 1; } .tm-bar:not(.l) { grid-column: 2; }
+  .tm-vals { display: none; }
+}
