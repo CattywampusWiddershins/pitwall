@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.4
+
+- **Transfers, the grid cards**: a driver who has signed for another team next season shows "Joining Red Bull" (in that team's colour) instead of the contract with the team they are leaving; one released shows "Leaving for 2027". Drivers without a signed move keep "Final year" or "To 2028". The card's tooltip says the same ("Joins Red Bull Racing for 2027, until the end of 2028").
+
 ## 3.24.3
 
 - **A season preview for round 1**: Formula 1 returns, how last year's title was won (a three-way fight at the death, a final-round showdown, or sealed with rounds to spare), the champion's defence (or a new champion to come, if they've gone), who came closest and the other champions on the grid. Its graphic leads with the defending champion, then home drivers and other champions.

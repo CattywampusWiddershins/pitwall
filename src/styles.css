@@ -1216,3 +1216,5 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
   .tm-bar { grid-row: 3; padding: 0 10px 10px; } .tm-bar.l { grid-column: 1; } .tm-bar:not(.l) { grid-column: 2; }
   .tm-vals { display: none; }
 }
+.gc-ctr { max-width: calc(100% - 40px); text-align: right; line-height: 1.15; }
+.gc-ctr.move { box-shadow: 0 0 0 1px rgba(255,255,255,.6); }

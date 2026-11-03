@@ -9,8 +9,13 @@ function contractUntil(c, s, id) {
   const u = own !== undefined ? own : D.CONTRACTS[s.year]?.[id] ?? D.CONTRACTS[2025]?.[id] ?? null;
   return u != null && u >= s.year ? u : null;
 }
+/** The move a driver has signed for next season, if any: the last step about them in a transfer that takes effect then. */
+function nextMoveOf(c, s, id) { return (s.transfers || []).filter(tr => tr.effective === 'next').flatMap(tr => tr.steps).filter(m => m.driver === id).pop() || null; }
 function contractTxt(c, s, id) {
   if (c.pending?.[id]) return 'Future undecided';
+  const nm = nextMoveOf(c, s, id);
+  if (nm && nm.kind === 'move' && nm.to === 'free') return `Leaving at the end of ${s.year}`;
+  if (nm && nm.kind === 'move' && !['retire', 'pending'].includes(nm.to) && nm.to !== teamOf(s, id)?.id) return `Joins ${trTeam(c, s, nm.to)} for ${s.year + 1}${nm.until ? `, until the end of ${nm.until}` : ''}`;
   if (c.retired?.[id] != null && !gridIds(s).includes(id)) return `Retired (${c.retired[id]})`;
   if (!gridIds(s).includes(id)) return 'Free agent';
   const u = contractUntil(c, s, id);
@@ -184,12 +189,17 @@ function gridCards(c, s, teams, drivers, { act = 'tr-new', year = s.year } = {})
       if (!d) return `<div class="gc-d gc-empty"><span>Empty seat</span></div>`;
       // their own full body, else their photo, else the team's (or the default) driver
       const photo = !bodyOf(c, d) && driverPhoto(c, d); const pic = !photo && bodyFor(c, d, s)?.url; const head = photo || (!pic && headOf(c, d, s));
-      const u = c.retired?.[d] != null ? 'ret' : c.pending?.[d] ? 'pend' : null; const until = u ? null : contractUntil(c, s, d);
-      const tag = u === 'ret' ? 'RETIRING' : u === 'pend' ? 'UNDECIDED' : until == null ? '' : until <= year ? `FINAL YEAR` : `TO ${until}`;
-      const cls = u === 'ret' ? 'ret' : u === 'pend' ? 'pend' : until != null && until <= year ? 'exp' : '';
+      // on this season's grid, a move signed for next season shows instead of the contract: joining another team, or leaving
+      const nm = year === s.year ? nextMoveOf(c, s, d) : null;
+      const goes = nm && nm.kind === 'move' && !['retire', 'pending', 'free'].includes(nm.to) && nm.to !== t.id ? (s.teams.find(x => x.id === nm.to) || teamMeta(c, nm.to)) : null;
+      const leaves = nm && nm.kind === 'move' && nm.to === 'free';
+      const u = c.retired?.[d] != null ? 'ret' : c.pending?.[d] ? 'pend' : null; const until = u || goes || leaves ? null : contractUntil(c, s, d);
+      const tag = u === 'ret' ? 'RETIRING' : u === 'pend' ? 'UNDECIDED' : goes ? `JOINING ${goes.name.replace(/\s+(Racing|F1 Team|Formula One Team)$/i, '').toUpperCase()}` : leaves ? `LEAVING FOR ${s.year + 1}` : until == null ? '' : until <= year ? `FINAL YEAR` : `TO ${until}`;
+      const cls = u === 'ret' ? 'ret' : u === 'pend' ? 'pend' : goes ? 'move' : leaves ? 'pend' : until != null && until <= year ? 'exp' : '';
+      const tagStyle = goes ? ` style="background:${goes.color || '#fff'};color:${contrastInk(goes.color || '#ffffff')}"` : '';
       const num = drivers[d]?.number ?? (d === PLAYER_ID ? c.profile.number : '');
       return `<button class="gc-d ${d === PLAYER ? 'me' : ''}" data-act="${trPick(c, d) ? act : 'open-driver'}" data-driver="${d}" data-id="${d}" title="${esc(contractTxt(c, s, d))}">
-        <span class="gc-num">${esc(String(num ?? ''))}</span>${tag ? `<span class="gc-ctr ${cls}">${tag}</span>` : ''}
+        <span class="gc-num">${esc(String(num ?? ''))}</span>${tag ? `<span class="gc-ctr ${cls}"${tagStyle}>${tag}</span>` : ''}
         ${pic ? `<img class="gc-body" src="${esc(pic)}" alt="">` : head ? `<img class="gc-head" src="${esc(head)}" alt="">` : ''}
         <span class="gc-lbl">${natFlag(gfxNat(c, d), 11)}<b>${esc(lastName(name(d)))}</b><small>${esc(name(d).split(' ').slice(0, -1).join(' '))}</small></span></button>`;
     };
