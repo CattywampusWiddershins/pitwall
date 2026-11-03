@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.5
+
+- **Fastest lap head to head**: the cars glide round the map instead of jumping from point to point, and keep their place when the page redraws. The speed and gap graphs are smooth curves, with every braking zone marked and numbered (corners straight after one another share a zone, as on TV) and labelled low, medium or high speed. The map's line is closed at the start/finish, with the timing line drawn across it.
+- **Laps recorded properly**: each car's lap is now followed as it's driven and only kept if it ran from line to line on track. Before, two runs in a session could be mixed into one lap, which made cars jump and flicker. Laps saved that way are left out, and replaced by the next whole lap. A note under the graphs says only laps recorded in full are fair comparisons.
+- **Flashbacks**: when you flash back, the contact, penalties, passes and damage after that moment are taken back, so a crash you undid no longer turns up in the stories. Race replays drop the part you flashed back over and play on smoothly, and recordings made before this (your Monza race) are cleaned the same way when they open. A lap with a flashback in it keeps only the part you finally drove.
+- **Dashboard**: the Form chips wrap instead of clipping "DNF" in a narrow window.
+
 ## 3.24.4
 
 - **Transfers, the grid cards**: a driver who has signed for another team next season shows "Joining Red Bull" (in that team's colour) instead of the contract with the team they are leaving; one released shows "Leaving for 2027". Drivers without a signed move keep "Final year" or "To 2028". The card's tooltip says the same ("Joins Red Bull Racing for 2027, until the end of 2028").

@@ -232,7 +232,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     if (!newLap && now - (s.liveAt || 0) < LIVE_MS) return;
     s.liveAt = now;
     const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, totalLaps: s.info.totalLaps,
-      lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
+      lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, clock: Math.round((s.clock || 0) * 10) / 10, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
       dep: s.stat ? Math.round(s.stat.dep / 1000) : null, limit: s.stat?.limit ? Math.round(s.stat.limit / 1000) : null, at: new Date().toISOString() };
     if (newLap) { s.liveLap = c.lap; msg.pack = packErs(s); }
     // the whole field: running order, gaps, tyres, sectors and each car's recent laps (from the lap history)
@@ -244,34 +244,35 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     onLive(msg);
   }
   // Every car, every lap: speed, throttle, brake and place on the map in 50 m slices, for the fastest-lap head to head.
-  // Only the last few laps are kept while driving; the fastest valid one goes out with the result.
+  // A lap is followed as it's driven and kept only if it ran from the line to the line on track: an out-lap, a lap
+  // into or out of the pits, a trip to the garage or a lap gone invalid is dropped. A flashback (the car back
+  // further down the same lap) wipes what was driven after that point, so only the lap as finally driven counts. The
+  // quickest such lap per car goes out with the result, timed by the game's own last-lap time.
   function logTraces(s, lap) {
-    if (!s.telAll) return; const T = s.traces ||= {};
+    if (!s.telAll) return; const T = s.traces ||= {}; const n = Math.ceil((s.info?.trackLength || 0) / TRACE_BIN);
     lap.forEach((c, i) => {
-      const t = s.telAll[i]; if (!t || !c.lap || c.dist < 0 || c.pit || c.status !== 2) return;
-      const laps = T[i] ||= {}; const L1 = laps[c.lap] ||= { bins: [] };
-      if (c.invalid) L1.invalid = true;
-      const o = L1.bins[Math.floor(c.dist / TRACE_BIN)] ||= [0, 0, 0, 0, 0, 0]; const m = s.motAll?.[i];
+      const t = s.telAll[i]; if (!t || !c.lap) return;
+      const R = T[i] ||= { cur: null, best: null };
+      if (R.cur && R.cur.lap !== c.lap) {
+        const L1 = R.cur; const ms = c.last; const full = n > 1 && L1.bins.length >= n - 1 && L1.bins.slice(0, n - 1).filter(Boolean).length >= (n - 1) * 0.92 && L1.d0 < TRACE_BIN * 2;
+        if (c.lap === L1.lap + 1 && !L1.bad && ms > 0 && full && (!R.best || ms < R.best.ms)) R.best = { lap: L1.lap, ms, bins: L1.bins.slice(0, n) };
+        R.cur = null;
+      }
+      if (c.status !== 2 || c.pit) { R.cur = null; return; } // in the garage, stopped or in the pit lane: that lap is gone
+      if (c.dist < 0) return;
+      const k = Math.floor(c.dist / TRACE_BIN);
+      if (!R.cur) R.cur = { lap: c.lap, bins: [], bad: false, d0: c.dist, k };
+      const L1 = R.cur; if (c.invalid) L1.bad = true;
+      if (k < L1.k - 1) L1.bins.length = k; // a flashback: what came after this point never happened
+      L1.k = k;
+      const o = L1.bins[k] ||= [0, 0, 0, 0, 0, 0]; const m = s.motAll?.[i];
       o[0]++; o[1] += t.spd; o[2] += t.thr; o[3] += t.brk; if (m) { o[4] += m.x; o[5] += m.z; }
-      for (const k of Object.keys(laps)) if (+k < c.lap - 6 && +k !== laps.best) delete laps[k];
-      // the lap just finished, if it's this car's quickest valid one, is kept
-      const prev = laps[c.lap - 1]; const hist = (s.laps[i] || [])[c.lap - 2];
-      if (prev && !prev.done && hist) { prev.done = true; prev.ms = hist[0]; if (!prev.invalid && (hist[1] & 1) && (!laps.best || laps[laps.best]?.ms > prev.ms)) laps.best = c.lap - 1; }
     });
   }
   function packTrace(s, i) {
-    const laps = s.traces?.[i]; if (!laps) return null;
-    // the quickest valid lap in the lap history that has a full trace
-    let best = null;
-    for (const [k, L1] of Object.entries(laps)) {
-      if (k === 'best') continue; const hist = (s.laps[i] || [])[+k - 1]; if (!hist || !(hist[1] & 1) || L1.invalid) continue;
-      const n = L1.bins.length, have = L1.bins.filter(Boolean).length; if (!n || have < n * 0.9) continue;
-      if (!best || hist[0] < best.ms) best = { lap: +k, ms: hist[0], L1 };
-    }
-    if (!best) return null;
-    const r = (v) => Math.round(v);
-    const bins = Array.from(best.L1.bins, x => x || null);
-    return { lap: best.lap, ms: best.ms, bin: TRACE_BIN, spd: bins.map(x => x ? r(x[1] / x[0]) : null), thr: bins.map(x => x ? r(x[2] / x[0] * 100) : null), brk: bins.map(x => x ? r(x[3] / x[0] * 100) : null),
+    const B = s.traces?.[i]?.best; if (!B) return null;
+    const r = (v) => Math.round(v); const bins = Array.from(B.bins, x => x || null);
+    return { lap: B.lap, ms: B.ms, bin: TRACE_BIN, spd: bins.map(x => x ? r(x[1] / x[0]) : null), thr: bins.map(x => x ? r(x[2] / x[0] * 100) : null), brk: bins.map(x => x ? r(x[3] / x[0] * 100) : null),
       x: bins.map(x => x ? r(x[4] / x[0]) : null), z: bins.map(x => x ? r(x[5] / x[0]) : null) };
   }
   function emit(s) {
@@ -309,7 +310,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     st.packets++; st.lastAt = new Date().toISOString(); st.format = h.format;
     const L = layout(h.format);
     if (!Object.values(PACKET).includes(h.type)) { pushStatus(); return; }
-    const s = sessionOf(h);
+    const s = sessionOf(h); s.clock = h.time;
     if (h.type === PACKET.SESSION) {
       const info = parseSession(b); if (!info) return;
       s.info = info; st.session = { track: info.track, sessionType: info.sessionType, gameMode: info.gameMode };
@@ -387,6 +388,11 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       }
       else if (code === 'OVTK' && b.length >= HEADER + 6) pass(s, s.overtakes, b[33], b[34], h.time);
       else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34], t: h.time, lap: s.curLap[b[33]] || 0 });
+      else if (code === 'FLBK' && b.length >= HEADER + 12) {
+        // a flashback: everything after the moment it went back to never happened (contact, penalties, passes, damage)
+        const back = b.readFloatLE(37);
+        if (isFinite(back) && back >= 0) for (const k of ['collisions', 'penalties', 'overtakes', 'swaps', 'damage', 'retirements']) s[k] = s[k].filter(x => x.t == null || x.t <= back);
+      }
     } else if (h.type === PACKET.FINAL) {
       s.final = parseFinal(b, L);
       clearTimeout(s.timer); s.timer = setTimeout(() => emit(s), SETTLE_MS);

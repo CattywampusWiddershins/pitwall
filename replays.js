@@ -44,7 +44,14 @@ module.exports = function createReplays(dir) {
         meta: { key, uid: m.uid, sessionType: m.sessionType, track: m.track, weekend: m.weekend, totalLaps: m.totalLaps, at: new Date().toISOString() } };
     }
     const R = rec; R.meta.parts = m.parts; R.meta.player = m.player; R.meta.totalLaps = m.totalLaps || R.meta.totalLaps;
-    const S = { t: Math.round((Date.now() - R.start) / 100) / 10, sc: m.sc || 0,
+    // a flashback: the session clock went back, so the samples after that moment never happened; the replay carries
+    // on from the last one kept, a second later, as if the race had simply gone on
+    const last = R.samples[R.samples.length - 1];
+    if (m.clock != null && last?.k != null && m.clock < last.k - 1) {
+      while (R.samples.length && R.samples[R.samples.length - 1].k > m.clock) R.samples.pop();
+      R.shift = (Date.now() - R.start) / 1000 - ((R.samples[R.samples.length - 1]?.t ?? -1) + 1);
+    }
+    const S = { t: Math.round(((Date.now() - R.start) / 1000 - (R.shift || 0)) * 10) / 10, k: m.clock ?? null, sc: m.sc || 0,
       f: m.field.map(x => [x.i, x.pos, x.lap, x.dist, x.gapL, x.gapF, x.pit ? 1 : 0, x.st, x.stops || 0, x.c ?? -1, x.age ?? -1, x.wear == null ? -1 : Math.round(x.wear * 10), x.fuel == null ? -1 : Math.round(x.fuel * 10)]) };
     // the weather and your tyre sets only when they change
     const w = JSON.stringify(m.weather || null); if (w !== R.last.w) { S.w = m.weather || null; R.last.w = w; }

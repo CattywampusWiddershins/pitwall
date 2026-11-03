@@ -368,8 +368,9 @@ function applyGameResult(c, r, place) {
     results = qualiRows(ids.map((d, i) => ({ d, best: tt[i] })), gridIds(s)); game.simulated = true;
   } else results = gameRows(r, key, map, gridIds(s));
   w.sessions[key] = { results, fl: null, done: true, game }; replayRelist();
-  // each driver's quickest lap of the weekend so far, with its trace, for the fastest-lap head to head
-  for (const x of r.cars) { const id = map[x.idx]; const t = x.trace; if (!id || !t?.spd?.length) continue; const T = (w.traces ||= {}); if (!T[id] || T[id].ms > t.ms) T[id] = { ...t, key }; }
+  // each driver's quickest lap of the weekend so far, with its trace, for the fastest-lap head to head (a lap saved in
+  // pieces by an older version gives way to the next whole one)
+  for (const x of r.cars) { const id = map[x.idx]; const t = x.trace; if (!id || !t?.spd?.length) continue; const T = (w.traces ||= {}); if (!T[id] || T[id].ms > t.ms || !flWhole(T[id], t.spd.length)) T[id] = { ...t, key }; }
   if (game.ers) {
     // the ERS profile is big: keep it for this weekend only (the outline of the track is kept for good)
     for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of Object.keys(w2.sessions || {})) if (w2.sessions[k]?.game?.ers) delete w2.sessions[k].game.ers;

@@ -89,9 +89,29 @@ function replayTo(idx) {
   }
   RP.at = idx;
 }
+/**
+ * Recordings made before the session clock was recorded still hold every flashback: the cars jump back. Each time most
+ * of the field is suddenly further back than a moment before, the samples since the point they went back to are cut,
+ * and the time after it closes up, so the race plays on smoothly.
+ */
+function dropFlashbacks(samples) {
+  if (samples.some(S => S.k != null)) return samples; // recorded with the session clock: already cut as it happened
+  const len = Math.max(1000, ...samples.map(S => Math.max(0, ...S.f.map(x => x[3] || 0))));
+  const prog = (S) => Object.fromEntries(S.f.filter(x => x[7] === 2 && x[2] > 0).map(x => [x[0], x[2] * len + (x[3] || 0)]));
+  const behind = (P, Q, by) => { let n = 0, m = 0; for (const [i, v] of Object.entries(Q)) if (P[i] != null) { m++; if (P[i] > v + by) n++; } return m >= 3 && n > m / 2; };
+  const out = []; let shift = 0, cut = false;
+  for (const S of samples) {
+    const P = prog(S);
+    if (out.length && behind(prog(out[out.length - 1]), P, 150)) { while (out.length > 1 && behind(prog(out[out.length - 1]), P, 40)) out.pop(); cut = true; }
+    if (cut) { shift = S.t - ((out[out.length - 1]?.t ?? -1) + 1); cut = false; }
+    out.push(shift ? { ...S, t: Math.round((S.t - shift) * 10) / 10 } : S);
+  }
+  return out;
+}
 const replayIdx = (T) => { const S = RP.data.samples; let lo = 0, hi = S.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S[m].t <= T) lo = m; else hi = m - 1; } return lo; };
 async function openReplay(item) {
   const D = item.x.rebuilt ? rebuildReplay(item.s, item.r, item.k) : await replayApi().load(item.x.key); if (!D?.samples?.length) { toast('That recording couldn’t be read'); return; }
+  if (!item.x.rebuilt) D.samples = dropFlashbacks(D.samples);
   const c = career(); const map = D.meta.ids ? Object.fromEntries(D.meta.ids.map((d, i) => [i, d])) : liveMap(c, item.s, { parts: D.meta.parts, player: D.meta.player }); const idOf = (i) => map[i];
   // each car's position at the start of every lap (lap 0: the first sample), for the chart
   const posLaps = {}; const seen = {};

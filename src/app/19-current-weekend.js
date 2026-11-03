@@ -93,46 +93,106 @@ function renderCurrentWeekend() {
 
 /*
   Fastest lap head to head: any two drivers' quickest laps of the weekend so far, F1 TV style. The track map is coloured
-  by who was quicker through each part of the lap, and both cars set off together and drive their laps on it, so you
-  can see where the time goes; under it the speed through the lap and the gap between them. It needs the lap traces
-  Pitwall records while connected to the game (every car's speed, throttle, brake and place on track).
+  by who was quicker through each part of the lap, and both cars set off together and drive their laps on it (moving
+  smoothly between the recorded points), so you can see where the time goes; under it the speed through the lap and the
+  gap between them, with every braking zone marked and numbered. It needs the lap traces Pitwall records while connected
+  to the game: only laps recorded from line to line count.
 */
+/** Gaps in a recorded series filled in a straight line from the neighbours either side. */
+function flFill(a) {
+  const out = a.slice(); const n = out.length; const known = out.map((v, i) => v == null ? -1 : i).filter(i => i >= 0); if (!known.length) return out.map(() => 0);
+  for (let i = 0; i < n; i++) if (out[i] == null) { const p = known.filter(k => k < i).pop(), q = known.find(k => k > i); out[i] = p == null ? a[q] : q == null ? a[p] : a[p] + (a[q] - a[p]) * (i - p) / (q - p); }
+  return out;
+}
+/** A gentle average over three slices, for a smooth line. */
+const flSmooth = (a) => a.map((v, i) => (a[Math.max(0, i - 1)] + v * 2 + a[Math.min(a.length - 1, i + 1)]) / 4);
+/** A lap recorded whole: the full length of the track, and its line meets itself at the start/finish. */
+function flWhole(t, n) {
+  if (!t?.spd?.length || t.spd.length < n * 0.95) return false;
+  const xs = t.x.filter(v => v != null), zs = t.z.filter(v => v != null); if (xs.length < t.spd.length * 0.9) return false;
+  if (Math.hypot(xs[0] - xs[xs.length - 1], zs[0] - zs[zs.length - 1]) >= (t.bin || 50) * 4) return false;
+  // the speed either side of the line matches: a lap that ends slowing for the pits isn't a lap
+  const sp = t.spd.filter(v => v != null); const a = (sp[0] + sp[1]) / 2, b = (sp[sp.length - 1] + sp[sp.length - 2]) / 2;
+  return Math.min(a, b) >= Math.max(a, b) * 0.8;
+}
 function flTimes(t) {
   // seconds into the lap at the end of each slice, from the speed through it, scaled to the real lap time
-  const raw = t.spd.map(v => t.bin / Math.max(5, (v || 60) / 3.6)); const sum = raw.reduce((a, b) => a + b, 0) || 1;
+  const sp = flFill(t.spd); const raw = sp.map(v => t.bin / Math.max(5, (v || 60) / 3.6)); const sum = raw.reduce((a, b) => a + b, 0) || 1;
   let acc = 0; return raw.map(v => (acc += v * (t.ms / 1000) / sum));
 }
 function flShares(t) {
   const dt = flTimes(t).map((v, i, a) => v - (a[i - 1] || 0)); const tot = dt.reduce((a, b) => a + b, 0) || 1;
+  const thr = flFill(t.thr), brk = flFill(t.brk);
   const sh = (f) => Math.round(dt.reduce((a, v, i) => a + (f(i) ? v : 0), 0) / tot * 100);
-  const full = sh(i => (t.thr[i] ?? 0) >= 95), brake = sh(i => (t.brk[i] ?? 0) >= 50);
+  const full = sh(i => thr[i] >= 95), brake = sh(i => brk[i] >= 50);
   return { full, brake, corner: Math.max(0, 100 - full - brake) };
 }
+/**
+ * The braking zones of a lap, from its speed: each low point at least 25 km/h under the speed before it is a corner,
+ * numbered in order; two low points straight after one another (a chicane) share one zone. [{ from, to, turns: [n], min, kind }]
+ */
+function flCorners(spd) {
+  const n = spd.length; const mins = [];
+  for (let i = 2; i < n - 2; i++) {
+    if (!(spd[i] <= spd[i - 1] && spd[i] <= spd[i + 1] && spd[i] < spd[i - 2] && spd[i] <= spd[i + 2])) continue;
+    const before = Math.max(...spd.slice(Math.max(0, i - 8), i)); if (before - spd[i] >= 25) mins.push(i);
+  }
+  const zones = []; let num = 0, lastMin = -99;
+  for (const i of mins) {
+    let a = i; while (a > 0 && i - a < 6 && spd[a - 1] > spd[a]) a--;
+    let b = i; const top = Math.max(...spd.slice(i, Math.min(n, i + 10))); while (b < n - 1 && b - i < 6 && spd[b + 1] > spd[b] && spd[b] < top * 0.92) b++;
+    const z = zones[zones.length - 1];
+    if (z && i - lastMin <= 3) { z.to = Math.max(z.to, b); z.turns.push(++num); z.min = Math.min(z.min, spd[i]); }
+    else zones.push({ from: z ? Math.max(a, z.to) : a, to: b, turns: [++num], min: spd[i] });
+    lastMin = i;
+  }
+  for (const z of zones) z.kind = z.min < 120 ? 'LOW SPEED' : z.min < 200 ? 'MEDIUM SPEED' : 'HIGH SPEED';
+  return zones;
+}
+/** A smooth line through points: [[x, y]] → an SVG path (Catmull-Rom as curves). */
+function flPath(P) {
+  if (P.length < 2) return '';
+  let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
 function flLapPanel(c, s, r) {
-  const T = s.weekends[r.id]?.traces || {}; const ids = Object.keys(T).filter(id => s.drivers[id]).sort((a, b) => T[a].ms - T[b].ms);
+  const T0 = s.weekends[r.id]?.traces || {}; const len = Math.max(0, ...Object.values(T0).map(t => t?.spd?.length || 0));
+  const T = Object.fromEntries(Object.entries(T0).filter(([id, t]) => s.drivers[id] && flWhole(t, len)));
+  const ids = Object.keys(T).sort((a, b) => T[a].ms - T[b].ms);
   const head = `<div class="panel-h"><h2>Fastest lap head to head</h2><span class="muted" style="font-size:12px">Each driver’s quickest lap of the weekend so far</span></div>`;
-  if (ids.length < 2) return `<div class="panel">${head}<div class="panel-b muted" style="font-size:13px">Needs two drivers’ laps recorded from F1 25 this weekend: Pitwall records every car’s speed, throttle, brake and line through the lap while it’s connected to the game.</div></div>`;
-  const a = ids.includes(ui.flA) ? ui.flA : ids[0]; let b = ids.includes(ui.flB) && ui.flB !== a ? ui.flB : (ids.includes(PLAYER) && PLAYER !== a ? PLAYER : ids.find(x => x !== a));
+  const note = `<p class="muted" style="font-size:12px;margin:0">Only laps recorded in full, from line to line, are fair comparisons: a session you skipped or that was simulated has no real laps from the AI, and a lap Pitwall only saw part of (an out-lap, a trip to the pits, a flashback mid-lap) is left out.</p>`;
+  if (ids.length < 2) return `<div class="panel">${head}<div class="panel-b stack"><div class="muted" style="font-size:13px">Needs two drivers’ laps recorded from F1 25 this weekend: Pitwall records every car’s speed, throttle, brake and line through the lap while it’s connected to the game.</div>${note}</div></div>`;
+  const a = ids.includes(ui.flA) ? ui.flA : ids[0]; const b = ids.includes(ui.flB) && ui.flB !== a ? ui.flB : (ids.includes(PLAYER) && PLAYER !== a ? PLAYER : ids.find(x => x !== a));
   const A = T[a], B = T[b]; const n = Math.min(A.spd.length, B.spd.length);
   const tA = flTimes(A).slice(0, n), tB = flTimes(B).slice(0, n);
+  const sA = flSmooth(flFill(A.spd)).slice(0, n), sB = flSmooth(flFill(B.spd)).slice(0, n);
   const colA = teamColor(s, a), colB0 = teamColor(s, b); const colB = colA === colB0 ? '#F5E14A' : colB0; // teammates: the second in yellow, as on TV
   const sel = (k, v) => `<select data-ch="fl-pick" data-k="${k}" style="width:auto">${ids.map(id => `<option value="${id}" ${id === v ? 'selected' : ''}>${esc(dName(s, id))} · ${fmtLap(T[id].ms)}</option>`).join('')}</select>`;
-  // the map: the line of the quicker lap, each slice in the colour of the driver who gained time through it
-  const P = (A.x.some(v => v != null) ? A : B); const xs = P.x.slice(0, n), zs = P.z.slice(0, n);
-  const ok = xs.map((v, i) => v != null && zs[i] != null);
-  const minX = Math.min(...xs.filter((v, i) => ok[i])), maxX = Math.max(...xs.filter((v, i) => ok[i])), minZ = Math.min(...zs.filter((v, i) => ok[i])), maxZ = Math.max(...zs.filter((v, i) => ok[i]));
-  const W = 520, H = 300, pad = 18; const sc = Math.min((W - 2 * pad) / ((maxX - minX) || 1), (H - 2 * pad) / ((maxZ - minZ) || 1));
+  // the map: the line of the quicker lap, each slice in the colour of the driver who gained time through it, closed at the line
+  const P = A.x.filter(v => v != null).length >= B.x.filter(v => v != null).length ? A : B;
+  const xs = flFill(P.x).slice(0, n), zs = flFill(P.z).slice(0, n);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  const W = 520, H = 300, pad = 20; const sc = Math.min((W - 2 * pad) / ((maxX - minX) || 1), (H - 2 * pad) / ((maxZ - minZ) || 1));
   const ox = (W - (maxX - minX) * sc) / 2, oz = (H - (maxZ - minZ) * sc) / 2;
-  const pt = (i) => ok[i] ? [Math.round((xs[i] - minX) * sc + ox), Math.round((zs[i] - minZ) * sc + oz)] : null;
-  const pts = xs.map((_, i) => pt(i));
+  const pts = xs.map((x, i) => [(x - minX) * sc + ox, (zs[i] - minZ) * sc + oz]);
+  const gain = (i) => (tB[i] - (tB[i - 1] || 0)) - (tA[i] - (tA[i - 1] || 0));
   let segs = '';
-  for (let i = 1; i < n; i++) { const p0 = pts[i - 1], p1 = pts[i]; if (!p0 || !p1) continue; const gain = (tB[i] - tB[i - 1]) - (tA[i] - tA[i - 1]); segs += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="${gain >= 0 ? colA : colB}" stroke-width="7" stroke-linecap="round"/>`; }
-  const anim = JSON.stringify({ p: pts, a: tA.map(v => Math.round(v * 1000)), b: tB.map(v => Math.round(v * 1000)) });
-  // the speed trace and the gap
-  const vmax = Math.max(...A.spd.slice(0, n), ...B.spd.slice(0, n)), vmin = Math.min(...A.spd.slice(0, n).filter(v => v != null), ...B.spd.slice(0, n).filter(v => v != null));
-  const CW = 1000, CH = 240; const cx = (i) => 40 + i * (CW - 60) / (n - 1); const cy = (v) => 20 + (1 - ((v ?? vmin) - vmin) / ((vmax - vmin) || 1)) * (CH - 40);
-  const line = (arr, col) => `<polyline points="${arr.slice(0, n).map((v, i) => `${cx(i).toFixed(1)},${cy(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
-  const dl = tA.map((v, i) => v - tB[i]); const dm = Math.max(0.05, ...dl.map(Math.abs));
+  for (let i = 1; i <= n; i++) { const p0 = pts[i - 1], p1 = pts[i % n]; segs += `<line x1="${p0[0].toFixed(1)}" y1="${p0[1].toFixed(1)}" x2="${p1[0].toFixed(1)}" y2="${p1[1].toFixed(1)}" stroke="${gain(i % n) >= 0 ? colA : colB}" stroke-width="7" stroke-linecap="round"/>`; }
+  // the timing line: across the track at the start, with a dot, as on the ERS map
+  const [sx, sz] = pts[0], [nx, nz] = pts[1]; const dl = Math.hypot(nx - sx, nz - sz) || 1; const px = -(nz - sz) / dl * 11, pz = (nx - sx) / dl * 11;
+  const line = `<line x1="${(sx - px).toFixed(1)}" y1="${(sz - pz).toFixed(1)}" x2="${(sx + px).toFixed(1)}" y2="${(sz + pz).toFixed(1)}" stroke="#fff" stroke-width="3"/><circle cx="${sx.toFixed(1)}" cy="${sz.toFixed(1)}" r="4" fill="#fff"/>`;
+  const anim = JSON.stringify({ p: pts.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]), a: tA.map(v => Math.round(v * 1000)), b: tB.map(v => Math.round(v * 1000)) });
+  // the speed trace and the gap, with the braking zones marked
+  const zones = flCorners(sA);
+  const vmax = Math.max(...sA, ...sB), vmin = Math.min(...sA, ...sB);
+  const CW = 1000, CH = 250, top = 34; const cx = (i) => 40 + i * (CW - 60) / (n - 1); const cy = (v) => top + (1 - (v - vmin) / ((vmax - vmin) || 1)) * (CH - top - 14);
+  const band = (h, labels) => zones.map((z, k) => `<rect x="${cx(z.from).toFixed(1)}" y="${labels ? top - 8 : 0}" width="${(cx(z.to) - cx(z.from)).toFixed(1)}" height="${labels ? h - top + 8 : h}" fill="#fff" opacity="${k % 2 ? 0.05 : 0.08}"/>${labels ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="${top - 13}" fill="#fff" font-size="13" font-weight="800" text-anchor="middle">${z.turns.join(' ')}</text>${cx(z.to) - cx(z.from) >= 64 ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="11" fill="#9AA" font-size="8.5" text-anchor="middle">${z.kind}</text>` : ''}` : ''}`).join('');
+  const curve = (arr, col) => `<path d="${flPath(arr.map((v, i) => [cx(i), cy(v)]))}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
+  const dlt = flSmooth(tA.map((v, i) => v - tB[i])); const dm = Math.max(0.05, ...dlt.map(Math.abs));
   const dy = (v) => 50 + v / dm * 40; // a negative gap (the first driver ahead) is up
   const shA = flShares(A), shB = flShares(B); const gap = (B.ms - A.ms) / 1000;
   const side = (id, t, sh, col, right) => `<div class="flh-drv" style="--c:${col};${right ? 'text-align:right' : ''}"><div class="flh-nm"><small>${esc(dName(s, id).split(' ').slice(0, -1).join(' '))}</small><b>${esc(lastName(dName(s, id)).toUpperCase())}</b><small>${esc(teamOf(s, id)?.name || '')} · ${SESSION_SHORT[t.key] || ''} · lap ${t.lap}</small></div>
@@ -141,25 +201,31 @@ function flLapPanel(c, s, r) {
   return `<div class="panel">${head}<div class="panel-b stack">
     <div class="row" style="gap:8px;flex-wrap:wrap">${sel('a', a)}<span class="muted">v</span>${sel('b', b)}</div>
     <div class="flh">${side(a, A, shA, colA, false)}
-      <div class="flh-map"><svg viewBox="0 0 ${W} ${H}" data-flanim='${esc(anim)}'><g>${segs}</g><circle class="fl-car" data-k="a" r="8" fill="${colA}" stroke="#fff" stroke-width="2"/><circle class="fl-car" data-k="b" r="8" fill="${colB}" stroke="#111" stroke-width="2"/></svg>
+      <div class="flh-map"><svg viewBox="0 0 ${W} ${H}" data-flanim='${esc(anim)}'><g>${segs}</g>${line}<circle class="fl-car" data-k="b" r="8" fill="${colB}" stroke="#111" stroke-width="2" cx="${sx}" cy="${sz}"/><circle class="fl-car" data-k="a" r="8" fill="${colA}" stroke="#fff" stroke-width="2" cx="${sx}" cy="${sz}"/></svg>
         <div class="muted" style="font-size:11px;text-align:center"><span style="color:${colA}">■</span> ${esc(lastName(dName(s, a)))} quicker · <span style="color:${colB}">■</span> ${esc(lastName(dName(s, b)))} quicker · both laps start together</div></div>
       ${side(b, B, shB, colB, true)}</div>
-    <svg class="flh-chart" viewBox="0 0 ${CW} ${CH}"><text x="6" y="14" fill="#9AA" font-size="11">SPEED · ${vmin}–${vmax} KM/H</text>${line(B.spd, colB)}${line(A.spd, colA)}</svg>
-    <svg class="flh-chart" viewBox="0 0 ${CW} 100"><text x="6" y="12" fill="#9AA" font-size="11">${esc(lastName(dName(s, a)))} FASTER</text><text x="6" y="96" fill="#9AA" font-size="11">SLOWER</text><line x1="40" x2="${CW - 20}" y1="50" y2="50" stroke="${colB}" stroke-width="1.5"/><polyline points="${dl.map((v, i) => `${cx(i).toFixed(1)},${dy(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${colA}" stroke-width="2.2"/></svg>
+    <svg class="flh-chart" viewBox="0 0 ${CW} ${CH}">${band(CH, true)}<text x="4" y="${top + 4}" fill="#9AA" font-size="10">${Math.round(vmax)}</text><text x="4" y="${CH - 10}" fill="#9AA" font-size="10">${Math.round(vmin)}</text><text x="4" y="${(top + CH) / 2}" fill="#9AA" font-size="9">KM/H</text>${curve(sB, colB)}${curve(sA, colA)}</svg>
+    <svg class="flh-chart" viewBox="0 0 ${CW} 100">${band(100, false)}<text x="6" y="12" fill="#9AA" font-size="11">${esc(lastName(dName(s, a)))} FASTER</text><text x="6" y="96" fill="#9AA" font-size="11">SLOWER</text><line x1="40" x2="${CW - 20}" y1="50" y2="50" stroke="${colB}" stroke-width="1.5"/><path d="${flPath(dlt.map((v, i) => [cx(i), dy(v)]))}" fill="none" stroke="${colA}" stroke-width="2.2"/></svg>
+    ${note}
   </div></div>`;
 }
-/** Drives both cars round the map: they start together, each at its own lap's pace, then wait a moment and go again. */
-let _flRaf = null;
+/** Drives both cars round the map: they start together, each at its own lap's pace, gliding between the recorded points; then a short pause and again. */
+let _flRaf = null; const _flClock = { key: null, t0: 0 };
 function flAnimate() {
   cancelAnimationFrame(_flRaf); const svgs = [...document.querySelectorAll('svg[data-flanim]')]; if (!svgs.length) return;
-  const D2 = svgs.map(el => ({ el, d: JSON.parse(el.dataset.flanim), cars: el.querySelectorAll('.fl-car') }));
-  const t0 = performance.now();
-  const at = (p, cum, t) => { let i = cum.findIndex(v => v >= t); if (i < 0) i = cum.length - 1; let k = i; while (k > 0 && !p[k]) k--; return p[k] || p.find(Boolean); };
+  const D2 = svgs.map(el => ({ el, d: JSON.parse(el.dataset.flanim), cars: [...el.querySelectorAll('.fl-car')] }));
+  const key = svgs.map(el => el.dataset.flanim.length).join(); if (_flClock.key !== key) Object.assign(_flClock, { key, t0: performance.now() }); const t0 = _flClock.t0;
+  // where a car is t ms into its lap: between the slice it's in and the next, by how far through that slice it is
+  const at = (p, cum, t) => {
+    const n = cum.length; let i = 0; while (i < n - 1 && cum[i] < t) i++;
+    const t1 = cum[i], t0p = i ? cum[i - 1] : 0; const f = t1 > t0p ? Math.min(1, Math.max(0, (t - t0p) / (t1 - t0p))) : 1;
+    const q0 = p[(i - 1 + n) % n], q1 = p[i]; return [q0[0] + (q1[0] - q0[0]) * f, q0[1] + (q1[1] - q0[1]) * f];
+  };
   const step = (now) => {
     if (!document.body.contains(D2[0].el)) return;
     for (const { d, cars } of D2) {
       const len = Math.max(d.a[d.a.length - 1], d.b[d.b.length - 1]); const t = ((now - t0) % (len + 1500));
-      cars.forEach(cv => { const q = at(d.p, d[cv.dataset.k], t); if (q) { cv.setAttribute('cx', q[0]); cv.setAttribute('cy', q[1]); } });
+      for (const cv of cars) { const q = at(d.p, d[cv.dataset.k], t); cv.setAttribute('cx', q[0].toFixed(1)); cv.setAttribute('cy', q[1].toFixed(1)); }
     }
     _flRaf = requestAnimationFrame(step);
   };
