@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.8
+
+- **Fastest lap head to head**: a corner you brake for now has a band across the whole dip in speed, from where the braking starts to where the car is nearly back up to speed, instead of just the apex. Fast corners without a real dip keep a narrow band.
+
 ## 3.24.7
 
 - **Fastest lap head to head, corners**: every apex counts, so a long sweep with two apexes is two corners and the little kink before the main straight is found too. The bands on the graphs are wider and touch where corners are close together, shaded in turn, and a run of corners at the same speed shares one label across them ("HIGH SPEED" over 11, 12, 13). Corner numbers shrink to fit narrow bands.

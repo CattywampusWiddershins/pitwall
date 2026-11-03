@@ -184,8 +184,18 @@ function flTurns(xs, zs, target, bin = 50) {
  */
 function flBands(turns, spd, bin = 50) {
   const near = Math.max(2, Math.round(250 / bin));
-  const B = turns.map((t, k) => ({ from: t.from, to: Math.min(spd.length - 1, Math.max(t.to, t.from + 1)), turns: [k + 1] }));
-  for (let k = 0; k < B.length - 1; k++) { if (B[k + 1].from - B[k].to <= near) { const m = Math.round((B[k].to + B[k + 1].from) / 2); B[k].to = m; B[k + 1].from = m; } }
+  // a corner with a real dip in speed spans the whole of it: from where the braking starts (the speed stops rising,
+  // looking back from the slowest point) to where the car is nearly back to the speed it came in at
+  const reach = Math.max(4, Math.round(400 / bin)); const n = spd.length;
+  const B = turns.map((t, k) => {
+    let lo = Math.max(0, t.from - 2); for (let i = lo; i <= Math.min(n - 1, t.to + 2); i++) if (spd[i] < spd[lo]) lo = i;
+    let f = lo; while (f > 0 && lo - f < reach && spd[f - 1] > spd[f]) f--;
+    const entry = spd[f], dip = entry - spd[lo];
+    let to = lo; if (dip >= 25) while (to < n - 1 && to - lo < reach && spd[to + 1] > spd[to] && spd[to] < spd[lo] + dip * 0.85) to++;
+    return dip >= 25 ? { from: Math.min(f, t.from), to: Math.max(to, t.to), turns: [k + 1] } : { from: t.from, to: Math.min(n - 1, Math.max(t.to, t.from + 1)), turns: [k + 1] };
+  });
+  // close corners meet halfway (and overlapping ones split the overlap), so their bands touch
+  for (let k = 0; k < B.length - 1; k++) { if (B[k + 1].from - B[k].to <= near) { const m = Math.round((B[k].to + B[k + 1].from) / 2); B[k].to = Math.max(B[k].from + 1, m); B[k + 1].from = B[k].to; } }
   B.forEach((x, k) => { x.min = Math.min(...spd.slice(x.from, x.to + 1)); x.kind = x.min < 120 ? 'LOW SPEED' : x.min < 200 ? 'MEDIUM SPEED' : 'HIGH SPEED';
     const p = B[k - 1]; x.grp = p && p.to === x.from && p.kind === x.kind ? p.grp : k; });
   return B;
