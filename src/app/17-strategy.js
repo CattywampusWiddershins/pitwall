@@ -72,7 +72,9 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
     for (const x of stintsOf(sd, d)) {
       if (!DRY.includes(x.c)) continue; // intermediates and wets depend too much on the conditions
       const run = [];
-      for (let lap = x.from + 1; lap <= x.to; lap++) { const ms = N[lap - 1]; if (ms) run.push({ age: lap - x.from + 1, ms, wear: wear[lap - 1] }); }
+      // every lap of the stint: an out-lap is far off the run's pace and drops out below, and a stint started on a flying
+      // lap (no out-lap driven) keeps its first lap
+      for (let lap = x.from; lap <= x.to; lap++) { const ms = N[lap - 1]; if (ms) run.push({ age: lap - x.from + 1, ms, wear: wear[lap - 1] }); }
       if (run.length < 3) continue;
       // pushing laps: within 2.5% of the run's best (cool-down and traffic laps break the run)
       const best = Math.min(...run.map(r => r.ms)); let cur = [], longest = [];

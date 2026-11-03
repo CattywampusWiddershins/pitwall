@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.25.1
+
+- **Flashbacks rebuild the lap instead of losing it.** What you drove after the point you flashed back to is thrown away and replaced by what you drive next, in the fastest-lap traces and in your ERS profile, even when the flashback takes you back across the line into the lap before. A lap that went invalid before the flashback counts again if the game clears it (you flashed back to before the moment it was lost).
+- **Flying-lap starts count**: a session started on a flying lap (no out-lap) gives a fastest lap from that first lap, and practice long runs include it instead of always skipping the first lap of a run as an out-lap. A real out-lap is still left out, because it's far off the run's pace.
+
 ## 3.25.0
 
 - **Race Replay has two tabs: Race replays and Fastest laps.** Fastest laps lists every weekend Pitwall recorded laps from the game, kept for good: the track and circuit, how many drivers have a representative lap (recorded in full, line to line), and the quickest one. Open a weekend to compare any two drivers' quickest laps corner by corner, long after the weekend is over.

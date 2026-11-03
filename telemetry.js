@@ -195,8 +195,15 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
   function logErs(s, c) {
     if (c?.pit && c.lap) ((s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false }).pit = true; // a stop: not a lap to measure the race on
     if (!c || !s.tel || !s.stat || c.dist < 0 || c.pit || !c.lap) return;
+    const kb = Math.floor(c.dist / ERS_BIN); const E = s.ersPos;
+    // a flashback: what was driven after the point it went back to never happened; the lap is rebuilt from there
+    if (E && (c.lap < E.lap || (c.lap === E.lap && kb < E.k - 1))) {
+      for (const L of Object.keys(s.ers || {})) if (+L > c.lap) delete s.ers[L];
+      const cur = s.ers?.[c.lap]; if (cur) for (const b of Object.keys(cur.bins)) if (+b >= kb) delete cur.bins[b];
+    }
+    s.ersPos = { lap: c.lap, k: kb };
     const lap = (s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false };
-    const o = lap.bins[Math.floor(c.dist / ERS_BIN)] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
+    const o = lap.bins[kb] ||= { n: 0, thr: 0, brk: 0, spd: 0, ers: 0, pw: 0, nm: 0, x: 0, z: 0, modes: {} };
     o.n++; o.thr += s.tel.thr; o.brk += s.tel.brk; o.spd += s.tel.spd; o.ers += s.stat.ers; o.pw += s.stat.mguk;
     o.dep = s.stat.dep; o.harv = s.stat.harv; if (s.stat.limit) o.limit = s.stat.limit; o.modes[s.stat.mode] = (o.modes[s.stat.mode] || 0) + 1;
     // DRS (or, under the 2026 rules, straight-mode aero) open, and within a second of the car ahead (the slipstream):
@@ -245,25 +252,32 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
   }
   // Every car, every lap: speed, throttle, brake and place on the map in 50 m slices, for the fastest-lap head to head.
   // A lap is followed as it's driven and kept only if it ran from the line to the line on track: an out-lap, a lap
-  // into or out of the pits, a trip to the garage or a lap gone invalid is dropped. A flashback (the car back
-  // further down the same lap) wipes what was driven after that point, so only the lap as finally driven counts. The
-  // quickest such lap per car goes out with the result, timed by the game's own last-lap time.
+  // into or out of the pits, a trip to the garage or a lap left invalid is dropped. A session started on a flying lap
+  // counts from where the car joins, just after the line. A flashback doesn't lose the lap: what was driven after the
+  // point it went back to is wiped and driven again, so the lap is rebuilt as it was finally driven (back across the
+  // line too: the lap before carries on, and a lap kept from it is taken back). Validity is the game's own flag, which
+  // a flashback to before the moment that cost the lap clears. The quickest lap per car goes out with the result,
+  // timed by the game's own last-lap time.
   function logTraces(s, lap) {
     if (!s.telAll) return; const T = s.traces ||= {}; const n = Math.ceil((s.info?.trackLength || 0) / TRACE_BIN);
     lap.forEach((c, i) => {
       const t = s.telAll[i]; if (!t || !c.lap) return;
-      const R = T[i] ||= { cur: null, best: null };
+      const R = T[i] ||= { cur: null, best: null, done: null, bestWas: null };
+      // a flashback back across the line: the lap before carries on being rebuilt, and isn't kept until it's finished again
+      if (R.cur && c.lap < R.cur.lap) {
+        if (R.done?.lap === c.lap) { if (R.best?.from === R.done) R.best = R.bestWas; R.cur = R.done; R.done = null; } else R.cur = null;
+      }
       if (R.cur && R.cur.lap !== c.lap) {
-        const L1 = R.cur; const ms = c.last; const full = n > 1 && L1.bins.length >= n - 1 && L1.bins.slice(0, n - 1).filter(Boolean).length >= (n - 1) * 0.92 && L1.d0 < TRACE_BIN * 2;
-        if (c.lap === L1.lap + 1 && !L1.bad && ms > 0 && full && (!R.best || ms < R.best.ms)) R.best = { lap: L1.lap, ms, bins: L1.bins.slice(0, n) };
-        R.cur = null;
+        const L1 = R.cur; const ms = c.last; const full = n > 1 && L1.bins.length >= n - 1 && L1.bins.slice(0, n - 1).filter(Boolean).length >= (n - 1) * 0.92 && L1.d0 < 250;
+        if (c.lap === L1.lap + 1 && !L1.bad && !L1.inv && ms > 0 && full && (!R.best || ms < R.best.ms)) { R.bestWas = R.best; R.best = { lap: L1.lap, ms, bins: L1.bins.slice(0, n), from: L1 }; }
+        R.done = c.lap === L1.lap + 1 ? L1 : null; R.cur = null;
       }
       if (c.status !== 2 || c.pit) { R.cur = null; return; } // in the garage, stopped or in the pit lane: that lap is gone
       if (c.dist < 0) return;
       const k = Math.floor(c.dist / TRACE_BIN);
       if (!R.cur) R.cur = { lap: c.lap, bins: [], bad: false, d0: c.dist, k };
-      const L1 = R.cur; if (c.invalid) L1.bad = true;
-      if (k < L1.k - 1) L1.bins.length = k; // a flashback: what came after this point never happened
+      const L1 = R.cur; L1.inv = !!c.invalid; // the game's flag as the lap stands
+      if (k < L1.k - 1) L1.bins.length = k; // a flashback: what came after this point is driven again
       L1.k = k;
       const o = L1.bins[k] ||= [0, 0, 0, 0, 0, 0]; const m = s.motAll?.[i];
       o[0]++; o[1] += t.spd; o[2] += t.thr; o[3] += t.brk; if (m) { o[4] += m.x; o[5] += m.z; }
