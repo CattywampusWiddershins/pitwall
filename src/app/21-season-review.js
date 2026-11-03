@@ -313,7 +313,7 @@ function buildStories(c, s) {
     }
     // every round up to the next one gets a preview, built from what had happened before it (unless a title decider
     // preview covers it), so past previews stay in the stories as they were
-    if (i <= nri && i > 0 && !out.some(x => x.kind === 'preview' && x.i === i)) {
+    if (i <= nri && !out.some(x => x.kind === 'preview' && x.i === i)) {
       const pv = previewStory(c, s, i, mem, { name, last, tName });
       if (pv) out.push(pv);
     }

@@ -481,8 +481,38 @@ function penMemoryQuestion(mem, subj, fpos, isOut, last, rnd) {
   if (run.podiums >= 2 && fpos <= 3) return [`Another podium: that’s ${streakWord(run.podiums + 1)} in a row. Is the win next?`, choose(rnd, ['That’s the plan. We’re knocking on the door.', 'The consistency is there. Now we need a bit more pace.'])];
   return null;
 }
+/**
+ * Round 1: Formula 1 is back. How last year's title was won (a three-way fight at the death, a final-round showdown,
+ * or sealed with rounds to spare), the champion's defence, and the other champions on the grid.
+ */
+function openerStory(c, s, r, rnd, { name, last }) {
+  const prev = c.seasons[s.index - 1]; if (!prev || roundsDone(prev) < activeRounds(prev).length) return null;
+  const ds = driverStandings(prev); const champ = ds[0]?.id; if (!champ) return null;
+  const td = titleDecision(prev, 'driver'); const left = td ? activeRounds(prev).length - 1 - td.i : 0;
+  const rivals = td ? td.contenders.filter(x => x.id !== champ) : [];
+  const how = !td || td.final ? (rivals.length >= 2 ? choose(rnd, [`in a ${numWord(rivals.length + 1)}-way fight at the death`, `after a ${numWord(rivals.length + 1)}-way decider that went to the very last race`])
+      : rivals.length === 1 ? choose(rnd, [`in a final-round showdown with ${last(rivals[0].id)}`, `after taking the fight with ${last(rivals[0].id)} all the way to the last race`]) : 'at the final round')
+    : left === 1 ? 'with a round to spare' : `with ${numWord(left)} rounds to spare`;
+  const n = titleTally(c, s, 'driver', champ).n; const onGrid = gridIds(s).includes(champ);
+  const crown = n > 1 ? `a ${ordWord(n)} crown` : 'the crown';
+  const headline = onGrid ? choose(rnd, [`Formula 1 is back: ${last(champ)} begins the title defence in ${r.name}`, `${s.year} starts in ${r.name}, and ${last(champ)} is the one to beat`, `Lights out in ${r.name}: the ${s.year} season is here`])
+    : choose(rnd, [`A new champion in ${s.year}: the season starts in ${r.name}`, `Formula 1 returns in ${r.name}, and the crown is up for grabs`]);
+  const standfirst = onGrid
+    ? choose(rnd, [`Formula 1 returns in ${s.year} and it all starts in ${r.name}. Last year, ${name(champ)} took ${crown} ${how}, and will be looking to start the title defence strong.`,
+      `The wait is over: the ${s.year} season gets going at ${r.venue}. ${name(champ)} won ${crown} ${how} last year, and the defence starts here.`,
+      `${r.name} opens the ${s.year} season. ${last(champ)} arrives as champion, having taken ${crown} ${how}, and everyone else wants it back.`])
+    : `Formula 1 returns in ${s.year} and it all starts in ${r.name}. ${name(champ)} took ${crown} ${how} last year, but won't be defending it: there will be a new champion.`;
+  const body = [];
+  const others = gridIds(s).filter(id => id !== champ && titleTally(c, s, 'driver', id).n > 0);
+  if (others.length) body.push(`${others.length > 1 ? 'Former champions' : 'Former champion'} ${listJoin(others.map(id => last(id)))} ${others.length > 1 ? 'are' : 'is'} on the grid too.`);
+  if (rivals.length && onGrid) body.push(`${listJoin(rivals.map(x => last(x.id)))} came closest last year, and ${rivals.length > 1 ? 'they will' : 'will'} want to go one better.`);
+  const team = prev.teams.find(t => t.drivers.includes(champ)); const now = s.teams.find(t => t.drivers.includes(champ));
+  if (onGrid && team && now && (D.TEAM_BIO[team.id]?.lineage?.[0] || team.id) !== (D.TEAM_BIO[now.id]?.lineage?.[0] || now.id)) body.push(`${last(champ)} defends the title with a new team: ${now.name}.`);
+  return { id: `${s.index}-${r.id}-pv`, seq: 0, kind: 'preview', i: 0, r, subject: champ, outlet: choose(rnd, D.OUTLETS), kicker: 'Season preview', headline, standfirst, body };
+}
 function previewStory(c, s, i, mem, { name, last, tName }) {
   const rounds = activeRounds(s); const r = rounds[i]; const rnd = seeded(`${s.index}-${r.id}-pv`);
+  if (i === 0) return openerStory(c, s, r, rnd, { name, last });
   const ds = driverStandings(s, seasonStats(s, i));
   const hot = ds.map(x => x.id).find(d => mem.run(d).wins >= 2);
   const lead = ds[0]?.id;

@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.24.3
+
+- **A season preview for round 1**: Formula 1 returns, how last year's title was won (a three-way fight at the death, a final-round showdown, or sealed with rounds to spare), the champion's defence (or a new champion to come, if they've gone), who came closest and the other champions on the grid. Its graphic leads with the defending champion, then home drivers and other champions.
+- **Team standings graphic**: with eleven or more teams the rows get a little shorter, so the last one never runs into the "Points after the … GP" line.
+
 ## 3.24.2
 
 - **Head to Head graphic**: the figures at each end stay inside the image.

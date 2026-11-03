@@ -173,7 +173,8 @@ async function gfxStandings(g, k, c, s, { kind, ri }) {
   const prev = ri ? (team ? constructorStandings(s, seasonStats(s, ri)) : driverStandings(s, seasonStats(s, ri))) : null;
   const dec = titleDecision(s, team ? 'team' : 'driver'); const gold = dec && dec.i <= ri;
   await gfxFrame(g, k, team ? 'TEAM STANDINGS' : 'DRIVER STANDINGS');
-  const y0 = 205, rh = Math.min(99, Math.floor((GFX_H - 25 - 205) / rows.length)), xP = 0, wP = 135, xBar = 135, wBar = team ? 680 : 670, xPts = xBar + wBar, wPts = team ? 200 : 135;
+  // the rows share the room between the title and the footer line, so eleven or twelve teams never run into it
+  const y0 = 205, rh = Math.min(99, Math.floor((GFX_H - 110 - y0) / rows.length)), xP = 0, wP = 135, xBar = 135, wBar = team ? 680 : 670, xPts = xBar + wBar, wPts = team ? 200 : 135;
   for (let i = 0; i < rows.length; i++) {
     const x = rows[i]; const y = y0 + i * rh; const tm = team ? x.team : teamAt(s, x.id, ri) || teamOf(s, x.id);
     const col = tm?.color || '#5E6A82'; const ink = contrastInk(col);
@@ -788,8 +789,9 @@ function previewPicks(c, s, ri) {
   const champs = grid.filter(id => titleTally(c, s, 'driver', id).n > 0);
   const rest = grid.slice().sort(() => rnd() - 0.5);
   const out = [];
-  for (const id of [...home, ...rivals, champ, ...champs, ...rest]) if (id && grid.includes(id) && !out.includes(id)) out.push(id);
-  return out.slice(0, Math.max(3, home.length));
+  const order = ri === 0 ? [champ, ...home, ...champs, ...rest] : [...home, ...rivals, champ, ...champs, ...rest]; // the opener leads with the defending champion
+  for (const id of order) if (id && grid.includes(id) && !out.includes(id)) out.push(id);
+  return out.slice(0, Math.max(3, home.length + (ri === 0 && champ && !home.includes(champ) ? 1 : 0)));
 }
 /** Race preview: the picked drivers in front of the host's flag, the Grand Prix's name in glowing gold. */
 async function gfxPreview(g, k, c, s, { ri }) {
