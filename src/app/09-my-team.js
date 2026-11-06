@@ -142,7 +142,7 @@ function mtSeasonPanels(c, m, s) {
 function renderMtOverview(c, m, s, cur, balance) {
   const hist = playedSeasons(c).map(x => myTeamSeason(c, x));
   const all = hist.reduce((a, h) => ({ pts: a.pts + (h.row?.pts || 0), wins: a.wins + (h.row?.wins || 0), podiums: a.podiums + (h.row?.podiums || 0), poles: a.poles + h.poles }), { pts: 0, wins: 0, podiums: 0, poles: 0 });
-  const titles = hist.filter(h => h.row?.pos === 1 && roundsDone(h.s) === activeRounds(h.s).length && roundsDone(h.s) > 0).map(h => h.s.year);
+  const titles = hist.filter(h => h.row && decidedChamps(h.s, roundsDone(h.s), driverStandings(h.s), constructorStandings(h.s)).champT === h.row.team?.id).map(h => h.s.year);
   const ids = cur.ids;
   const h = ids.length === 2 ? h2hCompare([s], ids[0], ids[1]) : null;
   const r = m.ratings[s.index] || {};
@@ -281,8 +281,8 @@ function renderMtSponsors(c, m, s) {
 function hallOfFame(c) {
   const ctx = careerCtx(c);
   const years = D.CHAMPIONS.map(([year, key, team]) => ({ year, key, team, career: false }));
-  for (const x of ctx) if (x.complete && x.ds[0]) {
-    const id = x.ds[0].id; const t = teamOf(x.s, id);
+  for (const x of ctx) if (x.champ) { // a champion goes in once the title is won, not at the end of the season
+    const id = x.champ; const t = teamOf(x.s, id);
     years.push({ year: x.s.year, key: id, team: t?.name || '', color: t?.color, career: !isHist(x.s) });
   }
   const known = allKnownDrivers(c, latestSeason());

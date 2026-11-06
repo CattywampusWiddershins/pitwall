@@ -235,6 +235,8 @@ function marginTxt(a, b, n) {
   return `${a} can afford to be outscored by ${b} by up to ${-n} point${n === -1 ? '' : 's'}`;
 }
 function permsHtml(m, P, { compact = false } = {}) {
+  // a team's title is won on points (both cars' finishes added up), not a finishing place: those tables have their own layout
+  if (P.clinch.some(t => t.table?.some(row => row.combo != null))) return tablePermsHtml(m, P);
   const nm = (x) => esc(x.name);
   const gp = esc(P.nx.r.name);
   let html = '';
@@ -913,8 +915,8 @@ function tablePermsHtml(m, P) {
     const lines = t.table.map(row => {
       const head = row.p != null ? `${row.p >= row.nop ? 'Outside the points' : 'P' + row.p}` : `${row.pts} points (${row.combo})`;
       const conds = row.conds.map(o => row.p != null ? (o.q ? `${nm(o.y)} ${posW(o.q, o.nop)} or lower` : null) : o.max != null ? `${nm(o.y)} no more than ${o.max}` : null).filter(Boolean);
-      return `<li><b>${head}</b>: ${conds.length ? conds.join(', ') : 'champion whatever the others do'}</li>`;
+      return `<li><b>${head}</b>: ${conds.length ? conds.join(', ') : `${m.team ? 'champions' : 'champion'} whatever the others do`}</li>`;
     });
-    return `<p><b>${nm(t.x)}</b> ${m.team ? 'are' : 'is'} champion${P.sprint ? ' after the sprint' : ''} if ${m.team ? 'they score' : 'they finish'}:</p><ul class="perm-list">${lines.join('')}</ul>`;
+    return `<p><b>${nm(t.x)}</b> ${m.team ? 'are champions' : 'is champion'}${P.sprint ? ' after the sprint' : ''} if ${m.team ? 'they score' : 'they finish'}:</p><ul class="perm-list">${lines.join('')}</ul>`;
   }).join('');
 }

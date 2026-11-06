@@ -448,7 +448,7 @@ function archSeason(c, kind, a, b, year) {
   const A = rows.find(x => x.id === a), B = rows.find(x => x.id === b); if (!A || !B) return null;
   const [w, l] = A.pos < B.pos ? [A, B] : [B, A];
   const complete = roundsDone(s) === activeRounds(s).length;
-  return { s, year, winner: w.id, loser: l.id, margin: w.pts - l.pts, title: complete && w.pos === 1, complete };
+  return { s, year, winner: w.id, loser: l.id, margin: w.pts - l.pts, title: w.pos === 1 && decidedChamps(s, roundsDone(s), driverStandings(s), constructorStandings(s)).champ === w.id, complete };
 }
 
 /* What the press and the paddock say about title rivals, by how close it is. */

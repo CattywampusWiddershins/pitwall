@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.30.1
+
+- **Titles count the moment they're won.** Wrapping up the drivers' or teams' title with rounds to spare now puts it straight into the Hall of Fame, Career Stats, driver and team profiles and head-to-heads, instead of waiting for the last round. Final positions below first still count once the season is over.
+- Stories: the teams' "champions in … if" box gave a finishing place for a team ("Mercedes finishes Pundefined or higher"). Teams are measured in points, so it now gives the points they need and what each rival can score at most ("43 points (1-2): Ferrari no more than 2, McLaren no more than 31").
+
 ## 3.30.0
 
 - **Live Race on your phone or tablet.** While the computer receives a race from F1 25, the linked phone or tablet now follows it live on the existing Wi-Fi link: the same Live Race screen, updated every second. A device that opens Pitwall mid-race gets the race as it stands straight away, and picks the feed back up by itself if the link drops. Live Race opens by itself on the device when the race starts, like it does on the computer.

@@ -188,9 +188,10 @@ function renderStats() {
     const ds = driverStandings(s, st);
     const mate = teammateOf(s);
     const h = h2hCompare([s], PLAYER, mate);
-    return { s, me, pos: ds.find(x => x.id === PLAYER)?.pos, team: s.teams.find(t => t.id === s.playerTeamId), mate, h, done: roundsDone(s), total: activeRounds(s).length, champion: ds[0] };
+    const done = roundsDone(s);
+    return { s, me, pos: ds.find(x => x.id === PLAYER)?.pos, team: s.teams.find(t => t.id === s.playerTeamId), mate, h, done, total: activeRounds(s).length, champion: ds[0], title: decidedChamps(s, done, ds, constructorStandings(s, st)).champ === PLAYER };
   });
-  const T = rows.reduce((a, r) => ({ pts: a.pts + r.me.pts, wins: a.wins + r.me.wins, podiums: a.podiums + r.me.podiums, poles: a.poles + r.me.poles, fls: a.fls + r.me.fls, starts: a.starts + r.me.starts, dnfs: a.dnfs + r.me.dnfs, titles: a.titles + (r.done === r.total && r.champion?.id === PLAYER ? 1 : 0), fin: a.fin.concat(r.me.finPos), q: a.q.concat(r.me.qPos) }), { pts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, starts: 0, dnfs: 0, titles: 0, fin: [], q: [] });
+  const T = rows.reduce((a, r) => ({ pts: a.pts + r.me.pts, wins: a.wins + r.me.wins, podiums: a.podiums + r.me.podiums, poles: a.poles + r.me.poles, fls: a.fls + r.me.fls, starts: a.starts + r.me.starts, dnfs: a.dnfs + r.me.dnfs, titles: a.titles + (r.title ? 1 : 0), fin: a.fin.concat(r.me.finPos), q: a.q.concat(r.me.qPos) }), { pts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, starts: 0, dnfs: 0, titles: 0, fin: [], q: [] });
 
   // all-time leaderboard: the whole current grid plus anyone who has raced in this career
   const latest = c.seasons[c.seasons.length - 1];
@@ -201,7 +202,7 @@ function renderStats() {
   const board = lbIds.map(id => {
     const rec = driverRecord(c, id, ctx);
     const t = full ? rec.tot : Object.fromEntries(['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'].map(k => [k, rec.tot[k] - rec.base[k]]));
-    const titles = full ? rec.tot.titles.length : rec.seasons.filter(x => x.complete && x.pos === 1 && !isHist(x.s)).length;
+    const titles = full ? rec.tot.titles.length : rec.seasons.filter(x => x.title && !isHist(x.s)).length;
     return { id, name: id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id].name, team: teamOf(latest, id), ...t, titles, from: rec.from };
   });
   const lk = ui.lb.sort;
@@ -357,6 +358,17 @@ const plus = (n, fmt = String) => n > 0 ? ` <small class="plus" title="${addSeas
 const addScopeSeg = () => `<div class="seg" title="What the green numbers count">${[['career', 'Added in career'], ['season', 'Added this season']].map(([v, l]) => `<button data-act="add-scope" data-v="${v}" class="${(state.addScope || 'career') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 
 /** careerCtx as it stood after `at` rounds of season s: for stories, which only know what had happened by then. */
+/**
+ * A season's champions so far, drivers' and teams': a title counts the moment nobody can catch the leader, not only
+ * once every round is in (wrapping it up with two rounds to go puts it in the Hall of Fame and the career numbers
+ * straight away). upto: count only this many rounds. { champ, champT } (ids, or null while it's open).
+ */
+function decidedChamps(s, done, ds, cs, upto = null) {
+  const n = activeRounds(s).length; if (!done) return { champ: null, champT: null };
+  if (done >= n) return { champ: ds?.[0]?.id ?? null, champT: cs?.[0]?.team.id ?? null };
+  const pick = (kind) => { const m = titleMath(s, kind, upto); return m.decided ? m.rows[0]?.id ?? null : null; };
+  return { champ: pick('driver'), champT: pick('team') };
+}
 const _ctxCache = new WeakMap();
 function careerCtxTo(c, s, at = Infinity) {
   let v = _ctxCache.get(c); if (!v || v.gen !== renderGen) { v = { gen: renderGen, m: {} }; _ctxCache.set(c, v); }
@@ -364,13 +376,14 @@ function careerCtxTo(c, s, at = Infinity) {
   return v.m[key] ||= c.seasons.filter(x => x.index <= s.index).map(x => {
     const n = activeRounds(x).length; const upto = x.index < s.index ? Infinity : at;
     const st = upto >= n ? seasonStatsCache(x) : seasonStats(x, upto); const done = Math.min(roundsDone(x), upto);
-    return { s: x, st, ds: driverStandings(x, st), cs: constructorStandings(x, st), done, complete: done > 0 && done === n };
+    const ds = driverStandings(x, st), cs = constructorStandings(x, st);
+    return { s: x, st, ds, cs, done, complete: done > 0 && done === n, ...decidedChamps(x, done, ds, cs, upto >= n ? null : upto) };
   });
 }
 function careerCtx(c) {
   return c.seasons.map(s => {
-    const st = seasonStats(s); const done = roundsDone(s);
-    return { s, st, ds: driverStandings(s, st), cs: constructorStandings(s, st), done, complete: done > 0 && done === activeRounds(s).length };
+    const st = seasonStats(s); const done = roundsDone(s); const ds = driverStandings(s, st), cs = constructorStandings(s, st);
+    return { s, st, ds, cs, done, complete: done > 0 && done === activeRounds(s).length, ...decidedChamps(s, done, ds, cs) };
   });
 }
 
@@ -382,18 +395,16 @@ function driverRecord(c, id, ctx = careerCtx(c)) {
   const base = Object.fromEntries(KEYS.map(k => [k, bio?.[k] || 0]));
   const tot = { ...base, titles: [...(bio?.titles || [])], bestChamp: bio?.bestChamp ?? null, bestFinish: bio?.bestFinish ?? null, dnfs: 0 };
   const seasons = []; const cur = c.seasons[c.seasons.length - 1]; const before = { ...base }; // before: everything but this season
-  for (const { s, st, ds, complete } of ctx) {
+  for (const { s, st, ds, complete, champ } of ctx) {
     const o = st[id];
     if (!o || !s.drivers[id]) continue;
     const pos = ds.find(x => x.id === id)?.pos ?? null;
-    seasons.push({ s, o, pos, team: teamOf(s, id), complete });
+    seasons.push({ s, o, pos, team: teamOf(s, id), complete, title: champ === id });
     for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; if (s !== cur) before[k] += o[k]; }
     tot.dnfs += o.dnfs;
     if (o.best != null) tot.bestFinish = tot.bestFinish == null ? o.best : Math.min(tot.bestFinish, o.best);
-    if (complete && pos != null) {
-      tot.bestChamp = tot.bestChamp == null ? pos : Math.min(tot.bestChamp, pos);
-      if (pos === 1) tot.titles.push(s.year);
-    }
+    if (complete && pos != null) tot.bestChamp = tot.bestChamp == null ? pos : Math.min(tot.bestChamp, pos);
+    if (champ === id) { tot.titles.push(s.year); tot.bestChamp = 1; } // a title counts the moment it's won
   }
   // from: what the green numbers count from (the real totals before the career, or everything before this season)
   return { bio, base, tot, seasons, from: addSeason() ? before : base };
@@ -542,7 +553,7 @@ function teamRecord(c, id, ctx = careerCtx(c)) {
   const base = Object.fromEntries(KEYS.map(k => [k, src?.[k] || 0]));
   const tot = { ...base, pts: 0, conTitles: [...(src?.conTitles || [])], drvTitles: src?.drvTitles || 0, drvYears: [], bestFinish: src?.bestFinish ?? (src?.wins ? 1 : null), bestCon: src?.conTitles?.length ? 1 : null };
   const seasons = []; const cur = c.seasons[c.seasons.length - 1]; const before = { ...base, pts: 0 };
-  for (const { s, st, ds, cs, done, complete } of ctx) {
+  for (const { s, st, ds, cs, done, complete, champ, champT } of ctx) {
     const t = s.teams.find(x => ids.includes(x.id)); if (!t) continue;
     const row = cs.find(x => x.team.id === t.id);
     const drivers = t.drivers.filter(Boolean);
@@ -555,11 +566,10 @@ function teamRecord(c, id, ctx = careerCtx(c)) {
     for (const k of KEYS) { tot[k] += o[k]; if (isHist(s)) base[k] += o[k]; if (s !== cur) before[k] += o[k]; }
     tot.pts += o.pts; if (s !== cur) before.pts += o.pts;
     if (o.best != null) tot.bestFinish = tot.bestFinish == null ? o.best : Math.min(tot.bestFinish, o.best);
-    if (complete && row) {
-      tot.bestCon = tot.bestCon == null ? row.pos : Math.min(tot.bestCon, row.pos);
-      if (row.pos === 1) tot.conTitles.push(s.year);
-      if (ds[0] && drivers.includes(ds[0].id)) { tot.drvTitles++; tot.drvYears.push(s.year); }
-    }
+    if (complete && row) tot.bestCon = tot.bestCon == null ? row.pos : Math.min(tot.bestCon, row.pos);
+    // titles count the moment they're won
+    if (champT === t.id) { tot.conTitles.push(s.year); tot.bestCon = 1; }
+    if (champ && drivers.includes(champ)) { tot.drvTitles++; tot.drvYears.push(s.year); }
     seasons.push({ s, t, o, pos: row?.pos ?? null, drivers, complete, done });
   }
   const titlesAdded = addSeason() ? tot.drvYears.filter(y => y === cur.year).length : tot.drvYears.length;
