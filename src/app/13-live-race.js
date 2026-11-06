@@ -208,7 +208,9 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const scLaps = new Set(L.scLaps?.[me.i] || []);
   // (and laps in dirty air, within a second of the car ahead, for the fall-off: a fight late in the stint reads as wear)
   const dirty = new Set(L.dirtyLaps?.[me.i] || []);
-  const stintAll = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid && !scLaps.has(l.n)); const mid = median(stintAll.map(l => l.ms));
+  // (and laps the track was wet on: the whole field slow on slicks is the rain, not the tyres)
+  const slowBy = L.weather ? slickSlowByLap(L) : {};
+  const stintAll = liveLaps(me).filter(l => l.n > me.lap - age && l.n < me.lap && l.valid && !scLaps.has(l.n) && !((slowBy[l.n] ?? 0) > WET_LAP)); const mid = median(stintAll.map(l => l.ms));
   const onEmpty = (l) => ({ ...l, ms: l.ms - (fuelAt(l.n) ?? 0) * FUEL_MS });
   const stintLaps = stintAll.filter(l => l.ms < mid + 2500 && !dirty.has(l.n)).map(onEmpty);
   const paceLaps = stintLaps.length >= 2 ? stintLaps : stintAll.filter(l => l.ms < mid + 2500).map(onEmpty); // in traffic all stint: those laps, a cautious figure
@@ -776,17 +778,17 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
   // forecast and the track's crossovers. No rain expected: the one line.
   const compactBar = !!ui.liveCompact; const sb = (x, o = {}) => stintBar(x.filter(y => y.to >= y.from), N, { compact: compactBar, ...o });
   const lineLbl = (t) => `<div class="label" style="margin:2px 0 -2px">${t}</div>`;
-  let wetHtml = '';
+  let wetHtml = ''; const nPast = (L.pitLaps?.[me.i] || []).length; // the stints run before the set on the car
   if (ST.none && ST.wet) {
-    const W2 = ST.wet; const tn = me.c === 8 ? 'wets' : 'inters'; const past = stints.slice(0, -1); const from = stints[stints.length - 1].from; const line = [...past];
+    const W2 = ST.wet; const tn = me.c === 8 ? 'wets' : 'inters'; const past = stints.slice(0, nPast); const from = stints[nPast].from; const line = [...past];
     if (W2.second != null) { const end = me.lap + W2.second - 1; line.push({ c: me.c, from, to: end }, { c: me.c, from: end + 1, to: N }); } else line.push({ c: me.c, from, to: N });
     wetHtml = `${sb(line)}<div style="font-size:${compactBar ? 12 : 13}px">${W2.life == null ? `On ${tn}: the wear will show after a couple of laps.` : W2.second != null ? `A second set of ${tn} needed: this one has about ${plural(W2.life, 'lap')} left (${me.wear}% worn, ${W2.rate.toFixed(1)}% a lap), around lap ${me.lap + W2.second - 1}.` : `This set of ${tn} reaches the flag: about ${plural(W2.life, 'lap')} left (${me.wear}% worn).`}</div>`;
   }
-  const WP = weatherPlan(c, r, L, me, plan?.stints?.length ? { k: ST.k || plan.k, stints: plan.stints } : null);
+  const WP = weatherPlan(c, r, L, me, plan?.stints?.length ? { k: ST.k || plan.k, stints: plan.stints, life: ST.curLife } : null);
   let wxHtml = '';
   if (WP) {
-    const past = stints.slice(0, -1); let at = stints[stints.length - 1].from - 1; const line = [...past];
-    if (WP.stints) for (const x of WP.stints) { const from = x.now ? stints[stints.length - 1].from : at + 1; const to = x.now ? me.lap + x.L - 1 : at + x.L; line.push({ c: x.c, from, to }); at = to; }
+    const past = stints.slice(0, nPast); let at = stints[nPast].from - 1; const line = [...past];
+    if (WP.stints) for (const x of WP.stints) { const from = x.now ? stints[nPast].from : at + 1; const to = x.now ? me.lap + x.L - 1 : at + x.L; line.push({ c: x.c, from, to }); at = to; }
     const say = WP.changes.map(ch => ch.to === 7 ? `inters around lap <b>${ch.lap}</b>${ch.until > ch.from ? ` (laps ${ch.from}–${ch.until})` : ''}` : `slicks again around lap <b>${ch.lap}</b>${ch.until > ch.from ? ` (laps ${ch.from}–${ch.until})` : ''}`);
     const sets = WP.stints ? WP.stints.filter(x => x.c === 7).length : 0;
     const windows = WP.stints ? (() => { const w = []; let k = 0; for (let j = 1; j < (WP.stints.length); j++) { const prevC = WP.stints[j - 1].c, c2 = WP.stints[j].c; const ch = (c2 === 7 && prevC !== 7) || (prevC === 7 && c2 !== 7) ? WP.changes[k++] : null; w.push(ch ? [ch.from, ch.until] : null); } return [...past.map(() => null), ...w]; })() : null;

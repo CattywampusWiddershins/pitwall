@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.29.1
+
+- **The dry plan no longer reads rain as tyre wear.** Laps where the whole field on slicks is more than 2.5% off dry pace are left out of the fall-off. In São Paulo the slicks slowed by 10% as the rain came, and the plan took that as wear and moved your stop for mediums earlier.
+- **The weather line has its own stops.** It used to start from the dry plan's next stop, so it showed a medium stop before the inters and its lap labels landed on the wrong stops. It now starts from the set you're on and runs to the inters. A dry stop that would come just before them is dropped when your tyre can make it to the switch.
+- Before there's wear to go on, inters are taken to last about 45 laps, not 30. In São Paulo they wore about 1% a lap once settled. The weather line no longer adds a second set of inters for a stint they'd easily last.
+
 ## 3.29.0
 
 - **Wet-weather calls rebuilt, checked against São Paulo.** The call now goes by the trend: slicks losing 2% a lap as the rain builds get the box call for the lap they'd be slower than inters, not once they already are. In São Paulo it now calls inters at the end of lap 30 and slicks on lap 58 (you stopped on 30 and 59). Before, it never called inters at all, and told you to go back to slicks a lap after you'd switched.

@@ -588,6 +588,18 @@ function wetPace(L, laps = 4) {
   }
   return out;
 }
+/**
+ * How far off dry the cars on slicks ran on every lap of the race so far (lap → median %), kept between updates. A
+ * lap the whole field ran slow on was the track, not the tyres: at São Paulo the slicks lost 10% as the rain came,
+ * which the dry plan read as wear and had you stopping early for mediums.
+ */
+function slickSlowByLap(L) {
+  const mem = L.mem || liveErs || {}; const top = Math.max(0, ...L.field.map(x => x.lap || 0));
+  const K = mem.slickSlow; if (K && K.uid === L.uid && K.top === top) return K.by;
+  const by = {}; for (const p of wetPace(L, top)) if (p.slick != null) by[p.n] = p.slick;
+  mem.slickSlow = { uid: L.uid, top, by }; return by;
+}
+const WET_LAP = 2.5; // % off dry across the slick runners: past this, a lap says more about the track than the tyres
 /** A group's latest figure and its trend (% a lap, over the last three laps it ran). */
 function wetTrend(P, k) {
   const pts = P.filter(p => p[k] != null).map(p => [p.n, p[k]]); if (!pts.length) return { v: null, d: 0 };
@@ -674,9 +686,9 @@ function weatherPlan(c, r, L, me, plan) {
   // the stints to come: the dry plan up to the first change, then the weather's
   const out = []; let at = 0; // laps from now
   const first = changes[0]?.j ?? left;
-  if (!wetNow) { let k0 = plan?.stints?.length ? plan.k : left; const cur = Math.min(k0, first); out.push({ c: me.c, L: cur, now: true }); at = cur; for (const x of plan?.stints || []) { if (at >= first) break; const l = Math.min(x.L, first - at); out.push({ c: x.c, L: l }); at += l; } }
+  if (!wetNow) { let k0 = plan?.stints?.length && !(changes.length && plan.life != null && plan.life >= first) ? plan.k : left; const cur = Math.min(k0, first); out.push({ c: me.c, L: cur, now: true }); at = cur; for (const x of plan?.stints || []) { if (at >= first) break; const l = Math.min(x.L, first - at); out.push({ c: x.c, L: l }); at += l; } }
   else { out.push({ c: me.c, L: first, now: true }); at = first; }
-  const interLife = me.c === 7 && me.age >= 2 && me.wear > 0 ? Math.floor(WEAR_LIMIT / (me.wear / me.age)) : 30;
+  const interLife = me.c === 7 && me.age >= 2 && me.wear > 0 ? Math.floor(WEAR_LIMIT / (me.wear / me.age)) : 45;
   changes.forEach((ch, k) => {
     const end = changes[k + 1]?.j ?? left; const len = end - ch.j; if (len <= 0) return;
     if (ch.to === 7) { let rem = len; while (rem > 0) { const l = Math.min(rem, interLife); out.push({ c: 7, L: l }); rem -= l; } }
