@@ -464,7 +464,7 @@ function buildStories(c, s) {
     // the player's own words from the media session, else a line like everyone else's
     const qs = myLine ? [...quotes.filter(q => q.id !== PLAYER), { id: PLAYER, text: myLine, real: true }] : quotes;
     const TL = dB.left.length > 1 && roundPerms(dB)?.clinch.length ? titleByLap(s, i) : null;
-    out.push({ id: rid + 'r', seq: i * 10 + 4, kind: 'race', chartHtml: TL ? titleChartHtml(s, TL, last) : '', i, r, subject: W, outlet: outletFor(rnd), kicker: 'Race report', headline, standfirst: `Round ${i + 1} of ${rounds.length} · ${r.venue}`, body, quotes: qs, results: res.slice(0, 10).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('R', k + 1, x.st, x.pts), gap: x.gap })), standings: standingsAfter(s, i) });
+    out.push({ id: rid + 'r', seq: i * 10 + 4, kind: 'race', lapGfx: !!TL, i, r, subject: W, outlet: outletFor(rnd), kicker: 'Race report', headline, standfirst: `Round ${i + 1} of ${rounds.length} · ${r.venue}`, body, quotes: qs, results: res.slice(0, 10).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('R', k + 1, x.st, x.pts), gap: x.gap })), standings: standingsAfter(s, i) });
     if (dd) out.push(dotdStory(c, s, i, dd, mem, { name, last, tName }));
     out.push(...incidentStories(c, s, i, r, 'R', ses.R, { name, last, tName }));
     { const bs = battleStory(c, s, i, r, 'R', ses.R, { name, last, tName }); if (bs) out.push(bs); }
@@ -502,7 +502,7 @@ function buildStories(c, s) {
         kicker: atSprint ? 'World champion · Sprint' : atFinal ? 'World champion · Final-race decider' : 'World champion',
         headline: SDT?.twist ? SDT.twist.headline : atFinal ? (rivals.length >= 2 ? `${name(A0.id)} wins a ${numWord(rivals.length + 1)}-way title showdown in ${gp}` : `${name(A0.id)} beats ${last(rivals[0]?.id || A1.id)} to the title in a ${gp} decider`) : A0.id === PLAYER ? `${name(A0.id)} is world champion` : `${name(A0.id)} is the ${s.year} world champion`,
         standfirst: `${last(A0.id)} sealed ${n > 1 ? `a ${ordWord(n)} title` : 'the title'} in ${atSprint ? `the ${gp} sprint` : gp}${atSprint ? ', with the Grand Prix still to come' : ''}${dA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(dA.left.length, 'round')} to spare` : atSprint ? '' : ' at the final round'}.`,
-        chartHtml: SDT?.chart || '',
+        lapGfx: !!SDT?.T,
         body: SDT ? [SDT.scene, SDT.needs.join(' '), SDT.race.join(' '), `${SDT.outcome} ${last(A0.id)} finished the year with ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} for ${tName(A0.id)}.`] : [atFinal ? `The title went down to the last race${rivals.length >= 2 ? `, with ${listJoin([A0.id, ...rivals.map(x => x.id)].map(id => name(id)))} all still able to win it` : ''}. ${last(A0.id)} arrived ${dB.rows[0].id === A0.id ? `leading by ${plural(dB.margin, 'point')}` : `${plural(dB.rows[0].pts - (dB.rows.find(x => x.id === A0.id)?.pts || 0), 'point')} behind ${name(dB.rows[0].id)}`} and left as champion.` : '',
           `${last(A0.id)} has ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} this season for ${tName(A0.id)}, ${plural(dA.margin, 'point')} clear of ${name(A1.id)}.`].filter(Boolean),
         quotes: SDT ? (() => { const qw = phrasebook(rnd); return [{ id: A0.id, text: qw('won', SHOWDOWN_QUOTES.won) }, ...SDT.losers.map(d => ({ id: d, text: qw('lost', SHOWDOWN_QUOTES.lost) }))]; })() : [{ id: A0.id, text: choose(rnd, atFinal ? ['I can’t breathe. That was the longest race of my life.', 'To do it at the last race, under that pressure… this is everything.', ...QUOTES.champion] : QUOTES.champion) }] });
@@ -818,6 +818,7 @@ function storyGfx(s, x) {
   if (x.permGfx?.kind === 'driver' && x.permGfx.stage !== 'sprint') out.push({ type: 'graph', mode: 'decider', ...base });
   if (x.kind === 'review') out.push({ type: 'graph', mode: 'review', ...base });
   if (x.graphIds?.length >= 2) out.push({ type: 'graph', mode: 'rivalry', ids: x.graphIds, ...base });
+  if (x.lapGfx) out.push({ type: 'graph', mode: 'laps', ...base });
   if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });

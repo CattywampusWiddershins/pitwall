@@ -45,7 +45,7 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h'].includes(spec.type) ? '' : `${esc(r?.name || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
@@ -160,7 +160,7 @@ async function drawGraphic(spec) {
   const cv = document.createElement('canvas'); cv.width = gfxWidth(spec); cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
   if (spec.type === 'title') { const ok = await gfxTitle(g, k, c, s, spec); return ok === false ? null : cv; }
-  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, graph: gfxGraph }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -967,6 +967,67 @@ async function gfxGraph(g, k, c, s, { ri, mode, ids = [] }) {
     k.text(gfxLast(s, o.id), x + 26, y - 10, { size: 30, weight: 900, max: Rr - 50 });
     k.text(mode === 'rivalry' ? (o.end ? `${o.end} PTS` : 'LEADER') : `${fmtPts(o.end)} PTS`, x + 26, y + 20, { size: 24, weight: 700, color: '#C9CFDC', max: Rr - 50 });
   }
+}
+
+/**
+ * The title, lap by lap, as a graph (from titleByLap). A weekend only one driver can win it: everyone's points if the
+ * race ended on that lap, and a faded gold line where that driver has to be to be champion (his rivals' best plus
+ * what's left after this race); sitting on or above it, his line turns gold, and the gold line rides with him. The
+ * final race (whoever is ahead at the flag wins): the championship order lap by lap, gold for whoever leads it.
+ */
+async function gfxLapGraph(g, k, c, s, { ri }) {
+  const GFX_W = g.canvas.width, GFX_H = g.canvas.height;
+  const T = titleByLap(s, ri); if (!T || T.rows.length < 2) return false;
+  const r = activeRounds(s)[ri]; const N = T.rows.length; const ids = T.ids.slice(0, 5);
+  const m = titleMath(s, 'driver', ri); const P = !T.final && roundPerms(m);
+  const solo = P && P.clinch?.length === 1 ? P.clinch[0].x.id : null;
+  const after = m.R - (m.left[0]?.max || 0); // what's left once this race is run
+  // where the solo driver must be: his rivals' best plus everything still to come, plus one
+  const need = solo ? T.rows.map(row => Math.max(...ids.filter(d => d !== solo).map(d => row.pts[d] ?? 0)) + after + 1) : null;
+  const gold = solo ? T.rows.map((row, j) => Math.max(need[j], row.pts[solo])) : null;
+  const on = (id, j) => T.final ? T.rows[j].champ === id : id === solo && T.rows[j].pts[solo] >= need[j];
+  // the final: the order among the contenders on each lap (the champion of the moment first)
+  const rank = T.final ? T.rows.map(row => { const o = ids.slice().sort((a, b) => a === row.champ ? -1 : b === row.champ ? 1 : (row.pts[b] ?? 0) - (row.pts[a] ?? 0)); return Object.fromEntries(o.map((d, q) => [d, q + 1])); }) : null;
+  const val = (id, j) => T.final ? rank[j][id] : T.rows[j].pts[id] ?? 0;
+  let ymin, ymax;
+  if (T.final) { ymin = 1; ymax = ids.length; } else {
+    const all = [...ids.flatMap(id => T.rows.map((_, j) => val(id, j))), ...(gold || [])];
+    ymin = Math.floor((Math.min(...all) - 5) / 10) * 10; ymax = Math.ceil((Math.max(...all) + 5) / 10) * 10;
+  }
+  g.fillStyle = '#121218'; g.fillRect(0, 0, GFX_W, GFX_H);
+  await k.logo(GFX_W - 230, 36, 180, 56, GFX_RED, 'right');
+  k.text('THE TITLE, LAP BY LAP', 56, 130, { size: 72, weight: 900, max: GFX_W - 320 });
+  const sub = T.final ? 'CHAMPIONSHIP ORDER IF THE RACE ENDED THERE · GOLD: CHAMPION ON THE ROAD' : solo ? `POINTS IF THE RACE ENDED THERE · GOLD: WHERE ${gfxLast(s, solo)} BECOMES CHAMPION` : 'POINTS IF THE RACE ENDED THERE';
+  k.text(`${String(r.name).toUpperCase()} GP · ${sub}`, 56, 196, { size: 28, weight: 600, color: '#B9C0CF', max: GFX_W - 320 });
+  const L = 130, Rr = 330, Tp = 270, B = GFX_H - 130;
+  const px = (j) => L + j * (GFX_W - L - Rr) / (N - 1);
+  const py = (v) => T.final ? Tp + (v - 1) / Math.max(1, ids.length - 1) * (B - Tp) : Tp + (1 - (v - ymin) / ((ymax - ymin) || 1)) * (B - Tp);
+  g.lineWidth = 2; g.strokeStyle = '#2A2A36';
+  const ticks = T.final ? ids.map((_, q) => q + 1) : Array.from({ length: 6 }, (_, q) => ymin + (ymax - ymin) * q / 5);
+  for (const v of ticks) { g.beginPath(); g.moveTo(L, py(v)); g.lineTo(GFX_W - Rr + 10, py(v)); g.stroke(); k.text(T.final ? `P${v}` : String(Math.round(v)), L - 16, py(v), { size: 24, weight: 700, color: '#8D95A6', align: 'right' }); }
+  const step = N > 50 ? 10 : N > 25 ? 5 : N > 12 ? 2 : 1;
+  for (let j = 0; j < N; j++) if ((j + 1) % step === 0 || j === 0 || j === N - 1) k.text(j === N - 1 ? 'FLAG' : `L${j + 1}`, px(j), B + 40, { size: 22, weight: 700, color: '#8D95A6', align: 'center' });
+  const GOLD = '#E3BC4E';
+  // the gold line: where the solo driver becomes champion
+  if (gold) { g.save(); g.strokeStyle = 'rgba(243,217,139,0.42)'; g.lineWidth = 18; g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath(); gold.forEach((v, j) => j ? g.lineTo(px(j), py(v)) : g.moveTo(px(j), py(v))); g.stroke(); g.restore(); }
+  const seen = {};
+  const lines = ids.map(id => { const tm = teamOf(s, id); const col0 = tm?.color || '#5E6A82'; const dash = !!seen[tm?.id]; seen[tm?.id] = 1; return { id, col: gfxLum(col0) < 60 ? mixHex(col0, '#FFFFFF', 0.4) : col0, dash }; });
+  // the solo driver (or the contenders in the final) drawn last, so gold sits on top
+  for (const o of lines.slice().sort((a, b) => (a.id === solo) - (b.id === solo))) {
+    g.save(); g.lineWidth = 7; g.lineJoin = 'round'; g.lineCap = 'round'; if (o.dash) g.setLineDash([18, 12]);
+    for (let j = 1; j < N; j++) { g.strokeStyle = on(o.id, j) && on(o.id, j - 1) ? GOLD : on(o.id, j) || on(o.id, j - 1) ? mixHex(o.col, GOLD, 0.5) : o.col; g.beginPath(); g.moveTo(px(j - 1), py(val(o.id, j - 1))); g.lineTo(px(j), py(val(o.id, j))); g.stroke(); }
+    g.restore();
+  }
+  // labels at the end, pushed apart so they never overlap
+  const lab = lines.map(o => ({ o, end: val(o.id, N - 1), y: py(val(o.id, N - 1)) })).sort((a, b) => a.y - b.y); for (let j = 1; j < lab.length; j++) if (lab[j].y - lab[j - 1].y < 66) lab[j].y = lab[j - 1].y + 66;
+  for (const { o, end, y } of lab) {
+    const won = on(o.id, N - 1); const col = won ? GOLD : o.col; const x = GFX_W - Rr + 30;
+    g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.moveTo(px(N - 1), py(end)); g.lineTo(x, y); g.stroke();
+    g.fillStyle = col; g.fillRect(x + 6, y - 28, 8, 56);
+    k.text(gfxLast(s, o.id), x + 26, y - 10, { size: 30, weight: 900, max: Rr - 50, color: won ? GOLD : '#FFFFFF' });
+    k.text(T.final ? (won ? 'CHAMPION' : `P${end} · ${fmtPts(T.rows[N - 1].pts[o.id] ?? 0)} PTS`) : `${fmtPts(end)} PTS${won ? ' · CHAMPION' : ''}`, x + 26, y + 20, { size: 24, weight: 700, color: '#C9CFDC', max: Rr - 50 });
+  }
+  if (gold && !on(solo, N - 1)) { const yv = py(gold[N - 1]); k.text(`NEEDED: ${fmtPts(need[N - 1])}`, px(N - 1) - 12, yv - 24, { size: 22, weight: 800, color: GOLD, align: 'right' }); }
 }
 
 /** The career leaderboard's top 10, by the column it's sorted on (named in the subtitle), with the stats picked. */

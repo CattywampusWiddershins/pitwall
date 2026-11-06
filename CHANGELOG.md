@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.32.0
+
+- **The title, lap by lap, as a graphic.** The race-report and final-race stories now get a proper graph graphic instead of the small chart. On a weekend only one driver can win the title, a faded gold line shows where they need to be to be champion (their rivals' best plus everything left after this race). It moves as the running order changes, and their line turns gold while they're on or above it. In a final-race decider, the graph shows the championship order lap by lap instead, with whoever is champion on the road drawn in gold.
+
 ## 3.31.0
 
 - **Season preview article.** Before round 1, the stories open with a proper preview in paragraphs: where the season starts (the champion's defence, who won there last and how many times), how last year's titles were won, the winter's moves ("Sainz in Williams blue…"), rookies, returns and drivers gone, the calendar's new, returning and dropped races, and the five favourites on form, with the title number each of the top three is going for. It keeps the picture from before the first race.
