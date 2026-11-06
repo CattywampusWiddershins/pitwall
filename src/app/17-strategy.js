@@ -207,6 +207,17 @@ function fillTyres(grid, mine) {
       base: (S.base + H.base) / 2, deg: (S.deg + H.deg) / 2,
       wear: step(S, H, 'wear', (s, h) => (s + h) / 2), life: step(S, H, 'life', (s, h) => Math.round((s + h) / 2)) }, 'estimated: halfway between the soft and the hard');
   }
+  // a compound whose wear came out at zero or less (a run on a used set, or noise) would last for ever: it takes half the
+  // wear of the next softer compound instead, which may itself be such an estimate, so the hard can be half of the
+  // medium's half of the soft's
+  for (const runs of [grid, mine]) {
+    let prev = null;
+    for (const c of DRY) {
+      const x = runs[c]; if (!x) continue;
+      if (!(x.wear > 0.05) && prev?.wear > 0.05) { x.wear = prev.wear / 2; x.life = Math.max(1, Math.floor(WEAR_LIMIT / x.wear)); x.src = `${x.src ? x.src + '; ' : ''}wear estimated: half the softer compound’s`; }
+      prev = x;
+    }
+  }
 }
 /*
   Pit stops and tyre sets. A stop costs what the pit lane costs at that track (green flag), and less under a virtual

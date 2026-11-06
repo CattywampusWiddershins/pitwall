@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.27.2
+
+- **No pit call on a fresh tyre**: the strategy won't call a stop before the tyre has worn 10%, unless a safety car, VSC or red flag makes the stop cheap. Before, it could call you in from the start and change its mind later.
+- **Tyre wear never comes out at zero or less**: a compound whose practice wear measured flat or negative (a run on a used set, or noise) used to look like it would last for ever, which overstated the hards' life about threefold in São Paulo. It now takes half the wear of the next softer compound, so the hard can be half of the medium's half of the soft's.
+- Live Race, Compact: the position tile is the full size again.
+
 ## 3.27.1
 
 - The tyre markers in Live Race (and anywhere else a tyre shows as just its letter) are round circles instead of ovals.

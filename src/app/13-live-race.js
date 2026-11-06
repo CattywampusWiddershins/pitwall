@@ -291,6 +291,7 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   forecast instead; behind, that's the car really behind you, while ahead the remembered car stays until it's clear
   for five laps running that you won't catch it. Each rival's stops left come from their own race pace on each tyre.
 */
+const MIN_STOP_WEAR = 10; // % worn before a stop is worth calling (a safety car, VSC or red flag aside)
 const OUTLAP_MS = 1200; // the out-lap on cold tyres, against a flying lap
 const LIVE_PIT_MEMORY = 10e3; // ms: the running order this long before a car goes into the pit lane
 const _runsFor = new Map();
@@ -758,6 +759,9 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
       const need = ST.PL.green + 1600; const gapB = behind.gapF || 0; const close = paceEdge(behind, me);
       if (gapB > need) { const extra = close && close > 50 ? Math.floor((gapB - need) / close) : ST.curLife - 1; k = Math.max(1, Math.min(1 + extra, ST.curLife)); if (k > 1) offset = { k, need }; }
     }
+    // a tyre that has hardly worn isn't changed: no stop before 10% wear (unless a safety car, VSC or red flag makes it cheap),
+    // so the plan can't call you in on the opening laps and change its mind later
+    if (!ST.scCall && !L.red && k < 3 && (me.wear ?? 0) < MIN_STOP_WEAR) { const rate = me.wear > 0 && me.age > 0 ? me.wear / me.age : null; k = Math.max(k, rate ? Math.ceil((MIN_STOP_WEAR - me.wear) / rate) + 1 : 3); }
     if (k === 1) call = { kind: ST.scCall ? 'sc' : 'pit', c: plan.stints[0].c, lap: me.lap };
     ST.offset = offset; ST.k = k;
   }
@@ -776,7 +780,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     const tile = (lab, val, sub = '', cls = '') => `<div class="lc-tile ${cls}"><span class="label">${lab}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
     const PN = ST.posNote;
     return `<div class="live-col compact">${banner}
-      <div class="lc-tiles">${tile(esc(lastName(dName(s, id))), `P${me.pos}`, me.pit ? 'In the pit lane' : `Lap ${me.lap} of ${N}`, 'pos')}
+      <div class="lc-tiles">${tile(esc(lastName(dName(s, id))), `P${me.pos}`, me.pit ? 'In the pit lane' : `Lap ${me.lap} of ${N}`, 'lcp')}
         ${tile('Ahead', ahead ? `+${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading', ahead ? nm(ahead) : '')}
         ${tile('Behind', behind ? `−${((behind.gapF || 0) / 1000).toFixed(3)}` : '–', behind ? nm(behind) : '')}
         ${tile('Tyre', `${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0}`, `laps${me.wear != null ? ` · ${me.wear}%` : ''}${ST.curLife ? ` · ~${ST.curLife} left` : ''}`)}
@@ -797,7 +801,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     ${fuelCard(FP)}
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
-        <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
+        <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + (ST.k || plan.k) - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
         <div class="rejoin"><span class="label" title="${ST.PL.n ? `Pit loss from ${plural(ST.PL.n, 'stop')} in this race (the track's figure is ${(ST.PL.track / 1000).toFixed(1)} s)` : 'The track’s pit loss: it changes to this race’s own once a stop is measured'}">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''}${ST.PL.n ? `, from ${plural(ST.PL.n, 'stop')} today` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
     ${ST.posNote ? `<div class="panel live-card"><div class="panel-h"><h2>Projected finish</h2><span class="muted" style="font-size:12px">${ST.posNote.best === ST.posNote.worst ? `P${ST.posNote.best}` : `P${ST.posNote.best}–P${ST.posNote.worst}`}</span></div><div class="panel-b stack" style="gap:6px"><div class="live-pos" style="font-size:34px">P${ST.posNote.mode}</div>${posNoteHtml(ST.posNote, me)}</div></div>` : ''}
     ${fights}
