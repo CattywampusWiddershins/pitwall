@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.27.1
+
+- The tyre markers in Live Race (and anywhere else a tyre shows as just its letter) are round circles instead of ovals.
+
 ## 3.27.0
 
 - **Wet weather calls in Live Race.** Pitwall compares how far off dry the cars on slicks and on inters are running, lap by lap, and calls the change: "Box for inters: they're 3.6 s a lap quicker", "Box for slicks", full wets in standing water, or a heads-up when the forecast says the switch is coming ("inters likely in about 10 min"). It weighs the time a change wins back against the pit loss for the laps left. The call shows as a banner and in the compact tiles.
