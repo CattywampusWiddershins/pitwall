@@ -2,6 +2,15 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.29.0
+
+- **Wet-weather calls rebuilt, checked against São Paulo.** The call now goes by the trend: slicks losing 2% a lap as the rain builds get the box call for the lap they'd be slower than inters, not once they already are. In São Paulo it now calls inters at the end of lap 30 and slicks on lap 58 (you stopped on 30 and 59). Before, it never called inters at all, and told you to go back to slicks a lap after you'd switched.
+- The pace of each tyre group leaves out laps in and out of the pits, behind the safety car, and laps only the leaders have finished. A car that has just stopped no longer has its last laps on slicks counted as inter laps. Right after your own stop, going straight back needs a clear case.
+- **Live Race strategy on inters and wets.** It no longer goes blank: it runs the set to the flag and tracks the wear, and says when a second set of inters will be needed.
+- **A second strategy line for the weather.** When rain is forecast or falling, a second bar under the dry plan shows what the forecast suggests: when inters go on and when slicks come back, each with a window of laps, and any extra set of inters. It's a guess from the weather. With no rain expected, there's only the one line.
+- Race Replay: clicking a moment no longer scrolls the list of moments back to the start.
+- Race Replay: The Field now fades exactly the cars the track map hides, whether from a moment, Top 10, Near me or your own picks. Everyone brings them all back, so the separate Show everyone button is gone.
+
 ## 3.28.1
 
 - Forecast, On current form: when a weekend can decide the title, the predicted champion now shows as their whole cutout, about half the table's height, standing to the left of the verdict with no backdrop, instead of a cropped portrait running the full height of the table. Live Race keeps its head-and-torso picture.

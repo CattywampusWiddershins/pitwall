@@ -239,8 +239,7 @@ function replayMomentsHtml() {
   const clk = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const chip = (e) => `<button class="rp-mo" style="--c:${RP_MOMENT[e.kind][1]}" data-act="rp-moment" data-t="${e.t}" data-ids="${e.ids.join(',')}" title="${clk(e.t)}"><i></i><b>L${e.lap}</b> ${esc(e.label)}</button>`;
   return `<div class="rp-moments"><label class="row" style="gap:6px"><span class="label">Moments</span><select data-ch="rp-moments-for" style="width:auto">${cars.map(i => `<option value="${i}" ${i === who ? 'selected' : ''}>${esc(dName(RP.s, RP.idOf(i)))}</option>`).join('')}</select></label>
-    <div class="rp-mo-list">${mine.length ? mine.map(chip).join('') : '<span class="muted" style="font-size:12px">No moments for this driver.</span>'}</div>
-    ${RP.focus ? '<button class="btn sm ghost" data-act="rp-focus-clear">Show everyone</button>' : ''}</div>`;
+    <div class="rp-mo-list">${mine.length ? mine.map(chip).join('') : '<span class="muted" style="font-size:12px">No moments for this driver.</span>'}</div></div>`;
 }
 /** Marks on the timeline for the driver's moments, coloured by kind. */
 function replayMarks() {
@@ -324,9 +323,11 @@ function replayVis() {
 function replayFrame() {
   const Ly = RP?.lay; if (!Ly) return; const { A, B } = Ly; const u = Math.min(1, Math.max(0, (RP.T - Ly.t0) / ((Ly.t1 - Ly.t0) || 1)));
   const box = document.getElementById('rp-vis');
+  // The Field fades the cars the map hides: its filter (top ten, near you, your own pick, a moment's drivers) is theirs too
+  const shown = RP.flt && RP.flt.mode !== 'all' ? replayShown(RP.L.field || []) : null;
   if (box) for (const x of A.running) {
     const node = box.querySelector(`.rp-car[data-i="${x.i}"]`); if (!node) continue;
-    node.classList.toggle('dim', !!RP.focus && !RP.focus.has(x.i)); // a moment picked: only the drivers in it stand out
+    node.classList.toggle('dim', !!shown && !shown.has(x.i));
     const yA = A.Y[x.i], yB = B.Y[x.i] ?? yA; node.style.transform = `translateY(${(yA + (yB - yA) * u).toFixed(1)}px)`;
     const g = A.G[x.i], gB = B.G[x.i]; const lead = x.pos === 1;
     node.querySelector('.rp-g').textContent = rpIsOut(x) ? 'OUT' : x.pit ? 'PIT' : lead ? 'Leader' : g?.down ? `+${g.down} LAP${g.down > 1 ? 'S' : ''}`

@@ -200,7 +200,7 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   const mineId = id === PLAYER;
   const runs = JSON.parse(JSON.stringify(mineId ? strategyRuns(s, r).mine : (() => { const g = strategyRuns(s, r).grid; const o = practiceRuns(s, r, id); fillTyres(g, o); return o; })()));
   const cur = DRY.includes(me.c) ? me.c : null; const age = me.age || 0;
-  if (!cur || !runs[cur]) return { n, left, lossNow, PL, none: true, cur, age };
+  if (!cur || !runs[cur]) return { n, left, lossNow, PL, none: true, cur, age, wet: isSlick(me.c) ? null : wetStint(me, left) };
   // what this stint shows: the fall-off from its clean laps, and the life from the wear so far. Its laps are put on an
   // empty tank (the car gets lighter every lap, which would hide the fall-off); laps behind a safety car or VSC, and
   // any far off the stint's pace, say nothing about the tyres
@@ -771,6 +771,27 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
   const lapsDone = me.lap - 1; const N = ST.n;
   const stints = []; { const used = L.used?.[me.i] || []; let from = 1; (L.pitLaps?.[me.i] || []).forEach((pl, k) => { stints.push({ c: used[k] || me.c, from, to: pl }); from = pl + 1; }); stints.push({ c: me.c, from, to: me.lap + (plan ? (ST.k || plan.k) - 1 : ST.left - 1) }); if (plan) { let at = stints[stints.length - 1].to; for (const x of plan.stints) { stints.push({ c: x.c, from: at + 1, to: at + x.L }); at += x.L; } } }
   const WC = wetCall(c, s, r, L, me, ST.lossNow);
+  // On inters or wets the plan runs this set to the flag, with a second set where the wear says it won't last.
+  // And with rain about (forecast, falling, or on wet tyres), a second line: the weather strategy, speculative, from the
+  // forecast and the track's crossovers. No rain expected: the one line.
+  const compactBar = !!ui.liveCompact; const sb = (x, o = {}) => stintBar(x.filter(y => y.to >= y.from), N, { compact: compactBar, ...o });
+  const lineLbl = (t) => `<div class="label" style="margin:2px 0 -2px">${t}</div>`;
+  let wetHtml = '';
+  if (ST.none && ST.wet) {
+    const W2 = ST.wet; const tn = me.c === 8 ? 'wets' : 'inters'; const past = stints.slice(0, -1); const from = stints[stints.length - 1].from; const line = [...past];
+    if (W2.second != null) { const end = me.lap + W2.second - 1; line.push({ c: me.c, from, to: end }, { c: me.c, from: end + 1, to: N }); } else line.push({ c: me.c, from, to: N });
+    wetHtml = `${sb(line)}<div style="font-size:${compactBar ? 12 : 13}px">${W2.life == null ? `On ${tn}: the wear will show after a couple of laps.` : W2.second != null ? `A second set of ${tn} needed: this one has about ${plural(W2.life, 'lap')} left (${me.wear}% worn, ${W2.rate.toFixed(1)}% a lap), around lap ${me.lap + W2.second - 1}.` : `This set of ${tn} reaches the flag: about ${plural(W2.life, 'lap')} left (${me.wear}% worn).`}</div>`;
+  }
+  const WP = weatherPlan(c, r, L, me, plan?.stints?.length ? { k: ST.k || plan.k, stints: plan.stints } : null);
+  let wxHtml = '';
+  if (WP) {
+    const past = stints.slice(0, -1); let at = stints[stints.length - 1].from - 1; const line = [...past];
+    if (WP.stints) for (const x of WP.stints) { const from = x.now ? stints[stints.length - 1].from : at + 1; const to = x.now ? me.lap + x.L - 1 : at + x.L; line.push({ c: x.c, from, to }); at = to; }
+    const say = WP.changes.map(ch => ch.to === 7 ? `inters around lap <b>${ch.lap}</b>${ch.until > ch.from ? ` (laps ${ch.from}–${ch.until})` : ''}` : `slicks again around lap <b>${ch.lap}</b>${ch.until > ch.from ? ` (laps ${ch.from}–${ch.until})` : ''}`);
+    const sets = WP.stints ? WP.stints.filter(x => x.c === 7).length : 0;
+    const windows = WP.stints ? (() => { const w = []; let k = 0; for (let j = 1; j < (WP.stints.length); j++) { const prevC = WP.stints[j - 1].c, c2 = WP.stints[j].c; const ch = (c2 === 7 && prevC !== 7) || (prevC === 7 && c2 !== 7) ? WP.changes[k++] : null; w.push(ch ? [ch.from, ch.until] : null); } return [...past.map(() => null), ...w]; })() : null;
+    wxHtml = `${lineLbl('Weather (from the forecast)')}${WP.stints ? sb(line, { windows }) : ''}<div class="muted" style="font-size:${compactBar ? 12 : 13}px">${WP.quiet ? 'Rain about, but the forecast doesn’t bring enough for inters.' : `Forecast: ${say.join(', then ')}${sets > 1 ? `, with ${sets} sets of inters` : ''}. A guess from the weather, not a plan.`}</div>`;
+  }
   const banner = L.red ? `<div class="pit-banner sc"><b>RED FLAG · FREE TYRE CHANGE</b><span>${WC?.tyre ? `${tyreChip(WC.tyre)} ${COMPOUNDS[WC.tyre][1]} for the conditions` : plan?.stints?.[0] ? `${tyreChip(plan.stints[0].c)} ${COMPOUNDS[plan.stints[0].c][1]} for the rest of the race` : 'Fit the tyre for the rest of the race'}</span></div>`
     : WC?.cls === 'call' ? `<div class="pit-banner pit"><b>${esc(WC.text.split(':')[0].toUpperCase())}</b><span>${WC.tyre ? tyreChip(WC.tyre) : ''} ${esc(WC.text.split(':').slice(1).join(':').trim())}</span></div>`
     : call ? `<div class="pit-banner ${call.kind}"><b>${call.kind === 'sc' ? `PIT NOW · ${L.sc === 1 ? 'SAFETY CAR' : 'VSC'}` : 'PIT THIS LAP'}</b><span>${tyreChip(call.c)} ${COMPOUNDS[call.c][1]}${plan.stints[0].wear ? ` (used, ${plan.stints[0].wear}%)` : ''}</span></div>` : '';
@@ -788,7 +809,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
         ${FP ? tile('Fuel at flag', `${FP.end >= 0 ? '+' : '−'}${Math.abs(FP.end).toFixed(1)} kg`, FP.end >= 0 ? `${FP.lapsSpare.toFixed(1)} laps spare` : `save ${FP.save.toFixed(2)} kg/lap`, FP.end >= 0 ? 'ok' : 'short') : ''}
         ${WC?.text ? tile('Weather', WC.cls === 'call' ? 'Box' : `${WC.rain ?? '–'}%`, esc(WC.text), WC.cls === 'call' ? 'short' : '') : ''}
         ${ST.none ? '' : tile('Pit now', `P${RJ.pos}`, RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading')}</div>
-      ${ST.none || !plan ? '' : `<div class="panel live-card lc-strat"><div class="panel-b">${stintBar(stints.filter(x => x.to >= x.from), N)}<div style="font-size:12px">${plan.stints.length ? (call ? '' : `Next stop <b>lap ${me.lap + (ST.k || plan.k) - 1}</b> onto ${plan.stints.map(x => COMPOUNDS[x.c][1].toLowerCase()).join(', then ')}`) : 'No more stops: to the flag on this set.'}</div></div></div>`}
+      ${ST.none || !plan ? (wetHtml || wxHtml ? `<div class="panel live-card lc-strat"><div class="panel-b">${WP && wetHtml ? lineLbl('On this set') : ''}${wetHtml}${wxHtml}</div></div>` : '') : `<div class="panel live-card lc-strat"><div class="panel-b">${WP ? lineLbl('Dry plan (no rain)') : ''}${stintBar(stints.filter(x => x.to >= x.from), N)}<div style="font-size:12px">${plan.stints.length ? (call ? '' : `Next stop <b>lap ${me.lap + (ST.k || plan.k) - 1}</b> onto ${plan.stints.map(x => COMPOUNDS[x.c][1].toLowerCase()).join(', then ')}`) : 'No more stops: to the flag on this set.'}</div>${wxHtml}</div></div>`}
       <div class="lc-fights">${fights}</div></div>`;
   }
   return `<div class="live-col">
@@ -800,8 +821,9 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
         <div><span class="label">Tyre</span><b>${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0} laps${me.wear != null ? ` · ${me.wear}%` : ''}</b></div></div></div>
     ${fuelCard(FP)}
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
-      <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
+      <div class="panel-b stack" style="gap:8px">${WP ? lineLbl(ST.wet ? 'On this set' : 'Dry plan (no rain)') : ''}${ST.none ? (wetHtml || '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>') : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
         <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + (ST.k || plan.k) - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
+        ${wxHtml}
         <div class="rejoin"><span class="label" title="${ST.PL.n ? `Pit loss from ${plural(ST.PL.n, 'stop')} in this race (the track's figure is ${(ST.PL.track / 1000).toFixed(1)} s)` : 'The track’s pit loss: it changes to this race’s own once a stop is measured'}">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''}${ST.PL.n ? `, from ${plural(ST.PL.n, 'stop')} today` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
     ${ST.posNote ? `<div class="panel live-card"><div class="panel-h"><h2>Projected finish</h2><span class="muted" style="font-size:12px">${ST.posNote.best === ST.posNote.worst ? `P${ST.posNote.best}` : `P${ST.posNote.best}–P${ST.posNote.worst}`}</span></div><div class="panel-b stack" style="gap:6px"><div class="live-pos" style="font-size:34px">P${ST.posNote.mode}</div>${posNoteHtml(ST.posNote, me)}</div></div>` : ''}
     ${fights}

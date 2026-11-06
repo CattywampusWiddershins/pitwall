@@ -555,37 +555,138 @@ async function learnWetFromReplays() {
   } catch (e) { console.warn(e); } finally { learnWetFromReplays.busy = false; }
 }
 /**
+ * The compound a car was on for lap n, or null for a lap in or out of the pits or one not known yet. The set on the car
+ * counts from its age (a stop shows on the car before it's logged: at São Paulo the new inters were put on the last
+ * laps of the slicks they replaced); earlier laps go by the stops logged.
+ */
+function tyreOnLap(L, x, n) {
+  const start = (x.lap || 0) - (x.age || 0); // the set's first lap: its out-lap
+  if (n > start) return x.c; if (n >= start - 1) return null;
+  const pl = L.pitLaps?.[x.i] || [], used = L.used?.[x.i] || []; const k = pl.findIndex(q => n <= q);
+  return k < 0 ? null : (used[k] ?? null);
+}
+/**
+ * How far off dry each group of cars ran on each of the last few laps (median %, by tyre: slick, inter, wet). Laps in
+ * and out of the pits, behind a safety car or VSC, or far off (an incident) are left out: the first inter laps at
+ * São Paulo were out-laps 15% off, which made inters look slower than the slicks they were about to beat.
+ */
+function wetPace(L, laps = 4) {
+  // only laps most of the field has finished: a lap only the leaders have done reads off their few cars
+  const done = L.field.filter(x => x.st === 2).map(x => (x.lap || 0) - 1).sort((a, b) => a - b); const top = (done[Math.floor(done.length / 2)] ?? 0) + 1; const out = [];
+  const med = (a) => { const b = a.slice().sort((p, q) => p - q); return b.length ? b[Math.floor(b.length / 2)] : null; };
+  for (let n = Math.max(2, top - laps); n < top; n++) {
+    const g = { slick: [], inter: [], wet: [] };
+    for (const x of L.field) {
+      const ref = L.dryRef?.[x.i]; if (!ref || x.st !== 2) continue;
+      const l = liveLaps(x).find(q => q.n === n); if (!l?.valid) continue;
+      const pl = L.pitLaps?.[x.i] || []; if (pl.includes(n) || pl.includes(n - 1) || (L.scLaps?.[x.i] || []).includes(n)) continue;
+      const v = (l.ms / ref - 1) * 100; if (v > 40) continue;
+      const cp = tyreOnLap(L, x, n); (isSlick(cp) ? g.slick : cp === 7 ? g.inter : cp === 8 ? g.wet : []).push(v);
+    }
+    // one car on its own is too little to go on
+    out.push({ n, slick: g.slick.length >= 2 ? med(g.slick) : null, inter: g.inter.length >= 2 ? med(g.inter) : null, wet: g.wet.length >= 2 ? med(g.wet) : null });
+  }
+  return out;
+}
+/** A group's latest figure and its trend (% a lap, over the last three laps it ran). */
+function wetTrend(P, k) {
+  const pts = P.filter(p => p[k] != null).map(p => [p.n, p[k]]); if (!pts.length) return { v: null, d: 0 };
+  const t = pts.slice(-3); let d = 0;
+  if (t.length >= 2) { const mx = t.reduce((a, p) => a + p[0], 0) / t.length, my = t.reduce((a, p) => a + p[1], 0) / t.length; const sxx = t.reduce((a, p) => a + (p[0] - mx) ** 2, 0); d = sxx ? t.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / sxx : 0; }
+  return { v: pts[pts.length - 1][1], d };
+}
+/**
  * The weather call in a live race: the rain now and ahead, how far off dry the slick and inter runners are, and what to
- * do on the tyre you're on. A red flag is a free tyre change. { rain, ahead: [{ at, rain }], slick, inter, text, cls, tyre }
+ * do on the tyre you're on. A change is called for the lap when the tyre you're on would be slower next time round
+ * than the other (the trend counts: slicks losing 2% a lap as the rain builds), and only if it wins back the stop over
+ * the laps that follow; with no one on the other tyre yet, the track's crossover stands in for it. A red flag is a free
+ * tyre change. { rain, ahead: [{ at, rain }], slick, inter, text, cls, tyre }
  */
 function wetCall(c, s, r, L, me, loss) {
   const W = L.weather; if (!W) return null;
   const fc = (W.forecast || []).filter(x => x.session === L.sessionType);
   const rain = fc.find(x => x.at === 0)?.rain ?? null; const ahead = fc.filter(x => x.at > 0 && x.at <= 30);
   const M = wetModel(c, trackOf(r));
-  const grp = { slick: [], inter: [], wet: [] };
-  for (const x of L.field) {
-    const ref = L.dryRef?.[x.i]; const last = liveLaps(x).slice(-1)[0];
-    if (!ref || !last?.valid || x.pit || x.st !== 2) continue;
-    const v = (last.ms / ref - 1) * 100; if (v > 40) continue;
-    (isSlick(x.c) ? grp.slick : x.c === 7 ? grp.inter : x.c === 8 ? grp.wet : []).push(v);
-  }
-  const med = (a) => { const b = a.slice().sort((p, q) => p - q); return b.length ? b[Math.floor(b.length / 2)] : null; };
-  const slick = med(grp.slick), inter = med(grp.inter);
+  const P = wetPace(L); const S = wetTrend(P, 'slick'), I = wetTrend(P, 'inter');
+  // the rain building: the forecast ahead wetter than now
+  const rising = rain != null && ahead.some(x => x.rain > rain + 2);
+  // just after your own stop, going straight back needs a clear case (the other tyre 3% a lap quicker): the set you
+  // came off is still warm on the cars that stayed out, yours isn't
+  const fresh = (me.age ?? 9) < 3 && (me.stops || 0) > 0; const need = fresh ? 3 : 0;
+  const slick = S.v, inter = I.v;
   const onSlick = isSlick(me.c), onInter = me.c === 7;
   const ref = L.dryRef?.[me.i] || 90000; const left = Math.max(0, (L.totalLaps || 50) - me.lap);
-  const worth = (gainPct, laps) => gainPct / 100 * ref * laps > (L.red ? 0 : loss); // the time a change wins back, against what the stop costs
+  const span = Math.min(left, 10);
+  // the time a change wins back over the laps ahead (each lap's gap from the trends), against what the stop costs
+  const won = (gap0, d) => { let t = 0; for (let j = 1; j <= span; j++) t += Math.max(-10, Math.min(30, gap0 + d * j)); return t / 100 * ref; };
   const soon = (thr, rising) => { const f = ahead.find(x => rising ? x.rain >= thr : x.rain <= thr); return f ? f.at : null; };
+  const secs = (pct) => (pct / 100 * ref / 1000).toFixed(1);
   let text = '', cls = '', tyre = null;
-  if (onSlick) {
-    const gain = inter != null && slick != null ? slick - inter : slick != null ? slick - M.toInter.slow : null;
-    if (gain != null && gain > 0 && worth(gain, Math.min(left, 10))) { text = inter != null ? `Box for inters: they’re ${((gain / 100) * ref / 1000).toFixed(1)} s a lap quicker` : `Box for inters: slicks are ${slick.toFixed(1)}% off dry`; cls = 'call'; tyre = 7; }
-    else if (rain != null && rain >= M.toInter.rain - 10) { const m = soon(M.toInter.rain, true); text = m != null ? `Rain building: inters likely in about ${m} min` : `Rain ${rain}%: stay out on slicks for now`; cls = 'watch'; }
-  } else if (onInter) {
-    const gain = slick != null && inter != null ? inter - slick : inter != null && rain != null && rain <= M.toSlick.rain ? inter - M.toSlick.slow : null;
-    if (gain != null && gain > 0 && worth(gain, Math.min(left, 10))) { text = slick != null ? `Box for slicks: they’re ${((gain / 100) * ref / 1000).toFixed(1)} s a lap quicker` : `Box for slicks: the track is drying`; cls = 'call'; tyre = 17; }
+  if (onSlick && slick != null) {
+    // inters run about the crossover in these conditions until someone shows otherwise
+    const iv = inter ?? M.toInter.slow; const dS = Math.max(0, S.d), dI = inter != null ? I.d : 0;
+    const next = (slick + dS) - (iv + dI); // what inters would gain on the coming lap
+    if (next > need + 0.5 && won(next, dS - dI) > (L.red ? 0 : loss)) { text = inter != null ? `Box for inters: they’re ${secs(next)} s a lap quicker` : `Box for inters: slicks are ${slick.toFixed(1)}% off dry${dS > 0.3 ? ` and losing ${dS.toFixed(1)}% a lap` : ''}`; cls = 'call'; tyre = 7; }
+    else if (dS > 0.3 && iv > slick) { const k = Math.max(1, Math.ceil((iv - slick) / dS)); text = `Slicks losing ${dS.toFixed(1)}% a lap: inters in about ${k === 1 ? 'a lap' : `${k} laps`}`; cls = 'watch'; }
+    else if (rising && rain >= M.toInter.rain - 10) { const m = soon(M.toInter.rain, true); text = m != null ? `Rain building: inters likely in about ${m} min` : `Rain ${rain}%: stay out on slicks for now`; cls = 'watch'; }
+  } else if (onSlick && rising && rain >= M.toInter.rain - 10) { const m = soon(M.toInter.rain, true); text = m != null ? `Rain building: inters likely in about ${m} min` : `Rain ${rain}%: stay out on slicks for now`; cls = 'watch'; }
+  else if (onInter) {
+    const dI = Math.max(0, I.d);
+    // no one on slicks yet: the crossover stands in for them once the rain is near it and easing past it (now, or in the next ten minutes)
+    const drying = rain != null && rain <= M.toSlick.rain + 10 && (rain <= M.toSlick.rain || fc.some(x => x.at > 0 && x.at <= 10 && x.rain <= M.toSlick.rain));
+    // (and, with no one on them yet, slicks come good about 1% a lap as a line dries: at São Paulo the first ran 13% off
+    // and 11% two laps later, so the first to go gains, and the call can come with the next lap still about even)
+    const sv = slick ?? (drying ? M.toSlick.slow : null); const dS = slick != null ? Math.min(0, S.d) : drying ? -1 : 0;
+    const next = inter != null && sv != null ? (inter + dI) - (sv + dS) : null; // what slicks would gain on the coming lap
+    if (next != null && next > need - (slick == null ? 1 : 0) && won(next, dI - dS) > (L.red ? 0 : loss)) { text = slick != null ? `Box for slicks: they’re ${secs(next)} s a lap quicker` : 'Box for slicks: the track is drying'; cls = 'call'; tyre = 17; }
     else if (rain != null && rain >= M.wets.rain && inter != null && inter >= M.wets.slow) { text = 'Standing water: full wets would be quicker'; cls = 'call'; tyre = 8; }
     else if (rain != null && rain <= M.toSlick.rain + 15) { const m = soon(M.toSlick.rain, false); text = m != null ? `Drying: slicks likely in about ${m} min` : 'Stay on inters'; cls = 'watch'; }
   }
   return { rain, ahead, slick, inter, text, cls, tyre, own: M.own, n: M.n };
+}
+/**
+ * The weather strategy: speculative, from the forecast. The rain at each lap to come (minutes turned into laps at the
+ * car's pace, straight lines between the forecast's steps) and the track's crossovers say when inters go on and when
+ * slicks come back, each with a window (the laps the rain takes to pass from 5 points under the crossover to 5 over).
+ * Inters that won't last their stint get a second set. Null when no rain is expected and none is falling.
+ * plan: the dry plan's stints to come ([{ c, L }]), kept up to the first change. { stints (to come), changes: [{ lap, to, from, until }] }
+ */
+function weatherPlan(c, r, L, me, plan) {
+  const W = L.weather; if (!W) return null;
+  const fc = (W.forecast || []).filter(x => x.session === L.sessionType).sort((p, q) => p.at - q.at); if (!fc.length) return null;
+  const M = wetModel(c, trackOf(r)); const n = L.totalLaps || 50; const left = Math.max(0, n - me.lap + 1);
+  const wetNow = !isSlick(me.c);
+  if (!wetNow && Math.max(...fc.map(x => x.rain)) < M.toInter.rain - 10 && (W.now ?? 0) < 3) return null;
+  const lapMs = median(liveLaps(me).slice(-3).map(l => l.ms)) || L.dryRef?.[me.i] || 90000;
+  const rainAt = (j) => { const m = j * lapMs / 60000; const k = fc.findIndex(x => x.at >= m); if (k < 0) return fc[fc.length - 1].rain; if (k === 0) return fc[0].rain; const A = fc[k - 1], B = fc[k]; return A.rain + (B.rain - A.rain) * (m - A.at) / ((B.at - A.at) || 1); };
+  const changes = []; let wet = wetNow;
+  for (let j = 1; j < left; j++) {
+    const v = rainAt(j);
+    if (!wet && v >= M.toInter.rain) { wet = true; changes.push({ j, to: 7 }); }
+    else if (wet && v <= M.toSlick.rain) { wet = false; changes.push({ j, to: 'dry' }); }
+  }
+  for (const ch of changes) { // the window: where the rain is within 5 points of the crossover
+    const thr = ch.to === 7 ? M.toInter.rain : M.toSlick.rain; let a = ch.j, b = ch.j;
+    while (a > 1 && Math.abs(rainAt(a - 1) - thr) <= 5) a--; while (b < left - 1 && Math.abs(rainAt(b + 1) - thr) <= 5) b++;
+    ch.from = me.lap + a - 1; ch.until = me.lap + b - 1; ch.lap = me.lap + ch.j - 1;
+  }
+  if (!changes.length && !wetNow) return { stints: null, changes, quiet: true };
+  // the stints to come: the dry plan up to the first change, then the weather's
+  const out = []; let at = 0; // laps from now
+  const first = changes[0]?.j ?? left;
+  if (!wetNow) { let k0 = plan?.stints?.length ? plan.k : left; const cur = Math.min(k0, first); out.push({ c: me.c, L: cur, now: true }); at = cur; for (const x of plan?.stints || []) { if (at >= first) break; const l = Math.min(x.L, first - at); out.push({ c: x.c, L: l }); at += l; } }
+  else { out.push({ c: me.c, L: first, now: true }); at = first; }
+  const interLife = me.c === 7 && me.age >= 2 && me.wear > 0 ? Math.floor(WEAR_LIMIT / (me.wear / me.age)) : 30;
+  changes.forEach((ch, k) => {
+    const end = changes[k + 1]?.j ?? left; const len = end - ch.j; if (len <= 0) return;
+    if (ch.to === 7) { let rem = len; while (rem > 0) { const l = Math.min(rem, interLife); out.push({ c: 7, L: l }); rem -= l; } }
+    else { const dry = plan?.stints?.length ? plan.stints[plan.stints.length - 1].c : DRY.includes(me.c) ? me.c : 17; out.push({ c: dry, L: len }); }
+  });
+  return { stints: out, changes };
+}
+/** On inters or wets: how long the set lasts at the wear so far, and whether a second set is needed to reach the flag. */
+function wetStint(me, left) {
+  const rate = me.age >= 2 && me.wear > 0 ? me.wear / me.age : null;
+  const life = rate ? Math.max(0, Math.floor((WEAR_LIMIT - me.wear) / rate)) : null;
+  return { c: me.c, rate, life, second: life != null && life < left - 1 ? life : null };
 }

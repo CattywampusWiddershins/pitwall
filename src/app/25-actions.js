@@ -5,11 +5,13 @@ const actions = {
   // a replay moment: 15 s before it, only the drivers involved, playing
   'rp-moment'(el) {
     if (!RP) return; const ids = el.dataset.ids ? el.dataset.ids.split(',').map(Number) : [];
-    RP.T = Math.max(0, +el.dataset.t - 15); RP.focus = ids.length ? new Set(ids) : null;
+    RP.T = Math.max(0, +el.dataset.t - 15);
     if (ids.length) replayOnly(ids.map(i => RP.idOf(i))); else { RP.flt = { mode: 'all', hide: new Set() }; replayTrack(); }
+    // the list keeps its place: drawing the page again would scroll it back to the start
+    const sl = document.querySelector('.rp-mo-list')?.scrollLeft || 0;
     RP.playing = true; render(); replayLoop();
+    const list = document.querySelector('.rp-mo-list'); if (list) list.scrollLeft = sl;
   },
-  'rp-focus-clear'() { if (!RP) return; RP.focus = null; RP.flt = { mode: 'all', hide: new Set() }; render(); },
   'live-layout'(el) { ui.liveCompact = el.dataset.v === '1'; try { localStorage.setItem('pitwall.liveCompact', ui.liveCompact ? '1' : '0'); } catch { /* not kept */ } render(); },
   'rp-tab'(el) { ui.rpTab = el.dataset.v; ui.flOpen = null; render(); },
   'fl-open'(el) { ui.flOpen = { si: +el.dataset.si, rid: el.dataset.rid }; ui.flA = ui.flB = null; render(); },
