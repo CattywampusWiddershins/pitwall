@@ -6,7 +6,69 @@
   Race: the whole grid's long runs give the best strategy and its time; each driver's own long runs say how much
   faster or slower they are than the grid on the same tyres (where they did none, their ideal-lap gap stands in), and
   starting further back costs a little in traffic. Teams and drivers are then ranked on race pace per lap.
+  Both are then weighed with recent form (3.35.0). Re-run on the 19 weekends of 2026 against what happened, practice
+  on its own put the field about twice as far apart as it really was (real gaps were 56% of practice's in qualifying,
+  42% in the race), and made the player look 1.2 s quicker in qualifying than they turned out (0.8 s a lap in the
+  race; everyone else within 0.04 s). So each driver's gap to the field is 30% their practice gap at half size and
+  70% their actual gap over their last 10 weekends: qualifying came out 0.49 s off on average instead of 0.65, race
+  pace 0.35 s a lap instead of 0.57. A driver with no recent weekends goes on half-size practice alone.
 */
+const FC_PRACTICE = 0.3, FC_SCALE = 0.5, FC_FORM = 10;
+const _fcAct = new Map();
+/** What a finished weekend showed: each driver's gap to the field's median in qualifying (their best lap) and in race pace (their typical clean lap, fuel and ERS evened out). { q, r } or null. */
+function weekendActuals(s, r) {
+  const key = `${s.index}:${r.id}`; const hit = _fcAct.get(key); if (hit?.gen === renderGen) return hit.v;
+  const w = s.weekends[r.id]; const Q = w?.sessions?.Q, R = w?.sessions?.R; let v = null;
+  const center = (m) => { const x = Object.values(m); if (x.length < 6) return null; const md = median(x); return Object.fromEntries(Object.entries(m).map(([d, t]) => [d, t - md])); };
+  if (Q?.game?.laps || (R?.done && R?.game?.laps)) {
+    const aQ = {}; for (const [d, L] of Object.entries(Q?.game?.laps || {})) { const t = L.filter(l => l[0] && l[1]).map(l => l[0]); if (t.length) aQ[d] = Math.min(...t); }
+    const aR = {};
+    if (R?.done && R.game?.laps) for (const d of Object.keys(R.game.laps)) {
+      const N = normLaps(R, d).laps; const bad = new Set([1]); stintsOf(R, d).forEach(x => { bad.add(x.from); bad.add(x.to); });
+      const t = N.map((x, i) => bad.has(i + 1) ? null : x).filter(Boolean); if (t.length < 8) continue; const b = Math.min(...t); aR[d] = median(t.filter(x => x <= b * 1.03));
+    }
+    v = { q: center(aQ), r: center(aR) };
+  }
+  _fcAct.set(key, { gen: renderGen, v }); return v;
+}
+/**
+ * Each driver's average gap to the field over the last FC_FORM weekends before this one (this season and earlier):
+ * kind 'q' or 'r'. A weekend counts the driver's own gap if they were in the same team then; otherwise (a move, a
+ * rookie) the gap of the team they drive for now, its drivers' average that weekend: the car they'll have.
+ */
+function recentForm(c, s, round, kind) {
+  const past = [];
+  for (const ss of c.seasons.slice(0, s.index + 1)) { if (isHist(ss)) continue; for (const r of activeRounds(ss)) { if (ss === s && r === round) break; const a = weekendActuals(ss, r)?.[kind]; if (a) past.push({ ss, a }); } }
+  const now = Object.fromEntries(gridIds(s).map(d => [d, teamRoot(teamOf(s, d)?.id)]));
+  const by = {};
+  for (const { ss, a } of past.reverse()) {
+    const teamGap = {}; for (const [d, g] of Object.entries(a)) { const t = teamRoot(teamOf(ss, d)?.id); if (t) (teamGap[t] ||= []).push(g); }
+    for (const [d, t] of Object.entries(now)) {
+      const v = by[d] ||= []; if (v.length >= FC_FORM) continue;
+      const same = a[d] != null && teamRoot(teamOf(ss, d)?.id) === t;
+      const g = same ? a[d] : teamGap[t] ? avg(teamGap[t]) : null; if (g != null) v.push(g);
+    }
+  }
+  return Object.fromEntries(Object.entries(by).filter(([, v]) => v.length).map(([d, v]) => [d, avg(v)]));
+}
+/** A practice gap (to the field's median) weighed with recent form, and centred again. */
+function blendGaps(prac, form) {
+  const md = median(Object.values(prac)); const out = {};
+  for (const d of new Set([...Object.keys(prac), ...Object.keys(form)])) {
+    const pv = prac[d] != null ? (prac[d] - md) * FC_SCALE : null, fv = form[d];
+    out[d] = pv != null && fv != null ? FC_PRACTICE * pv + (1 - FC_PRACTICE) * fv : pv ?? fv;
+  }
+  const m2 = median(Object.values(out)); for (const d in out) out[d] -= m2; return out;
+}
+/** The qualifying forecast: [{ d, gap (ms to the field), ideal, best, form }] fastest first, for drivers on the grid. */
+function qualiForecast(c, s, round) {
+  const ideal = idealLaps(s, round); const grid = new Set(gridIds(s));
+  const prac = Object.fromEntries(Object.entries(ideal).filter(([d]) => grid.has(d)).map(([d, o]) => [d, o.ideal]));
+  const form = Object.fromEntries(Object.entries(recentForm(c, s, round, 'q')).filter(([d]) => grid.has(d)));
+  if (!Object.keys(prac).length) return [];
+  const g = blendGaps(prac, form);
+  return Object.entries(g).map(([d, gap]) => ({ d, gap, ideal: ideal[d]?.ideal ?? null, best: ideal[d]?.best ?? null, form: form[d] != null })).sort((a, b) => a.gap - b.gap);
+}
 const SECTOR_OK = [2, 4, 8]; // the game's validity flag for sector 1, 2 and 3
 /** Each driver's ideal lap from practice and the sprint shootout: { d: { ideal, best, sectors: [s1, s2, s3] } }. */
 function idealLaps(s, round) {
@@ -33,7 +95,7 @@ function raceForecast(s, round) {
   const baseT = plan ? plan.t : (() => { const g = grid[comps[0]]; return n * g.base + g.deg * n * (n - 1) / 2; })();
   const idealMed = (() => { const v = Object.values(ideal).map(o => o.ideal).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; })();
   const q = s.weekends[round.id]?.sessions?.Q;
-  const qOrder = q?.done ? q.results.map(x => x.d) : Object.entries(ideal).sort((a, b) => a[1].ideal - b[1].ideal).map(([d]) => d);
+  const qOrder = q?.done ? q.results.map(x => x.d) : qualiForecast(career(), s, round).map(x => x.d);
   const rows = [];
   for (const d of gridIds(s)) {
     const own = practiceRuns(s, round, d);
@@ -42,8 +104,14 @@ function raceForecast(s, round) {
     if (off == null && ideal[d] && idealMed) { off = ideal[d].ideal - idealMed; est = true; }
     if (off == null) continue;
     const start = qOrder.indexOf(d) + 1 || gridIds(s).length;
-    rows.push({ d, off, est, start, t: baseT + off * n + (start - 1) * 350 });
+    rows.push({ d, off, est, start });
   }
+  // practice offsets weighed with recent race pace (a driver with no practice run but recent races goes on form alone)
+  const form = Object.fromEntries(Object.entries(recentForm(career(), s, round, 'r')).filter(([d]) => gridIds(s).includes(d)));
+  if (!rows.length && !Object.keys(form).length) return null;
+  const B = blendGaps(Object.fromEntries(rows.map(x => [x.d, x.off])), form);
+  for (const d of Object.keys(form)) if (!rows.some(x => x.d === d)) rows.push({ d, off: 0, est: 'form', start: qOrder.indexOf(d) + 1 || gridIds(s).length });
+  for (const x of rows) { x.off = B[x.d] ?? x.off; x.t = baseT + x.off * n + (x.start - 1) * 350; }
   rows.sort((a, b) => a.t - b.t);
   const T = {};
   for (const x of rows) { const tm = teamOf(s, x.d); if (tm) (T[tm.id] ||= { team: tm, offs: [] }).offs.push(x.off); }
@@ -57,11 +125,10 @@ function renderCurrentWeekend() {
   if (!r || isHist(s)) return `<div class="page">${head('No weekend left to run this season.')}</div>`;
   const rounds = activeRounds(s); const w = s.weekends[r.id];
   const done = sessionsFor(s, r).filter(k => w?.sessions?.[k]?.done);
-  const ideal = idealLaps(s, r);
-  const qRows = Object.entries(ideal).sort((a, b) => a[1].ideal - b[1].ideal);
+  const QF = qualiForecast(c, s, r);
   const q = w?.sessions?.Q; const qPos = (d) => q?.done ? q.results.findIndex(x => x.d === d) + 1 : null;
-  const qMax = qRows.length ? Math.max(1, ...qRows.map(([, o]) => o.ideal - qRows[0][1].ideal)) : 1;
-  const quali = qRows.length ? practiceRows(c, s, qRows.map(([d, o], k) => ({ id: d, me: d === PLAYER, name: lastName(dName(s, d)), sub: `Ideal ${fmtLap(o.ideal)} · best lap ${isFinite(o.best) ? fmtLap(o.best) : '–'}${qPos(d) ? ` · qualified P${qPos(d)}` : ''}`, val: k ? '+' + ((o.ideal - qRows[0][1].ideal) / 1000).toFixed(3) : fmtLap(o.ideal), pct: 100 - (o.ideal - qRows[0][1].ideal) / qMax * 70 }))) : '<div class="empty">No practice laps from F1 25 yet. Run practice with telemetry on: each driver\'s best sectors make their ideal lap.</div>';
+  const qMax = QF.length ? Math.max(1, ...QF.map(x => x.gap - QF[0].gap)) : 1;
+  const quali = QF.length ? practiceRows(c, s, QF.map((x, k) => ({ id: x.d, me: x.d === PLAYER, name: lastName(dName(s, x.d)), sub: `${x.ideal ? `Ideal ${fmtLap(x.ideal)} · best lap ${isFinite(x.best) ? fmtLap(x.best) : '–'}` : 'No practice laps: from recent form'}${qPos(x.d) ? ` · qualified P${qPos(x.d)}` : ''}`, val: k ? '+' + ((x.gap - QF[0].gap) / 1000).toFixed(3) : 'Pole', pct: 100 - (x.gap - QF[0].gap) / qMax * 70 }))) : '<div class="empty">No practice laps from F1 25 yet. Run practice with telemetry on: each driver\'s best sectors make their ideal lap.</div>';
   const F = raceForecast(s, r);
   const rMax = F ? Math.max(1, ...F.order.map(x => x.t - F.order[0].t)) : 1;
   const race = F ? practiceRows(c, s, F.order.map((x, k) => ({ id: x.d, me: x.d === PLAYER, name: lastName(dName(s, x.d)), sub: `Starts P${x.start} · ${fmtLap(Math.round(x.t / F.n))} a lap${x.est ? ' · est.' : ''}`, val: k ? '+' + ((x.t - F.order[0].t) / 1000).toFixed(1) : 'P1', pct: 100 - (x.t - F.order[0].t) / rMax * 70 }))) : '<div class="empty">No long runs in practice yet: three or more consecutive clean laps on a compound make a run.</div>';
@@ -70,16 +137,16 @@ function renderCurrentWeekend() {
   const teamBoard = F?.teams.length ? practiceRows(c, s, F.teams.map((o, k) => ({ team: o.team, me: o.team.id === s.playerTeamId, name: o.team.name, sub: 'Pace per lap, long runs', val: k ? gapS(o.off - best) : 'Fastest', pct: 100 - (o.off - best) / tMax * 70 }))) : '';
   const dBest = F ? Math.min(...F.order.map(x => x.off)) : 0;
   const dSorted = F?.order.length ? F.order.slice().sort((a, b) => a.off - b.off) : []; const dMax = dSorted.length ? Math.max(1, ...dSorted.map(x => x.off - dBest)) : 1;
-  const drvBoard = dSorted.length ? practiceRows(c, s, dSorted.map((x, k) => ({ id: x.d, me: x.d === PLAYER, name: lastName(dName(s, x.d)), sub: `${esc(teamOf(s, x.d)?.name || '')}${x.est ? ' · est. from the ideal lap' : ''}`, val: k ? gapS(x.off - dBest) : 'Fastest', pct: 100 - (x.off - dBest) / dMax * 70 }))) : '';
+  const drvBoard = dSorted.length ? practiceRows(c, s, dSorted.map((x, k) => ({ id: x.d, me: x.d === PLAYER, name: lastName(dName(s, x.d)), sub: `${esc(teamOf(s, x.d)?.name || '')}${x.est === 'form' ? ' · from recent races' : x.est ? ' · est. from the ideal lap' : ''}`, val: k ? gapS(x.off - dBest) : 'Fastest', pct: 100 - (x.off - dBest) / dMax * 70 }))) : '';
   return `<div class="page">
     ${head(`Round ${rounds.indexOf(r) + 1} · ${esc(r.name)} · ${fmtDay(roundDate(s, r))}${r.sprint ? ' · sprint weekend' : ''}. Forecasts from this weekend's practice in F1 25${done.length ? `; logged so far: ${done.map(k => SESSION_SHORT[k]).join(', ')}` : ''}.`)}
     <div class="row" style="gap:8px"><button class="btn sm" data-act="open-round" data-round="${r.id}">Open the weekend</button></div>
     <div class="grid-2">
-      <div class="panel"><div class="panel-h"><h2>Qualifying forecast</h2><span class="muted" style="font-size:12px">Ideal lap: best sectors from all practice</span></div><div class="panel-b tight table-wrap">${quali}</div></div>
+      <div class="panel"><div class="panel-h"><h2>Qualifying forecast</h2><span class="muted" style="font-size:12px">Practice ideal laps at half weight, with the last 10 weekends’ qualifying</span></div><div class="panel-b tight table-wrap">${quali}</div></div>
       <div class="panel"><div class="panel-h"><h2>Race forecast</h2><span class="muted" style="font-size:12px">${F ? `${plural(F.n, 'lap')}${F.plan ? ` · ${plural(F.plan.stops, 'stop')} race` : ''}` : ''}</span></div><div class="panel-b tight table-wrap">${race}</div></div>
     </div>
     ${F ? `<div class="grid-2">
-      <div class="panel"><div class="panel-h"><h2>Predicted race pace · teams</h2><span class="muted" style="font-size:12px">Long runs against the grid, per lap</span></div><div class="panel-b tight table-wrap">${teamBoard}</div></div>
+      <div class="panel"><div class="panel-h"><h2>Predicted race pace · teams</h2><span class="muted" style="font-size:12px">Long runs against the grid, with recent races, per lap</span></div><div class="panel-b tight table-wrap">${teamBoard}</div></div>
       <div class="panel"><div class="panel-h"><h2>Predicted race pace · drivers</h2><span class="muted" style="font-size:12px">“est.” = no long run, from the ideal lap</span></div><div class="panel-b tight table-wrap">${drvBoard}</div></div>
     </div>` : ''}
     ${flLapPanel(c, s, r)}

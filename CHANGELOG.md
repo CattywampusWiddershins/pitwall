@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.35.0
+
+- **Better weekend forecasts.** I re-ran the qualifying and race forecasts on your 19 played 2026 weekends against what really happened. Practice on its own spread the field about twice as wide as it really was, and made you look 1.2 s quicker in qualifying than you turned out (0.8 s a lap in the race; everyone else within 0.04 s).
+  - Each driver's gap to the field is now 30% their practice gap at half size and 70% their actual gap over their last 10 weekends, in qualifying and race pace separately.
+  - A driver who has changed teams (or a rookie) goes by their new team's recent form: the car they'll have.
+  - The qualifying forecast's typical miss falls from 0.65 s to 0.49 s, and race pace from 0.57 s to 0.35 s a lap. The team and driver race-pace boards and the race forecast all use it.
+
 ## 3.34.7
 
 - **ERS normalising re-measured.** On every practice run since 3.4 (26 runs, 155 laps), each extra kJ deployed took 0.55 ms off your lap, with the tyre age and fuel held. That's up from the 0.35 ms used since 3.14.2. Practice fall-off now matches the races a little better: 0.099 s a lap off on average, against 0.104 s. The AI's laps get their own figure, 0.06 ms a kJ, measured the same way on 220 runs: their deployment barely changes their lap time. Your Australia hard run, which got quicker as you used more ERS, now comes out almost flat.
