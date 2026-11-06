@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.2
+
+- **Retirements can be taken back.** A driver who announced a retirement and then signs a new deal in the same season (a new contract, or a move) now stays on the grid for next season, and the press runs it as a U-turn ("BREAKING: Two-time world champion Alonso unretires").
+- Transfers for next season now start from next season's line-up, so a seat left empty by a move already signed (yours included) counts as free: a driver can take it without replacing anyone.
+
 ## 3.34.1
 
 - Pre-season graphics: long headlines ("The road to Abu Dhabi starts now") no longer run off the edge or crowd the drivers. A headline now shrinks until it fits its lines, and the team-colour style keeps its headline to two lines on the band.

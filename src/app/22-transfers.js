@@ -30,8 +30,8 @@ const trLabel = (c, s, id) => `${trName(c, s, id)}${id === PLAYER_ID ? ' (you)' 
 /** A step as recorded: what the move does to the grid. */
 const stepMove = (st) => ({ kind: st.action === 'extend' ? 'extend' : 'move', driver: st.driver, to: st.action === 'move' ? st.to : st.action, replaces: st.action === 'move' ? st.replaces || null : null });
 /** The grid as it would be after the first n steps of the chain being built. */
-function trSim(c, s, steps, n) {
-  const teams = s.teams.map(t => ({ ...t, drivers: [...t.drivers] }));
+function trSim(c, s, steps, n, base = s.teams) {
+  const teams = base.map(t => ({ ...t, drivers: [...t.drivers] }));
   for (const st of steps.slice(0, n)) if (st.driver) applyMove(c, teams, {}, stepMove(st));
   return teams;
 }
@@ -45,7 +45,9 @@ function transferModal(pre = {}) {
 function drawTransferModal() {
   const c = career(); const s = latestSeason(); const m = ui.modal;
   const known = allKnownDrivers(c, s);
-  const grid = gridIds(s);
+  // a transfer for next season starts from next season's line-up (moves already signed), not this one
+  const baseTeams = m.effective === 'next' ? nextLineup(c, s).teams : s.teams;
+  const grid = baseTeams.flatMap(t => t.drivers).filter(Boolean);
   const startYear = m.effective === 'next' ? s.year + 1 : s.year;
   const years = Array.from({ length: 6 }, (_, k) => startYear + k);
   const opt = (v, l, on) => `<option value="${esc(v)}" ${on ? 'selected' : ''}>${esc(l)}</option>`;
@@ -53,7 +55,7 @@ function drawTransferModal() {
   const html = [];
   for (let i = 0; i < m.steps.length; i++) {
     const st = m.steps[i];
-    const before = trSim(c, s, m.steps, i);
+    const before = trSim(c, s, m.steps, i, baseTeams);
     const curTeam = before.find(t => t.drivers.includes(st.driver));
     const chainIds = m.steps.slice(0, i).map(x => x.driver);
     if (st.action === 'extend' && !curTeam) st.action = 'move';
@@ -63,7 +65,7 @@ function drawTransferModal() {
       const pool = [...extra, ...m.newDrivers.map(d => d.id).filter(id => !extra.includes(id))];
       body += `<label class="field"><span>Driver</span><select data-ch="tr-field" data-i="0" data-k="driver">
         ${!st.driver ? opt('', 'Pick a driver…', true) : ''}
-        ${s.teams.map(t => `<optgroup label="${esc(t.name)}">${t.drivers.filter(d => d && trPick(c, d)).map(d => opt(d, trLabel(c, s, d), st.driver === d)).join('')}</optgroup>`).join('')}
+        ${baseTeams.map(t => `<optgroup label="${esc(t.name)}">${t.drivers.filter(d => d && trPick(c, d)).map(d => opt(d, trLabel(c, s, d), st.driver === d)).join('')}</optgroup>`).join('')}
         ${poolGroups(c, s, pool, (d) => opt(d, trName(c, s, d), st.driver === d))}
         <option value="__new" ${m.nd[0] ? 'selected' : ''}>+ A new driver entering F1…</option></select></label>`;
     }
@@ -120,7 +122,8 @@ function confirmTransfer() {
   const before = { teams: s.teams.map(t => ({ id: t.id, drivers: [...t.drivers] })), contracts: { ...(c.contracts || {}) }, retired: { ...(c.retired || {}) }, pending: { ...(c.pending || {}) }, playerTeamId: s.playerTeamId, benched: s.benched };
   // record each step with the team the driver was at before the chain and what their old deal was
   const steps = m.steps.map(st => {
-    const rec = { ...stepMove(st), from: teamOf(s, st.driver)?.id ?? null, until: st.action === 'move' || st.action === 'extend' ? st.until : null, prevUntil: contractUntil(c, s, st.driver), wasPending: !!c.pending?.[st.driver] };
+    const base = m.effective === 'next' ? nextLineup(c, s).teams : s.teams;
+    const rec = { ...stepMove(st), from: base.find(t => t.drivers.includes(st.driver))?.id ?? (m.effective === 'next' ? null : teamOf(s, st.driver)?.id ?? null), until: st.action === 'move' || st.action === 'extend' ? st.until : null, prevUntil: contractUntil(c, s, st.driver), wasPending: !!c.pending?.[st.driver] };
     if (rec.kind === 'extend') rec.to = rec.from;
     return rec;
   });
@@ -259,7 +262,18 @@ function transferStory(c, s, tr) {
   const career = tot.starts ? `${L} has ${plural(tot.starts, 'Grand Prix start')}, ${plural(tot.wins, 'win')} and ${plural(tot.podiums, 'podium')}${titles ? `, plus ${plural(titles, 'world title')} (${tot.titles.join(', ')})` : ''}.` : '';
   const debut = !tot.starts && !m0.from;
   let headline, standfirst, body = [], kicker = 'BREAKING', massive = false;
-  if (m0.kind === 'extend') {
+  // signing after announcing a retirement this season, the first deal since: the retirement is off
+  const k0 = (s.transfers || []).indexOf(tr);
+  const retTr = k0 > 0 ? s.transfers.slice(0, k0).filter(x => x.steps.some(st => st.driver === m0.driver)).pop() : null;
+  const unretire = retTr && retTr.steps.find(st => st.driver === m0.driver)?.to === 'retire' && (m0.kind === 'extend' || (to && m0.kind === 'move'));
+  if (unretire) {
+    const team = to || trTeam(c, s, m0.to); const rr = rounds[retTr.at - 1];
+    kicker = 'BREAKING · U-turn'; massive = !!champ;
+    headline = champ ? `BREAKING: ${Champ} ${L} unretires` : choose(rnd, [`BREAKING: ${L} unretires`, `BREAKING: ${L} U-turns on retirement`, `BREAKING: ${L} is staying in F1 after all`]);
+    standfirst = `Despite announcing a retirement earlier this season, ${nm} will race on in ${s.year + 1}${m0.kind === 'extend' ? `, having signed a new contract with ${team}` : `, with ${team}`}${m0.until ? ` that runs ${length(m0.until)}` : ''}.`;
+    body = [`The retirement was announced ${rr ? `after the ${rr.name} Grand Prix` : 'earlier in the year'}, and the paddock had started saying its goodbyes. Now ${L} has changed course.`,
+      career, champ ? `A ${champ} back for more: the grid is all the better for it.` : choose(rnd, ['Few drivers walk back a retirement. Fewer still do it within the same season.', `${team} clearly think there is plenty left in the tank.`])];
+  } else if (m0.kind === 'extend') {
     headline = champ ? `BREAKING: ${Champ} ${L} commits future to ${to}` : choose(rnd, [`BREAKING: ${L} signs new ${to} deal`, `BREAKING: ${L} commits future to ${to}`]);
     standfirst = `${nm} has agreed a new contract with ${to}${m0.until ? ` that runs ${length(m0.until)}` : ''}.`;
     body = [career];

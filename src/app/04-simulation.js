@@ -348,7 +348,8 @@ function baseRoster(c, index, prev) {
 
 /** One link of a transfer chain: the driver leaves their seat and takes one at `to` (or leaves the grid). */
 function applyMove(c, teams, drivers, m) {
-  if (m.kind === 'extend') return;
+  // a new contract: nothing changes, unless the driver had left the grid (a retirement taken back), when they go back in
+  if (m.kind === 'extend') { if (teams.some(t => t.drivers.includes(m.driver))) return; m = { ...m, kind: 'move', replaces: null }; }
   for (const t of teams) { const k = t.drivers.indexOf(m.driver); if (k >= 0) t.drivers[k] = null; }
   const t = teams.find(x => x.id === m.to);
   if (!t) return; // free agent, retired, or a team that isn't on this grid
