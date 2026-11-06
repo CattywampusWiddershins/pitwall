@@ -1049,6 +1049,8 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .pod-pair.body ~ .pod-name, .pod-pair.body ~ .pod-pts, .pod-pair.body ~ .pod-n { position: relative; z-index: 2; }
 .pod-pair + .pod-logo { height: 40px; top: 10px; right: 10px; z-index: 1; }
 /* the champion's points, in gold as in the graphics */
+.tile .v b { font-weight: inherit; }
+.gold-v { background: linear-gradient(180deg, #F3D98B 0%, #D4AF37 50%, #B8901E 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .pod-card.champ .pod-pts b { background: linear-gradient(180deg, #F3D98B 0%, #D4AF37 50%, #B8901E 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
 /* Live Race: the TV graphics. The lap counter with the safety car under it, and the championship as it stands. */

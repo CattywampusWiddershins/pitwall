@@ -21,6 +21,9 @@ function renderDashboard() {
   if (myRow && !top.some(x => x.id === PLAYER)) top.push(myRow);
   const cs = constructorStandings(s, stats);
   const prevD = done > 1 ? driverStandings(s, seasonStats(s, done - 1)) : null;
+  // the title won (with rounds to go or at the end): P1, the points and the finish in gold, as in the standings
+  const won = (() => { try { return decidedChamps(s, done, ds, cs).champ === PLAYER; } catch { return false; } })();
+  const gld = won ? ' gold-v' : '';
 
   return `<div class="page">
     <section class="hero">
@@ -43,9 +46,9 @@ function renderDashboard() {
     </section>
 
     <div class="tiles">
-      <div class="tile"><span class="label">Championship</span><span class="v">${myRow && done ? 'P' + myRow.pos : '–'}<small> / ${ds.length}</small></span></div>
-      ${(() => { const fl = `<div class="tile"><span class="label">Fastest laps</span><span class="v">${me.fls}</span></div>`; try { const m = titleMath(s, 'driver'); if (!m.left.length || !done) return fl; const Pj = projection(c, s, m); if (!Pj.hasForm) return fl; const k = Pj.rows.findIndex(x => x.id === PLAYER); return k < 0 ? fl : `<div class="tile" data-act="nav" data-view="forecast" style="cursor:pointer" title="From the title forecast, on current form"><span class="label">Predicted finish</span><span class="v">P${k + 1}<small> on form</small></span></div>`; } catch { return fl; } })()}
-      <div class="tile"><span class="label">Points</span><span class="v">${me.pts}<small>${gap > 0 ? ` −${gap}` : ''}</small></span></div>
+      <div class="tile"><span class="label">Championship</span><span class="v">${myRow && done ? `<b class="${gld}">P${myRow.pos}</b>` : '–'}<small> / ${ds.length}</small></span></div>
+      ${(() => { const fl = `<div class="tile"><span class="label">Fastest laps</span><span class="v">${me.fls}</span></div>`; if (won) return `<div class="tile"><span class="label">${nr ? 'Predicted finish' : 'Finish'}</span><span class="v"><b class="gold-v">Champion</b></span></div>`; try { const m = titleMath(s, 'driver'); if (!m.left.length || !done) return fl; const Pj = projection(c, s, m); if (!Pj.hasForm) return fl; const k = Pj.rows.findIndex(x => x.id === PLAYER); return k < 0 ? fl : `<div class="tile" data-act="nav" data-view="forecast" style="cursor:pointer" title="From the title forecast, on current form"><span class="label">Predicted finish</span><span class="v">P${k + 1}<small> on form</small></span></div>`; } catch { return fl; } })()}
+      <div class="tile"><span class="label">Points</span><span class="v"><b class="${gld}">${me.pts}</b><small>${gap > 0 ? ` −${gap}` : ''}</small></span></div>
       <div class="tile"><span class="label">Wins</span><span class="v">${me.wins}</span></div>
       <div class="tile"><span class="label">Podiums</span><span class="v">${me.podiums}</span></div>
       <div class="tile"><span class="label">Poles</span><span class="v">${me.poles}</span></div>

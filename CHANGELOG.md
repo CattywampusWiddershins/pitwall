@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.30.2
+
+- **Dashboard: the title in gold once it's yours.** When you've won the drivers' title, P1 in the Championship tile and your points turn gold, as in the standings and stories, and Predicted finish reads "Champion" in gold.
+
 ## 3.30.1
 
 - **Titles count the moment they're won.** Wrapping up the drivers' or teams' title with rounds to spare now puts it straight into the Hall of Fame, Career Stats, driver and team profiles and head-to-heads, instead of waiting for the last round. Final positions below first still count once the season is over.
