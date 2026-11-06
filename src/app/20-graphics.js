@@ -902,7 +902,7 @@ async function gfxQuote(g, k, c, s, { ri, kicker, headline, quotes, solo = false
   gfxDiag(g, 0, 0, GFX_W, GFX_H, { gap: 80, width: 3, alpha: 0.05 });
   await k.logo(GFX_W - 230, 36, 180, 56, GFX_RED, 'right');
   k.text(String(kicker).toUpperCase(), 54, 120, { size: 32, weight: 800, color: '#FF6B6B', max: GFX_W - 108 });
-  const qs = quotes.slice(0, solo ? 1 : 2);
+  const qs = quotes.slice(0, solo ? 1 : 3); const n = qs.length;
   if (solo || qs.length === 1) {
     const q = qs[0]; const tm = teamAt(s, q.id, ri) || teamOf(s, q.id); const col = gfxTeamCol(tm);
     gfxGlow(g, GFX_W - 280, 820, 460, col, 0.45);
@@ -913,13 +913,13 @@ async function gfxQuote(g, k, c, s, { ri, kicker, headline, quotes, solo = false
     return;
   }
   k.wrap(String(headline).toUpperCase(), 54, 200, { size: 62, weight: 900, max: GFX_W - 108, lines: 2, lh: 1.02, fam: k.disp });
-  for (let j = 0; j < 2; j++) {
-    const q = qs[j]; const tm = teamAt(s, q.id, ri) || teamOf(s, q.id); const col = gfxTeamCol(tm); const x0 = j * GFX_W / 2, w = GFX_W / 2;
+  for (let j = 0; j < n; j++) {
+    const q = qs[j]; const tm = teamAt(s, q.id, ri) || teamOf(s, q.id); const col = gfxTeamCol(tm); const x0 = j * GFX_W / n, w = GFX_W / n;
     const gr = g.createLinearGradient(0, 420, 0, GFX_H); gr.addColorStop(0, hexA(col, 0)); gr.addColorStop(1, hexA(col, 0.4)); g.fillStyle = gr; g.fillRect(x0, 420, w, GFX_H - 420);
     g.save(); g.beginPath(); g.rect(x0, 0, w, GFX_H); g.clip(); await gfxStand(g, c, s, q.id, { cx: x0 + w / 2, top: 400, bottom: GFX_H, frac: 0.55 }); g.restore();
-    const by = GFX_H - 330; g.fillStyle = 'rgba(0,0,0,0.66)'; g.fillRect(x0 + 30, by, w - 60, 280); g.fillStyle = col; g.fillRect(x0 + 30, by, 10, 280);
-    k.text(lastName(trName(c, s, q.id)).toUpperCase(), x0 + 60, by + 44, { size: 38, weight: 900, max: w - 110 });
-    k.wrap(`“${q.text}”`, x0 + 60, by + 100, { size: 27, weight: 600, max: w - 110, lines: 6, lh: 1.3 });
+    const pad = n > 2 ? 16 : 30, bh = n > 2 ? 360 : 280, by = GFX_H - bh - 50; g.fillStyle = 'rgba(0,0,0,0.66)'; g.fillRect(x0 + pad, by, w - pad * 2, bh); g.fillStyle = col; g.fillRect(x0 + pad, by, 10, bh);
+    k.text(lastName(trName(c, s, q.id)).toUpperCase(), x0 + pad + 26, by + 44, { size: n > 2 ? 32 : 38, weight: 900, max: w - pad * 2 - 40 });
+    k.wrap(`“${q.text}”`, x0 + pad + 26, by + 96, { size: n > 2 ? 23 : 27, weight: 600, max: w - pad * 2 - 44, lines: n > 2 ? 9 : 6, lh: 1.3 });
   }
 }
 
@@ -1167,7 +1167,7 @@ function headWords(h, hiKey, base, hiStyle, upper = true) {
   return parts.flatMap(([p, on]) => p.split(' ').filter(Boolean).map((w, j) => ({ t: w, ...(on ? hiStyle : base), br: on && j === 0 })));
 }
 /** A cut-out drawn full length: its visible box h tall, centred on cx, feet at bottom. */
-async function gfxStand(g, url, cx, bottom, h, { filter = null, blend = null, shadow = null } = {}) {
+async function gfxStandAt(g, url, cx, bottom, h, { filter = null, blend = null, shadow = null } = {}) {
   const B = url && await gfxBodyBox(url); if (!B) return false;
   const sc = h / B.h; const dw = B.w * sc;
   g.save(); if (filter) g.filter = filter; if (blend) g.globalCompositeOperation = blend; if (shadow) { g.shadowColor = shadow; g.shadowBlur = 30; g.shadowOffsetY = 12; }
@@ -1191,8 +1191,8 @@ async function gfxSeason(g, k, c, s, { style, head = null }) {
     k.text(l1, W / 2, 15 * u, { size: 100, weight: 900, align: 'center', max: W - 80 });
     if (l2) k.text(l2, W / 2, 28 * u, { size: 160, weight: 900, align: 'center', max: W - 80, color: goldFill(g, 0, 21 * u, W, 15 * u) });
     const xs = [12, 31, 69, 88]; const order = [P.five[4], P.five[2], P.five[1], P.five[3]];
-    for (let j = 0; j < 4; j++) if (order[j]) await gfxStand(g, bodies[order[j]], xs[j] * u, H - 17 * u, 62 * u, { shadow: 'rgba(0,0,0,0.6)' });
-    await gfxStand(g, bodies[P.five[0]], 50 * u, H - 17 * u, 74 * u, { shadow: 'rgba(0,0,0,0.6)' });
+    for (let j = 0; j < 4; j++) if (order[j]) await gfxStandAt(g, bodies[order[j]], xs[j] * u, H - 17 * u, 62 * u, { shadow: 'rgba(0,0,0,0.6)' });
+    await gfxStandAt(g, bodies[P.five[0]], 50 * u, H - 17 * u, 74 * u, { shadow: 'rgba(0,0,0,0.6)' });
     const fl = g.createLinearGradient(0, H - 24 * u, 0, H); fl.addColorStop(0, 'rgba(5,7,13,0)'); fl.addColorStop(0.55, 'rgba(5,7,13,1)'); g.fillStyle = fl; g.fillRect(0, H - 24 * u, W, 24 * u);
     const slots = [P.five[4], P.five[2], P.five[0], P.five[1], P.five[3]];
     slots.forEach((d, j) => { if (!d) return; const x = (3 + 94 * (j + 0.5) / 5) * u; const lead = j === 2;
@@ -1207,7 +1207,7 @@ async function gfxSeason(g, k, c, s, { style, head = null }) {
     const bg = g.createLinearGradient(0, 0, W * 0.6, H); bg.addColorStop(0, lite); bg.addColorStop(0.32, mixHex(sc, '#000000', 0.45)); bg.addColorStop(0.72, '#111114'); bg.addColorStop(1, '#0A0A0D'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
     gfxGlow(g, 0.7 * W, 0.4 * H, 0.55 * W, '#E9C46A', 0.35);
     const body = bodies[P.subject];
-    await gfxStand(g, body, W - 22 * u, H + 4 * u, 118 * u, { shadow: 'rgba(0,0,0,0.7)' });
+    await gfxStandAt(g, body, W - 22 * u, H + 4 * u, 118 * u, { shadow: 'rgba(0,0,0,0.7)' });
     const end = gfxRich(g, k, headWords(h, 'hi', {}, { color: goldFill(g, 0, 8 * u, W, 50 * u) }), 5 * u, 8 * u, { size: 108, max: 54 * u, lh: 0.95 });
     const left = P.five.filter(d => d !== P.subject).slice(0, 4);
     const sub = P.onGrid ? `The champion starts the defence in ${P.r0.name}. ${cap(numWord(left.length))} drivers want the crown.` : `${P.r0.name} opens a season with no champion on the grid. The favourite starts here.`;
@@ -1243,7 +1243,7 @@ async function gfxSeason(g, k, c, s, { style, head = null }) {
     stamp.forEach((t, j) => k.text(t, 0, (j - 1) * 3.4 * u, { size: 30, weight: 900, color: red, align: 'center', max: 15 * u })); g.restore();
     const im = car && await loadImg(car);
     if (im) { const cw = 150 * u, ch = cw * im.height / im.width; g.save(); g.filter = 'grayscale(1) contrast(1.2)'; g.globalCompositeOperation = 'multiply'; g.drawImage(im, 52 * u - cw / 2, H - 6 * u - ch, cw, ch); g.restore(); }
-    else await gfxStand(g, bodies[P.subject], 50 * u, H, 66 * u, { filter: 'grayscale(1) contrast(1.15)', blend: 'multiply' });
+    else await gfxStandAt(g, bodies[P.subject], 50 * u, H, 66 * u, { filter: 'grayscale(1) contrast(1.15)', blend: 'multiply' });
     return true;
   }
 
@@ -1254,7 +1254,7 @@ async function gfxSeason(g, k, c, s, { style, head = null }) {
       const d = order[j]; const x0 = j * cw - ov, x1 = (j + 1) * cw + ov; const c0 = col(d);
       g.save(); g.beginPath(); g.moveTo(x0 + sl, 0); g.lineTo(x1, 0); g.lineTo(x1 - sl, H); g.lineTo(x0, H); g.closePath(); g.clip();
       const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, c0); gr.addColorStop(1, mixHex(c0, '#000000', 0.6)); g.fillStyle = gr; g.fillRect(x0, 0, x1 - x0, H);
-      await gfxStand(g, bodies[d], (x0 + x1) / 2, H - 13 * u, 80 * u); g.restore();
+      await gfxStandAt(g, bodies[d], (x0 + x1) / 2, H - 13 * u, 80 * u); g.restore();
       g.strokeStyle = '#111'; g.lineWidth = 6; g.beginPath(); g.moveTo(x0 + sl, 0); g.lineTo(x0, H); g.stroke();
     }
     const hb = gfxRich(g, k, headWords(h, 'hi', {}, {}), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 3, breakHi: true, dry: true });
@@ -1289,7 +1289,7 @@ async function gfxSeason(g, k, c, s, { style, head = null }) {
   gfxRich(g, k, headWords(h, 'hi', {}, { color: '#FF2A20' }), W / 2, 22 * u, { size: 108, max: 90 * u, lh: 0.98, align: 'center', lines: 3, breakHi: true });
   const team = tm(P.subject); const car = team && carPhoto(c, team.id); const im = car && await loadImg(car);
   if (im) { const cw = 108 * u, ch = cw * im.height / im.width; g.save(); g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 40; g.shadowOffsetY = 30; g.drawImage(im, W / 2 - cw / 2, 82 * u - ch / 2, cw, ch); g.restore(); }
-  else await gfxStand(g, bodies[P.subject], W / 2, H - 22 * u, 66 * u, { shadow: 'rgba(0,0,0,0.7)' });
+  else await gfxStandAt(g, bodies[P.subject], W / 2, H - 22 * u, 66 * u, { shadow: 'rgba(0,0,0,0.7)' });
   g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(5 * u, H - 22 * u, 90 * u, 3);
   const v0 = (P.r0.venue || P.r0.name).split(/[,(]/)[0].trim();
   [[String(P.rounds.length), 'RACES'], [String(P.sprints), 'SPRINTS'], ['R1', v0.toUpperCase()]].forEach(([a, b], j) => { const x = (5 + 90 * (j + 0.5) / 3) * u;

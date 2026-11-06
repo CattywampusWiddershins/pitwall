@@ -260,6 +260,8 @@ function buildStories(c, s) {
   const last = (id) => id === PLAYER_ID ? c.profile.last : lastName(name(id));
   const tName = (id) => teamOf(s, id)?.name || '';
   const outletFor = (rnd) => choose(rnd, D.OUTLETS);
+  // the pre-season: the season preview and the drivers' words, before round 1
+  { const r0 = rounds[0]; const op = r0 && openerStory(c, s, r0, seeded(`${s.index}-${r0.id}-pv`), { name, last }); if (op) out.push(op, ...preseasonQuoteStories(c, s, { name, last })); }
   const prevWins = (id) => (D.DRIVER_BIO[id]?.wins || 0) + c.seasons.slice(0, s.index).reduce((a, se) => a + (seasonStatsCache(se)[id]?.wins || 0), 0);
   for (let i = 0; i < rounds.length && i <= nri; i++) {
     const r = rounds[i]; const ses = s.weekends[r.id]?.sessions || {};
@@ -800,6 +802,8 @@ function contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, seq) 
 }
 /** The graphics that go with a story: results, standings, ratings and each contender's permutations. */
 function storyGfx(s, x) {
+  if (x.seasonGfx) return seasonGfxSet(career(), s).map(v => ({ type: 'season', ...v, si: s.index, ri: 0 }));
+  if (x.preQuoteGfx?.quotes?.length) return [{ type: 'quote', ...x.preQuoteGfx, solo: x.preQuoteGfx.quotes.length === 1, si: s.index, ri: 0 }];
   if (!x.r) return x.calGfx ? [{ type: 'calendar', ...x.calGfx, si: s.index, ri: 0 }] : [];
   const base = { si: s.index, ri: x.i }; const out = [];
   if (x.titleGfx?.ids?.length) {
@@ -819,7 +823,6 @@ function storyGfx(s, x) {
   if (x.kind === 'review') out.push({ type: 'graph', mode: 'review', ...base });
   if (x.graphIds?.length >= 2) out.push({ type: 'graph', mode: 'rivalry', ids: x.graphIds, ...base });
   if (x.lapGfx) out.push({ type: 'graph', mode: 'laps', ...base });
-  if (x.kind === 'preview' && x.kicker === 'Season preview') for (const v of seasonGfxSet(career(), s)) out.push({ type: 'season', ...v, ...base });
   if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });

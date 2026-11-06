@@ -592,11 +592,132 @@ function openerStory(c, s, r, rnd, { name, last }) {
   const headline = onGrid ? choose(rnd, [`Formula 1 is back: ${last(champ)} begins the title defence in ${r.name}`, `${s.year} starts in ${r.name}, and ${last(champ)} is the one to beat`, `Lights out in ${r.name}: the ${s.year} season is here`, `Season preview: ${rounds.length} races, one crown, and ${last(champ)} holds it`])
     : choose(rnd, [`A new champion in ${s.year}: the season starts in ${r.name}`, `Formula 1 returns in ${r.name}, and the crown is up for grabs`]);
   const standfirst = onGrid ? `Everything to know before the lights go out in ${r.name}: the champion, the moves, the calendar and the favourites.` : `${name(champ)} won’t defend the title. Everything to know before the lights go out in ${r.name}.`;
-  return { id: `${s.index}-${r.id}-pv`, seq: 0, kind: 'preview', i: 0, r, subject: champ, outlet: choose(rnd, D.OUTLETS), kicker: 'Season preview', massive: true, headline, standfirst, body };
+  return { id: `${s.index}-preseason`, seq: -0.5, kind: 'preview', i: -1, r: null, subject: champ, outlet: choose(rnd, D.OUTLETS), kicker: 'Season preview', massive: true, headline, standfirst, body, seasonGfx: true };
+}
+/**
+ * Round 1's own preview, now that the season preview stands on its own in the pre-season: who won here last, who
+ * has the most wins here, the champion's and the favourite's record at the track, and the weekend's format.
+ */
+function firstRaceStory(c, s, r, rnd, { name, last }) {
+  const rounds = activeRounds(s); const grid = gridIds(s); const tid = roundTrackId(r);
+  const W = trackWinners(c, tid).filter(x => x.year < s.year); const lw = W[0] && grid.includes(W[0].d) ? W[0] : null;
+  const wins = (d) => W.filter(x => x.d === d).length;
+  const prev = c.seasons[s.index - 1]; const champ = prev && roundsDone(prev) >= activeRounds(prev).length ? driverStandings(prev)[0]?.id : null;
+  let fav = null; try { const Pj = projection(c, s, titleMath(s, 'driver', 0), 0); if (Pj.hasForm) fav = Pj.rows[0]?.id; } catch { /* no form */ }
+  const headline = choose(rnd, [`Round 1: ${r.name} gets ${s.year} under way`, `Lights out in ${r.name}: round 1 of ${rounds.length}`, `${r.name} opens the season: what to watch`]);
+  const standfirst = `The first of ${rounds.length} rounds, at ${r.venue || r.name}${r.sprint ? ', and a sprint weekend straight away' : ''}.`;
+  const body = [];
+  if (lw) body.push(`${name(lw.d)} won here ${lw.year === s.year - 1 ? 'last year' : `in ${lw.year}`}${wins(lw.d) > 1 ? `, ${plural(wins(lw.d), 'win')} at this track in all` : ''}.`);
+  else if (!W.length) body.push(`It’s a first visit for Formula 1 in this career: nobody on the grid has won here.`);
+  const king = Object.entries(W.reduce((o, x) => (o[x.d] = (o[x.d] || 0) + 1, o), {})).filter(([d, k]) => grid.includes(d) && k >= 2 && d !== lw?.d).sort((a, b) => b[1] - a[1])[0];
+  if (king) body.push(`${last(king[0])} has the most wins here of anyone on the grid, with ${numWord(king[1])}.`);
+  if (champ && grid.includes(champ) && champ !== lw?.d && champ !== king?.[0]) body.push(wins(champ) ? `The champion, ${last(champ)}, has won here ${timesWord(wins(champ))}.` : `The champion, ${last(champ)}, has never won here.`);
+  if (fav && fav !== champ && fav !== lw?.d) body.push(`${last(fav)}, the favourite on form, ${wins(fav) ? `has ${plural(wins(fav), 'win')} here` : 'is still looking for a first win here'}.`);
+  return { id: `${s.index}-${r.id}-pv`, seq: 0, kind: 'preview', i: 0, r, subject: lw?.d || champ || fav || null, outlet: choose(rnd, D.OUTLETS), kicker: 'Preview', headline, standfirst, body };
+}
+
+/**
+ * Pre-season quotes, from last year's form: the champion going for another (or a third in a row), the runner-up
+ * wanting to finish the job, a first-title chaser in a strong car, movers in new colours, team-mates who were close,
+ * midfielders after a podium, rookies and returns, and a team boss or two. 10 to 15 quotes over a few stories, each
+ * with a graphic: the title protagonists together, team-mates together, movers together, and so on.
+ */
+function preseasonQuoteStories(c, s, { name, last }) {
+  const prev = c.seasons[s.index - 1]; if (!prev || roundsDone(prev) < activeRounds(prev).length) return [];
+  const rnd = seeded(`pre-q-${s.year}`); const w = phrasebook(rnd); const grid = gridIds(s);
+  const ds = driverStandings(prev); const cs = constructorStandings(prev); const r0 = activeRounds(s)[0];
+  const pos = (d) => ds.find(x => x.id === d)?.pos ?? null; const pts = (d) => ds.find(x => x.id === d)?.pts ?? 0;
+  const champ = ds[0]?.id; const st = seasonStatsCache(prev);
+  let pick = {}, tpick = {};
+  try { const Pj = projection(c, s, titleMath(s, 'driver', 0), 0); Pj.rows.forEach((x, i) => { pick[x.id] = i + 1; }); const PT = projection(c, s, titleMath(s, 'team', 0), 0); PT.rows.forEach((x, i) => { tpick[x.id] = i + 1; }); } catch { /* no form */ }
+  const team = (d) => teamOf(s, d); const was = (d) => teamOf(prev, d);
+  const moved = (d) => was(d) && team(d) && teamRoot(was(d).id) !== teamRoot(team(d).id);
+  const tPrevPos = (tid) => cs.find(x => teamRoot(x.team.id) === teamRoot(tid))?.pos ?? null;
+  const raced = (d) => c.seasons.slice(0, s.index).some(se => teamOf(se, d));
+  const tally = (d) => titleTally(c, s, 'driver', d);
+  const used = new Set(); const take = (d) => { used.add(d); return d; };
+  const Q = (d, text) => ({ id: take(d), text });
+
+  // what a driver says, from their year and their situation
+  const say = (d, mode = null) => {
+    const T = tally(d), p = pos(d), pk = pick[d], tm = team(d), o = st[d] || {};
+    const titlesWord = T.n === 1 ? 'One title' : `${cap(numWord(T.n))} titles`;
+    // in the movers' story, the move comes first; in the new faces', the debut or the return
+    if (mode === 'move' && moved(d) && d !== champ) {
+      if (T.n) return w('mvt', [`${titlesWord}, and I came to ${tm.name} for ${/^(eighth|eleventh|18th)/.test(ordWord(T.n + 1)) ? 'an' : 'a'} ${ordWord(T.n + 1)}.`, `People ask why I left ${was(d).name}. Because I believe ${tm.name} can win the title with me.`]);
+      const up = (tPrevPos(tm.id) ?? 99) < (tPrevPos(was(d).id) ?? 99);
+      return up ? w('mvu', [`Joining ${tm.name} is the best chance I’ve had. I want wins straight away.`, `This is the move I worked for. At ${tm.name} there are no excuses.`]) : w('mvs', [`A fresh start at ${tm.name}. I want to help build something here.`, `Leaving ${was(d).name} wasn’t easy, but I needed something new.`]);
+    }
+    if (mode === 'fresh' && !was(d)) {
+      if (raced(d) || D.DRIVER_BIO[d]?.starts > 0) return T.n ? w('rett', [`${titlesWord}, and a year away. I’m not back to make up the numbers.`, 'I know how to win in this sport. I came back because I think I still can.']) : w('ret', ['I missed this. I’m not back to make up the numbers.', 'People wrote me off. I’m here to prove them wrong.']);
+      return w('rk', ['It’s a dream to be here. I want to learn fast and score points as soon as I can.', `My first Grand Prix is in ${r0.name}. I’ve been counting the days.`, 'Nobody expects much from a rookie. I want to change that early.']);
+    }
+    if (d === champ && grid.includes(d)) {
+      if (moved(d)) return w('cm', [`New team, same target. I didn’t come to ${tm.name} to finish second.`, `People ask why I moved as champion. Because I think ${tm.name} can win it again with me.`]);
+      if (T.streak >= 2) return w('c3', [`${cap(ordWord(T.streak + 1))} in a row? That’s the plan. Nobody hands you that, though.`, `${cap(numWord(T.streak))} straight is special. ${cap(numWord(T.streak + 1))} would be something else.`]);
+      if (T.n >= 2) return w('cn', [`Number ${T.n + 1} is the only thing on my mind. The car feels good.`, `I know how to win these now. That doesn’t make the next one easier.`]);
+      return w('c1', ['Defending it is harder than winning it the first time. I’m ready for that.', 'I want to show last year wasn’t a one-off. The number one on the car is a target, and I like that.', 'Everyone wants what I have. Good: that’s how it should be.']);
+    }
+    if (p === 2 && grid.includes(champ)) { const gap = Math.round(pts(champ) - pts(d)); if (!gap) return w('r2t', ['Level on points and beaten on countback. That stays with you all winter.', `Same points as ${last(champ)}, and not the title. I’ll use that.`]); return gap <= 25 ? w('r2', [`${gap} points. I thought about that number all winter.`, `We were ${plural(gap, 'point')} short. This year we finish the job.`]) : w('r2', [`Second isn’t why I’m here. We have to close the gap to ${last(champ)} from the first race.`, 'Runner-up is fine for one year. Not two.']); }
+    if (T.n && !(d === champ)) return w('vet', [`I know what it takes to win a title. ${cap(timesWord(T.n))}. I want one more.`, `The hunger hasn’t gone anywhere. ${T.n === 1 ? 'One title' : `${cap(numWord(T.n))} titles`} and I still want the next one.`]);
+    if (pk && pk <= 4) return w('chase', [`I think we have the car to fight for the title. Now I have to deliver.`, `A first title is the goal, and for the first time I really believe it’s on.`, `${tm?.name} gave me a strong car over the winter. No excuses this year.`]);
+    if (moved(d)) { const up = (tPrevPos(tm.id) ?? 99) < (tPrevPos(was(d).id) ?? 99); return up ? w('mvu', [`Joining ${tm.name} is the best chance I’ve had. I want wins straight away.`, `This is the move I worked for. At ${tm.name} there are no excuses.`]) : w('mvs', [`A fresh start at ${tm.name}. I want to help build something here.`, `Leaving ${was(d).name} wasn’t easy, but I needed something new.`]); }
+    if (!raced(d) && !(D.DRIVER_BIO[d]?.starts > 0)) return w('rk', ['It’s a dream to be here. I want to learn fast and score points as soon as I can.', `My first Grand Prix is in ${r0.name}. I’ve been counting the days.`, 'Nobody expects much from a rookie. I want to change that early.']);
+    if (!was(d)) return w('ret', ['I missed this. I’m not back to make up the numbers.', 'People wrote me off. I’m here to prove them wrong.']);
+    if (p && p <= 10 && o.podiums) return w('pod', [`We had ${o.podiums === 1 ? 'one podium' : `${numWord(o.podiums)} podiums`} last year. I want more, and maybe a win.`, 'On our day we can be on the podium. I want more of those days.']);
+    if (p && p <= 14) return w('mid', ['A podium is the target. If the door opens, we have to be there.', 'Points every weekend, and a podium when a chance comes. That’s realistic for us.', 'We were best of the rest too often. I want to be in the fight at the front.']);
+    return w('back', ['Our first target is to get out of Q1 regularly. Then we look for points.', 'Every point will feel like a win for us this year.', `It was a hard year. We’ve worked flat out over the winter to give me a better car.`]);
+  };
+
+  const out = []; const mk = (key, kicker, headline, standfirst, quotes, gfx = true) => {
+    if (!quotes.length) return;
+    out.push({ id: `${s.index}-pre-${key}`, seq: -0.6 - out.length * 0.01, kind: 'preview', i: -1, r: null, subject: quotes[0].id || null, outlet: choose(rnd, D.OUTLETS), kicker, headline, standfirst, body: [], quotes,
+      preQuoteGfx: gfx ? { kicker, headline, quotes: quotes.filter(q => q.id).slice(0, 3) } : null });
+  };
+
+  // 1. the title protagonists: the top of the forecast, the champion first
+  const protag = [champ && grid.includes(champ) ? champ : null, ...Object.keys(pick).sort((a, b) => pick[a] - pick[b])].filter((d, i, a) => d && grid.includes(d) && a.indexOf(d) === i).slice(0, 3);
+  if (protag.length >= 2) {
+    const qs = protag.map(d => Q(d, say(d)));
+    const lead = protag[0] === champ ? `${last(champ)} defends` : `${last(protag[0])} starts favourite`;
+    mk('title', 'Pre-season · The title', w('h1', [`${lead}: the title contenders have their say`, `“This year we finish the job”: the title fight talks`, `${listJoin(protag.map(last))}: who wants it most?`]),
+      `The ${s.year} favourites on what it takes${protag[0] === champ ? `, and on beating the champion` : ''}.`, qs);
+  }
+  // 2. team-mates who were close last year and still share a garage (one pair)
+  const pair = s.teams.map(t => t.drivers.filter(Boolean)).filter(dd => dd.length === 2 && dd.every(d => !used.has(d) && was(d) && !moved(d)) && teamRoot(was(dd[0]).id) === teamRoot(was(dd[1]).id))
+    .map(dd => ({ dd, gap: Math.abs(pts(dd[0]) - pts(dd[1])) })).filter(x => x.gap <= 30).sort((a, b) => a.gap - b.gap)[0];
+  if (pair) {
+    const [a, b] = pair.dd; const tm = team(a); const ahead = pts(a) >= pts(b) ? a : b, behind = ahead === a ? b : a;
+    const qs = [Q(ahead, w('tma', [`I beat ${last(behind)} last year, just. I won’t give an inch.`, `${last(behind)} pushes me every weekend. That’s why ${tm.name} is getting stronger.`])),
+      Q(behind, w('tmb', [`${plural(Math.round(pair.gap), 'point')}. I want to finish ahead of ${last(ahead)} this year, and that’s no secret.`, `We respect each other. But the first driver I want to beat is in the other garage.`]))];
+    mk('mates', 'Pre-season · Team-mates', w('h2', [`${last(a)} v ${last(b)}: the ${tm.name} battle resumes`, `Same team, same target: ${tm.name}’s inside fight`]), `${plural(Math.round(pair.gap), 'point')} split them last year.`, qs);
+  }
+  // 3. new colours: the movers (up to three, best placed first)
+  const movers = grid.filter(d => !used.has(d) && moved(d)).sort((a, b) => (pos(a) ?? 99) - (pos(b) ?? 99)).slice(0, 3);
+  if (movers.length) mk('movers', 'Pre-season · New colours', w('h3', [movers.length > 1 ? `${listJoin(movers.map(last))} in new colours` : `${last(movers[0])} settles in at ${team(movers[0]).name}`, `New teams, new targets: the winter’s movers speak`]),
+    `${listJoin(movers.map(d => `${name(d)} (${was(d).name} to ${team(d).name})`))}.`, movers.map(d => Q(d, say(d, 'move'))));
+  // 4. the midfield: two from different teams, after a podium
+  const mids = []; for (const x of ds) { const d = x.id; if (mids.length >= 2 || used.has(d) || !grid.includes(d) || x.pos < 5 || x.pos > 14) continue; if (mids.some(m => team(m)?.id === team(d)?.id)) continue; mids.push(d); }
+  if (mids.length) {
+    const boss = mids.map(d => team(d)).find(t => t && tpick[t.id] && tPrevPos(t.id) && tpick[t.id] < tPrevPos(t.id));
+    const qs = [...mids.map(d => Q(d, say(d))), ...(boss ? [{ team: boss.id, role: 'Team principal', text: w('tb', ['The numbers from the winter are encouraging. I won’t say more than that yet.', 'We’ve taken a step. How big, we’ll know in a few races.']) }] : [])];
+    mk('mid', 'Pre-season · The midfield', w('h4', ['Podium hunters: the midfield sets its targets', `“On our day, we can be there”: the midfield’s ${s.year} ambitions`]), 'Best of the rest wants more.', qs);
+  }
+  // 5. rookies and returns
+  const fresh = grid.filter(d => !used.has(d) && !was(d)).slice(0, 2);
+  if (fresh.length) mk('fresh', 'Pre-season · New faces', w('h5', [fresh.length > 1 ? `${listJoin(fresh.map(last))}: the new faces of ${s.year}` : `${last(fresh[0])} is ready for ${s.year}`, 'Fresh faces on the grid have their say']),
+    `${listJoin(fresh.map(d => `${name(d)}, ${team(d)?.name}`))}.`, fresh.map(d => Q(d, say(d, 'fresh'))));
+  // up to 15: the back of the grid makes up the rest, with a word from the champions' team
+  let n = out.reduce((a, x) => a + x.quotes.length, 0);
+  const rest = []; for (const x of ds.slice().reverse()) { if (n + rest.length >= 12) break; const d = x.id; if (used.has(d) || !grid.includes(d)) continue; if (rest.some(m => team(m)?.id === team(d)?.id)) continue; rest.push(d); }
+  const ct = cs[0]?.team; const ctNow = ct && s.teams.find(t => teamRoot(t.id) === teamRoot(ct.id));
+  const restQ = [...rest.map(d => Q(d, say(d))), ...(ctNow && n + rest.length < 15 ? [{ team: ctNow.id, role: 'Team principal', text: w('cc', ['Being champions means everyone builds a car to beat yours. We’ve been building too.', 'Last year is gone. We start from zero like everyone else.']) }] : [])];
+  if (restQ.length) mk('rest', 'Pre-season · Around the grid', w('h6', ['Around the grid: the targets for the new season', 'From the back of the grid to the champions: what they want this year']), 'Targets big and small before the first race.', restQ, rest.length >= 2);
+  return out;
 }
 function previewStory(c, s, i, mem, { name, last, tName }) {
   const rounds = activeRounds(s); const r = rounds[i]; const rnd = seeded(`${s.index}-${r.id}-pv`);
-  if (i === 0) return openerStory(c, s, r, rnd, { name, last });
+  if (i === 0) return firstRaceStory(c, s, r, rnd, { name, last });
   const ds = driverStandings(s, seasonStats(s, i));
   const hot = ds.map(x => x.id).find(d => mem.run(d).wins >= 2);
   const lead = ds[0]?.id;

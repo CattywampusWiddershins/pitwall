@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.0
+
+- **Pre-season quotes.** Before round 1, 10 to 15 drivers and team bosses have their say, based on last year. The champion goes for another (or a third in a row), the runner-up wants to finish the job, a first-title chaser trusts their car, movers talk about their new colours, team-mates who were close want to settle it, midfielders hunt podiums, and rookies and returning drivers make their case. They come as a few stories (the title contenders, team-mates, new colours, the midfield, new faces, around the grid), each with a quote graphic. The title contenders share one graphic, three side by side.
+- The season preview and the quotes now sit under Pre-season in Stories instead of inside round 1. Round 1 gets its own preview: who won there last, the most successful driver there, and the champion's and the favourite's record at the track.
+- Fixed: quote graphics, and the pole and winner graphics, had lost their driver pictures in 3.33.0.
+
 ## 3.33.0
 
 - **Pre-season graphics.** The season preview now comes with three graphics, as if from three different outlets, each in its own style with its own headline. There are six styles: the favourites' lineup, the champion's shadow, a paper magazine cover with the champion's car in greyscale, team-colour panels, minimal gold, and start lights with the champion's car. There are 13 headlines ("Who will reign in F1 2027?", "Can anyone stop Jordaan?", "A new king in 2027?" and more), each used only when it fits the season. A season keeps its picks.
