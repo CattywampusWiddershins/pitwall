@@ -90,12 +90,11 @@ function replayTo(idx) {
   RP.at = idx;
 }
 /**
- * Recordings made before the session clock was recorded still hold every flashback: the cars jump back. Each time most
- * of the field is suddenly further back than a moment before, the samples since the point they went back to are cut,
- * and the time after it closes up, so the race plays on smoothly.
+ * A flashback winds the cars back without the game's clock going back, so a recording holds it: the cars jump back. Each
+ * time most of the field is suddenly further back than a moment before, the samples since the point they went back to
+ * are cut, and the time after it closes up, so the race plays on smoothly.
  */
 function dropFlashbacks(samples) {
-  if (samples.some(S => S.k != null)) return samples; // recorded with the session clock: already cut as it happened
   const len = Math.max(1000, ...samples.map(S => Math.max(0, ...S.f.map(x => x[3] || 0))));
   const prog = (S) => Object.fromEntries(S.f.filter(x => x[7] === 2 && x[2] > 0).map(x => [x[0], x[2] * len + (x[3] || 0)]));
   const behind = (P, Q, by) => { let n = 0, m = 0; for (const [i, v] of Object.entries(Q)) if (P[i] != null) { m++; if (P[i] > v + by) n++; } return m >= 3 && n > m / 2; };
@@ -185,7 +184,7 @@ function replayPrune(c) {
 function replayView(c) {
   setTimeout(() => replayShow(true));
   return `<div class="page">
-    <div class="page-head"><div><h1>${esc(RP.r.name)} · ${esc(SESSION_LABEL[RP.k] || RP.k)}</h1><div class="sub">${RP.s.year} · ${RP.data.meta.lapByLap ? 'rebuilt lap by lap from the lap times' : 'replay of the live feed'}</div></div><div class="row"><button class="btn ghost" data-act="rp-close">All races</button></div></div>
+    <div class="page-head"><div><h1>${esc(RP.r.name)} · ${esc(SESSION_LABEL[RP.k] || RP.k)}</h1><div class="sub">${RP.s.year} · ${RP.data.meta.lapByLap ? 'rebuilt lap by lap from the lap times' : 'replay of the live feed'}</div></div><div class="row">${liveLayoutSeg()}<button class="btn ghost" data-act="rp-close">All races</button></div></div>
     <div class="panel rp-controls"><div class="panel-b row" style="gap:12px;flex-wrap:wrap;align-items:center">
       <button class="btn primary" data-act="rp-play" id="rp-play">${RP.playing ? 'Pause' : 'Play'}</button>
       <input type="range" id="rp-seek" data-ch="rp-seek" min="0" max="${Math.ceil(RP.dur)}" step="1" value="${Math.floor(RP.T)}" style="flex:1;min-width:200px">
@@ -206,14 +205,14 @@ function replayShow(force = false) {
   el('rp-clock').textContent = `${clk(RP.T)} / ${clk(RP.dur)}`; el('rp-lap').textContent = `Lap ${Math.min(lead, RP.data.meta.totalLaps || lead)} of ${RP.data.meta.totalLaps || '?'}${S.sc === 1 ? ' · SAFETY CAR' : S.sc === 2 ? ' · VSC' : ''}`;
   const seek = el('rp-seek'); if (document.activeElement !== seek) seek.value = Math.floor(RP.T);
   el('rp-play').textContent = RP.playing ? 'Pause' : 'Play';
-  if (force || now - RP.dashAt > 1000) { RP.dashAt = now; el('rp-dash').innerHTML = replayDash(); }
+  if (force || now - RP.dashAt > 1000) { RP.dashAt = now; el('rp-dash').innerHTML = replayDash(); el('rp-dash').querySelectorAll('.champ-bar').forEach(champBarView); }
   if (force || lead !== RP.chartLap) { RP.chartLap = lead; el('rp-chart').innerHTML = replayChart(); }
 }
 function replayDash() {
   if (RP.data.meta.lapByLap) return `<div class="panel"><div class="panel-h"><h2>Lap by lap</h2></div><div class="panel-b muted" style="font-size:13px">This race was logged before Pitwall recorded races, so it’s rebuilt from every car’s lap times: the order and the gaps are exact each time the cars cross the line and smooth in between, with the pit stops, tyres and safety-car laps as logged. There’s no live dashboard for it.</div></div>`;
   const c = career(); const L = { ...RP.L, key: RP.k === 'SPR' ? 'SPR' : 'R', replay: true, mem: RP.mem, simT: RP.data.samples[RP.i].t * 1000 };
   const me = L.field?.find(x => x.i === RP.data.meta.player); if (!me) return '';
-  try { return liveDriverCol(c, RP.s, RP.r, L, weekend(RP.s, RP.r.id, true), me, PLAYER, RP.idOf); } catch (e) { return `<div class="panel"><div class="panel-b muted">The dashboard couldn’t be drawn at this point (${esc(e.message)}).</div></div>`; }
+  try { return `<div class="rp-dash-cols ${ui.liveCompact ? 'compact' : ''}">${liveDriverCol(c, RP.s, RP.r, L, weekend(RP.s, RP.r.id, true), me, PLAYER, RP.idOf)}<div class="live-col">${champBar(c, RP.s, RP.r, L, RP.idOf, [PLAYER])}</div></div>`; } catch (e) { return `<div class="panel"><div class="panel-b muted">The dashboard couldn’t be drawn at this point (${esc(e.message)}).</div></div>`; }
 }
 /*
   The field by its gaps to the leader, F1-graphics style. Each recorded second gets a layout (where every car sits),

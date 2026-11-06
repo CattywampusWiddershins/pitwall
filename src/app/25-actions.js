@@ -2,6 +2,7 @@
 'use strict';
 /* ---------------------------------------------------------------- actions */
 const actions = {
+  'live-layout'(el) { ui.liveCompact = el.dataset.v === '1'; try { localStorage.setItem('pitwall.liveCompact', ui.liveCompact ? '1' : '0'); } catch { /* not kept */ } render(); },
   'rp-tab'(el) { ui.rpTab = el.dataset.v; ui.flOpen = null; render(); },
   'fl-open'(el) { ui.flOpen = { si: +el.dataset.si, rid: el.dataset.rid }; ui.flA = ui.flB = null; render(); },
   'fl-close'() { ui.flOpen = null; render(); },

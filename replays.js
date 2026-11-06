@@ -39,9 +39,26 @@ module.exports = function createReplays(dir) {
     if (!m.field?.length) return;
     const key = `${m.uid}:${m.sessionType}`;
     if (!rec || rec.meta.key !== key) {
-      if (rec) write(true);
+      // a race saved mid-way and carried on comes back as a new session, past lap 1, with the same session link: the
+      // recording carries on (from memory, or from disk if Pitwall was closed in between) under the new session's key
+      const lead = Math.max(0, ...m.field.map(x => x.lap || 0));
+      const same = (meta) => meta && meta.track === m.track && meta.sessionType === m.sessionType && meta.link && meta.link === m.link;
+      let prev = lead > 1 && rec && same(rec.meta) ? rec : null;
+      if (!prev && lead > 1 && m.link) {
+        const old = readIndex().filter(x => same(x) && Date.now() - Date.parse(x.at || 0) < 48 * 3600e3).pop();
+        if (old) try { const body = JSON.parse(zlib.gunzipSync(fs.readFileSync(fileOf(old.key))).toString('utf8'));
+          prev = { uid: old.uid, start: Date.now(), lastWrite: Date.now(), samples: body.samples || [], laps: body.laps || {}, fuel: body.fuel || {}, last: {}, meta: { ...body.meta, key: old.key } };
+          prev.shift = -((prev.samples[prev.samples.length - 1]?.t ?? -1) + 1); } catch { prev = null; }
+      }
+      if (prev) {
+        const was = prev.meta.key; try { fs.unlinkSync(fileOf(was)); } catch { /* not written yet */ } writeIndex(readIndex().filter(x => x.key !== was));
+        if (prev === rec) prev.shift = (Date.now() - prev.start) / 1000 - ((prev.samples[prev.samples.length - 1]?.t ?? -1) + 1);
+        prev.uid = m.uid; prev.meta = { ...prev.meta, key, uid: m.uid }; rec = prev;
+      } else if (rec) write(true);
+    }
+    if (!rec || rec.meta.key !== key) {
       rec = { uid: m.uid, start: Date.now(), lastWrite: Date.now(), samples: [], laps: {}, fuel: {}, last: {},
-        meta: { key, uid: m.uid, sessionType: m.sessionType, track: m.track, weekend: m.weekend, totalLaps: m.totalLaps, at: new Date().toISOString() } };
+        meta: { key, uid: m.uid, sessionType: m.sessionType, track: m.track, weekend: m.weekend, link: m.link || null, totalLaps: m.totalLaps, at: new Date().toISOString() } };
     }
     const R = rec; R.meta.parts = m.parts; R.meta.player = m.player; R.meta.totalLaps = m.totalLaps || R.meta.totalLaps;
     // a flashback: the session clock went back, so the samples after that moment never happened; the replay carries

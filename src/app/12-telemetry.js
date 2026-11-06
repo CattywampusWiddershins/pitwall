@@ -348,6 +348,9 @@ function applyGameResult(c, r, place) {
     ...(r.ers ? { ers: ersWithTyres(r, map) } : {}),
     ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),
     safety: { sc: r.safetyCars, vsc: r.virtualSafetyCars, red: r.redFlags, ...(r.scPeriods?.length ? { periods: r.scPeriods } : {}) } };
+  // a race carried on from a save whose real grid wasn't seen: the grid is the qualifying order (as it was set), not
+  // where the save resumed it
+  if (r.resumed && !r.gridKnown && isRaceKind(key)) { const q = w.sessions[qualiFor(r)]; if (q?.done) game.grid = Object.fromEntries(q.results.map((x, k) => [x.d, k + 1])); }
   let results;
   const part = QUALI_PARTS[r.sessionType];
   if (part) {

@@ -316,7 +316,9 @@ let telemetry = null; let pendingResults = [];
 const replays = createReplays(dataDir); // every race driven with telemetry on, recorded for Race Replay
 let liveRace = null; // the race being driven: its last full ERS profile and your battery now, for a window that (re)loads mid-race
 function setupTelemetry() {
+  const stashFile = () => path.join(dataDir(), 'telemetry-session.json');
   telemetry = createTelemetry({
+    stash: { save: (o) => writeJsonAtomic(stashFile(), o), load: () => readJson(stashFile(), null), clear: () => { try { fs.unlinkSync(stashFile()); } catch { /* none */ } } },
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
     onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); },

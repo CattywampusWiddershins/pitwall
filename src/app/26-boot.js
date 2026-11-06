@@ -12,6 +12,7 @@
       if (ui.view === 'settings' && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render();
     });
   }
+  try { ui.liveCompact = localStorage.getItem('pitwall.liveCompact') === '1'; } catch { /* Full, then */ } // Live Race and Race Replay: compact or full
   if (!state.careers.length) { ui.view = 'setup'; ui.setup = defaultSetup(); }
   else if (!career()) state.activeCareerId = state.careers[0].id;
   // the number 1 follows your career's champions (older saves had it fixed to the real 2025 champion)

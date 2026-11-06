@@ -1076,7 +1076,9 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .cb-n i { font-style: normal; font-size: 10px; margin-left: 6px; } .cb-n i.up { color: var(--green); } .cb-n i.dn { color: var(--red); }
 .cb-d, .cb-g, .cb-pt { text-align: right; } .cb-d { color: var(--green); font-weight: 700; } .cb-g { color: #CFD6E6; font-weight: 600; font-size: 13px; }
 .cb-face { position: relative; overflow: hidden; background: linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 45%, #000)); }
-.cb-face img { position: absolute; left: 50%; bottom: 0; height: 160%; transform: translateX(-50%); object-fit: contain; object-position: top; }
+.cb-face img { position: absolute; left: 50%; transform: translateX(-50%); }
+.cb-face img.body { top: 8px; height: 300%; object-fit: contain; object-position: top; } /* head and torso; the rest runs off the bottom */
+.cb-face img.head { bottom: 0; height: 100%; aspect-ratio: 1; object-fit: cover; object-position: top; }
 .cb-num { position: absolute; right: 4px; top: -10px; font-size: 64px; font-weight: 900; color: rgba(0,0,0,.2); }
 .cb-verdict { display: grid; place-content: center; text-align: center; padding: 10px; background: #1A1A26; gap: 4px; }
 .cb-verdict small { font-size: 11px; font-weight: 700; letter-spacing: .14em; }
@@ -1219,3 +1221,23 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .gc-ctr { max-width: calc(100% - 40px); text-align: right; line-height: 1.15; }
 .gc-ctr.move { box-shadow: 0 0 0 1px rgba(255,255,255,.6); }
 .form-chip { flex: 0 0 auto; min-width: 28px; padding: 0 4px; }
+
+/* Live Race and Race Replay, compact: everything on one screen */
+.live-col.compact { gap: 8px; }
+.lc-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 6px; }
+.lc-tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 7px 9px; display: grid; gap: 1px; min-width: 0; }
+.lc-tile b { font: 800 20px/1.1 var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-tile small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-tile.pos b { font-size: 26px; color: var(--team); } .lc-tile.ok b { color: var(--green); } .lc-tile.short b { color: var(--red); }
+.lc-strat .panel-b { padding: 8px 10px; display: grid; gap: 6px; }
+.lc-fights { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+.lc-fights .panel-h { padding: 8px 10px; } .lc-fights .panel-b { padding: 8px 10px; }
+.live-grid.compact { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; }
+.rp-dash-cols { display: grid; gap: 12px; }
+.rp-dash-cols.compact { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 1000px) { .live-grid.compact, .rp-dash-cols.compact { grid-template-columns: 1fr; } }
+
+/* Dashboard: rows that fill the width (the two championships side by side) */
+.dash-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.dash-row.two { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
+@media (max-width: 640px) { .dash-row, .dash-row.two { grid-template-columns: 1fr; } }

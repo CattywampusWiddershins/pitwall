@@ -156,7 +156,15 @@ function parseHistory(b) {
   return { car, laps, stints };
 }
 
-module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {} }) {
+/*
+  A session saved mid-way and carried on later comes back from the game as a new session (a new id), started where you
+  left it. It's the same session to Pitwall: the game's session link stays the same, so the new one takes over what the
+  unfinished one had gathered (contact, penalties, passes, wear, fuel, safety cars, laps, the starting grid). While a
+  race or qualifying is running that is also kept on disk (stash), so closing Pitwall in between loses nothing.
+*/
+const CARRY = ['laps', 'stints', 'penalties', 'retirements', 'collisions', 'overtakes', 'swaps', 'damage', 'wear', 'fuel', 'dep', 'sc', 'leadFin', 'traces', 'grid0', 'gridSent', 'tyreSets'];
+const sameSession = (a, b) => !!a && !!b && a.track === b.track && a.sessionType === b.sessionType && a.sessionLink === b.sessionLink && a.sessionLink > 0;
+module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {}, stash = null }) {
   let sock = null; let cfg = { enabled: false, port: 20778 };
   const st = { listening: false, error: null, packets: 0, lastAt: null, format: null, session: null };
   const sessions = new Map();
@@ -197,7 +205,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     if (!c || !s.tel || !s.stat || c.dist < 0 || c.pit || !c.lap) return;
     const kb = Math.floor(c.dist / ERS_BIN); const E = s.ersPos;
     // a flashback: what was driven after the point it went back to never happened; the lap is rebuilt from there
-    if (E && (c.lap < E.lap || (c.lap === E.lap && kb < E.k - 1))) {
+    if (E && (c.lap < E.lap || (c.lap === E.lap && kb < E.k))) {
       for (const L of Object.keys(s.ers || {})) if (+L > c.lap) delete s.ers[L];
       const cur = s.ers?.[c.lap]; if (cur) for (const b of Object.keys(cur.bins)) if (+b >= kb) delete cur.bins[b];
     }
@@ -238,7 +246,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     const now = Date.now(); const newLap = c.lap !== s.liveLap;
     if (!newLap && now - (s.liveAt || 0) < LIVE_MS) return;
     s.liveAt = now;
-    const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, totalLaps: s.info.totalLaps,
+    const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, link: s.info.sessionLink, totalLaps: s.info.totalLaps,
       lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, clock: Math.round((s.clock || 0) * 10) / 10, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
       dep: s.stat ? Math.round(s.stat.dep / 1000) : null, limit: s.stat?.limit ? Math.round(s.stat.limit / 1000) : null, at: new Date().toISOString() };
     if (newLap) { s.liveLap = c.lap; msg.pack = packErs(s); }
@@ -277,7 +285,9 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       const k = Math.floor(c.dist / TRACE_BIN);
       if (!R.cur) R.cur = { lap: c.lap, bins: [], bad: false, d0: c.dist, k };
       const L1 = R.cur; L1.inv = !!c.invalid; // the game's flag as the lap stands
-      if (k < L1.k - 1) L1.bins.length = k; // a flashback: what came after this point is driven again
+      // behind the furthest point reached: a flashback, which the game winds back gradually as you pick the moment. What
+      // was driven past this point goes, slice by slice, and is driven again
+      if (k < L1.k) L1.bins.length = k;
       L1.k = k;
       const o = L1.bins[k] ||= [0, 0, 0, 0, 0, 0]; const m = s.motAll?.[i];
       o[0]++; o[1] += t.spd; o[2] += t.thr; o[3] += t.brk; if (m) { o[4] += m.x; o[5] += m.z; }
@@ -289,9 +299,24 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     return { lap: B.lap, ms: B.ms, bin: TRACE_BIN, spd: bins.map(x => x ? r(x[1] / x[0]) : null), thr: bins.map(x => x ? r(x[2] / x[0] * 100) : null), brk: bins.map(x => x ? r(x[3] / x[0] * 100) : null),
       x: bins.map(x => x ? r(x[4] / x[0]) : null), z: bins.map(x => x ? r(x[5] / x[0]) : null) };
   }
+  function resume(s, info) {
+    let p = [...sessions.values()].find(x => x !== s && !x.sent && sameSession(x.info, info));
+    if (!p && stash) { const saved = stash.load(); if (saved && sameSession(saved.info, info) && Date.now() - (saved.seen || 0) < 48 * 3600e3) p = saved; }
+    if (!p) return;
+    for (const k of CARRY) if (p[k] != null) s[k] = p[k];
+    s.resumedFrom = p.uid; if (p.uid !== s.uid) sessions.delete(p.uid);
+  }
+  // what a running session has gathered, kept on disk now and then, so a save resumed after Pitwall was closed carries on
+  function stashNow(s) {
+    if (!stash || !s.info || s.sent || !(raceType(s.info.sessionType) || (s.info.sessionType >= 5 && s.info.sessionType <= 14))) return;
+    if (Date.now() - (s.stashedAt || 0) < 30e3) return; s.stashedAt = Date.now();
+    const keep = { uid: s.uid, seen: Date.now(), info: s.info };
+    for (const k of CARRY) if (s[k] != null) keep[k] = k === 'traces' ? Object.fromEntries(Object.entries(s.traces).map(([i, R]) => [i, { best: R.best && { lap: R.best.lap, ms: R.best.ms, bins: R.best.bins } }])) : s[k];
+    try { stash.save(keep); } catch { /* the next try will do */ }
+  }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
-    s.sent = true;
+    s.sent = true; if (stash) try { stash.clear(); } catch { /* nothing kept */ }
     const parts = s.parts || [];
     // the lap that was running at the end
     s.curLap.forEach((lap, i) => { if (lap && s.wearNow[i] != null && (s.wear[i] ||= [])[lap - 1] == null) s.wear[i][lap - 1] = Math.round(s.wearNow[i] * 10) / 10; });
@@ -303,14 +328,15 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     // a retirement is put down to the last contact that car had, if it came within a lap of it
     for (const r of s.retirements) { if (r.t == null) continue; const x = s.collisions.filter(o => (o.a === r.car || o.b === r.car) && o.t <= r.t && r.lap <= o.lap + 1).pop(); if (x) x.out = r.car; }
     const open = s.sc.periods[s.sc.periods.length - 1]; if (open && open.to == null) open.to = s.curLap[s.player] || null;
-    const cars = s.final.filter(x => x.position > 0).map(x => {
-      const p = parts.find(q => q.idx === x.idx) || {};
+    const cars = s.final.filter(x => x.position > 0).map(x0 => {
+      let x = x0; const p = parts.find(q => q.idx === x.idx) || {};
       // the stint still running at the flag (or when the car stopped) ends on lap 255: it really ends on the car's last lap
       const stints = (s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints).map(t => ({ ...t, end: Math.min(t.end, x.laps || t.end) }));
+      if (s.grid0?.[x.idx]) x = { ...x, grid: s.grid0[x.idx] }; // the grid as the race started, not where a save resumed it
       return { ...x, name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
         lapTimes: s.laps[x.idx] || [], trace: packTrace(s, x.idx), stints, wear: s.wear[x.idx] || [], fuel: s.fuel[x.idx] || [], ersDep: s.dep[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
     });
-    onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars,
+    onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars, resumed: !!(s.resumedFrom || s.resumed), gridKnown: !!s.grid0,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
       tyreSets: s.tyreSets || null,
       safetyCars: Math.max(s.info.safetyCars || 0, s.sc.sc), virtualSafetyCars: Math.max(s.info.virtualSafetyCars || 0, s.sc.vsc), scPeriods: s.sc.periods,
@@ -327,6 +353,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     const s = sessionOf(h); s.clock = h.time;
     if (h.type === PACKET.SESSION) {
       const info = parseSession(b); if (!info) return;
+      if (!s.info) resume(s, info);
       s.info = info; st.session = { track: info.track, sessionType: info.sessionType, gameMode: info.gameMode };
       // safety cars, counted as they come out (the game's own count at the end has been seen to stay at zero)
       const sc = info.safetyCarNow === 1 || info.safetyCarNow === 2 ? info.safetyCarNow : 0;
@@ -377,6 +404,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
         else if (c.status === 3 && s.leadFin[i] == null) s.leadFin[i] = c.lead || s.lead[i] || null;
       });
       if (ersSession(s.info)) { logErs(s, lap[h.player]); live(s, lap[h.player]); logTraces(s, lap); }
+      stashNow(s);
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
       const race = s.info && (s.info.sessionType === 15 || s.info.sessionType === 16);
       if (race) lap.forEach((c, i) => {
@@ -386,8 +414,10 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       });
       // a race or sprint has started: the starting grid settles qualifying (whoever was eliminated, whatever was simulated)
       const n = s.parts?.length || 0;
+      // a race carried on from a save starts with cars past lap 1: its grid fields are where you saved, not the grid
+      if (!s.gridSent && s.info && raceType(s.info.sessionType) && lap.some(c => c.lap > 1)) { s.gridSent = true; s.resumed = true; }
       if (!s.gridSent && s.info && (s.info.sessionType === 15 || s.info.sessionType === 16) && n && lap.slice(0, n).every(c => c.grid > 0)) {
-        s.gridSent = true;
+        s.gridSent = true; s.grid0 = Object.fromEntries(lap.slice(0, n).map((c, i) => [i, c.grid]));
         onResult({ kind: 'grid', key: `${s.uid}:grid`, uid: s.uid, at: new Date().toISOString(), player: s.player, ...s.info,
           cars: s.parts.map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, grid: lap[p.idx]?.grid || 0 })) });
       }

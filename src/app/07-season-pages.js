@@ -57,10 +57,19 @@ function renderDashboard() {
       ${(() => { const f = activeRounds(s).map(r => me.byRound[r.id]?.r).filter(v => v != null && v !== 'DNS').slice(-5); return `<div class="tile" title="Your last five races, oldest first"><span class="label">Form</span><span class="form-row">${f.length ? f.map(v => typeof v === 'number' ? `<span class="form-chip ${v === 1 ? 'p1' : v <= 3 ? 'pod' : v <= 10 ? 'pts' : ''}">${v}</span>` : `<span class="form-chip out">${esc(v)}</span>`).join('') : '<span class="v">–</span>'}</span></div>`; })()}
     </div>
 
-    <div class="grid-main">
-      <div class="stack">
+    <!-- the two championships side by side, then the rest in rows that fill the width -->
+    <div class="dash-row two">
+        <div class="panel">
+          <div class="panel-h"><h2>Drivers' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
+          <div class="panel-b">${standingsBars(c, s, top, false, prevD)}</div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>Constructors' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
+          <div class="panel-b">${standingsBars(c, s, cs, true, null)}</div>
+        </div>
+    </div>
+    <div class="dash-row two">
         ${goalsPanel(c, s)}
-
         <div class="panel">
           <div class="panel-h"><h2>Recent results</h2><button class="btn sm ghost" data-act="nav" data-view="calendar">Full calendar</button></div>
           <div class="panel-b tight table-wrap"><table class="recent">
@@ -75,27 +84,17 @@ function renderDashboard() {
               }).join('');
             })()}</tbody></table></div>
         </div>
-      </div>
-
-      <div class="stack">
-        <div class="panel">
-          <div class="panel-h"><h2>Drivers' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
-          <div class="panel-b">${standingsBars(c, s, top, false, prevD)}</div>
-        </div>
-        <div class="panel">
-          <div class="panel-h"><h2>Constructors' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
-          <div class="panel-b">${standingsBars(c, s, cs, true, null)}</div>
-        </div>
-        ${rivalryPanel(c, s, { mineOnly: true })}
+    </div>
+    <div class="dash-row">
         <div class="panel">
           <div class="panel-h"><h2>Teammate battle</h2><button class="btn sm ghost" data-act="nav" data-view="h2h">Details</button></div>
           <div class="panel-b">${mateBars(s, mate, h)}</div>
         </div>
+        ${rivalryPanel(c, s, { mineOnly: true })}
         <div class="panel">
           <div class="panel-h"><h2>Latest graphics</h2><button class="btn sm ghost" data-act="nav" data-view="stories">Stories</button></div>
           ${(() => { const G = latestGraphics(c, s, 5); return G.length ? `<div class="panel-b dash-gfx">${G.map(gfxSlot).join('')}</div>` : '<div class="empty">The graphics made in Stories show up here as your season goes.</div>'; })()}
         </div>
-      </div>
     </div>
   </div>`;
 }

@@ -645,17 +645,20 @@ function battleCard(s, idOf, ahead, behind, me, left, { title, pits, stopLeft, r
 /** The championship as it stands with this race's running order. */
 function liveStandings(c, s, r, L, idOf) {
   const sprint = L.key === 'SPR'; const P = sprint ? D.SPRINT_POINTS : D.RACE_POINTS;
-  const st = seasonStatsCache(s); const pts = {}; for (const [id, o] of Object.entries(st)) if (s.drivers[id]) pts[id] = o.pts || 0;
+  // the championship going into this race: the rounds before it, and this weekend's sprint before its Grand Prix. A
+  // replay of an old race sees it as it was then, not with the races since
+  const ri = activeRounds(s).findIndex(x => x.id === r.id); const M = titleMath(s, 'driver', ri, { afterSprint: !sprint });
+  const pts = {}; for (const x of M.rows) if (s.drivers[x.id]) pts[x.id] = x.pts || 0;
   const add = {}; for (const x of L.field) { const id = idOf(x.i); if (id && x.pos && (x.st === 2 || x.st === 3)) add[id] = P[x.pos - 1] || 0; }
   const rows = Object.keys({ ...pts, ...add }).map(id => ({ id, pts: (pts[id] || 0) + (add[id] || 0), now: add[id] || 0 })).sort((a, b) => b.pts - a.pts).map((x, i) => ({ ...x, pos: i + 1 }));
   const teams = s.teams.map(t => ({ t, pts: rows.filter(x => teamOf(s, x.id)?.id === t.id).reduce((a, x) => a + x.pts, 0) })).sort((a, b) => b.pts - a.pts).map((x, i) => ({ ...x, pos: i + 1 }));
   // can the title be decided here? the most points left after this race, against the lead
   // points still up for grabs once this race is over: the rest of the season (and, after a sprint, this Grand Prix)
-  const M = titleMath(s, 'driver'); const here = M.left.find(x => x.r.id === r.id);   const after = M.R - (sprint ? D.SPRINT_POINTS[0] : (here?.max || 0));
+  const here = M.left.find(x => x.r.id === r.id);   const after = M.R - (sprint ? D.SPRINT_POINTS[0] : (here?.max || 0));
   const gap0 = (M.rows[0]?.pts || 0) - (M.rows[1]?.pts || 0);
   const canDecide = !!here && !M.decided && gap0 + (sprint ? D.SPRINT_POINTS[0] : D.RACE_POINTS[0]) > after;
   const decidedNow = rows.length > 1 && rows[0].pts - rows[1].pts > after;
-  return { rows, teams, canDecide, decidedNow, after };
+  return { rows, teams, canDecide, decidedNow, after, before: M.rows };
 }
 /*
   The TV graphics: the lap counter with the safety car under it, and the championship as it stands in F1's style. The
@@ -669,10 +672,12 @@ function lapBox(L, n) {
   return `<div class="lapbox"><div class="lb-top">${state.gfxLogo ? '<span class="lb-mark" role="img" aria-label="F1"></span>' : '<span class="lb-f1">F1</span>'}<small>FIA FORMULA 1 WORLD CHAMPIONSHIP</small></div>
     <div class="lb-lap">LAP <b>${lap}</b> / ${n}</div>${L.sc ? `<div class="lb-sc"><span class="lb-fia">FIA</span>${L.sc === 1 ? 'SAFETY CAR' : 'VIRTUAL SAFETY CAR'}</div>` : ''}</div>`;
 }
+/** The driver in a verdict box: a full body pinned at the head, so it shows head and torso; else the headshot. */
+function faceImg(c, s, id) { const b = bodyFor(c, id, s)?.url; const h = !b && headOf(c, id, s); return b ? `<img class="body" src="${esc(b)}" alt="">` : h ? `<img class="head" src="${esc(h)}" alt="">` : ''; }
 function champBar(c, s, r, L, idOf, mineIds) {
   const S = liveStandings(c, s, r, L, idOf); if (!S.rows.length) return '';
   const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
-  const before = driverStandings(s, seasonStatsCache(s)); const was = Object.fromEntries(before.map(x => [x.id, x.pos]));
+  const was = Object.fromEntries(S.before.map(x => [x.id, x.pos])); // places going into the race
   const lead = S.rows[0]; const sprint = L.key === 'SPR';
   const finished = L.field.some(x => x.pos === 1 && x.st === 3);
   const row = (x, i) => {
@@ -682,7 +687,7 @@ function champBar(c, s, r, L, idOf, mineIds) {
   const dec = S.canDecide;
   const next = sprint ? 'the Grand Prix' : rounds[ri + 1]?.name || 'the next round';
   const champ = S.decidedNow ? lead.id : null; const ct = champ && teamOf(s, champ); const face = champ ? (bodyFor(c, champ, s)?.url || headOf(c, champ, s)) : null;
-  const verdict = !dec ? '' : `<div class="cb-face" style="--c:${ct?.color || '#2A2A36'}">${champ ? `<span class="cb-num">${esc(String(s.drivers[champ]?.number ?? ''))}</span>${face ? `<img src="${esc(face)}" alt="">` : ''}` : ''}</div>
+  const verdict = !dec ? '' : `<div class="cb-face" style="--c:${ct?.color || '#2A2A36'}">${champ ? `<span class="cb-num">${esc(String(s.drivers[champ]?.number ?? ''))}</span>${faceImg(c, s, champ)}` : ''}</div>
     <div class="cb-verdict"><small>${finished ? '' : 'AS IT STANDS'}</small><b>${champ ? `${esc(lastName(dName(s, champ)))} ${finished ? 'is' : 'will be'} world champion` : `The fight goes on to ${esc(next)}`}</b></div>`;
   const celebrate = champ && finished ? `<div class="panel live-card champ-anim"><div class="ca-fig">${bodyFor(c, champ, s)?.url ? `<img src="${esc(bodyFor(c, champ, s).url)}" alt="">` : face ? `<img class="ca-head" src="${esc(face)}" alt="">` : ''}</div><div class="ca-txt"><small>${s.year} FORMULA 1</small><b>WORLD CHAMPION</b><small>${esc(dName(s, champ).toUpperCase())}</small></div></div>` : '';
   const trow = (x) => `<tr class="${x.t.id === s.playerTeamId ? 'me' : ''}"><td class="num">${x.pos}</td><td>${esc(x.t.name)}</td><td class="num"><b>${x.pts}</b></td></tr>`;
@@ -752,6 +757,22 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
   const lapsDone = me.lap - 1; const N = ST.n;
   const stints = []; { const used = L.used?.[me.i] || []; let from = 1; (L.pitLaps?.[me.i] || []).forEach((pl, k) => { stints.push({ c: used[k] || me.c, from, to: pl }); from = pl + 1; }); stints.push({ c: me.c, from, to: me.lap + (plan ? (ST.k || plan.k) - 1 : ST.left - 1) }); if (plan) { let at = stints[stints.length - 1].to; for (const x of plan.stints) { stints.push({ c: x.c, from: at + 1, to: at + x.L }); at += x.L; } } }
   const banner = call ? `<div class="pit-banner ${call.kind}"><b>${call.kind === 'sc' ? `PIT NOW · ${L.sc === 1 ? 'SAFETY CAR' : 'VSC'}` : 'PIT THIS LAP'}</b><span>${tyreChip(call.c)} ${COMPOUNDS[call.c][1]}${plan.stints[0].wear ? ` (used, ${plan.stints[0].wear}%)` : ''}</span></div>` : '';
+  const FP = fuelProjection(s, r, L, me, id); const fights = ST.none ? `${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft: false })}${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft: false })}` : fightCards(c, s, r, L, me, idOf, ST);
+  // compact: everything on one screen, the numbers as small tiles and the strategy in a line
+  if (ui.liveCompact) {
+    const tile = (lab, val, sub = '', cls = '') => `<div class="lc-tile ${cls}"><span class="label">${lab}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+    const PN = ST.posNote;
+    return `<div class="live-col compact">${banner}
+      <div class="lc-tiles">${tile(esc(lastName(dName(s, id))), `P${me.pos}`, me.pit ? 'In the pit lane' : `Lap ${me.lap} of ${N}`, 'pos')}
+        ${tile('Ahead', ahead ? `+${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading', ahead ? nm(ahead) : '')}
+        ${tile('Behind', behind ? `−${((behind.gapF || 0) / 1000).toFixed(3)}` : '–', behind ? nm(behind) : '')}
+        ${tile('Tyre', `${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0}`, `laps${me.wear != null ? ` · ${me.wear}%` : ''}${ST.curLife ? ` · ~${ST.curLife} left` : ''}`)}
+        ${PN ? tile('Projected', `P${PN.mode}`, PN.best === PN.worst ? '' : `P${PN.best}–P${PN.worst}`) : ''}
+        ${FP ? tile('Fuel at flag', `${FP.end >= 0 ? '+' : '−'}${Math.abs(FP.end).toFixed(1)} kg`, FP.end >= 0 ? `${FP.lapsSpare.toFixed(1)} laps spare` : `save ${FP.save.toFixed(2)} kg/lap`, FP.end >= 0 ? 'ok' : 'short') : ''}
+        ${ST.none ? '' : tile('Pit now', `P${RJ.pos}`, RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading')}</div>
+      ${ST.none || !plan ? '' : `<div class="panel live-card lc-strat"><div class="panel-b">${stintBar(stints.filter(x => x.to >= x.from), N)}<div style="font-size:12px">${plan.stints.length ? (call ? '' : `Next stop <b>lap ${me.lap + (ST.k || plan.k) - 1}</b> onto ${plan.stints.map(x => COMPOUNDS[x.c][1].toLowerCase()).join(', then ')}`) : 'No more stops: to the flag on this set.'}</div></div></div>`}
+      <div class="lc-fights">${fights}</div></div>`;
+  }
   return `<div class="live-col">
     ${banner}
     <div class="panel live-card"><div class="panel-h"><h2>${esc(dName(s, id))}</h2><span class="muted" style="font-size:12px">${me.pit ? 'In the pit lane' : `Lap ${me.lap} of ${N}`}</span></div>
@@ -759,13 +780,13 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
         <div><span class="label">Ahead</span><b>${ahead ? `${nm(ahead)} +${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading'}</b></div>
         <div><span class="label">Behind</span><b>${behind ? `${nm(behind)} −${((behind.gapF || 0) / 1000).toFixed(3)}` : '–'}</b></div>
         <div><span class="label">Tyre</span><b>${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0} laps${me.wear != null ? ` · ${me.wear}%` : ''}</b></div></div></div>
-    ${fuelCard(fuelProjection(s, r, L, me, id))}
+    ${fuelCard(FP)}
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${ST.none ? '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>' : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
         <div style="font-size:13px">${plan.stints.length ? `${ST.offset ? `<b>Extend for tyre offset:</b> pit on lap ${me.lap + ST.k - 1}, when ${nm(behind)} is about ${(ST.offset.need / 1000).toFixed(1)} s behind. ` : call ? '' : `Next stop: <b>lap ${me.lap + plan.k - 1}</b>${plan.window[1] > plan.window[0] ? ` (window laps ${me.lap + plan.window[0] - 1}–${me.lap + plan.window[1] - 1})` : ''}, onto ${plan.stints.map(x => `${COMPOUNDS[x.c][1].toLowerCase()}${x.wear ? ` (used ${x.wear}%)` : ''}`).join(', then ')}. `}Tyre life left: about ${plural(ST.curLife, 'lap')}.` : 'No more stops: to the flag on this set.'}${ST.scHold ? ` <span class="muted">Staying out under the ${L.sc === 1 ? 'safety car' : 'VSC'}: you’d lose ${plural(ST.scHold.m, 'place')} and need ${(ST.scHold.need / 1000).toFixed(2)} s a lap to win them back.</span>` : ''}</div>` : '<div class="muted" style="font-size:13px">No plan fits with the tyres left.</div>'}
         <div class="rejoin"><span class="label" title="${ST.PL.n ? `Pit loss from ${plural(ST.PL.n, 'stop')} in this race (the track's figure is ${(ST.PL.track / 1000).toFixed(1)} s)` : 'The track’s pit loss: it changes to this race’s own once a stop is measured'}">If you pit now (${(ST.lossNow / 1000).toFixed(1)} s${L.sc ? `, ${L.sc === 1 ? 'safety car' : 'VSC'}` : ''}${ST.PL.n ? `, from ${plural(ST.PL.n, 'stop')} today` : ''})</span><b>Rejoin P${RJ.pos}</b><span class="muted">${RJ.ahead ? `${nm(RJ.ahead)} ${(RJ.gapA / 1000).toFixed(1)} s ahead` : 'leading'}${RJ.behind ? ` · ${nm(RJ.behind)} ${(RJ.gapB / 1000).toFixed(1)} s behind` : ''}</span></div></div></div>
     ${ST.posNote ? `<div class="panel live-card"><div class="panel-h"><h2>Projected finish</h2><span class="muted" style="font-size:12px">${ST.posNote.best === ST.posNote.worst ? `P${ST.posNote.best}` : `P${ST.posNote.best}–P${ST.posNote.worst}`}</span></div><div class="panel-b stack" style="gap:6px"><div class="live-pos" style="font-size:34px">P${ST.posNote.mode}</div>${posNoteHtml(ST.posNote, me)}</div></div>` : ''}
-    ${ST.none ? `${battleCard(s, idOf, ahead, me, me, ST.left, { pits: pitLaps, stopLeft: false })}${battleCard(s, idOf, me, behind, me, ST.left, { pits: pitLaps, stopLeft: false })}` : fightCards(c, s, r, L, me, idOf, ST)}
+    ${fights}
   </div>`;
 }
 /*
@@ -814,15 +835,15 @@ function renderLiveRace() {
   const cars = L.field.filter(x => mineIds.includes(idOf(x.i)));
   const follow = ui.liveFollow || 'player'; const meP = L.field.find(x => x.i === L.player) || cars[0];
   const shown = mineIds.length > 1 ? (follow === 'both' ? cars : follow === 'mate' ? cars.filter(x => x.i !== L.player) : [meP]) : [meP];
-  const P = liveErsPlan(c, s, r);
   return `<div class="page live-page">${tabs}
     <div class="row live-head">${lapBox(L, L.totalLaps || (L.key === 'SPR' ? Math.ceil(raceLaps(s, r.id) / 3) : raceLaps(s, r.id)))}<span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · ${esc(r.name)}</b>
-      ${mineIds.length > 1 ? `<div class="seg" style="margin-left:auto">${[['player', 'Your car'], ['mate', 'Teammate'], ['both', 'Both']].map(([v, l]) => `<button data-act="live-follow" data-v="${v}" class="${follow === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div>
-    <div id="live-root"><div class="live-grid ${shown.length > 1 ? 'split' : ''}">${shown.filter(Boolean).map(me => liveDriverCol(c, s, r, L, w, me, idOf(me.i), idOf)).join('')}
-      <div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}${weatherCard(L)}
-        ${P && !P.none && P.map ? `<div class="panel live-card"><div class="panel-h"><h2>ERS: where to boost</h2><span class="muted" style="font-size:12px" id="ers-live-now">${liveNowHtml(liveErs)}</span></div><div class="panel-b">${ersMapSvg(P, 'plan', !!c.ersFlip?.[trackOf(r)])}<div class="muted" style="font-size:12px">${P.planned.length ? P.planned.map((z, k) => `${k + 1}: ${Math.round(z.plan.at)}–${Math.round(z.plan.to)} m`).join(' · ') : 'No boost fits right now.'}</div></div></div>` : ''}</div></div></div>
+      <div class="row" style="margin-left:auto;gap:8px">${liveLayoutSeg()}${mineIds.length > 1 ? `<div class="seg">${[['player', 'Your car'], ['mate', 'Teammate'], ['both', 'Both']].map(([v, l]) => `<button data-act="live-follow" data-v="${v}" class="${follow === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div></div>
+    <div id="live-root"><div class="live-grid ${shown.length > 1 ? 'split' : ''} ${ui.liveCompact ? 'compact' : ''}">${shown.filter(Boolean).map(me => liveDriverCol(c, s, r, L, w, me, idOf(me.i), idOf)).join('')}
+      <div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}${weatherCard(L)}</div></div></div>
   </div>`;
 }
+/** Compact (everything on one screen) or Full, for Live Race and Race Replay. */
+const liveLayoutSeg = () => `<div class="seg">${[[1, 'Compact'], [0, 'Full']].map(([v, l]) => `<button data-act="live-layout" data-v="${v}" class="${!!ui.liveCompact === !!v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Race']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
 /** Between races: the debrief of the last one (until this weekend's first session), then the strategy to follow. */
 function liveIdle(c, s, r, w) {

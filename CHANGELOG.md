@@ -2,6 +2,15 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.26.0
+
+- **Flashbacks, properly this time**: the game winds a flashback back gradually as you pick the moment, and Pitwall was folding that rewind into the lap. Now anything behind the furthest point you reached is wiped as it's rewound and driven again, so the fastest-lap traces and your ERS profile hold the lap as you finally drove it. Race replays drop the flashed-back part of every recording, not only older ones.
+- **A race or qualifying saved mid-session and carried on later is one session**, not a new race. The game gives the resumed session a new id but keeps its session link, and Pitwall now joins the two: contact, penalties, passes, wear, fuel, safety cars, fastest laps and the real starting grid carry on, even if Pitwall was closed in between (what it has gathered is kept on disk while a session runs). Qualifying is no longer reordered to where you were when you saved, and the race replay carries on in the same recording.
+- **Live Race and Race Replay: Compact or Full.** Compact puts everything on one screen: position, gaps, tyre, projected finish, fuel and a pit-now rejoin as small tiles, the strategy in a line, the battles side by side. Your choice is remembered. The ERS card is gone from Live Race.
+- **Race Replay shows the live championship** beside the driver's dashboard, and it's the championship as it stood going into that race (with that weekend's sprint), not as it is now. Live Race uses the same.
+- **Title Forecast and Live Race verdict**: a full-body picture shows head and torso instead of the legs.
+- **Dashboard**: the drivers' and constructors' standings side by side, then goals and recent results, then the teammate battle, rivalries and latest graphics, so there's far less empty space.
+
 ## 3.25.1
 
 - **Flashbacks rebuild the lap instead of losing it.** What you drove after the point you flashed back to is thrown away and replaced by what you drive next, in the fastest-lap traces and in your ERS profile, even when the flashback takes you back across the line into the lap before. A lap that went invalid before the flashback counts again if the game clears it (you flashed back to before the moment it was lost).
