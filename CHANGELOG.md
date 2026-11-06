@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.27.0
+
+- **Wet weather calls in Live Race.** Pitwall compares how far off dry the cars on slicks and on inters are running, lap by lap, and calls the change: "Box for inters: they're 3.6 s a lap quicker", "Box for slicks", full wets in standing water, or a heads-up when the forecast says the switch is coming ("inters likely in about 10 min"). It weighs the time a change wins back against the pit loss for the laps left. The call shows as a banner and in the compact tiles.
+- **Each track learns its own crossovers** from every race recorded there: the slick slowdown and rain at which inters became quicker, and the way back. Races recorded before this are read once, so your São Paulo race (inters at slicks about 11% off and 60% rain, slicks back at inters about 15% off) is already in. Tracks without wet data use a default built from it.
+- **Red flags**: the game's red flag shows in the lap box, and a red flag is a free tyre change in the strategy. A race restarted after a red flag keeps its grid and qualifying order.
+- **Live Race head**: the lap and safety-car box with the race, the weather now and the next half hour, the slicks and inters pace and the weather call beside it, in Full and Compact. The separate weather card and the full tables are gone.
+- **Automatic overtaking difficulty** is one setting for every track now, so it stays on (or off) from weekend to weekend.
+
 ## 3.26.0
 
 - **Flashbacks, properly this time**: the game winds a flashback back gradually as you pick the moment, and Pitwall was folding that rewind into the lap. Now anything behind the furthest point you reached is wiped as it's rewound and driven again, so the fastest-lap traces and your ERS profile hold the lap as you finally drove it. Race replays drop the flashed-back part of every recording, not only older ones.

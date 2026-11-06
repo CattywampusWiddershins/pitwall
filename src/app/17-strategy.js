@@ -464,3 +464,117 @@ function strategyAdvicePanel(c, s) {
       <div class="row pit-loss" style="gap:8px;margin-top:6px;flex-wrap:wrap"><span>Pit loss at ${esc(D.TRACKS[tid]?.circuit || r.name)}${PL.learned ? ` (from your last race here, ${plural(PL.learned.stops, 'stop')})` : PL.own ? ' (yours)' : ''}:</span>${[['green', 'green flag'], ['vsc', 'VSC'], ['sc', 'safety car']].map(([k, l]) => `<label class="row" style="gap:4px"><input type="number" step="0.5" min="0" max="60" value="${(PL[k] / 1000).toFixed(1)}" data-ch="pit-loss" data-track="${tid}" data-k="${k}" style="width:64px"> s ${l}</label>`).join('')}${PL.own ? `<button class="btn sm ghost" data-act="pit-loss-reset" data-track="${tid}">Default</button>` : ''}</div>
       ${overtakeRow(c, tid)}</div></div>`;
 }
+
+/* ---------------------------------------------------------------- wet weather */
+/*
+  When to change between slicks, intermediates and wets. The game's rain figure (the forecast for now, in %) climbs
+  ahead of the track: the track takes a few laps to get wet, and longer to dry. So the call is made on the lap times:
+  how much slower than dry each group of cars is running. Slicks give way to inters once they're about as slow as
+  inters would be (the crossover), and inters give way back to slicks the other way round. Each track learns its own
+  crossovers from every race recorded there (São Paulo 2026: inters at slicks ~9% off and 60% rain; slicks back at
+  inters ~13% off, rain falling through ~60%); a track without data uses those as the default.
+*/
+const WET_DEFAULT = { toInter: { slow: 9, rain: 60 }, toSlick: { slow: 13, rain: 58 }, wets: { rain: 92, slow: 18 } };
+const isSlick = (cp) => DRY.includes(cp);
+/** A track's crossovers: what it has learned, else the default. { toInter, toSlick, wets, n, own } */
+function wetModel(c, tid) {
+  const m = c?.wetModel?.[tid];
+  return m?.n ? { ...WET_DEFAULT, ...m, own: true } : { ...WET_DEFAULT, n: 0, own: false };
+}
+/**
+ * What a recorded race says about the crossovers: per lap the rain and how far off dry the cars on each tyre were (a
+ * car's dry pace: its best clean laps on slicks before any rain). The slick-to-inter crossover is the slowdown the
+ * first inters ran at, with the rain when slicks first got that slow; the way back, the slowdown the first slicks ran
+ * at, with the rain when inters got that slow. D: a recording (samples, laps). { toInter?, toSlick? } or null.
+ */
+function learnWet(D) {
+  const S = D?.samples || []; if (!S.length) return null;
+  const tyre = {}, rainAt = {}; let w = null;
+  for (const s of S) {
+    if (s.w) w = s.w; const lead = Math.max(0, ...s.f.map(x => x[2] || 0));
+    const f0 = w?.forecast?.find(f => f.session === D.meta.sessionType && f.at === 0); if (lead && f0) rainAt[lead] = f0.rain;
+    for (const x of s.f) if (x[2] > 0 && x[9] >= 0) (tyre[x[0]] ||= {})[x[2]] = x[9];
+  }
+  if (!Object.values(rainAt).some(v => v >= 40)) return null; // never properly wet
+  const med = (a) => { const b = a.slice().sort((p, q) => p - q); return b.length ? b[Math.floor(b.length / 2)] : null; };
+  const dry = {};
+  for (const [i, laps] of Object.entries(D.laps || {})) {
+    const v = laps.map((l, k) => l && l[0] && (l[1] & 1) && isSlick(tyre[i]?.[k + 1]) && (rainAt[k + 1] ?? 100) < 30 ? l[0] : null).filter(Boolean).sort((a, b) => a - b).slice(0, 5);
+    if (v.length >= 2) dry[i] = med(v);
+  }
+  const n = D.meta.totalLaps || Math.max(...Object.keys(rainAt).map(Number)); const per = [];
+  for (let lap = 2; lap <= n; lap++) {
+    const g = { slick: [], inter: [] };
+    for (const [i, laps] of Object.entries(D.laps || {})) {
+      const l = laps[lap - 1], cp = tyre[i]?.[lap]; if (!l?.[0] || !dry[i] || cp == null || tyre[i]?.[lap - 1] !== cp) continue; // no stop laps
+      const r = l[0] / dry[i]; if (r > 1.4) continue; // a safety car or an incident
+      if (isSlick(cp)) g.slick.push(r); else if (cp === 7) g.inter.push(r);
+    }
+    per[lap] = { rain: rainAt[lap], slick: g.slick.length ? (med(g.slick) - 1) * 100 : null, inter: g.inter.length ? (med(g.inter) - 1) * 100 : null };
+  }
+  const out = {};
+  const firstInter = per.findIndex(p => p && p.inter != null);
+  if (firstInter > 0) {
+    const X = per[firstInter].inter; const at = per.findIndex((p, k) => k <= firstInter && p?.slick != null && p.slick >= X);
+    if (at > 0) out.toInter = { slow: Math.round(X * 10) / 10, rain: per[at].rain ?? WET_DEFAULT.toInter.rain };
+    const back = per.findIndex((p, k) => k > firstInter && p?.slick != null && p.slick < 30);
+    if (back > 0) { const Y = per[back].slick; let k = back - 1; while (k > firstInter && !(per[k]?.inter != null && per[k].inter >= Y)) k--; if (per[k]?.inter != null) out.toSlick = { slow: Math.round(Y * 10) / 10, rain: per[k].rain ?? WET_DEFAULT.toSlick.rain }; }
+  }
+  return Object.keys(out).length ? out : null;
+}
+/** Folds what a race taught into the track's crossovers (an average over every race learned from). */
+function addWet(c, tid, got) {
+  if (!got) return false; const M = ((c.wetModel ||= {})[tid] ||= { n: 0 }); const n = M.n;
+  const mix = (a, b) => a ? { slow: Math.round((a.slow * n + b.slow) / (n + 1) * 10) / 10, rain: Math.round((a.rain * n + b.rain) / (n + 1)) } : b;
+  if (got.toInter) M.toInter = mix(M.toInter, got.toInter); if (got.toSlick) M.toSlick = mix(M.toSlick, got.toSlick);
+  M.n = n + 1; return true;
+}
+/** Learns from every recording of this career not learned from yet (a race is loaded, read and let go, one at a time). */
+async function learnWetFromReplays() {
+  const c = career(); if (!c || !window.api?.replays || learnWetFromReplays.busy) return; learnWetFromReplays.busy = true;
+  try {
+    const list = await window.api.replays.list(); const seen = new Set(c.wetSeen || []); let changed = false;
+    for (const x of list || []) {
+      if (seen.has(x.key) || x.sessionType < 15 || !x.done) continue;
+      const tid = GAME_TRACKS[x.track]; if (!tid) continue;
+      const D = await window.api.replays.load(x.key); seen.add(x.key);
+      if (D && addWet(c, tid, learnWet(D))) changed = true;
+    }
+    c.wetSeen = [...seen]; store.save(); if (changed) render();
+  } catch (e) { console.warn(e); } finally { learnWetFromReplays.busy = false; }
+}
+/**
+ * The weather call in a live race: the rain now and ahead, how far off dry the slick and inter runners are, and what to
+ * do on the tyre you're on. A red flag is a free tyre change. { rain, ahead: [{ at, rain }], slick, inter, text, cls, tyre }
+ */
+function wetCall(c, s, r, L, me, loss) {
+  const W = L.weather; if (!W) return null;
+  const fc = (W.forecast || []).filter(x => x.session === L.sessionType);
+  const rain = fc.find(x => x.at === 0)?.rain ?? null; const ahead = fc.filter(x => x.at > 0 && x.at <= 30);
+  const M = wetModel(c, trackOf(r));
+  const grp = { slick: [], inter: [], wet: [] };
+  for (const x of L.field) {
+    const ref = L.dryRef?.[x.i]; const last = liveLaps(x).slice(-1)[0];
+    if (!ref || !last?.valid || x.pit || x.st !== 2) continue;
+    const v = (last.ms / ref - 1) * 100; if (v > 40) continue;
+    (isSlick(x.c) ? grp.slick : x.c === 7 ? grp.inter : x.c === 8 ? grp.wet : []).push(v);
+  }
+  const med = (a) => { const b = a.slice().sort((p, q) => p - q); return b.length ? b[Math.floor(b.length / 2)] : null; };
+  const slick = med(grp.slick), inter = med(grp.inter);
+  const onSlick = isSlick(me.c), onInter = me.c === 7;
+  const ref = L.dryRef?.[me.i] || 90000; const left = Math.max(0, (L.totalLaps || 50) - me.lap);
+  const worth = (gainPct, laps) => gainPct / 100 * ref * laps > (L.red ? 0 : loss); // the time a change wins back, against what the stop costs
+  const soon = (thr, rising) => { const f = ahead.find(x => rising ? x.rain >= thr : x.rain <= thr); return f ? f.at : null; };
+  let text = '', cls = '', tyre = null;
+  if (onSlick) {
+    const gain = inter != null && slick != null ? slick - inter : slick != null ? slick - M.toInter.slow : null;
+    if (gain != null && gain > 0 && worth(gain, Math.min(left, 10))) { text = inter != null ? `Box for inters: they’re ${((gain / 100) * ref / 1000).toFixed(1)} s a lap quicker` : `Box for inters: slicks are ${slick.toFixed(1)}% off dry`; cls = 'call'; tyre = 7; }
+    else if (rain != null && rain >= M.toInter.rain - 10) { const m = soon(M.toInter.rain, true); text = m != null ? `Rain building: inters likely in about ${m} min` : `Rain ${rain}%: stay out on slicks for now`; cls = 'watch'; }
+  } else if (onInter) {
+    const gain = slick != null && inter != null ? inter - slick : inter != null && rain != null && rain <= M.toSlick.rain ? inter - M.toSlick.slow : null;
+    if (gain != null && gain > 0 && worth(gain, Math.min(left, 10))) { text = slick != null ? `Box for slicks: they’re ${((gain / 100) * ref / 1000).toFixed(1)} s a lap quicker` : `Box for slicks: the track is drying`; cls = 'call'; tyre = 17; }
+    else if (rain != null && rain >= M.wets.rain && inter != null && inter >= M.wets.slow) { text = 'Standing water: full wets would be quicker'; cls = 'call'; tyre = 8; }
+    else if (rain != null && rain <= M.toSlick.rain + 15) { const m = soon(M.toSlick.rain, false); text = m != null ? `Drying: slicks likely in about ${m} min` : 'Stay on inters'; cls = 'watch'; }
+  }
+  return { rain, ahead, slick, inter, text, cls, tyre, own: M.own, n: M.n };
+}

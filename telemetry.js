@@ -247,7 +247,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     if (!newLap && now - (s.liveAt || 0) < LIVE_MS) return;
     s.liveAt = now;
     const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, link: s.info.sessionLink, totalLaps: s.info.totalLaps,
-      lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, clock: Math.round((s.clock || 0) * 10) / 10, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
+      lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, red: !!s.red, clock: Math.round((s.clock || 0) * 10) / 10, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
       dep: s.stat ? Math.round(s.stat.dep / 1000) : null, limit: s.stat?.limit ? Math.round(s.stat.limit / 1000) : null, at: new Date().toISOString() };
     if (newLap) { s.liveLap = c.lap; msg.pack = packErs(s); }
     // the whole field: running order, gaps, tyres, sectors and each car's recent laps (from the lap history)
@@ -403,6 +403,8 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
         if (c.status === 2 && c.lead) s.lead[i] = c.lead;
         else if (c.status === 3 && s.leadFin[i] == null) s.leadFin[i] = c.lead || s.lead[i] || null;
       });
+      // a red flag ends when most of the field is out of the pits and up to speed again
+      if (s.red && s.telAll) { const on = lap.filter((c, i) => c.status === 2); if (on.length && on.filter(c => !c.pit && (s.telAll[lap.indexOf(c)]?.spd || 0) > 60).length > on.length / 2) s.red = false; }
       if (ersSession(s.info)) { logErs(s, lap[h.player]); live(s, lap[h.player]); logTraces(s, lap); }
       stashNow(s);
       // two cars that swapped places since the last packet (a stand-in for the overtake event)
@@ -432,6 +434,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       }
       else if (code === 'OVTK' && b.length >= HEADER + 6) pass(s, s.overtakes, b[33], b[34], h.time);
       else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34], t: h.time, lap: s.curLap[b[33]] || 0 });
+      else if (code === 'RDFL') s.red = true; // a red flag: cleared once the field is moving again
       else if (code === 'FLBK' && b.length >= HEADER + 12) {
         // a flashback: everything after the moment it went back to never happened (contact, penalties, passes, damage)
         const back = b.readFloatLE(37);

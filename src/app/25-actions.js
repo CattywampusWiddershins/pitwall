@@ -361,7 +361,7 @@ const changes = {
   'rp-speed'(el) { if (!RP) return; RP.speed = +el.value; const b = document.getElementById('rp-speed'); if (b) b.textContent = RP.speed + 'x'; },
   'lb-pick'(el) { ui.modal.pick[el.dataset.k] = el.checked; ui.lbPick = ui.modal.pick; },
   'fl-pick'(el) { ui[el.dataset.k === 'a' ? 'flA' : 'flB'] = el.value; render(); },
-  'overtake-auto'(el) { const c = career(); (c.overtakeAuto ||= {})[el.dataset.track] = el.checked; store.save(); render(); },
+  'overtake-auto'(el) { const c = career(); c.overtakeAutoAll = el.checked; store.save(); render(); }, // for every track, every weekend
   'overtake'(el) { const c = career(); (c.overtake ||= {})[el.dataset.track] = Math.max(0, Math.min(100, +el.value || 0)); store.save(); render(); },
   'pit-loss'(el) {
     const c = career(); const tid = el.dataset.track; const cur = pitLoss(c, tid); const v = Math.max(0, Math.min(60, +el.value || 0));

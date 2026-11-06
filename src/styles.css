@@ -1241,3 +1241,14 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .dash-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 .dash-row.two { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
 @media (max-width: 640px) { .dash-row, .dash-row.two { grid-template-columns: 1fr; } }
+
+/* Live Race head: the lap box with the race and the weather beside it */
+.live-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; margin: 6px 0 12px; }
+@media (max-width: 760px) { .live-head { grid-template-columns: auto minmax(0, 1fr); } .lh-ctl { grid-column: 1 / -1; } }
+.lh-info { display: grid; gap: 6px; min-width: 0; }
+.lh-wx { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13px; }
+.lh-wx .wx { transform: scale(.8); }
+.lh-fc { display: inline-flex; gap: 8px; font-size: 12px; color: var(--muted); } .lh-fc > span { display: inline-flex; align-items: center; gap: 2px; }
+.lh-call { flex-basis: 100%; font-weight: 700; font-family: var(--font-display); } .lh-call.call { color: var(--red); } .lh-call.watch { color: var(--yellow); }
+.lh-call small { font-weight: 400; color: var(--muted); font-family: var(--font-body); }
+.lb-sc.red { background: #E10600; color: #fff; } .lb-sc.red .lb-fia { border-color: #fff; }

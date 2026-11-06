@@ -332,7 +332,7 @@ function ersWithTyres(r, map) {
 }
 /** Log a game result into a session (keeping what was there, for undo). */
 function applyGameResult(c, r, place) {
-  if (isRaceKind(place.key)) setTimeout(() => backupNow('race'), 3000); // once the race is saved
+  if (isRaceKind(place.key)) { setTimeout(() => backupNow('race'), 3000); setTimeout(() => learnWetFromReplays(), 10000); } // once the race is saved (and its recording written)
   const { s, round, key } = place;
   const { map, unmatched } = mapGameDrivers(c, s, r);
   const w = weekend(s, round.id, true);
