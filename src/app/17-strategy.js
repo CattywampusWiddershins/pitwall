@@ -89,28 +89,19 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
       // lap (no out-lap driven) keeps its first lap
       for (let lap = x.from; lap <= x.to; lap++) { const ms = N[lap - 1]; if (ms) run.push({ age: lap - x.from + 1, ms, wear: wear[lap - 1] }); }
       if (run.length < 3) continue;
-      // the run: laps within 5% of its best (a soft that wears hard really is 2-3% slower by its fifth lap: at Saudi
-      // Arabia 2026 the last of five was 2.7 s off the first). Laps beyond that (an in-lap, a big mistake) are skipped:
-      // one or two and the run goes on, keeping each lap's age; three in a row (a cool-down) end it
-      const best = Math.min(...run.map(r => r.ms)); const ok = (r) => r.ms <= best * 1.05; let cur = [], longest = [], miss = 0;
-      for (const r of run) {
-        if (ok(r)) { cur.push(r); miss = 0; }
-        else if (cur.length && ++miss <= 2) { /* skipped */ }
-        else { if (cur.length > longest.length) longest = cur; cur = []; miss = 0; }
-      }
-      if (cur.length > longest.length) longest = cur;
-      if (longest.length < 3) continue;
-      // every lap of the run counts (a Race Pace programme's five are five), but the fall-off is fitted without the laps
-      // that aren't fall-off: a first lap well off the next while the tyres come in, and up to two laps well above the
-      // run's trend (traffic, a mistake, a stuck Straight Mode)
-      let fitL = longest.slice();
-      if (fitL.length >= 4 && fitL[0].ms > fitL[1].ms + 150) fitL = fitL.slice(1);
-      for (let n = 0; n < 2 && fitL.length > 3; n++) {
-        const f = fitLine(fitL.map(r => [r.age, r.ms])); if (!f) break;
-        const res = fitL.map(r => r.ms - (f.a + f.b * r.age)); const mad = median(res.map(Math.abs)) || 1; const j = res.indexOf(Math.max(...res));
-        if (res[j] > Math.max(600, 3 * mad)) fitL.splice(j, 1); else break;
-      }
+      // the run's laps, by two yardsticks. Within 2.5% of its best: the laps the fall-off is fitted on (one or two slower
+      // laps, traffic or a mistake or a stuck Straight Mode, are skipped and the run goes on; three in a row end it), less
+      // a first lap well off the next while the tyres come in. Within 5%: the laps the run counts, so a Race Pace
+      // programme's five are five even when the soft's last lap or a warm-up lap sits outside the fit. A wider window
+      // for the fit itself was tried against the 2026 races and was no more accurate (Singapore's hard came out flatter).
+      const best = Math.min(...run.map(r => r.ms));
+      const stretch = (lim) => { let cur = [], longest = [], miss = 0;
+        for (const r of run) { if (r.ms <= best * lim) { cur.push(r); miss = 0; } else if (cur.length && ++miss <= 2) { /* skipped */ } else { if (cur.length > longest.length) longest = cur; cur = []; miss = 0; } }
+        return cur.length > longest.length ? cur : longest; };
+      let fitL = stretch(1.025);
+      while (fitL.length >= 4 && fitL[0].ms > fitL[1].ms + 150) fitL = fitL.slice(1);
       if (fitL.length < 3) continue;
+      const longest = stretch(1.05).length >= fitL.length ? stretch(1.05) : fitL;
       const pace = fitLine(fitL.map(r => [r.age, r.ms])); const wr = fitLine(fitL.filter(r => r.wear != null).map(r => [r.age, r.wear]));
       const deg = Math.max(0, pace?.b || 0);
       // a set that was already worn when the run began: its wear says how many laps old it really was, so the pace and
@@ -122,7 +113,7 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
       // back to age 1 would make it slower than any lap that was driven
       const atOne = deg > 0 && pace ? pace.a + deg : avg(fitL.map(r => r.ms));
       const prev = out[x.c];
-      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, fit: fitL.length, base: atOne - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
+      if (!prev || fitL.length > prev.fit) out[x.c] = { laps: longest.length, fit: fitL.length, base: atOne - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
     }
   }
   for (const c in out) out[c].ref = isFinite(ref) ? ref : Math.min(...Object.values(out).map(x => x.base));
