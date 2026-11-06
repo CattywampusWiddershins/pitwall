@@ -154,9 +154,34 @@ function strategyRuns(s, round) {
     // your 5-lap medium run said 141 ms a lap, the grid's 59; your mediums lost about 95 in the race
     if (a.deg >= DEG_ZERO && p.deg >= DEG_ZERO && p.laps < 12) { const was = p.deg; p.deg = (p.deg * p.laps + a.deg * 5) / (p.laps + 5); if (Math.abs(p.deg - was) > 10) p.degNote = `your ${p.laps}-lap run said +${(was / 1000).toFixed(3)} s; weighed with the grid’s`; }
   }
+  // the paces in order first (the grid's, then yours, which can lean on the grid's), then everything that builds on them
+  orderPace(grid, mine, 'your'); orderPace(mine, grid, 'the grid’s');
   for (const runs of [grid, mine]) { orderTyres(runs); degFromWear(runs); }
   fillTyres(grid, mine);
   return { grid, mine };
+}
+/**
+ * A soft no quicker than the medium (or a hard no slower) can't be right either: a spoiled run, traffic, a set that
+ * overheated. At Las Vegas 2026 your soft came out 0.30 s slower than your medium, so the plan fitted a medium for the
+ * last stint where the soft was quicker. It's put back by the gap between the tyres that were in order: the other
+ * side's soft-to-medium gap (the grid's many runs), else the hard-to-medium gap (yours, then the other side's), else
+ * 0.4 s; a hard is put by the soft-to-medium gap the same way. The measured pace stays in the note.
+ */
+const PACE_GAP = 400; // ms: the step between compounds when nothing measured says
+function orderPace(runs, other, otherWho) {
+  const real = (x) => x && !x.src && !x.paceNote; // measured, not filled in or put back
+  const sm = (R) => real(R?.[16]) && real(R?.[17]) && R[16].base < R[17].base ? R[17].base - R[16].base : null;
+  const hm = (R) => real(R?.[17]) && real(R?.[18]) && R[18].base > R[17].base ? R[18].base - R[17].base : null;
+  const S = runs[16], M = runs[17], H = runs[18]; if (!real(M)) return;
+  const note = (x, was, gap, why, slow) => { x.paceNote = `measured ${fmtLap(Math.round(was))}, ${slow ? 'slower than the medium' : 'quicker than the medium'}: ${(gap / 1000).toFixed(3)} s ${slow ? 'quicker' : 'slower'} than the medium, ${why}`; };
+  if (real(S) && S.base >= M.base) {
+    const pick = [[sm(other), `${otherWho} soft-to-medium gap`], [hm(runs), 'the hard-to-medium gap'], [hm(other), `${otherWho} hard-to-medium gap`], [PACE_GAP, 'a typical gap']].find(([g]) => g != null);
+    const was = S.base; S.base = M.base - pick[0]; note(S, was, pick[0], pick[1], true);
+  }
+  if (real(H) && H.base <= M.base) {
+    const pick = [[sm(runs), 'the soft-to-medium gap'], [sm(other), `${otherWho} soft-to-medium gap`], [hm(other), `${otherWho} hard-to-medium gap`], [PACE_GAP, 'a typical gap']].find(([g]) => g != null);
+    const was = H.base; H.base = M.base + pick[0]; note(H, was, pick[0], pick[1], false);
+  }
 }
 /**
  * A tyre whose run measured no fall-off at all (a short run, or one that got quicker as the tyres came in) still falls
@@ -429,7 +454,7 @@ function strategyBlock(title, runs, n, note, opts = {}) {
   return `<div class="panel-b stack" style="gap:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><span class="label" style="margin:0">${esc(title)}</span><span class="muted" style="font-size:12px">${esc(note)}</span></div>
     ${plans.length ? `<div class="strat-bars">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const word = ['', 'one', 'two', 'three'][p.stops] + '-stopper'; const name = i === 0 ? `<b>The quickest</b> ${word}` : p.t - plans[0].t < 3000 ? `<b>Very close</b> ${word}` : p.stops > plans[0].stops ? `<b>Aggressive</b> ${word}` : p.stops < plans[0].stops ? `<b>Conservative</b> ${word}` : `<b>Alternative</b> ${word}`; const used = opts.sets && p.wears.some(x => x > 0) ? `<small class="muted strat-sets">${p.seq.map((cp, k) => `${p.wears[k] ? `used ${COMPOUNDS[cp][1].toLowerCase()} (${p.wears[k]}%)` : `new ${COMPOUNDS[cp][1].toLowerCase()}`}`).join(' → ')}</small>` : ''; return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${name}</span><small class="muted">${fmtGap(p.t - plans[0].t)}</small></div>${used}</div>`; }).join('')}</div>` : '<div class="muted" style="font-size:13px">No plan fits: on these runs the tyres would not last the distance.</div>'}
     <div class="table-wrap"><table><thead><tr><th>Tyre</th><th class="num">Pace</th><th class="num">Fall-off / lap</th><th class="num">Wear / lap</th><th class="num">Life</th></tr></thead><tbody>
-      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}${x.src ? `<div class="muted" style="font-size:11px">${esc(x.src)}</div>` : ''}</td><td class="num mono">${fmtLap(x.base)}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}${x.wearNote ? `<div class="muted" style="font-size:11px">${esc(x.wearNote)}</div>` : ''}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
+      ${DRY.filter(cp => runs[cp]).map(cp => { const x = runs[cp]; return `<tr><td>${tyreChip(cp)} ${COMPOUNDS[cp][1]}${x.src ? `<div class="muted" style="font-size:11px">${esc(x.src)}</div>` : ''}</td><td class="num mono">${fmtLap(x.base)}${x.paceNote ? `<div class="muted" style="font-size:11px;font-family:var(--font-body)">${esc(x.paceNote)}</div>` : ''}</td><td class="num">+${(x.deg / 1000).toFixed(3)} s${x.degNote ? `<div class="muted" style="font-size:11px">${esc(x.degNote)}</div>` : ''}</td><td class="num">${x.wear != null ? x.wear.toFixed(1) + '%' : '–'}${x.wearNote ? `<div class="muted" style="font-size:11px">${esc(x.wearNote)}</div>` : ''}</td><td class="num">${x.life ? plural(x.life, 'lap') : '–'}</td></tr>`; }).join('')}
     </tbody></table></div></div>`;
 }
 /** Dashboard: the best strategy for the next race, from this weekend's practice (the grid's, then yours). Each needs

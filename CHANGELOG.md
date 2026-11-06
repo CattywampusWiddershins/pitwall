@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.4
+
+- **Tyre paces in order.** A soft measured no quicker than the medium (or a hard no slower) is put back by the gap between tyres that were measured in order. That's the other side's soft-to-medium gap (the grid's, or yours), else the hard-to-medium gap, else 0.4 s. The measured time stays, in a note under the pace. At Las Vegas 2026 your soft had come out 0.30 s slower than your medium. It's now 0.624 s quicker, and the plan uses it.
+
 ## 3.34.3
 
 - Practice long runs are measured better:
