@@ -1150,7 +1150,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 /* Tables in the live championship's look: Standings (Detailed) and the Forecast */
 .tvb { display: grid; grid-template-columns: minmax(0, 1fr); background: linear-gradient(90deg, #15151E, #1C1C2A); border: 1px solid #2B2B3A; border-radius: var(--r); color: #fff; font-family: var(--font-display); overflow: hidden; }
 .tvb.has-side { grid-template-columns: minmax(0, 1fr) 130px 170px; }
-@media (max-width: 1100px) { .tvb.has-side { grid-template-columns: 120px minmax(0, 1fr); } .tvb.has-side .tvb-main { grid-column: 1 / -1; } .tvb.has-side .cb-face { min-height: 100px; } }
+@media (max-width: 1100px) { .tvb.has-side { grid-template-columns: 120px minmax(0, 1fr); } .tvb.has-side .tvb-main { grid-column: 1 / -1; } }
 .tvb-main { padding: 10px 12px; min-width: 0; }
 .tvb-scroll { overflow-x: auto; }
 .tvb-in { min-width: max-content; }
@@ -1266,3 +1266,14 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .rp-mo { all: unset; flex: none; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; padding: 4px 9px; border: 1px solid var(--line); border-radius: 99px; font-size: 12px; white-space: nowrap; }
 .rp-mo:hover { border-color: var(--c); } .rp-mo i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); } .rp-mo b { font-family: var(--font-display); color: var(--muted); }
 .rp-car.dim { opacity: .18; }
+
+/* the forecast board's verdict: the leader's whole cutout standing beside the verdict, no backdrop */
+.tvb.has-side:has(> .tvb-side) { grid-template-columns: minmax(0, 1fr) 330px; }
+.tvb-side { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 10px; padding: 12px 16px 12px 4px; min-height: 0; }
+.tvb-fig { height: 50%; min-height: 220px; display: flex; align-items: flex-end; justify-content: center; }
+.tvb-fig { position: relative; }
+.tvb-fig img.full { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); height: 100%; width: auto; max-width: none; pointer-events: none; filter: drop-shadow(0 6px 10px rgba(0,0,0,.5)); } /* sized by height: the picture's transparent sides spill over */
+.tvb-side .cb-verdict { position: relative; z-index: 1; }
+.tvb-fig img.head { width: 110px; aspect-ratio: 1; border-radius: 50%; object-fit: cover; object-position: top; border: 3px solid var(--c); }
+.tvb-side .cb-verdict { background: none; padding: 0; }
+@media (max-width: 1100px) { .tvb.has-side:has(> .tvb-side) { grid-template-columns: minmax(0, 1fr); } .tvb-side { padding: 0 16px 12px; grid-template-columns: 110px minmax(0, 260px); justify-content: center; } .tvb-fig { height: 180px; min-height: 0; } }

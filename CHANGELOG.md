@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.28.1
+
+- Forecast, On current form: when a weekend can decide the title, the predicted champion now shows as their whole cutout, about half the table's height, standing to the left of the verdict with no backdrop, instead of a cropped portrait running the full height of the table. Live Race keeps its head-and-torso picture.
+
 ## 3.28.0
 
 - **Race Replay: key moments.** Under the play controls, pick a driver and their race's moments line up: pit stops, overtakes made and places lost, retiring, setting the fastest lap, and the finish (or the win). Safety cars and VSCs show for every driver. Click one and the replay goes to 15 seconds before it and plays, with only the drivers involved standing out in the field and on the track map (Show everyone brings the rest back).
