@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.28.0
+
+- **Race Replay: key moments.** Under the play controls, pick a driver and their race's moments line up: pit stops, overtakes made and places lost, retiring, setting the fastest lap, and the finish (or the win). Safety cars and VSCs show for every driver. Click one and the replay goes to 15 seconds before it and plays, with only the drivers involved standing out in the field and on the track map (Show everyone brings the rest back).
+- The same moments are marked on the timeline above the slider, coloured by kind (blue pit stop, green overtake, yellow place lost, red retirement, purple fastest lap, gold finish, bright yellow safety car), and each mark can be clicked.
+- A pass that flips straight back within 5 seconds, or a safety car that flickers on and off, is left out: that's the timing, not a moment.
+
 ## 3.27.2
 
 - **No pit call on a fresh tyre**: the strategy won't call a stop before the tyre has worn 10%, unless a safety car, VSC or red flag makes the stop cheap. Before, it could call you in from the start and change its mind later.

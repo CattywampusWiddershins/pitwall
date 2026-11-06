@@ -187,11 +187,65 @@ function replayView(c) {
     <div class="page-head"><div><h1>${esc(RP.r.name)} · ${esc(SESSION_LABEL[RP.k] || RP.k)}</h1><div class="sub">${RP.s.year} · ${RP.data.meta.lapByLap ? 'rebuilt lap by lap from the lap times' : 'replay of the live feed'}</div></div><div class="row">${liveLayoutSeg()}<button class="btn ghost" data-act="rp-close">All races</button></div></div>
     <div class="panel rp-controls"><div class="panel-b row" style="gap:12px;flex-wrap:wrap;align-items:center">
       <button class="btn primary" data-act="rp-play" id="rp-play">${RP.playing ? 'Pause' : 'Play'}</button>
-      <input type="range" id="rp-seek" data-ch="rp-seek" min="0" max="${Math.ceil(RP.dur)}" step="1" value="${Math.floor(RP.T)}" style="flex:1;min-width:200px">
+      <div class="rp-seekbox"><div class="rp-marks">${RP.data.meta.lapByLap ? '' : replayMarks()}</div><input type="range" id="rp-seek" data-ch="rp-seek" min="0" max="${Math.ceil(RP.dur)}" step="1" value="${Math.floor(RP.T)}"></div>
       <span id="rp-clock" class="num" style="min-width:150px"></span>
-      <label class="row" style="gap:6px">Speed <input type="range" data-ch="rp-speed" min="1" max="20" step="1" value="${RP.speed}" style="width:120px"><b id="rp-speed">${RP.speed}x</b></label></div></div>
+      <label class="row" style="gap:6px">Speed <input type="range" data-ch="rp-speed" min="1" max="20" step="1" value="${RP.speed}" style="width:120px"><b id="rp-speed">${RP.speed}x</b></label></div>${replayMomentsHtml() ? `<div class="panel-b" style="border-top:1px solid var(--line)">${replayMomentsHtml()}</div>` : ''}</div>
     <div class="rp-grid"><div class="panel"><div class="panel-h"><h2>The field</h2><span class="muted" style="font-size:12px" id="rp-lap"></span></div><div class="panel-b"><div class="rp-vis" id="rp-vis" style="height:${RP_H}px"></div></div></div>
       <div class="stack" style="gap:16px"><div class="panel"><div class="panel-h"><h2>Track</h2><span class="muted" style="font-size:12px" id="rp-trk-note"></span></div><div class="panel-b"><div class="rp-track" id="rp-track"></div><div class="rp-flt" id="rp-flt"></div></div></div><div id="rp-dash"></div><div class="panel"><div class="panel-h"><h2>Positions</h2></div><div class="panel-b" id="rp-chart"></div></div></div></div></div>`;
+}
+
+/*
+  Moments: the race's key points, for jumping straight to them. Read once from the recording: each car's pit stops,
+  retirement, passes made and lost, the race's fastest lap and the finish, and the safety cars and VSCs (for everyone).
+  Picking one goes 15 s before it, shows only the drivers involved and plays.
+*/
+const RP_MOMENT = { pit: ['Pit stop', '#3A8DFF'], dnf: ['Out', '#F0535A'], pass: ['Overtake', '#2FD07A'], lost: ['Passed', '#F5C518'], fl: ['Fastest lap', '#B44CEB'], finish: ['Finish', '#E9C46A'], sc: ['Safety car', '#F5E10A'] };
+function replayMoments() {
+  if (RP.moments) return RP.moments;
+  const D = RP.data; const S = D.samples; const out = []; const nm = (i) => lastName(dName(RP.s, RP.idOf(i)) || '?');
+  const running = (x) => x && x[7] === 2;
+  for (let k = 1; k < S.length; k++) {
+    const A = S[k - 1], B = S[k]; const prev = Object.fromEntries(A.f.map(x => [x[0], x])); const t = B.t;
+    if ((B.sc || 0) !== (A.sc || 0)) out.push({ t, kind: 'sc', ids: [], lap: Math.max(...B.f.map(x => x[2] || 0)), label: B.sc ? (B.sc === 1 ? 'Safety car' : 'Virtual safety car') : (A.sc === 1 ? 'Safety car in' : 'VSC ends') });
+    for (const x of B.f) {
+      const p = prev[x[0]]; if (!p) continue; const [i, pos, lap, , , , pit, st] = x;
+      if (pit && !p[6] && st === 2) out.push({ t, kind: 'pit', ids: [i], lap, label: `Pit stop, lap ${lap}` });
+      if (st !== 2 && st !== 3 && p[7] === 2) out.push({ t, kind: 'dnf', ids: [i], lap, label: `Out of the race, lap ${lap}` });
+      if (st === 3 && p[7] !== 3) out.push({ t, kind: 'finish', ids: [i], lap, label: pos === 1 ? 'Wins the race' : `Finishes P${pos}` });
+      // a pass: up a place, past a car that went down one, both on track and neither in the pits
+      if (pos > 0 && p[1] > 0 && pos < p[1] && running(x) && !pit && !p[6] && lap > 1) {
+        const o = B.f.find(y => y[0] !== i && y[1] === pos + 1 && prev[y[0]]?.[1] === pos && running(y) && !y[6] && !prev[y[0]][6]);
+        if (o) { out.push({ t, kind: 'pass', ids: [i, o[0]], lap, label: `Passes ${nm(o[0])} for P${pos}`, pair: `${i}>${o[0]}` }); out.push({ t, kind: 'lost', ids: [o[0], i], lap, label: `Passed by ${nm(i)}, down to P${pos + 1}`, pair: `${i}>${o[0]}` }); }
+      }
+    }
+  }
+  // a pass undone within 5 s was the timing flickering, not a pass
+  const back = (e) => out.some(f => f.kind === 'pass' && f.pair === e.pair.split('>').reverse().join('>') && Math.abs(f.t - e.t) <= 5);
+  const keep = out.filter(e => !e.pair || !back(e));
+  // the same for a safety car that flickers on and off within 5 s
+  const scs = keep.filter(e => e.kind === 'sc'); const flick = new Set(); for (let k = 0; k < scs.length - 1; k++) if (scs[k + 1].t - scs[k].t <= 5) { flick.add(scs[k]); flick.add(scs[k + 1]); k++; }
+  for (let k = keep.length - 1; k >= 0; k--) if (flick.has(keep[k])) keep.splice(k, 1);
+  // the race's fastest lap: when its lap was completed
+  let best = null; for (const [i, laps] of Object.entries(D.laps || {})) (laps || []).forEach((l, n) => { if (l?.[0] && (l[1] & 1) && n > 0 && (!best || l[0] < best.ms)) best = { i: +i, n: n + 1, ms: l[0] }; });
+  if (best) { const s = S.find(x => (x.f.find(y => y[0] === best.i)?.[2] || 0) > best.n); if (s) keep.push({ t: s.t, kind: 'fl', ids: [best.i], lap: best.n, label: `Fastest lap of the race, ${fmtLap(best.ms)}` }); }
+  return RP.moments = keep.sort((a, b) => a.t - b.t);
+}
+/** The moments for the driver picked (everyone's safety cars included), as a list and as marks on the timeline. */
+function replayMomentsHtml() {
+  const D = RP.data; if (D.meta.lapByLap) return '';
+  const who = RP.momentsFor ?? D.meta.player; const all = replayMoments();
+  const mine = all.filter(e => e.kind === 'sc' || e.ids[0] === who);
+  const cars = (D.samples[0]?.f || []).map(x => x[0]).filter(i => RP.idOf(i)).sort((a, b) => dName(RP.s, RP.idOf(a)).localeCompare(dName(RP.s, RP.idOf(b))));
+  const clk = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const chip = (e) => `<button class="rp-mo" style="--c:${RP_MOMENT[e.kind][1]}" data-act="rp-moment" data-t="${e.t}" data-ids="${e.ids.join(',')}" title="${clk(e.t)}"><i></i><b>L${e.lap}</b> ${esc(e.label)}</button>`;
+  return `<div class="rp-moments"><label class="row" style="gap:6px"><span class="label">Moments</span><select data-ch="rp-moments-for" style="width:auto">${cars.map(i => `<option value="${i}" ${i === who ? 'selected' : ''}>${esc(dName(RP.s, RP.idOf(i)))}</option>`).join('')}</select></label>
+    <div class="rp-mo-list">${mine.length ? mine.map(chip).join('') : '<span class="muted" style="font-size:12px">No moments for this driver.</span>'}</div>
+    ${RP.focus ? '<button class="btn sm ghost" data-act="rp-focus-clear">Show everyone</button>' : ''}</div>`;
+}
+/** Marks on the timeline for the driver's moments, coloured by kind. */
+function replayMarks() {
+  const who = RP.momentsFor ?? RP.data.meta.player; const dur = RP.dur || 1;
+  return replayMoments().filter(e => e.kind === 'sc' || e.ids[0] === who).map(e => `<button class="rp-mark" style="left:${(e.t / dur * 100).toFixed(2)}%;--c:${RP_MOMENT[e.kind][1]}" data-act="rp-moment" data-t="${e.t}" data-ids="${e.ids.join(',')}" title="L${e.lap} · ${esc(e.label)}"></button>`).join('');
 }
 /** Shows the replay at its time: the field every step, the dashboard once a second, the chart each new lap. */
 function replayShow(force = false) {
@@ -272,6 +326,7 @@ function replayFrame() {
   const box = document.getElementById('rp-vis');
   if (box) for (const x of A.running) {
     const node = box.querySelector(`.rp-car[data-i="${x.i}"]`); if (!node) continue;
+    node.classList.toggle('dim', !!RP.focus && !RP.focus.has(x.i)); // a moment picked: only the drivers in it stand out
     const yA = A.Y[x.i], yB = B.Y[x.i] ?? yA; node.style.transform = `translateY(${(yA + (yB - yA) * u).toFixed(1)}px)`;
     const g = A.G[x.i], gB = B.G[x.i]; const lead = x.pos === 1;
     node.querySelector('.rp-g').textContent = rpIsOut(x) ? 'OUT' : x.pit ? 'PIT' : lead ? 'Leader' : g?.down ? `+${g.down} LAP${g.down > 1 ? 'S' : ''}`

@@ -1254,3 +1254,15 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .lh-call { flex-basis: 100%; font-weight: 700; font-family: var(--font-display); } .lh-call.call { color: var(--red); } .lh-call.watch { color: var(--yellow); }
 .lh-call small { font-weight: 400; color: var(--muted); font-family: var(--font-body); }
 .lb-sc.red { background: #E10600; color: #fff; } .lb-sc.red .lb-fia { border-color: #fff; }
+
+/* Race Replay: moments to jump to, and their marks on the timeline */
+.rp-seekbox { position: relative; flex: 1; min-width: 200px; padding-top: 12px; }
+.rp-seekbox input { width: 100%; display: block; }
+.rp-marks { position: absolute; left: 8px; right: 8px; top: 0; height: 12px; }
+.rp-mark { all: unset; position: absolute; top: 0; width: 4px; height: 12px; margin-left: -2px; background: var(--c); border-radius: 2px; cursor: pointer; }
+.rp-mark:hover { transform: scaleX(1.8); }
+.rp-moments { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.rp-mo-list { display: flex; gap: 6px; overflow-x: auto; flex: 1; min-width: 0; padding-bottom: 2px; }
+.rp-mo { all: unset; flex: none; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; padding: 4px 9px; border: 1px solid var(--line); border-radius: 99px; font-size: 12px; white-space: nowrap; }
+.rp-mo:hover { border-color: var(--c); } .rp-mo i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); } .rp-mo b { font-family: var(--font-display); color: var(--muted); }
+.rp-car.dim { opacity: .18; }

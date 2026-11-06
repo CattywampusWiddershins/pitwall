@@ -2,6 +2,14 @@
 'use strict';
 /* ---------------------------------------------------------------- actions */
 const actions = {
+  // a replay moment: 15 s before it, only the drivers involved, playing
+  'rp-moment'(el) {
+    if (!RP) return; const ids = el.dataset.ids ? el.dataset.ids.split(',').map(Number) : [];
+    RP.T = Math.max(0, +el.dataset.t - 15); RP.focus = ids.length ? new Set(ids) : null;
+    if (ids.length) replayOnly(ids.map(i => RP.idOf(i))); else { RP.flt = { mode: 'all', hide: new Set() }; replayTrack(); }
+    RP.playing = true; render(); replayLoop();
+  },
+  'rp-focus-clear'() { if (!RP) return; RP.focus = null; RP.flt = { mode: 'all', hide: new Set() }; render(); },
   'live-layout'(el) { ui.liveCompact = el.dataset.v === '1'; try { localStorage.setItem('pitwall.liveCompact', ui.liveCompact ? '1' : '0'); } catch { /* not kept */ } render(); },
   'rp-tab'(el) { ui.rpTab = el.dataset.v; ui.flOpen = null; render(); },
   'fl-open'(el) { ui.flOpen = { si: +el.dataset.si, rid: el.dataset.rid }; ui.flA = ui.flB = null; render(); },
@@ -357,6 +365,7 @@ const changes = {
   },
   'tyre-count'(el) { const c = career(); const { fmt, c: cp } = el.dataset; (c.tyreCounts ||= {})[fmt] = { ...countsOf(c, fmt), [cp]: Math.max(0, Math.min(13, Math.round(+el.value || 0))) }; store.save(); tyrePresetsModal(); render(); },
   'rp-keep'(el) { const c = career(); c.replayKeep = +el.value || 0; store.save(); replayPrune.done = null; render(); },
+  'rp-moments-for'(el) { if (!RP) return; RP.momentsFor = +el.value; render(); },
   'rp-seek'(el) { if (!RP) return; RP.T = +el.value; replayShow(true); },
   'rp-speed'(el) { if (!RP) return; RP.speed = +el.value; const b = document.getElementById('rp-speed'); if (b) b.textContent = RP.speed + 'x'; },
   'lb-pick'(el) { ui.modal.pick[el.dataset.k] = el.checked; ui.lbPick = ui.modal.pick; },
