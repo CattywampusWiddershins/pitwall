@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.1
+
+- Pre-season graphics: long headlines ("The road to Abu Dhabi starts now") no longer run off the edge or crowd the drivers. A headline now shrinks until it fits its lines, and the team-colour style keeps its headline to two lines on the band.
+
 ## 3.34.0
 
 - **Pre-season quotes.** Before round 1, 10 to 15 drivers and team bosses have their say, based on last year. The champion goes for another (or a third in a row), the runner-up wants to finish the job, a first-title chaser trusts their car, movers talk about their new colours, team-mates who were close want to settle it, midfielders hunt podiums, and rookies and returning drivers make their case. They come as a few stories (the title contenders, team-mates, new colours, the midfield, new faces, around the grid), each with a quote graphic. The title contenders share one graphic, three side by side.

@@ -1146,17 +1146,23 @@ function seasonGfxSet(c, s, n = 3) {
 }
 /** Words laid out over lines, each word in its own style; align left or center. Returns the y after the last line. */
 function gfxRich(g, k, words, x, y, { size, max, lh = 1.0, align = 'left', fam = null, weight = 900, lines = 4, breakHi = false, dry = false }) {
-  const fnt = (w) => `${w.italic ? 'italic ' : ''}${k.font(size, w.weight ?? weight, w.fam || fam || k.disp)}`;
-  // a word too long for a line shrinks the whole headline
-  { const widest = Math.max(...words.map(w => { g.font = fnt(w); return g.measureText(w.t).width; })); if (widest > max) size = Math.floor(size * max / widest); }
-  const space = () => { g.font = k.font(size, weight, fam || k.disp); return g.measureText(' ').width; };
-  const out = [[]]; let wid = 0;
-  for (const w of words) { g.font = fnt(w); const ww = g.measureText(w.t).width; const add = out[out.length - 1].length ? space() + ww : ww; if (((breakHi && w.br) || wid + add > max) && out[out.length - 1].length && out.length < lines) { out.push([]); wid = ww; } else wid += add; out[out.length - 1].push({ ...w, ww }); }
+  const fnt = (w, sz) => `${w.italic ? 'italic ' : ''}${k.font(sz, w.weight ?? weight, w.fam || fam || k.disp)}`;
+  const space = (sz) => { g.font = k.font(sz, weight, fam || k.disp); return g.measureText(' ').width; };
+  // the words over as many lines as they need at a size
+  const layout = (sz) => {
+    const out = [[]]; let wid = 0; const sp = space(sz);
+    for (const w of words) { g.font = fnt(w, sz); const ww = g.measureText(w.t).width; const add = out[out.length - 1].length ? sp + ww : ww;
+      if (((breakHi && w.br) || wid + add > max) && out[out.length - 1].length) { out.push([]); wid = ww; } else wid += add; out[out.length - 1].push({ ...w, ww }); }
+    return out;
+  };
+  // a word too long for a line, or more lines than allowed, shrinks the whole headline until it fits
+  { const widest = Math.max(...words.map(w => { g.font = fnt(w, size); return g.measureText(w.t).width; })); if (widest > max) size = Math.floor(size * max / widest); }
+  let out = layout(size); while (out.length > lines && size > 24) { size -= 3; out = layout(size); }
   if (dry) return y + out.length * size * lh;
-  g.textBaseline = 'alphabetic';
+  g.textBaseline = 'alphabetic'; const sp = space(size);
   out.forEach((ln, i) => {
-    const lw = ln.reduce((a, w, j) => a + w.ww + (j ? space() : 0), 0); let cx = align === 'center' ? x - lw / 2 : x; const yy = y + size * 0.8 + i * size * lh;
-    for (const w of ln) { g.font = fnt(w); g.fillStyle = w.color || '#FFFFFF'; g.textAlign = 'left'; g.fillText(w.t, cx, yy); cx += w.ww + space(); }
+    const lw = ln.reduce((acc, w, j) => acc + w.ww + (j ? sp : 0), 0); let cx = align === 'center' ? x - lw / 2 : x; const yy = y + size * 0.8 + i * size * lh;
+    for (const w of ln) { g.font = fnt(w, size); g.fillStyle = w.color || '#FFFFFF'; g.textAlign = 'left'; g.fillText(w.t, cx, yy); cx += w.ww + sp; }
   });
   return y + out.length * size * lh;
 }
@@ -1257,10 +1263,10 @@ async function gfxSeason(g, k, c, s, { style, head = null }) {
       await gfxStandAt(g, bodies[d], (x0 + x1) / 2, H - 13 * u, 80 * u); g.restore();
       g.strokeStyle = '#111'; g.lineWidth = 6; g.beginPath(); g.moveTo(x0 + sl, 0); g.lineTo(x0, H); g.stroke();
     }
-    const hb = gfxRich(g, k, headWords(h, 'hi', {}, {}), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 3, breakHi: true, dry: true });
+    const hb = gfxRich(g, k, headWords(h, 'hi', {}, {}), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 2, breakHi: true, dry: true });
     g.fillStyle = 'rgba(8,8,12,0.88)'; g.fillRect(0, 7 * u, W, Math.max(26 * u, hb - 7 * u + 3 * u));
     gfxSpaced(g, k, `THE ${Y} TITLE`, 5 * u, 11.5 * u, { size: 26, spacing: 0.45, align: 'left', color: 'rgba(255,255,255,0.7)' });
-    gfxRich(g, k, headWords(h, 'hi', {}, { color: goldFill(g, 0, 14 * u, W, 18 * u) }), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 3, breakHi: true });
+    gfxRich(g, k, headWords(h, 'hi', {}, { color: goldFill(g, 0, 14 * u, W, 18 * u) }), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 2, breakHi: true });
     g.fillStyle = '#08080C'; g.fillRect(0, H - 13 * u, W, 13 * u);
     order.forEach((d, j) => { const x = (j + 0.5) * cw; const lead = P.pick[d] === 1 || (d === P.champ && P.onGrid);
       k.text(d === P.champ && P.onGrid ? '★' : String(P.pick[d] || ''), x, H - 8.6 * u, { size: 52, weight: 800, align: 'center', color: lead ? goldFill(g, 0, H - 12 * u, W, 6 * u) : 'rgba(255,255,255,0.35)' });
