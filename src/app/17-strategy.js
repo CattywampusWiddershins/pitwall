@@ -89,19 +89,29 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
       // lap (no out-lap driven) keeps its first lap
       for (let lap = x.from; lap <= x.to; lap++) { const ms = N[lap - 1]; if (ms) run.push({ age: lap - x.from + 1, ms, wear: wear[lap - 1] }); }
       if (run.length < 3) continue;
-      // pushing laps: within 2.5% of the run's best. One or two slow laps (traffic, a mistake, a stuck Straight Mode)
-      // are skipped and the run goes on, keeping each lap's age; three in a row (a cool-down) end it
-      const best = Math.min(...run.map(r => r.ms)); const ok = (r) => r.ms <= best * 1.025; let cur = [], longest = [], miss = 0;
+      // the run: laps within 5% of its best (a soft that wears hard really is 2-3% slower by its fifth lap: at Saudi
+      // Arabia 2026 the last of five was 2.7 s off the first). Laps beyond that (an in-lap, a big mistake) are skipped:
+      // one or two and the run goes on, keeping each lap's age; three in a row (a cool-down) end it
+      const best = Math.min(...run.map(r => r.ms)); const ok = (r) => r.ms <= best * 1.05; let cur = [], longest = [], miss = 0;
       for (const r of run) {
         if (ok(r)) { cur.push(r); miss = 0; }
         else if (cur.length && ++miss <= 2) { /* skipped */ }
         else { if (cur.length > longest.length) longest = cur; cur = []; miss = 0; }
       }
       if (cur.length > longest.length) longest = cur;
-      // a first lap well off the next while the tyres come in isn't fall-off: left out (with four laps or more to go on)
-      while (longest.length >= 4 && longest[0].ms > longest[1].ms + 150) longest = longest.slice(1);
       if (longest.length < 3) continue;
-      const pace = fitLine(longest.map(r => [r.age, r.ms])); const wr = fitLine(longest.filter(r => r.wear != null).map(r => [r.age, r.wear]));
+      // every lap of the run counts (a Race Pace programme's five are five), but the fall-off is fitted without the laps
+      // that aren't fall-off: a first lap well off the next while the tyres come in, and up to two laps well above the
+      // run's trend (traffic, a mistake, a stuck Straight Mode)
+      let fitL = longest.slice();
+      if (fitL.length >= 4 && fitL[0].ms > fitL[1].ms + 150) fitL = fitL.slice(1);
+      for (let n = 0; n < 2 && fitL.length > 3; n++) {
+        const f = fitLine(fitL.map(r => [r.age, r.ms])); if (!f) break;
+        const res = fitL.map(r => r.ms - (f.a + f.b * r.age)); const mad = median(res.map(Math.abs)) || 1; const j = res.indexOf(Math.max(...res));
+        if (res[j] > Math.max(600, 3 * mad)) fitL.splice(j, 1); else break;
+      }
+      if (fitL.length < 3) continue;
+      const pace = fitLine(fitL.map(r => [r.age, r.ms])); const wr = fitLine(fitL.filter(r => r.wear != null).map(r => [r.age, r.wear]));
       const deg = Math.max(0, pace?.b || 0);
       // a set that was already worn when the run began: its wear says how many laps old it really was, so the pace and
       // the life are what a new set would give
@@ -110,9 +120,9 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
       // the pace on a new set: the run's lap at age 1 along the fall-off. A run that got quicker (the tyres coming in,
       // a lap with traffic early on) has no fall-off to follow, so it's the run's average: following the downhill line
       // back to age 1 would make it slower than any lap that was driven
-      const atOne = deg > 0 && pace ? pace.a + deg : avg(longest.map(r => r.ms));
+      const atOne = deg > 0 && pace ? pace.a + deg : avg(fitL.map(r => r.ms));
       const prev = out[x.c];
-      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, base: atOne - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
+      if (!prev || longest.length > prev.laps) out[x.c] = { laps: longest.length, fit: fitL.length, base: atOne - deg * a0, deg, wear: wr?.b ?? null, life, session: k, ...(a0 ? { usedSet: Math.round(a0) } : {}) };
     }
   }
   for (const c in out) out[c].ref = isFinite(ref) ? ref : Math.min(...Object.values(out).map(x => x.base));
@@ -152,7 +162,7 @@ function strategyRuns(s, round) {
     }
     // your fall-off from a short run is noisy: the grid's (many drivers' runs) counts as five laps of yours. At Monza
     // your 5-lap medium run said 141 ms a lap, the grid's 59; your mediums lost about 95 in the race
-    if (a.deg >= DEG_ZERO && p.deg >= DEG_ZERO && p.laps < 12) { const was = p.deg; p.deg = (p.deg * p.laps + a.deg * 5) / (p.laps + 5); if (Math.abs(p.deg - was) > 10) p.degNote = `your ${p.laps}-lap run said +${(was / 1000).toFixed(3)} s; weighed with the grid’s`; }
+    if (a.deg >= DEG_ZERO && p.deg >= DEG_ZERO && p.laps < 12) { const was = p.deg; const n = p.fit ?? p.laps; p.deg = (p.deg * n + a.deg * 5) / (n + 5); if (Math.abs(p.deg - was) > 10) p.degNote = `your ${p.laps}-lap run said +${(was / 1000).toFixed(3)} s; weighed with the grid’s`; }
   }
   // the paces in order first (the grid's, then yours, which can lean on the grid's), then everything that builds on them
   orderPace(grid, mine, 'your'); orderPace(mine, grid, 'the grid’s');

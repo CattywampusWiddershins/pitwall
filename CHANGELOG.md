@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.5
+
+- **Practice runs count every lap.** A Race Pace programme's five laps now count as five, where usually only four did:
+  - The fall-off is still fitted without a warm-up first lap or a lap well above the run's trend (traffic, a mistake, a stuck Straight Mode), but those laps count towards the run.
+  - Laps within 5% of the run's best now belong to it, up from 2.5%. A soft that wears hard really is 2-3% slower by its fifth lap, and those laps had been dropped.
+  - 23 of your 24 five-lap runs now count all five.
+
 ## 3.34.4
 
 - **Tyre paces in order.** A soft measured no quicker than the medium (or a hard no slower) is put back by the gap between tyres that were measured in order. That's the other side's soft-to-medium gap (the grid's, or yours), else the hard-to-medium gap, else 0.4 s. The measured time stays, in a note under the pace. At Las Vegas 2026 your soft had come out 0.30 s slower than your medium. It's now 0.624 s quicker, and the plan uses it.
