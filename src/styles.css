@@ -1017,6 +1017,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .sgx-logo { flex: none; width: 40px; display: grid; place-items: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
 .sgx-ph { flex: none; width: 48px; height: 56px; object-fit: cover; object-position: top; align-self: flex-end; }
 .sgx-pts { justify-content: center; background: #E10600; color: #fff; font-size: 22px; font-weight: 800; }
+.sgx li.champ .sgx-pts { background: linear-gradient(180deg, #F3D98B 0%, #D4AF37 50%, #B8901E 100%); color: #1a1405; }
 .sgx-mv { font-size: 15px; font-weight: 700; } .sgx-mv.up { color: #2FD07A; } .sgx-mv.down { color: #FF5A5F; }
 .sgx li:not(:has(.sgx-mv)) { grid-template-columns: 56px minmax(0, 1fr) 96px; }
 .sgx li.me .sgx-pos { box-shadow: inset 4px 0 0 var(--team); }

@@ -437,12 +437,14 @@ function standingsPodium(c, s, rows, team) {
 }
 /** Positions four and down as the standings graphic draws them: team-colour bars, red points, the places moved. */
 function standingsBars(c, s, rows, team, prev) {
+  // the champion, once the title is won, gets the points box in gold as in the graphics
+  const ch = (() => { try { const k = decidedChamps(s, roundsDone(s), driverStandings(s), constructorStandings(s)); return team ? k.champT : k.champ; } catch { return null; } })();
   return `<ol class="sgx">${rows.map(x => {
     const tm = team ? x.team : teamOf(s, x.id); const col = tm?.color || '#5E6A82';
     const id = team ? tm.id : x.id; const me = team ? id === s.playerTeamId : id === PLAYER;
     const was = prev ? prev.findIndex(p => (team ? p.team.id : p.id) === id) + 1 : 0; const mv = was ? was - x.pos : 0;
     const ph = !team && headOf(c, id, s);
-    return `<li class="${me ? 'me' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${id}">
+    return `<li class="${me ? 'me' : ''}${ch && id === ch ? ' champ' : ''}" style="--c:${col};--i:${contrastInk(col)}" data-act="${team ? 'open-team' : 'open-driver'}" data-id="${id}">
       <span class="sgx-pos">${x.pos}</span><span class="sgx-bar"><span class="sgx-logo">${teamLogo(c, tm, 28)}</span>${ph ? `<img class="sgx-ph" src="${esc(ph)}" alt="">` : ''}<b>${esc(team ? tm.name : lastName(dName(s, id)))}</b></span>
       <span class="sgx-pts">${fmtPts(x.pts)}</span>${team ? '' : `<span class="sgx-mv ${mv > 0 ? 'up' : mv < 0 ? 'down' : ''}">${mv > 0 ? '▲' + mv : mv < 0 ? '▼' + -mv : '–'}</span>`}</li>`;
   }).join('')}</ol>`;

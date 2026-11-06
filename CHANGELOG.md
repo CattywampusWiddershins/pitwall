@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.31.0
+
+- **Season preview article.** Before round 1, the stories open with a proper preview in paragraphs: where the season starts (the champion's defence, who won there last and how many times), how last year's titles were won, the winter's moves ("Sainz in Williams blue…"), rookies, returns and drivers gone, the calendar's new, returning and dropped races, and the five favourites on form, with the title number each of the top three is going for. It keeps the picture from before the first race.
+- **A better title forecast.** The projection now weighs every race of this season and last, the latest counting most (a race's weight halves every 5 races back), 70% the driver's own results and 30% his team's. Backtested by re-predicting every season from 2017 to 2025 after each round, the top ten's final points are 30 points off on average, against 36 for the old last-5 average and 33 for a 60/40 last-5/season mix. Over the first five rounds: 52 against 64.
+- Dashboard: the champion's points box in the drivers' and constructors' standings turns gold once the title is won.
+
 ## 3.30.2
 
 - **Dashboard: the title in gold once it's yours.** When you've won the drivers' title, P1 in the Championship tile and your points turn gold, as in the standings and stories, and Predicted finish reads "Champion" in gold.

@@ -482,33 +482,117 @@ function penMemoryQuestion(mem, subj, fpos, isOut, last, rnd) {
   return null;
 }
 /**
- * Round 1: Formula 1 is back. How last year's title was won (a three-way fight at the death, a final-round showdown,
- * or sealed with rounds to spare), the champion's defence, and the other champions on the grid.
+ * Before round 1: the season preview, an article in paragraphs. Where it starts (the champion's defence, who won
+ * there last and how often), how last year's titles were won, the moves on the grid ("Jordaan, now in Ferrari red"),
+ * rookies and drivers gone, the calendar's new and returning races, and the favourites on form (the projection as
+ * it stood before the first race), with the title count each of the top three is going for.
  */
+const LIVERY = { ferrari: 'Ferrari red', mclaren: 'McLaren papaya', aston: 'Aston Martin green', mercedes: 'Mercedes silver', williams: 'Williams blue', alpine: 'Alpine blue', redbull: 'Red Bull blue' };
+const timesWord = (n) => n === 1 ? 'once' : n === 2 ? 'twice' : `${numWord(n)} times`;
+const cap1 = (t) => t ? t[0].toUpperCase() + t.slice(1) : t;
 function openerStory(c, s, r, rnd, { name, last }) {
   const prev = c.seasons[s.index - 1]; if (!prev || roundsDone(prev) < activeRounds(prev).length) return null;
   const ds = driverStandings(prev); const champ = ds[0]?.id; if (!champ) return null;
+  const w = phrasebook(rnd); const grid = gridIds(s); const onGrid = grid.includes(champ);
+  // a driver gone from this year's grid still gets his name, from last season or the reference list
+  name = ((nm) => (d) => d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : s.drivers[d] ? nm(d) : prev.drivers[d] ? dName(prev, d) : refName(d))(name);
+  last = ((ls) => (d) => d === PLAYER_ID ? c.profile.last : s.drivers[d] ? ls(d) : lastName(name(d)))(last);
+  const an = (t) => (/^[aeiou8]|^11th|^18th/i.test(t) ? 'an ' : 'a ') + t;
   const td = titleDecision(prev, 'driver'); const left = td ? activeRounds(prev).length - 1 - td.i : 0;
   const rivals = td ? td.contenders.filter(x => x.id !== champ) : [];
   const how = !td || td.final ? (rivals.length >= 2 ? choose(rnd, [`in a ${numWord(rivals.length + 1)}-way fight at the death`, `after a ${numWord(rivals.length + 1)}-way decider that went to the very last race`])
       : rivals.length === 1 ? choose(rnd, [`in a final-round showdown with ${last(rivals[0].id)}`, `after taking the fight with ${last(rivals[0].id)} all the way to the last race`]) : 'at the final round')
     : left === 1 ? 'with a round to spare' : `with ${numWord(left)} rounds to spare`;
-  const n = titleTally(c, s, 'driver', champ).n; const onGrid = gridIds(s).includes(champ);
-  const crown = n > 1 ? `a ${ordWord(n)} crown` : 'the crown';
-  const headline = onGrid ? choose(rnd, [`Formula 1 is back: ${last(champ)} begins the title defence in ${r.name}`, `${s.year} starts in ${r.name}, and ${last(champ)} is the one to beat`, `Lights out in ${r.name}: the ${s.year} season is here`])
-    : choose(rnd, [`A new champion in ${s.year}: the season starts in ${r.name}`, `Formula 1 returns in ${r.name}, and the crown is up for grabs`]);
-  const standfirst = onGrid
-    ? choose(rnd, [`Formula 1 returns in ${s.year} and it all starts in ${r.name}. Last year, ${name(champ)} took ${crown} ${how}, and will be looking to start the title defence strong.`,
-      `The wait is over: the ${s.year} season gets going at ${r.venue}. ${name(champ)} won ${crown} ${how} last year, and the defence starts here.`,
-      `${r.name} opens the ${s.year} season. ${last(champ)} arrives as champion, having taken ${crown} ${how}, and everyone else wants it back.`])
-    : `Formula 1 returns in ${s.year} and it all starts in ${r.name}. ${name(champ)} took ${crown} ${how} last year, but won't be defending it: there will be a new champion.`;
+  const n = titleTally(c, s, 'driver', champ).n; const crown = n > 1 ? an(`${ordWord(n)} crown`) : 'the crown';
+  const teamNow = (d) => teamOf(s, d); const teamThen = (d) => teamOf(prev, d);
   const body = [];
-  const others = gridIds(s).filter(id => id !== champ && titleTally(c, s, 'driver', id).n > 0);
-  if (others.length) body.push(`${others.length > 1 ? 'Former champions' : 'Former champion'} ${listJoin(others.map(id => last(id)))} ${others.length > 1 ? 'are' : 'is'} on the grid too.`);
-  if (rivals.length && onGrid) body.push(`${listJoin(rivals.map(x => last(x.id)))} came closest last year, and ${rivals.length > 1 ? 'they will' : 'will'} want to go one better.`);
-  const team = prev.teams.find(t => t.drivers.includes(champ)); const now = s.teams.find(t => t.drivers.includes(champ));
-  if (onGrid && team && now && (D.TEAM_BIO[team.id]?.lineage?.[0] || team.id) !== (D.TEAM_BIO[now.id]?.lineage?.[0] || now.id)) body.push(`${last(champ)} defends the title with a new team: ${now.name}.`);
-  return { id: `${s.index}-${r.id}-pv`, seq: 0, kind: 'preview', i: 0, r, subject: champ, outlet: choose(rnd, D.OUTLETS), kicker: 'Season preview', headline, standfirst, body };
+
+  // 1. where it starts: the defence, and the opener's history
+  const tid = roundTrackId(r); const W = trackWinners(c, tid).filter(x => x.year < s.year);
+  const winsHere = (d) => W.filter(x => x.d === d).length;
+  const lw = W[0]; const lwOn = lw && grid.includes(lw.d);
+  let p1 = w('open', [`The ${s.year} season starts in ${r.name}`, `It all begins in ${r.name}`, `${r.name} opens the ${s.year} season`]);
+  p1 += onGrid ? w('def', [`, where ${name(champ)}’s championship defence starts.`, `, and that is where ${last(champ)} begins the defence of ${crown}.`]) : `, and with ${name(champ)} gone from the grid, the crown is up for grabs.`;
+  if (lw) {
+    const before = winsHere(lw.d) - 1; const lastYear = lw.year === s.year - 1;
+    const when = lastYear ? 'Last year,' : `The last time Formula 1 raced here, in ${lw.year},`;
+    p1 += ` ${when} ${lw.d === champ && onGrid ? 'the champion' : name(lw.d)} won here`;
+    p1 += !lwOn ? `, but won’t be on the grid to try again.`
+      : before > 0 ? w('again', [`, and will be looking for another win, having won here ${timesWord(before)} before that.`, `: that makes ${numWord(before + 1)} wins at ${r.venue}, and ${an(ordWord(before + 2))} would surprise nobody.`])
+      : w('again', [', and will want to make it two.', ', and comes back looking to repeat it.']);
+    const king = Object.entries(W.reduce((o, x) => (o[x.d] = (o[x.d] || 0) + 1, o), {})).filter(([d, k]) => d !== lw.d && grid.includes(d) && k >= 2).sort((x, y) => y[1] - x[1])[0];
+    if (king) p1 += ` ${last(king[0])} has won here ${timesWord(king[1])}, the most of anyone on the grid.`;
+  } else p1 += ` It’s the first time this Grand Prix has been on the calendar.`;
+  body.push(p1);
+
+  // 2. how last year played out
+  const R2 = ds[1]; const cs = constructorStandings(prev); const ct = cs[0]?.team;
+  const champTeam = teamThen(champ);
+  let p2 = w('ly', [`Last year belonged to ${name(champ)}, who took ${crown} ${how}`, `${prev.year} went to ${name(champ)}: ${crown}, won ${how}`, `${name(champ)} was the ${prev.year} champion, sealing ${crown} ${how}`]);
+  const gap = R2 ? Math.round((ds[0].pts - R2.pts) * 10) / 10 : null;
+  p2 += R2 ? (gap ? `, finishing ${plural(gap, 'point')} clear of ${name(R2.id)}.` : `, level on points with ${name(R2.id)} and ahead on countback.`) : '.';
+  if (ct) {
+    const tn = titleTally(c, s, 'team', ct.id).n;
+    p2 += champTeam && _root(champTeam.id) === _root(ct.id) ? ` ${ct.name} made it a double with the constructors’ title${tn > 1 ? `, their ${ordWord(tn)}` : ''}.` : ` The constructors’ title went elsewhere: ${ct.name} took it${tn > 1 ? `, their ${ordWord(tn)}` : ''}${cs[1] ? `, ahead of ${cs[1].team.name}` : ''}.`;
+  }
+  const me = ds.find(x => x.id === PLAYER_ID);
+  if (me && champ !== PLAYER_ID) p2 += ` ${c.profile.last} finished ${ordWord(me.pos)}${me.pos === 2 ? ', the closest challenger' : me.pos === 3 ? ', third best of the lot' : me.pos > 10 ? ', a long way off the front' : ''}.`;
+  body.push(p2);
+
+  // 3. the moves, rookies and drivers gone
+  const prevPos = (d) => ds.find(x => x.id === d)?.pos ?? 99;
+  const moved = grid.filter(d => teamThen(d) && teamNow(d) && _root(teamThen(d).id) !== _root(teamNow(d).id)).sort((x, y) => prevPos(x) - prevPos(y));
+  const raced = (d) => c.seasons.slice(0, s.index - 1).some(se => teamOf(se, d));
+  const fresh = grid.filter(d => !teamThen(d)); const rookies = fresh.filter(d => !raced(d) && !(D.DRIVER_BIO[d]?.starts > 0)); const back = fresh.filter(d => !rookies.includes(d));
+  const gone = ds.filter(x => x.pos <= 12 && !grid.includes(x.id)).map(x => x.id);
+  const mv = moved.slice(0, 7);
+  if (mv.length || rookies.length || back.length || gone.length) {
+    let p3 = '';
+    if (mv.length) {
+      const d = mv[0], T = teamNow(d), F = teamThen(d), liv = LIVERY[_root(T.id)];
+      p3 = w('mvo', [liv && `The grid looks different too, starting with ${last(d)}, now in ${liv}.`, `The biggest move of the winter: ${last(d)} swaps ${F.name} for ${T.name}.`, `There’s a new look to the grid. ${last(d)} heads the moves, from ${F.name} to ${T.name}.`, liv && `${last(d)} in ${liv} is the picture of the winter: the ${F.name} driver has moved on.`]);
+      if (mv.length > 1) p3 += ` ${w('also', ['Also on the move:', 'Elsewhere,', 'Further down the list:'])} ${listJoin(mv.slice(1).map(x => `${last(x)} to ${teamNow(x).name}`))}.`;
+    } else p3 = w('same', ['The teams kept their line-ups together over the winter.', 'No one changed teams over the winter.']);
+    if (rookies.length) p3 += ` ${rookies.length === 1 ? 'The rookie to watch is' : `${cap1(numWord(rookies.length))} rookies line up:`} ${listJoin(rookies.map(d => `${name(d)} (${teamNow(d)?.name})`))}.`;
+    if (back.length) { const by = {}; for (const d of back) (by[teamNow(d)?.name || ''] ||= []).push(last(d)); p3 += ` ${listJoin(Object.entries(by).map(([t, ds2]) => `${listJoin(ds2)} with ${t}`))}: ${back.length > 1 ? 'back on the grid' : 'a return to the grid'}.`; }
+    if (gone.length) p3 += ` Missing: ${listJoin(gone.map(d => `${last(d)}, ${ordWord(prevPos(d))} last year`))}.`;
+    body.push(p3);
+  }
+
+  // 4. the calendar: length, sprints, new and returning races, ones dropped
+  const rounds = activeRounds(s); const nowT = new Set(rounds.map(roundTrackId)); const thenT = new Set(activeRounds(prev).map(roundTrackId));
+  const added = rounds.filter(x => !thenT.has(roundTrackId(x))); const dropped = activeRounds(prev).filter(x => !nowT.has(roundTrackId(x)));
+  const spr = rounds.filter(x => x.sprint).length; const fin = rounds[rounds.length - 1];
+  let p4 = w('cal', [`${cap1(numWord(rounds.length))} rounds lie ahead${spr ? `, ${spr} of them sprint weekends` : ''}, ending in ${fin.name}.`, `The calendar runs to ${rounds.length} races${spr ? ` and ${plural(spr, 'sprint')}` : ''}, with ${fin.name} the last stop.`]);
+  const firsts = added.filter(x => !lastHeld(c, roundTrackId(x), s.year)), backs = added.filter(x => !firsts.includes(x));
+  if (added.length > 4) p4 += ` It’s a calendar transformed: ${numWord(added.length)} races weren’t on last year’s${firsts.length ? `, ${listJoin(firsts.map(x => x.name))} among them as ${firsts.length > 1 ? 'firsts' : 'a first'} for Formula 1` : ''}.`;
+  else if (added.length) p4 += ` New this year: ${listJoin([...firsts.map(x => `${x.name}, a first for Formula 1`), ...backs.map(x => `${x.name}, back for the first time since ${lastHeld(c, roundTrackId(x), s.year)}`)])}.`;
+  if (dropped.length > 4) p4 += ` ${cap1(numWord(dropped.length))} of last year’s races are missing.`;
+  else if (dropped.length) p4 += ` Gone from last year’s schedule: ${listJoin(dropped.map(x => x.name))}.`;
+  body.push(p4);
+
+  // 5. the favourites on form (the projection as it stood before round 1), and the titles at stake
+  try {
+    const m0 = titleMath(s, 'driver', 0); const Pj = projection(c, s, m0, 0);
+    if (Pj.hasForm) {
+      const top = Pj.rows.slice(0, 5).map(x => x.id);
+      let p5 = w('fav', [`On form, the favourites are ${listJoin(top.map(d => last(d)))}.`, `The form book points to five names: ${listJoin(top.map(d => last(d)))}.`, `Going by last season’s form, the title should be between ${listJoin(top.map(d => last(d)))}.`]);
+      const t3 = top.slice(0, 3); const tally = (d) => titleTally(c, s, 'driver', d).n; const chasers = t3.filter(d => !tally(d));
+      const goes = t3.filter(d => tally(d)).map(d => `${last(d)} goes for ${an(`${ordWord(tally(d) + 1)} title`)}`);
+      if (chasers.length) goes.push((goes.length ? 'while ' : '') + (chasers.length === 1 ? w('first', [`${last(chasers[0])} is still chasing a first`, `${last(chasers[0])} wants a first title`]) : `${listJoin(chasers.map(d => last(d)))} are ${chasers.length === 2 ? 'both' : 'all'} chasing a first`));
+      p5 += ` ${cap1(goes.length > 1 && chasers.length ? `${listJoin(goes.slice(0, -1))}, ${goes[goes.length - 1]}` : listJoin(goes))}.`;
+      const k = Pj.rows.findIndex(x => x.id === PLAYER_ID);
+      if (k >= 5) p5 += ` ${c.profile.last} starts as the ${ordWord(k + 1)} pick, with ${teamNow(PLAYER_ID)?.name || 'the team'} hoping to beat that.`;
+      const mt = titleMath(s, 'team', 0); const PT = projection(c, s, mt, 0);
+      if (PT.rows[0]) p5 += ` Among the teams, ${PT.rows[0].name} ${w('tf', ['start as favourites', 'are the ones to beat'])}${PT.rows[1] ? `, with ${PT.rows[1].name} next` : ''}.`;
+      body.push(p5);
+    }
+  } catch { /* no forecast: the article goes without it */ }
+
+  const headline = onGrid ? choose(rnd, [`Formula 1 is back: ${last(champ)} begins the title defence in ${r.name}`, `${s.year} starts in ${r.name}, and ${last(champ)} is the one to beat`, `Lights out in ${r.name}: the ${s.year} season is here`, `Season preview: ${rounds.length} races, one crown, and ${last(champ)} holds it`])
+    : choose(rnd, [`A new champion in ${s.year}: the season starts in ${r.name}`, `Formula 1 returns in ${r.name}, and the crown is up for grabs`]);
+  const standfirst = onGrid ? `Everything to know before the lights go out in ${r.name}: the champion, the moves, the calendar and the favourites.` : `${name(champ)} won’t defend the title. Everything to know before the lights go out in ${r.name}.`;
+  return { id: `${s.index}-${r.id}-pv`, seq: 0, kind: 'preview', i: 0, r, subject: champ, outlet: choose(rnd, D.OUTLETS), kicker: 'Season preview', massive: true, headline, standfirst, body };
 }
 function previewStory(c, s, i, mem, { name, last, tName }) {
   const rounds = activeRounds(s); const r = rounds[i]; const rnd = seeded(`${s.index}-${r.id}-pv`);
