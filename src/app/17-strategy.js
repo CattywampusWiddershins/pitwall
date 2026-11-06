@@ -61,6 +61,19 @@ function normLaps(sd, d, ref = ersRef([sd], d)) {
     if (ref != null && dep[k] > 0) ms += (dep[k] - ref) * ERS_MS;
     return ms; }) };
 }
+/**
+ * A practice session's stints, with the wear deciding where one set ends: the game can log the change a lap early, so a
+ * lap whose wear carries on from the set before (and drops on the next lap) belongs to that set. In Australia the softs'
+ * fifth lap (13.1% worn, then 15.9%) was logged as the mediums' first, which start at 3.5%.
+ */
+function practiceStints(sd, d) {
+  const st = stintsOf(sd, d).map(x => ({ ...x })); const wr = sd?.game?.wear?.[d] || [];
+  for (let j = 1; j < st.length; j++) {
+    const A = st[j - 1], B = st[j];
+    while (B.to > B.from && wr[B.from - 2] != null && wr[B.from - 1] != null && wr[B.from] != null && wr[B.from - 1] >= wr[B.from - 2] && wr[B.from] < wr[B.from - 1] - 2) { A.to++; B.from++; }
+  }
+  return st;
+}
 function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
   const w = s.weekends[round.id]; const out = {}; let ref = Infinity;
   const eRef = ersRef(keys.map(k => w?.sessions?.[k]).filter(sd => sd?.game && !sd.estimated), d); // one boost reference for the weekend
@@ -69,17 +82,24 @@ function practiceRuns(s, round, d, keys = strategyKeys(s, round).keys) {
     const laps = sd.game.laps?.[d]; if (!laps) continue; const wear = sd.game.wear?.[d] || [];
     const N = normLaps(sd, d, eRef).laps; // fuel- and ERS-normalised times
     laps.forEach((l, k) => { if (l[0] && l[1] && N[k]) ref = Math.min(ref, N[k]); });
-    for (const x of stintsOf(sd, d)) {
+    for (const x of practiceStints(sd, d)) {
       if (!DRY.includes(x.c)) continue; // intermediates and wets depend too much on the conditions
       const run = [];
       // every lap of the stint: an out-lap is far off the run's pace and drops out below, and a stint started on a flying
       // lap (no out-lap driven) keeps its first lap
       for (let lap = x.from; lap <= x.to; lap++) { const ms = N[lap - 1]; if (ms) run.push({ age: lap - x.from + 1, ms, wear: wear[lap - 1] }); }
       if (run.length < 3) continue;
-      // pushing laps: within 2.5% of the run's best (cool-down and traffic laps break the run)
-      const best = Math.min(...run.map(r => r.ms)); let cur = [], longest = [];
-      for (const r of run) { if (r.ms <= best * 1.025 && (!cur.length || r.age === cur[cur.length - 1].age + 1)) cur.push(r); else { if (cur.length > longest.length) longest = cur; cur = r.ms <= best * 1.025 ? [r] : []; } }
+      // pushing laps: within 2.5% of the run's best. One or two slow laps (traffic, a mistake, a stuck Straight Mode)
+      // are skipped and the run goes on, keeping each lap's age; three in a row (a cool-down) end it
+      const best = Math.min(...run.map(r => r.ms)); const ok = (r) => r.ms <= best * 1.025; let cur = [], longest = [], miss = 0;
+      for (const r of run) {
+        if (ok(r)) { cur.push(r); miss = 0; }
+        else if (cur.length && ++miss <= 2) { /* skipped */ }
+        else { if (cur.length > longest.length) longest = cur; cur = []; miss = 0; }
+      }
       if (cur.length > longest.length) longest = cur;
+      // a first lap well off the next while the tyres come in isn't fall-off: left out (with four laps or more to go on)
+      while (longest.length >= 4 && longest[0].ms > longest[1].ms + 150) longest = longest.slice(1);
       if (longest.length < 3) continue;
       const pace = fitLine(longest.map(r => [r.age, r.ms])); const wr = fitLine(longest.filter(r => r.wear != null).map(r => [r.age, r.wear]));
       const deg = Math.max(0, pace?.b || 0);

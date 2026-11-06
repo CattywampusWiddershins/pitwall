@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.3
+
+- Practice long runs are measured better:
+  - **Stints split by the wear.** A lap the game logs on the new set but whose wear carries on from the old one now counts with the old set. Australia's fifth soft lap had been counted as the mediums' first.
+  - **A slow lap no longer ends a run.** One or two slow laps (traffic, a mistake, a stuck Straight Mode) are skipped and the run carries on. Three in a row, a cool-down, still end it.
+  - **A slow first lap is left out.** A first lap well off the next while the tyres come in no longer cancels the fall-off of a run of four laps or more.
+
 ## 3.34.2
 
 - **Retirements can be taken back.** A driver who announced a retirement and then signs a new deal in the same season (a new contract, or a move) now stays on the grid for next season, and the press runs it as a U-turn ("BREAKING: Two-time world champion Alonso unretires").
