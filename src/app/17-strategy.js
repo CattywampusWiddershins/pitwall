@@ -40,12 +40,14 @@ function strategyKeys(s, round) {
   usual energy that weekend (ERS_MS a kJ either side of it: one reference for every session of the weekend, so a run
   in FP2 and one in FP3 are on the same footing). Both need F1 25 data from 3.4 on; older sessions are used as they
   are. A plan then adds the fuel back lap by lap where it matters (Live Race), but between plans it cancels out.
-  ERS_MS was measured on the 2026 season's practice laps (3.14.2): within a run, each extra kJ deployed took 0.34 ms
-  off the player's lap (0.07 ms across the grid); the 1.1 ms used before made a lap with a big deployment look a
-  second and a half slower than it was.
+  ERS_MS was measured again in 3.34.7 on every practice run since 3.4 (26 runs, 155 laps): within a run, with the
+  tyre age and the fuel held, each extra kJ deployed took 0.55 ms (±0.10) off the player's lap. It fits the races a
+  little better than the 0.35 ms used from 3.14.2: practice fall-off came out 0.099 s a lap off the race's, against
+  0.104. (The grid's AI laps show only 0.06 ms a kJ, and race laps 0.23, where deployment follows the traffic.)
 */
 const FUEL_MS = 35; // ms a lap per kg of fuel
-const ERS_MS = 0.35; // ms a lap per kJ of ERS deployment, against the driver's usual
+const ERS_MS = 0.55; // ms a lap per kJ of ERS deployment, against the driver's usual: yours
+const ERS_MS_AI = 0.06; // the AI's, measured the same way on 220 runs: its deployment barely moves its lap
 /** A driver's usual ERS deployment a lap (kJ) across these sessions: the reference the laps are put on. */
 function ersRef(sds, d) {
   const all = sds.flatMap(sd => (sd?.game?.ersDep?.[d] || []).filter(x => x > 0));
@@ -58,7 +60,7 @@ function normLaps(sd, d, ref = ersRef([sd], d)) {
   const burn = median(drops) || 0;
   return { burn, laps: laps.map((l, k) => { if (!l?.[0]) return null; let ms = l[0];
     if (fuel[k] != null) ms -= (fuel[k] + burn / 2) * FUEL_MS;
-    if (ref != null && dep[k] > 0) ms += (dep[k] - ref) * ERS_MS;
+    if (ref != null && dep[k] > 0) ms += (dep[k] - ref) * (d === PLAYER ? ERS_MS : ERS_MS_AI);
     return ms; }) };
 }
 /**

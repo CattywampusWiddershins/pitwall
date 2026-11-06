@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.34.7
+
+- **ERS normalising re-measured.** On every practice run since 3.4 (26 runs, 155 laps), each extra kJ deployed took 0.55 ms off your lap, with the tyre age and fuel held. That's up from the 0.35 ms used since 3.14.2. Practice fall-off now matches the races a little better: 0.099 s a lap off on average, against 0.104 s. The AI's laps get their own figure, 0.06 ms a kJ, measured the same way on 220 runs: their deployment barely changes their lap time. Your Australia hard run, which got quicker as you used more ERS, now comes out almost flat.
+
 ## 3.34.6
 
 - Practice runs: the fall-off and pace are back to exactly what 3.34.4 measured. The wider 5% window from 3.34.5 was no more accurate against the 2026 races (0.106 s a lap off against 0.104), so the fit is back to laps within 2.5% of the run's best. The lap count stays: laps within 5% still count towards the run, so a Race Pace programme's five laps still show as five.
