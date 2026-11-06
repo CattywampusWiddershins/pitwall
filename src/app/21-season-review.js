@@ -498,7 +498,7 @@ function buildStories(c, s) {
       // settled in the sprint: told after the sprint, before the race
       const atSprint = !!r.sprint && !!ses.SPR?.done && titleMath(s, 'driver', i, { afterSprint: true }).decided;
       const SDT = atFinal && !atSprint ? showdownTold(c, s, i, last, phrasebook(seeded(rid + 'sdt'))) : null;
-      out.push({ id: rid + 'wdc', seq: i * 10 + (atSprint ? 2 : 5), kind: 'title', i, r, subject: A0.id, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'driver', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [A0.id] },
+      out.push({ id: rid + 'wdc', seq: i * 10 + 7.9, kind: 'title', i, r, subject: A0.id, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'driver', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [A0.id] },
         kicker: atSprint ? 'World champion · Sprint' : atFinal ? 'World champion · Final-race decider' : 'World champion',
         headline: SDT?.twist ? SDT.twist.headline : atFinal ? (rivals.length >= 2 ? `${name(A0.id)} wins a ${numWord(rivals.length + 1)}-way title showdown in ${gp}` : `${name(A0.id)} beats ${last(rivals[0]?.id || A1.id)} to the title in a ${gp} decider`) : A0.id === PLAYER ? `${name(A0.id)} is world champion` : `${name(A0.id)} is the ${s.year} world champion`,
         standfirst: `${last(A0.id)} sealed ${n > 1 ? `a ${ordWord(n)} title` : 'the title'} in ${atSprint ? `the ${gp} sprint` : gp}${atSprint ? ', with the Grand Prix still to come' : ''}${dA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(dA.left.length, 'round')} to spare` : atSprint ? '' : ' at the final round'}.`,
@@ -521,7 +521,7 @@ function buildStories(c, s) {
     if (tA.decided && !tB.decided) {
       const atFinal = !tA.left.length, rivals = tB.rows.filter(x => x.alive && x.id !== cA0.id);
       const atSprint = !!r.sprint && !!ses.SPR?.done && titleMath(s, 'team', i, { afterSprint: true }).decided;
-      out.push({ id: rid + 'wcc', seq: i * 10 + (atSprint ? 2 : 5), kind: 'title', i, r, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'team', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [cA0.id] },
+      out.push({ id: rid + 'wcc', seq: i * 10 + 7.8, kind: 'title', i, r, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'team', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [cA0.id] },
         kicker: atSprint ? 'Constructors’ champions · Sprint' : atFinal ? 'Constructors’ champions · Final-race decider' : 'Constructors’ champions',
         headline: atFinal ? `${cA0.name} edge ${rivals.length >= 2 ? `a ${numWord(rivals.length + 1)}-team` : 'the'} constructors’ showdown in ${gp}` : `${cA0.name} win the ${s.year} constructors’ championship`,
         standfirst: `${cA0.name} wrapped up the teams’ title in ${atSprint ? `the ${gp} sprint, with the Grand Prix still to come` : gp}${tA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(tA.left.length, 'round')} to go` : atSprint ? '' : ', at the very last race'}, ${plural(tA.margin, 'point')} ahead of ${tA.rows[1]?.name}.`, body: [], quotes: [] });
@@ -819,6 +819,7 @@ function storyGfx(s, x) {
   if (x.kind === 'review') out.push({ type: 'graph', mode: 'review', ...base });
   if (x.graphIds?.length >= 2) out.push({ type: 'graph', mode: 'rivalry', ids: x.graphIds, ...base });
   if (x.lapGfx) out.push({ type: 'graph', mode: 'laps', ...base });
+  if (x.kind === 'preview' && x.kicker === 'Season preview') for (const v of seasonGfxSet(career(), s)) out.push({ type: 'season', ...v, ...base });
   if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });

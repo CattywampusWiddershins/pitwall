@@ -45,7 +45,7 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h'].includes(spec.type) ? '' : `${esc(r?.name || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
@@ -160,7 +160,7 @@ async function drawGraphic(spec) {
   const cv = document.createElement('canvas'); cv.width = gfxWidth(spec); cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
   if (spec.type === 'title') { const ok = await gfxTitle(g, k, c, s, spec); return ok === false ? null : cv; }
-  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -1076,4 +1076,224 @@ async function gfxH2H(g, k, c, s, { a, b, scope }) {
     k.text(f(vb), mid + gap + bw + 20, y, { size: 44, weight: 800, color: aBetter ? '#7C8293' : '#FFFFFF', max: mid - gap - bw - 50 });
     k.text(lab, mid, y, { size: 22, weight: 700, color: '#C9CFDC', align: 'center', max: gap * 2 - 10 });
   });
+}
+
+/* ------------------------------------------------------------- the season preview graphic */
+/**
+ * What the pre-season graphic is about: last year's champion (if still on the grid), the five favourites on form
+ * before round 1 (the champion first in the lineup when he's on the grid), the opener and the finale, and the
+ * headline, picked from the variants that fit the season.
+ */
+function seasonGfxData(c, s) {
+  const prev = c.seasons[s.index - 1]; const rounds = activeRounds(s); if (!rounds.length) return null;
+  const grid = gridIds(s);
+  const champ = prev && roundsDone(prev) >= activeRounds(prev).length ? driverStandings(prev)[0]?.id ?? null : null;
+  const onGrid = !!champ && grid.includes(champ);
+  let top = [];
+  try { const Pj = projection(c, s, titleMath(s, 'driver', 0), 0); if (Pj.hasForm) top = Pj.rows.map(x => x.id); } catch { /* no form yet */ }
+  if (!top.length) top = grid.slice();
+  top = top.filter(d => grid.includes(d));
+  const pick = Object.fromEntries(top.map((d, i) => [d, i + 1]));
+  const five = (onGrid ? [champ, ...top.filter(d => d !== champ)] : top).slice(0, 5);
+  const subject = onGrid ? champ : top[0];
+  const titles = (d) => titleTally(c, s, 'driver', d).n;
+  const r0 = rounds[0], fin = rounds[rounds.length - 1];
+  const name = (d) => lastName(dName(s, d) || d);
+  const champName = champ ? (onGrid ? name(champ) : lastName(dName(prev, champ) || refName(champ))) : '';
+  const moved = onGrid && prev && teamOf(prev, champ) && teamRoot(teamOf(prev, champ).id) !== teamRoot(teamOf(s, champ)?.id);
+  const close = top.length >= 5; // the forecast always has five; the five-way line needs no more than that
+  const Y = s.year, n = onGrid ? titles(champ) : 0;
+  // the headlines: text (sentence case) and hi (the part drawn in gold / red / bold), with when each fits
+  const V = [
+    { t: `Who will reign in F1 ${Y}?`, hi: `F1 ${Y}?`, paper: 'reign' },
+    { t: `The ${Y} crown: who takes it?`, hi: 'who takes it?', paper: 'crown' },
+    { t: `${rounds.length} races. One champion.`, hi: 'One champion.', paper: 'One champion.' },
+    close && { t: 'Five contenders. One crown.', hi: 'One crown.', paper: 'One crown.' },
+    { t: `The hunt for the ${Y} title`, hi: `${Y} title`, paper: 'hunt' },
+    { t: `Lights out on ${Y}`, hi: String(Y), paper: 'Lights out', launch: true },
+    { t: `${Y}: it all starts in ${r0.name}`, hi: r0.name, paper: r0.name, launch: true },
+    { t: `The road to ${fin.name} starts now`, hi: fin.name, paper: fin.name, launch: true },
+    onGrid && pick[champ] === 1 && { t: `Can anyone stop ${champName}?`, hi: `${champName}?`, paper: 'stop', champ: true },
+    onGrid && n >= 2 && { t: `${champName} goes for number ${n + 1}`, hi: `number ${n + 1}`, paper: `number ${n + 1}`, champ: true },
+    onGrid && pick[champ] !== 1 && { t: `${champName} defends. Who dethrones?`, hi: 'Who dethrones?', paper: 'dethrones', champ: true },
+    (!onGrid || (top[0] && !titles(top[0]))) && { t: `A new king in ${Y}?`, hi: 'new king', paper: 'new king' },
+    champ && !onGrid && { t: 'Who’s next?', hi: 'next?', paper: 'next?' },
+  ].filter(Boolean);
+  return { prev, champ, onGrid, subject, top, five, pick, titles, r0, fin, rounds, moved, V, name, Y, sprints: rounds.filter(x => x.sprint).length };
+}
+const SEASON_STYLES = ['lineup', 'shadow', 'paper', 'split', 'gold', 'lights'];
+/** The style and headline for a season: seeded, so a season keeps its graphic; the champion's style gets a champion headline when there is one. */
+function seasonGfxPick(c, s, style = null, head = null) {
+  const D0 = seasonGfxData(c, s); if (!D0) return null; const set = seasonGfxSet(c, s);
+  const st = style || set[0]?.style || 'lineup';
+  const hi = head != null && D0.V[head] ? head : set.find(x => x.style === st)?.head ?? 0;
+  return { ...D0, style: st, head: D0.V[hi] || D0.V[0] };
+}
+/**
+ * The season's three graphics, as if from three outlets: three different styles, each with its own headline (the
+ * champion's style with a champion headline when there is one). Seeded, so a season keeps them. [{ style, head }]
+ */
+function seasonGfxSet(c, s, n = 3) {
+  const D0 = seasonGfxData(c, s); if (!D0) return [];
+  const rnd = seeded(`season-gfx-${s.year}-${c.id || ''}`); const styles = SEASON_STYLES.slice();
+  for (let i = styles.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [styles[i], styles[j]] = [styles[j], styles[i]]; }
+  const used = new Set();
+  return styles.slice(0, n).map(st => {
+    const fits = D0.V.map((v, i) => ({ v, i })).filter(({ v }) => st === 'shadow' && D0.V.some(x => x.champ) ? v.champ : st === 'lights' ? v.launch || !v.champ : true);
+    const free = fits.filter(x => !used.has(x.i)); const pool = free.length ? free : fits;
+    const pk = pool[Math.floor(rnd() * pool.length)]; used.add(pk.i); return { style: st, head: pk.i };
+  });
+}
+/** Words laid out over lines, each word in its own style; align left or center. Returns the y after the last line. */
+function gfxRich(g, k, words, x, y, { size, max, lh = 1.0, align = 'left', fam = null, weight = 900, lines = 4, breakHi = false, dry = false }) {
+  const fnt = (w) => `${w.italic ? 'italic ' : ''}${k.font(size, w.weight ?? weight, w.fam || fam || k.disp)}`;
+  // a word too long for a line shrinks the whole headline
+  { const widest = Math.max(...words.map(w => { g.font = fnt(w); return g.measureText(w.t).width; })); if (widest > max) size = Math.floor(size * max / widest); }
+  const space = () => { g.font = k.font(size, weight, fam || k.disp); return g.measureText(' ').width; };
+  const out = [[]]; let wid = 0;
+  for (const w of words) { g.font = fnt(w); const ww = g.measureText(w.t).width; const add = out[out.length - 1].length ? space() + ww : ww; if (((breakHi && w.br) || wid + add > max) && out[out.length - 1].length && out.length < lines) { out.push([]); wid = ww; } else wid += add; out[out.length - 1].push({ ...w, ww }); }
+  if (dry) return y + out.length * size * lh;
+  g.textBaseline = 'alphabetic';
+  out.forEach((ln, i) => {
+    const lw = ln.reduce((a, w, j) => a + w.ww + (j ? space() : 0), 0); let cx = align === 'center' ? x - lw / 2 : x; const yy = y + size * 0.8 + i * size * lh;
+    for (const w of ln) { g.font = fnt(w); g.fillStyle = w.color || '#FFFFFF'; g.textAlign = 'left'; g.fillText(w.t, cx, yy); cx += w.ww + space(); }
+  });
+  return y + out.length * size * lh;
+}
+/** A headline as words, the highlighted part in its own style. */
+function headWords(h, hiKey, base, hiStyle, upper = true) {
+  const t = upper ? h.t.toUpperCase() : h.t; const hi = upper ? (h[hiKey] || h.hi).toUpperCase() : (h[hiKey] || h.hi);
+  const at = t.indexOf(hi); const parts = at < 0 ? [[t, false]] : [[t.slice(0, at), false], [hi, true], [t.slice(at + hi.length), false]];
+  return parts.flatMap(([p, on]) => p.split(' ').filter(Boolean).map((w, j) => ({ t: w, ...(on ? hiStyle : base), br: on && j === 0 })));
+}
+/** A cut-out drawn full length: its visible box h tall, centred on cx, feet at bottom. */
+async function gfxStand(g, url, cx, bottom, h, { filter = null, blend = null, shadow = null } = {}) {
+  const B = url && await gfxBodyBox(url); if (!B) return false;
+  const sc = h / B.h; const dw = B.w * sc;
+  g.save(); if (filter) g.filter = filter; if (blend) g.globalCompositeOperation = blend; if (shadow) { g.shadowColor = shadow; g.shadowBlur = 30; g.shadowOffsetY = 12; }
+  g.drawImage(B.im, B.x, B.y, B.w, B.h, cx - dw / 2, bottom - h, dw, h); g.restore(); return true;
+}
+const pickWord = (P, d) => d === P.champ && P.onGrid ? 'CHAMPION' : `${ordWord(P.pick[d] || 0).toUpperCase()} PICK`;
+
+async function gfxSeason(g, k, c, s, { style, head = null }) {
+  const P = seasonGfxPick(c, s, style, head); if (!P) return false;
+  const W = GFX_W, H = GFX_H, u = W / 100; const Y = P.Y; const h = P.head;
+  // the generic stand-in driver would make the favourites look alike: a driver without a picture is left out
+  const bodies = Object.fromEntries(await Promise.all(P.five.map(async d => { const b = await gfxBody(c, d, s); return [d, b && b.fallback !== 'default' ? b.url : null]; })));
+  const goldT = goldFill(g, 0, 0, W, H);
+  const tm = (d) => teamOf(s, d); const col = (d) => tm(d)?.color || '#5E6A82';
+
+  if (P.style === 'lineup') {
+    const bg = g.createRadialGradient(W / 2, 0, 0, W / 2, 0, H * 0.9); bg.addColorStop(0, '#1B2A52'); bg.addColorStop(1, '#0A0F1E'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    gfxDiag(g, 0, 0, W, H, { gap: 76, width: 7, alpha: 0.05 });
+    gfxSpaced(g, k, `FORMULA 1 · ${Y}`, W / 2, 6.2 * u, { size: 28, spacing: 0.5, color: 'rgba(255,255,255,0.75)' });
+    const a = h.t.toUpperCase(), hi = h.hi.toUpperCase(), at = a.indexOf(hi); const l1 = at > 0 ? a.slice(0, at).trim() : a, l2 = at > 0 ? a.slice(at).trim() : '';
+    k.text(l1, W / 2, 15 * u, { size: 100, weight: 900, align: 'center', max: W - 80 });
+    if (l2) k.text(l2, W / 2, 28 * u, { size: 160, weight: 900, align: 'center', max: W - 80, color: goldFill(g, 0, 21 * u, W, 15 * u) });
+    const xs = [12, 31, 69, 88]; const order = [P.five[4], P.five[2], P.five[1], P.five[3]];
+    for (let j = 0; j < 4; j++) if (order[j]) await gfxStand(g, bodies[order[j]], xs[j] * u, H - 17 * u, 62 * u, { shadow: 'rgba(0,0,0,0.6)' });
+    await gfxStand(g, bodies[P.five[0]], 50 * u, H - 17 * u, 74 * u, { shadow: 'rgba(0,0,0,0.6)' });
+    const fl = g.createLinearGradient(0, H - 24 * u, 0, H); fl.addColorStop(0, 'rgba(5,7,13,0)'); fl.addColorStop(0.55, 'rgba(5,7,13,1)'); g.fillStyle = fl; g.fillRect(0, H - 24 * u, W, 24 * u);
+    const slots = [P.five[4], P.five[2], P.five[0], P.five[1], P.five[3]];
+    slots.forEach((d, j) => { if (!d) return; const x = (3 + 94 * (j + 0.5) / 5) * u; const lead = j === 2;
+      k.text(gfxLast(s, d), x, H - 10 * u, { size: 32, weight: 800, align: 'center', max: 18 * u, color: lead ? goldFill(g, 0, H - 12 * u, W, 4 * u) : '#FFFFFF' });
+      k.text(pickWord(P, d), x, H - 6.6 * u, { size: 20, weight: 700, align: 'center', color: 'rgba(255,255,255,0.7)' }); });
+    await k.logo(4 * u, H - 4.6 * u, 160, 30, 'rgba(255,255,255,0.7)', 'left');
+    return true;
+  }
+
+  if (P.style === 'shadow') {
+    const sc = col(P.subject); const lite = mixHex(sc, '#FFFFFF', 0.35);
+    const bg = g.createLinearGradient(0, 0, W * 0.6, H); bg.addColorStop(0, lite); bg.addColorStop(0.32, mixHex(sc, '#000000', 0.45)); bg.addColorStop(0.72, '#111114'); bg.addColorStop(1, '#0A0A0D'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    gfxGlow(g, 0.7 * W, 0.4 * H, 0.55 * W, '#E9C46A', 0.35);
+    const body = bodies[P.subject];
+    await gfxStand(g, body, W - 22 * u, H + 4 * u, 118 * u, { shadow: 'rgba(0,0,0,0.7)' });
+    const end = gfxRich(g, k, headWords(h, 'hi', {}, { color: goldFill(g, 0, 8 * u, W, 50 * u) }), 5 * u, 8 * u, { size: 108, max: 54 * u, lh: 0.95 });
+    const left = P.five.filter(d => d !== P.subject).slice(0, 4);
+    const sub = P.onGrid ? `The champion starts the defence in ${P.r0.name}. ${cap(numWord(left.length))} drivers want the crown.` : `${P.r0.name} opens a season with no champion on the grid. The favourite starts here.`;
+    k.wrap(sub, 5 * u, end + 5 * u, { size: 32, weight: 600, max: 50 * u, lines: 4, lh: 1.3, color: 'rgba(255,255,255,0.88)' });
+    const sh = g.createLinearGradient(0, H - 36 * u, 0, H); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(0.35, 'rgba(0,0,0,0.85)'); sh.addColorStop(1, '#000'); g.fillStyle = sh; g.fillRect(0, H - 36 * u, W, 36 * u);
+    gfxSpaced(g, k, P.onGrid ? 'THE CHALLENGERS' : 'THE CONTENDERS', 5 * u, H - 34 * u, { size: 26, spacing: 0.35, align: 'left', color: 'rgba(255,255,255,0.75)' });
+    for (let j = 0; j < left.length; j++) {
+      const d = left[j]; const x = (5 + j * 22) * u, y = H - 32 * u, w = 18 * u, hh = 25 * u; const ph = await headOfAsync(c, d, s);
+      g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(x, y, w, hh); if (ph) await k.img(ph, x, y, w, hh, { cover: true });
+      g.fillStyle = col(d); g.fillRect(x, y + hh - 9, w, 9);
+      k.text(gfxLast(s, d), x + w / 2, y + hh + 26, { size: 22, weight: 800, align: 'center', max: w });
+    }
+    await k.logo(W - 4 * u - 160, H - 4.6 * u, 160, 30, 'rgba(255,255,255,0.7)', 'right');
+    return true;
+  }
+
+  if (P.style === 'paper') {
+    const ink = '#111111', red = '#D0262E', serif = 'Georgia, "Times New Roman", serif';
+    g.fillStyle = '#F2EEE6'; g.fillRect(0, 0, W, H);
+    gfxSpaced(g, k, 'THE PADDOCK REVIEW', 5 * u, 6.2 * u, { size: 24, spacing: 0.3, align: 'left', color: ink });
+    gfxSpaced(g, k, `SEASON PREVIEW · ${Y}`, W - 5 * u, 6.2 * u, { size: 24, spacing: 0.3, align: 'right', color: ink });
+    g.fillStyle = ink; g.fillRect(5 * u, 8.6 * u, 90 * u, 5);
+    const end = gfxRich(g, k, headWords(h, 'paper', { color: ink }, { color: red, italic: true, weight: 700 }, false), 5 * u, 11 * u, { size: 136, max: 90 * u, lh: 0.95, fam: serif, weight: 900, lines: 3 });
+    // the champion's car, this year's (a new team's after a move), big and grey like a print photo
+    const team = tm(P.subject); const car = team && carPhoto(c, team.id);
+    const ty = Math.max(end + 3 * u, 40 * u);
+    k.text(`${P.rounds.length} RACES${P.sprints ? `, ${P.sprints} SPRINTS` : ''}`, 5 * u, ty, { size: 38, weight: 800, color: red, max: 40 * u });
+    const d0 = roundDate(s, P.r0); const v0 = (P.r0.venue || P.r0.name).split(/[,(]/)[0].trim();
+    k.wrap(`It starts in ${v0}${d0 ? ` on ${fmtDay(d0)}` : ''} and ends in ${P.fin.name}.`, 5 * u, ty + 4.6 * u, { size: 30, weight: 600, fam: serif, color: ink, max: 36 * u, lines: 4, lh: 1.3 });
+    // the stamp
+    g.save(); g.translate(W - 15 * u, ty + 6 * u); g.rotate(-0.21); g.strokeStyle = red; g.lineWidth = 6; g.beginPath(); g.arc(0, 0, 9 * u, 0, Math.PI * 2); g.stroke();
+    const stamp = !P.onGrid ? ['THE', 'FAVOURITE’S', 'CAR'] : P.moved ? ['THE', 'CHAMPION’S', 'NEW RIDE'] : ['THE', 'CHAMPION’S', 'CAR'];
+    stamp.forEach((t, j) => k.text(t, 0, (j - 1) * 3.4 * u, { size: 30, weight: 900, color: red, align: 'center', max: 15 * u })); g.restore();
+    const im = car && await loadImg(car);
+    if (im) { const cw = 150 * u, ch = cw * im.height / im.width; g.save(); g.filter = 'grayscale(1) contrast(1.2)'; g.globalCompositeOperation = 'multiply'; g.drawImage(im, 52 * u - cw / 2, H - 6 * u - ch, cw, ch); g.restore(); }
+    else await gfxStand(g, bodies[P.subject], 50 * u, H, 66 * u, { filter: 'grayscale(1) contrast(1.15)', blend: 'multiply' });
+    return true;
+  }
+
+  if (P.style === 'split') {
+    g.fillStyle = '#111'; g.fillRect(0, 0, W, H);
+    const order = [P.five[1], P.five[3], P.five[0], P.five[2], P.five[4]].filter(Boolean); const n = order.length; const cw = W / n, sl = 0.14 * cw, ov = 2.4 * u;
+    for (let j = 0; j < n; j++) {
+      const d = order[j]; const x0 = j * cw - ov, x1 = (j + 1) * cw + ov; const c0 = col(d);
+      g.save(); g.beginPath(); g.moveTo(x0 + sl, 0); g.lineTo(x1, 0); g.lineTo(x1 - sl, H); g.lineTo(x0, H); g.closePath(); g.clip();
+      const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, c0); gr.addColorStop(1, mixHex(c0, '#000000', 0.6)); g.fillStyle = gr; g.fillRect(x0, 0, x1 - x0, H);
+      await gfxStand(g, bodies[d], (x0 + x1) / 2, H - 13 * u, 80 * u); g.restore();
+      g.strokeStyle = '#111'; g.lineWidth = 6; g.beginPath(); g.moveTo(x0 + sl, 0); g.lineTo(x0, H); g.stroke();
+    }
+    const hb = gfxRich(g, k, headWords(h, 'hi', {}, {}), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 3, breakHi: true, dry: true });
+    g.fillStyle = 'rgba(8,8,12,0.88)'; g.fillRect(0, 7 * u, W, Math.max(26 * u, hb - 7 * u + 3 * u));
+    gfxSpaced(g, k, `THE ${Y} TITLE`, 5 * u, 11.5 * u, { size: 26, spacing: 0.45, align: 'left', color: 'rgba(255,255,255,0.7)' });
+    gfxRich(g, k, headWords(h, 'hi', {}, { color: goldFill(g, 0, 14 * u, W, 18 * u) }), 5 * u, 14 * u, { size: 96, max: 90 * u, lh: 0.98, lines: 3, breakHi: true });
+    g.fillStyle = '#08080C'; g.fillRect(0, H - 13 * u, W, 13 * u);
+    order.forEach((d, j) => { const x = (j + 0.5) * cw; const lead = P.pick[d] === 1 || (d === P.champ && P.onGrid);
+      k.text(d === P.champ && P.onGrid ? '★' : String(P.pick[d] || ''), x, H - 8.6 * u, { size: 52, weight: 800, align: 'center', color: lead ? goldFill(g, 0, H - 12 * u, W, 6 * u) : 'rgba(255,255,255,0.35)' });
+      k.text(gfxLast(s, d), x, H - 3.6 * u, { size: 30, weight: 800, align: 'center', max: cw - 16, color: lead ? '#E9C46A' : '#FFFFFF' }); });
+    return true;
+  }
+
+  if (P.style === 'gold') {
+    const bg = g.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, W * 0.9); bg.addColorStop(0, '#1A1610'); bg.addColorStop(0.75, '#050505'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    // the crown
+    const cx = W / 2, cy = 13 * u, cw2 = 13 * u, chh = cw2 * 44 / 64; g.save(); g.translate(cx - cw2 / 2, cy); g.scale(cw2 / 64, chh / 44); g.beginPath(); g.moveTo(4, 40); g.lineTo(0, 8); g.lineTo(18, 22); g.lineTo(32, 0); g.lineTo(46, 22); g.lineTo(64, 8); g.lineTo(60, 40); g.closePath(); g.restore(); g.fillStyle = goldFill(g, 0, cy, W, chh); g.fill();
+    g.save(); let ys = 430; g.font = k.font(ys, 900); while (ys > 200 && g.measureText(String(Y)).width > 0.9 * W) g.font = k.font(ys -= 10, 900); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 4; g.strokeStyle = 'rgba(233,196,106,0.55)'; g.strokeText(String(Y), W / 2, 42 * u); g.restore();
+    gfxRich(g, k, headWords(h, 'hi', { weight: 300 }, { weight: 900, color: goldFill(g, 0, 60 * u, W, 8 * u) }), W / 2, 61 * u, { size: 62, max: 88 * u, lh: 1.1, align: 'center', lines: 3, breakHi: true });
+    P.five.forEach((d, j) => { const y = 79 * u + j * 7.6 * u; const t = tm(d); const nt = P.titles(d);
+      k.text(String(j + 1), 14 * u, y, { size: 36, weight: 900, color: '#E9C46A' });
+      k.text(dName(s, d) || d, 20 * u, y, { size: 36, weight: 600, max: 40 * u });
+      k.text([t?.name, d === P.champ && P.onGrid ? 'champion' : nt ? plural(nt, 'title') : ''].filter(Boolean).join(' · '), 86 * u, y, { size: 30, weight: 400, align: 'right', color: 'rgba(255,255,255,0.6)', max: 26 * u });
+      g.fillStyle = 'rgba(233,196,106,0.25)'; g.fillRect(14 * u, y + 3.6 * u, 72 * u, 2); });
+    await k.logo(W / 2 - 80, H - 5.4 * u, 160, 30, '#E9C46A', 'center');
+    return true;
+  }
+
+  // lights out
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0B0B12'); bg.addColorStop(1, '#1A0505'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  for (let j = 0; j < 5; j++) { const x = (18.5 + j * 15.75) * u, y = 11.5 * u, r = 5.5 * u; gfxGlow(g, x, y, r * 2.4, '#FF1E14', 0.5); const gr = g.createRadialGradient(x - r * 0.25, y - r * 0.3, r * 0.1, x, y, r); gr.addColorStop(0, '#FF6A5F'); gr.addColorStop(0.6, '#C00000'); gr.addColorStop(1, '#600000'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
+  gfxRich(g, k, headWords(h, 'hi', {}, { color: '#FF2A20' }), W / 2, 22 * u, { size: 108, max: 90 * u, lh: 0.98, align: 'center', lines: 3, breakHi: true });
+  const team = tm(P.subject); const car = team && carPhoto(c, team.id); const im = car && await loadImg(car);
+  if (im) { const cw = 108 * u, ch = cw * im.height / im.width; g.save(); g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 40; g.shadowOffsetY = 30; g.drawImage(im, W / 2 - cw / 2, 82 * u - ch / 2, cw, ch); g.restore(); }
+  else await gfxStand(g, bodies[P.subject], W / 2, H - 22 * u, 66 * u, { shadow: 'rgba(0,0,0,0.7)' });
+  g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(5 * u, H - 22 * u, 90 * u, 3);
+  const v0 = (P.r0.venue || P.r0.name).split(/[,(]/)[0].trim();
+  [[String(P.rounds.length), 'RACES'], [String(P.sprints), 'SPRINTS'], ['R1', v0.toUpperCase()]].forEach(([a, b], j) => { const x = (5 + 90 * (j + 0.5) / 3) * u;
+    k.text(a, x, H - 13 * u, { size: 86, weight: 900, align: 'center' }); gfxSpaced(g, k, b, x, H - 6.4 * u, { size: 22, spacing: 0.3, color: 'rgba(255,255,255,0.7)' }); });
+  await k.logo(W / 2 - 80, H - 3.6 * u, 160, 26, 'rgba(255,255,255,0.55)', 'center');
+  return true;
 }

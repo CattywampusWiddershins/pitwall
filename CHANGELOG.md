@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.33.0
+
+- **Pre-season graphics.** The season preview now comes with three graphics, as if from three different outlets, each in its own style with its own headline. There are six styles: the favourites' lineup, the champion's shadow, a paper magazine cover with the champion's car in greyscale, team-colour panels, minimal gold, and start lights with the champion's car. There are 13 headlines ("Who will reign in F1 2027?", "Can anyone stop Jordaan?", "A new king in 2027?" and more), each used only when it fits the season. A season keeps its picks.
+- Stories: Driver Ratings are now the most recent story of each weekend, at the top, unless a title was won that weekend. Then the world champion stories sit above them.
+
 ## 3.32.0
 
 - **The title, lap by lap, as a graphic.** The race-report and final-race stories now get a proper graph graphic instead of the small chart. On a weekend only one driver can win the title, a faded gold line shows where they need to be to be champion (their rivals' best plus everything left after this race). It moves as the running order changes, and their line turns gold while they're on or above it. In a final-race decider, the graph shows the championship order lap by lap instead, with whoever is champion on the road drawn in gold.

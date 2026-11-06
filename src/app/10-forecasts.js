@@ -872,7 +872,7 @@ function fanVoiceStory(c, s, ri) {
   const lowest = Object.values(R).sort((a, b) => a.rating - b.rating)[0];
   const headline = top.rating >= 9.5 ? choose(rnd, [`Fan Voice: a ${top.rating.toFixed(1)} for ${lastName(dName(s, top.id))} in ${r.name}`, `${r.name} driver ratings: fans can’t look past ${lastName(dName(s, top.id))}`])
     : choose(rnd, [`${r.name} driver ratings: ${lastName(dName(s, top.id))} tops the fan vote`, `Fan Voice ratings: who impressed in ${r.name}?`]);
-  return { id: `${s.index}-${r.id}-fv`, seq: ri * 10 + 4, kind: 'ratings', i: ri, r, outlet: FAN_VOICE, kicker: 'Driver Ratings', headline,
+  return { id: `${s.index}-${r.id}-fv`, seq: ri * 10 + 7.5, kind: 'ratings', i: ri, r, outlet: FAN_VOICE, kicker: 'Driver Ratings', headline,
     standfirst: `Fans rated every driver out of 10 after the ${r.name} Grand Prix. ${dName(s, top.id)} came out on top with ${top.rating.toFixed(1)}${lowest && lowest.id !== top.id ? `, while ${dName(s, lowest.id)} had the toughest afternoon on ${lowest.rating.toFixed(1)}` : ''}.`,
     body: [], fanVoice: { race: race.map(x => ({ id: x.id, rating: x.rating, sub: `${teamOf(s, x.id)?.name || ''} · ${x.dnf ? 'DNF' : 'P' + x.finish}` })), season: season.map(x => ({ id: x.id, rating: x.avg, sub: `${teamOf(s, x.id)?.name || ''} · ${plural(x.n, 'race')}` })), round: ri } };
 }

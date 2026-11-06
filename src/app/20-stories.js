@@ -132,7 +132,7 @@ function titleRetroStory(c, s, T) {
   const quotes = teamId ? [{ team: teamId, role: 'Team principal', text: team
     ? choose(rnd, ['This belongs to everyone in the factory. Both drivers delivered when it mattered.', d.final ? 'We made it hard for ourselves, but we got there in the end.' : 'We built this one race at a time.'])
     : choose(rnd, [`${T.short} delivered when it counted. That’s what champions do.`, d.final ? 'I aged ten years in that last race. What a driver.' : 'A complete season. We’re incredibly proud.']) }] : [];
-  return { id: `${s.index}-${T.kind}-retro`, seq: d.i * 10 + 6, kind: 'title', i: d.i, r: d.r, subject: team ? null : T.champ.id, outlet: choose(rnd, D.OUTLETS),
+  return { id: `${s.index}-${T.kind}-retro`, seq: d.i * 10 + 7.7, kind: 'title', i: d.i, r: d.r, subject: team ? null : T.champ.id, outlet: choose(rnd, D.OUTLETS),
     kicker: d.final ? 'Title review · Final-race decider' : 'Title review', headline, standfirst, body, sections: retroSections(c, s, T), qa: qa.length ? qa : null, quotes, massive: d.final };
 }
 
