@@ -193,8 +193,15 @@
     return true;
   }
 
+  // Live Race follows the computer: the race as it stands when the page opens, then each update on the live link
+  const liveCbs = [];
+  const liveIn = (data) => { let m; try { m = JSON.parse(data); } catch { return; } for (const cb of liveCbs) { try { cb(m); } catch (e) { console.warn(e); } } };
   window.api = {
     companion: true,
+    live: {
+      async get() { try { return (await call('GET', 'api/live'))?.live || null; } catch { return null; } },
+      on(cb) { liveCbs.push(cb); },
+    },
     inApp,
     build: BUILD,
     isOnline: () => online,
@@ -269,7 +276,7 @@
       };
       if (inApp) {
         // the native side follows the event stream and keeps reconnecting while the computer is away
-        onEvent = (name, data) => { if (name === 'hello') hello(); else if (name === 'state') changed(data); else if (name === 'down') goOffline(); };
+        onEvent = (name, data) => { if (name === 'hello') hello(); else if (name === 'state') changed(data); else if (name === 'live') liveIn(data); else if (name === 'down') goOffline(); };
         android.listen();
         window.pitwallHostChanged = (h) => { base = `http://${h}/`; android.listen(); };
         return;
@@ -281,6 +288,7 @@
         es = new EventSource('api/events?k=' + encodeURIComponent(key));
         es.addEventListener('hello', hello);
         es.addEventListener('state', (e) => changed(e.data));
+        es.addEventListener('live', (e) => liveIn(e.data));
         es.onerror = () => goOffline();
       };
       open();

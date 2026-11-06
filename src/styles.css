@@ -1277,3 +1277,5 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .tvb-fig img.head { width: 110px; aspect-ratio: 1; border-radius: 50%; object-fit: cover; object-position: top; border: 3px solid var(--c); }
 .tvb-side .cb-verdict { background: none; padding: 0; }
 @media (max-width: 1100px) { .tvb.has-side:has(> .tvb-side) { grid-template-columns: minmax(0, 1fr); } .tvb-side { padding: 0 16px 12px; grid-template-columns: 110px minmax(0, 260px); justify-content: center; } .tvb-fig { height: 180px; min-height: 0; } }
+/* Live Race on a phone: the lap box over the race and weather, so neither runs off the screen */
+@media (max-width: 520px) { .live-head { grid-template-columns: minmax(0, 1fr); } .lh-info .row { flex-wrap: wrap; } .lh-info > * { min-width: 0; overflow-wrap: anywhere; } }

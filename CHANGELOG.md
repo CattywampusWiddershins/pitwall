@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.30.0
+
+- **Live Race on your phone or tablet.** While the computer receives a race from F1 25, the linked phone or tablet now follows it live on the existing Wi-Fi link: the same Live Race screen, updated every second. A device that opens Pitwall mid-race gets the race as it stands straight away, and picks the feed back up by itself if the link drops. Live Race opens by itself on the device when the race starts, like it does on the computer.
+- The computer still saves everything the race teaches, like pit losses and how hard it was to pass. A device following along doesn't save them a second time.
+- Live Race at phone width: the lap box now sits above the race name and weather instead of beside them, so nothing runs off the screen.
+- The Android app needs updating once to get this. The new version comes with this installer and is offered from the computer as usual. Pitwall opened in the phone's browser updates by itself.
+
 ## 3.29.1
 
 - **The dry plan no longer reads rain as tyre wear.** Laps where the whole field on slicks is more than 2.5% off dry pace are left out of the fall-off. In São Paulo the slicks slowed by 10% as the rain came, and the plan took that as wear and moved your stop for mediums earlier.

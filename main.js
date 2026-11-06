@@ -303,6 +303,7 @@ function setupCompanion() {
     ai: generate,
     onRemoteState: (state) => toWindow('data:remote', state),
     onStatus: (st) => toWindow('companion:status', st),
+    getLive: () => liveRace,
   });
   companion.autostart();
 }
@@ -321,7 +322,7 @@ function setupTelemetry() {
     stash: { save: (o) => writeJsonAtomic(stashFile(), o), load: () => readJson(stashFile(), null), clear: () => { try { fs.unlinkSync(stashFile()); } catch { /* none */ } } },
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
-    onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); },
+    onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); try { companion?.live(m); } catch { /* a phone that's gone never stops the window's feed */ } },
   });
   telemetry.configure(readJson(telemetryFile(), { enabled: false, port: 20778 }));
 }

@@ -35,6 +35,11 @@
     window.api.telemetry.onLive?.(onLiveMsg);
     try { for (const r of await window.api.telemetry.pending()) handleGameResult(r); } catch { }
   }
+  // on a phone or tablet: Live Race follows the race the computer is receiving
+  if (window.api?.live && !window.api?.telemetry) {
+    try { liveErs = await window.api.live.get(); } catch { }
+    window.api.live.on(onLiveMsg);
+  }
   // a new version of Pitwall, a few seconds after it opens
   if (window.api?.updates) setTimeout(() => checkUpdates(), 4000);
 })();

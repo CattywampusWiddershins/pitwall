@@ -64,7 +64,7 @@ function lanAddresses() {
   return out.sort((a, b) => rank(a) - rank(b));
 }
 
-module.exports = function createCompanion({ root, configFile, readState, writeState, getSettings, setSettings, ai, onRemoteState, onStatus }) {
+module.exports = function createCompanion({ root, configFile, readState, writeState, getSettings, setSettings, ai, onRemoteState, onStatus, getLive = () => null }) {
   let cfg = { enabled: false, devices: [] };
   try { cfg = { ...cfg, ...JSON.parse(fs.readFileSync(configFile, 'utf8')) }; } catch { }
   const saveCfg = () => { try { fs.mkdirSync(path.dirname(configFile), { recursive: true }); fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2)); } catch (e) { console.error('companion config', e); } };
@@ -177,6 +177,8 @@ module.exports = function createCompanion({ root, configFile, readState, writeSt
       return;
     }
     if (p === '/api/state' && req.method === 'GET') return send(res, 200, { rev: cfg.rev, state: readState() });
+    // the race being driven, for a device that opens (or reconnects) mid-race; updates follow on the event stream
+    if (p === '/api/live' && req.method === 'GET') return send(res, 200, { live: getLive() });
     if (p === '/api/state' && req.method === 'PUT') {
       const body = await readBody(req);
       if (!body.state || !Array.isArray(body.state.careers)) return send(res, 400, { error: 'not a Pitwall save' });
@@ -221,6 +223,11 @@ module.exports = function createCompanion({ root, configFile, readState, writeSt
     /** The desktop's own saves go through the same version check as a device's. */
     commit: (state, baseRev) => commit(state, baseRev, 'desktop'),
     rev: () => cfg.rev,
+    /** Live Race on the devices: each update from the game goes out on the event stream as it reaches the window. */
+    live(m) { if (!clients.size) return; const msg = `event: live
+data: ${JSON.stringify(m)}
+
+`; for (const c of clients) c.res.write(msg); },
     stop,
   };
 };

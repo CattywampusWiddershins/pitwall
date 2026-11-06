@@ -1143,12 +1143,13 @@ function savePitLoss(L) {
 }
 function onLiveMsg(m) {
   const same = liveErs?.uid === m.uid;
-  if (m.done) { replayRelist(); if (same) { savePitLoss(liveErs); liveErs = { ...liveErs, done: true }; render(); } return; }
+  const follower = !!window.api?.companion; // a phone or tablet following the computer's race: the computer saves what it teaches
+  if (m.done) { replayRelist(); if (same) { if (!follower) savePitLoss(liveErs); liveErs = { ...liveErs, done: true }; render(); } return; }
   const before = same ? liveErs.passTally?.f || 0 : 0;
   liveErs = mergeLive(same ? liveErs : {}, m, Date.now());
   // what the fights say about passing here, kept per race for the overtaking slider
   { const c = career(); const tid = GAME_TRACKS[m.track];
-    if (c && tid && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
+    if (!follower && c && tid && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
   // a race starting: open Live Race, once
   if (!liveOpened.has(m.uid) && m.lap <= 1) { liveOpened.add(m.uid); ui.view = 'now'; ui.nowTab = 'live'; }
   const a = document.activeElement; const onLive = ui.view === 'now' && ui.nowTab === 'live';
