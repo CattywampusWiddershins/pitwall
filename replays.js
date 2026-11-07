@@ -17,20 +17,26 @@ module.exports = function createReplays(dir) {
   const fileOf = (key) => path.join(folder(), key.replace(/[^\w-]/g, '-') + '.json.gz');
   const readIndex = () => { try { return JSON.parse(fs.readFileSync(indexFile(), 'utf8')); } catch { return []; } };
   const writeIndex = (list) => { const f = indexFile(); fs.writeFileSync(f + '.tmp', JSON.stringify(list)); fs.renameSync(f + '.tmp', f); };
-  let rec = null; let writing = Promise.resolve();
+  let rec = null; let writing = Promise.resolve(); let closed = false;
 
+  function store(R, buf, final) {
+    const f = fileOf(R.meta.key); fs.writeFileSync(f + '.tmp', buf); fs.renameSync(f + '.tmp', f);
+    writeIndex([...readIndex().filter(x => x.key !== R.meta.key), { ...R.meta, parts: undefined, bytes: buf.length, samples: R.samples.length, laps: Math.max(0, ...R.samples[R.samples.length - 1].f.map(x => x[2])), done: !!final }]);
+  }
   function write(final) {
     const R = rec; if (!R) return;
     R.lastWrite = Date.now();
     if (final && R.samples.length < MIN_SAMPLES) return;
     const body = { meta: R.meta, samples: R.samples, laps: R.laps, fuel: R.fuel };
     writing = writing.then(() => new Promise((res) => zlib.gzip(JSON.stringify(body), (err, buf) => {
-      if (!err) try {
-        const f = fileOf(R.meta.key); fs.writeFileSync(f + '.tmp', buf); fs.renameSync(f + '.tmp', f);
-        writeIndex([...readIndex().filter(x => x.key !== R.meta.key), { ...R.meta, parts: undefined, bytes: buf.length, samples: R.samples.length, laps: Math.max(0, ...R.samples[R.samples.length - 1].f.map(x => x[2])), done: !!final }]);
-      } catch { /* the next write tries again */ }
+      if (!err && !closed) try { store(R, buf, final); } catch { /* the next write tries again */ }
       res();
     })));
+  }
+  /** As Pitwall closes: the race being recorded is written now, all at once, so a race saved and quit keeps its last minute. */
+  function flush() {
+    const R = rec; closed = true; if (!R?.samples.length) return;
+    try { store(R, zlib.gzipSync(JSON.stringify({ meta: R.meta, samples: R.samples, laps: R.laps, fuel: R.fuel })), false); } catch { /* kept as last written */ }
   }
 
   /** A live message from the telemetry. */
@@ -84,6 +90,7 @@ module.exports = function createReplays(dir) {
 
   return {
     onLive,
+    flush,
     list: () => readIndex().filter(x => fs.existsSync(fileOf(x.key))),
     load: (key) => new Promise((res) => fs.readFile(fileOf(key), (err, buf) => { if (err) return res(null); zlib.gunzip(buf, (e2, out) => res(e2 ? null : JSON.parse(out.toString('utf8')))); })),
     remove: (key) => { try { fs.unlinkSync(fileOf(key)); } catch { /* already gone */ } writeIndex(readIndex().filter(x => x.key !== key)); return true; },

@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.37.2
+
+- A race saved and quit in F1 25 is now kept exactly as it stands when Pitwall closes, along with its recording for Race Replay. Before, the last 30 to 60 seconds before you quit could be lost (an overtake, a penalty, a gap in the replay) if Pitwall was closed before the race was resumed.
+
 ## 3.37.1
 
 - Stories: a battle between two cars that both retired no longer gives a made-up finishing place ("Piastri ended up 99th"). A fight for the lead that neither car finished is told as one with no winner.

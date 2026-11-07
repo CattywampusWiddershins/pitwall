@@ -307,9 +307,9 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     s.resumedFrom = p.uid; if (p.uid !== s.uid) sessions.delete(p.uid);
   }
   // what a running session has gathered, kept on disk now and then, so a save resumed after Pitwall was closed carries on
-  function stashNow(s) {
+  function stashNow(s, force) {
     if (!stash || !s.info || s.sent || !(raceType(s.info.sessionType) || (s.info.sessionType >= 5 && s.info.sessionType <= 14))) return;
-    if (Date.now() - (s.stashedAt || 0) < 30e3) return; s.stashedAt = Date.now();
+    if (!force && Date.now() - (s.stashedAt || 0) < 30e3) return; s.stashedAt = Date.now();
     const keep = { uid: s.uid, seen: Date.now(), info: s.info };
     for (const k of CARRY) if (s[k] != null) keep[k] = k === 'traces' ? Object.fromEntries(Object.entries(s.traces).map(([i, R]) => [i, { best: R.best && { lap: R.best.lap, ms: R.best.ms, bins: R.best.bins } }])) : s[k];
     try { stash.save(keep); } catch { /* the next try will do */ }
@@ -465,6 +465,9 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     configure(next = {}) { cfg = { enabled: !!next.enabled, port: Math.max(1024, Math.min(65535, +next.port || 20778)) }; return start(); },
     status,
     stop,
+    // as Pitwall closes: the session driven last is kept on disk as it stands, so a race saved and quit just before
+    // carries on with everything up to the moment it was left
+    flush() { const s = [...sessions.values()].filter(x => x.info && !x.sent).sort((a, b) => b.seen - a.seen)[0]; if (s) stashNow(s, true); },
     // test hook: feed a raw packet as if it arrived over the network
     _feed: onPacket,
   };

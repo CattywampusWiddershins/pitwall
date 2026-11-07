@@ -345,5 +345,9 @@ app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => { companion && companion.stop(); telemetry && telemetry.stop(); });
+app.on('before-quit', () => {
+  // a race saved and quit just before is kept as it stands, so it carries on from that moment when it's resumed
+  try { telemetry?.flush(); } catch { /* kept as last saved */ } try { replays.flush(); } catch { /* kept as last written */ }
+  companion && companion.stop(); telemetry && telemetry.stop();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
