@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.37.1
+
+- Stories: a battle between two cars that both retired no longer gives a made-up finishing place ("Piastri ended up 99th"). A fight for the lead that neither car finished is told as one with no winner.
+- Race reports: "lights to flag" is kept for a win led from pole on every lap. A pole-sitter who won after losing the lead now gets "turns pole into a win".
+
 ## 3.37.0
 
 - **Races the game never sent can be logged from the recording.** After a retirement, F1 25 can simulate the rest of the race and show its results without sending them. The race is still recorded, so Current Weekend and Race Replay now offer to log it from the recording: every lap time, stint, tyre wear and fuel up to where the data stopped, in the order at that point. You then put the final order right from the game's results screen by dragging the race's results.

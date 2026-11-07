@@ -92,7 +92,7 @@ function buildSeasonReview(c, s, rounds) {
     if (gap != null && gap < 1) return w('w-close', [`${W} held off ${P2} by just ${gap.toFixed(3)}s in ${gp}.`, `${GP} went to the wire, ${W} beating ${P2} by ${gap.toFixed(3)} seconds.`, `${W} survived a late charge from ${P2} to win ${gp} by ${gap.toFixed(3)}s.`, `Only ${gap.toFixed(3)} seconds covered ${W} and ${P2} at the flag in ${gp}.`]);
     if (gap != null && gap >= 10) return w('w-dom', [`${W} was in a race of one in ${gp}, winning by ${gap.toFixed(1)}s.`, `${GP} was a demolition job: ${W} won by ${gap.toFixed(1)} seconds.`, `Nobody could live with ${W} in ${gp}; the margin at the flag was ${gap.toFixed(1)}s.`, `${W} cruised to victory in ${gp}, ${gap.toFixed(1)} seconds clear of ${P2}.`]);
     if (F.i === N - 1) return w('w-fin', [`The finale in ${gp} went to ${W}${pod}.`, `${W} signed off the year with victory in ${gp}${pod}.`, `${W} won the last race of the year, in ${gp}${pod}.`]);
-    if (F.pole === F.W) return w('w-pole', [`${W} converted pole into victory in ${gp}${pod}.`, `Lights to flag in ${gp}: ${W} led from pole.`, `From pole, ${W} controlled ${gp}${pod}.`]);
+    if (F.pole === F.W) return w('w-pole', ledEveryLap(F.ses?.R, F.W) ? [`${W} converted pole into victory in ${gp}${pod}.`, `Lights to flag in ${gp}: ${W} led from pole.`, `From pole, ${W} controlled ${gp}${pod}.`] : [`${W} converted pole into victory in ${gp}${pod}.`, `${W} started from pole and came out on top in ${gp}${pod}.`]);
     return w('w', [`${W} won ${gp}${pod}.`, `Victory in ${gp} went to ${W}${pod}.`, `${GP} fell to ${W}${pod}.`, `${W} took the honours in ${gp}${pod}.`, `${W} was the class of the field in ${gp}${pod}.`, `${GP} was ${W}’s day${pod}.`, `${W} got the job done in ${gp}${pod}.`, `It was ${W} who stood on the top step in ${gp}${pod}.`, `${W} had the measure of everyone in ${gp}${pod}.`, `${W} timed it right in ${gp} and won${pod}.`]);
   };
   const titleBeats = (F) => {
@@ -233,6 +233,13 @@ const BATTLE_QUOTES = {
   wonNeedle: ['It got a bit physical at times. I’m glad it’s over.', 'Some of those moves were on the limit. But I came out ahead.'],
   lostNeedle: ['There was contact, and I don’t think it was all on me.', 'They made it very hard. Maybe too hard.'],
 };
+/** Whether a driver led every lap of a race, from its lap times (unknown without them: taken as yes, so pole-to-win reads as before). */
+function ledEveryLap(sd, d) {
+  const L = sd?.game?.laps; if (!L?.[d]) return true;
+  const n = L[d].length; const cum = {}; for (const [id, v] of Object.entries(L)) { let t = 0; cum[id] = v.map(l => (t += l?.[0] || 0)); }
+  for (let k = 0; k < n; k++) { const t = cum[d][k]; if (Object.entries(cum).some(([id, v]) => id !== d && v.length > k && v[k] < t)) return false; }
+  return true;
+}
 function battleStory(c, s, i, r, key, sd, h) {
   const B = raceBattles(sd); const b = B?.[0]; if (!b) return null;
   const mine = [b.a, b.b].some(d => d === PLAYER || teamOf(s, d)?.id === s.playerTeamId);
@@ -246,8 +253,8 @@ function battleStory(c, s, i, r, key, sd, h) {
   const at = b.forLead ? 'for the lead' : b.posW <= 3 ? 'for a podium place' : b.posW <= 10 ? 'for points' : 'deep in the pack';
   const LP = key === 'R' && b.forLead ? lateWinPass(sd, sd.results.find(x => !OUT.includes(x.st))?.d) : null; const late = LP && pairKey(LP.prev, b.ahead) === pairKey(b.a, b.b);
   return { id: `${s.index}-${r.id}${key}battle`, seq: i * 10 + (sprint ? 2 : 4) + 0.4, kind: 'battle', i, r, replay: { k: key, lap: b.from, ds: [b.ahead, b.behind] }, subject: b.ahead === PLAYER ? b.behind : b.ahead, outlet: choose(rnd, D.OUTLETS), kicker: b.forLead && !lost ? (sprint ? 'Battle for the sprint win' : 'Battle for the win') : lost ? (sprint ? 'Battle of the sprint' : 'Battle of the race') : sprint ? 'Battle of the sprint' : 'Battle of the race', massive: !!late,
-    headline: lost ? choose(rnd, [`${A} and ${Bn} fight for the lead, and both lose out`, `Did ${A} and ${Bn} fight each other out of the win?`]) : choose(rnd, [`${A} v ${Bn}: a fight ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn}`, `${A} edges ${Bn} in a great battle ${at}`]),
-    standfirst: `${b.forLead ? `${A} and ${Bn} fought ${at}${b.to > b.from ? ` between laps ${b.from} and ${b.to}` : ` on lap ${b.from}`}, the lead changing hands ${times(b.leadN || 1)}${lost ? ', but the fight may have cost them both the win' : ''}.` : `${A} and ${Bn} had a great battle ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}.`} ${A} finished ${OUT.includes(sd.results.find(x => x.d === b.ahead)?.st) ? 'ahead' : ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`,
+    headline: b.posW >= 99 ? choose(rnd, [`${A} and ${Bn} fight for the lead, and neither finishes`, `${A} v ${Bn}: a fight for the lead with no winner`]) : lost ? choose(rnd, [`${A} and ${Bn} fight for the lead, and both lose out`, `Did ${A} and ${Bn} fight each other out of the win?`]) : choose(rnd, [`${A} v ${Bn}: a fight ${at}`, `${A} and ${Bn} light up ${r.name}${sprint ? ' sprint' : ''}`, `Wheel to wheel: ${A} beats ${Bn}`, `${A} edges ${Bn} in a great battle ${at}`]),
+    standfirst: `${b.forLead ? `${A} and ${Bn} fought ${at}${b.to > b.from ? ` between laps ${b.from} and ${b.to}` : ` on lap ${b.from}`}, the lead changing hands ${times(b.leadN || 1)}${b.posW >= 99 ? ', and neither of them made it to the flag' : lost ? ', but the fight may have cost them both the win' : ''}.` : `${A} and ${Bn} had a great battle ${b.to > b.from ? `between laps ${b.from} and ${b.to}` : `on lap ${b.from}`} ${at}.`} ${b.posW >= 99 ? '' : `${A} finished ${ordWord(b.posW)}, ${Bn} ${b.posL < 99 ? ordWord(b.posL) : 'did not finish'}.`}`,
     body: touched ? ['It wasn’t all clean: the two made contact along the way.'] : [],
     quotes: [[b.ahead, touched ? 'wonNeedle' : 'won'], [b.behind, touched ? 'lostNeedle' : 'lost']].map(([d, k]) => ({ id: d, text: choose(rnd, BATTLE_QUOTES[k]) })) };
 }
@@ -395,7 +402,7 @@ function buildStories(c, s) {
     else if (gpos(W) >= 6) headline = `${last(W)} charges from ${ordWord(gpos(W))} on the grid to win in ${gp}`;
     else if (gap2 != null && gap2 < 1) headline = `${last(W)} holds off ${last(fin[1].d)} in a ${gp} thriller`;
     else if (gap2 != null && gap2 > 10) headline = `${last(W)} dominates in ${gp}`;
-    else if (pole === W) headline = choose(rnd, [`${last(W)} converts pole into ${gp} victory`, `Lights to flag for ${last(W)} in ${gp}`]);
+    else if (pole === W) headline = choose(rnd, ledEveryLap(ses.R, W) ? [`${last(W)} converts pole into ${gp} victory`, `Lights to flag for ${last(W)} in ${gp}`] : [`${last(W)} converts pole into ${gp} victory`, `${last(W)} turns pole into a win in ${gp}`]);
     else headline = choose(rnd, [`${last(W)} wins in ${gp}`, `${last(W)} takes the ${gp} Grand Prix`, `${gp} glory for ${last(W)}`]);
     const body = [];
     body.push(`${name(W)} (${tName(W)}) finished top in ${gp}${fin[1] ? ` from ${name(fin[1].d)}${gap2 != null ? `, ${gap2.toFixed(3)} seconds behind` : ''}` : ''}${fin[2] ? `, with ${name(fin[2].d)} (${tName(fin[2].d)}) completing the podium` : ''}.`

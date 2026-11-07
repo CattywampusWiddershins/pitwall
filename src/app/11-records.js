@@ -600,7 +600,8 @@ function raceBattles(sd) {
     const o = P[pairKey(a, b)] ||= { a: a < b ? a : b, b: a < b ? b : a, n: 0, by: {}, laps: [] };
     o.n++; o.by[a] = (o.by[a] || 0) + 1; o.laps.push(lap || 0);
   }
-  const fin = (d) => { const k = sd.results.findIndex(x => x.d === d); return k < 0 || OUT.includes(sd.results[k].st) ? 99 : k + 1; };
+  // a car that didn't finish counts from 100 up (in the classification's order), never as a place
+  const fin = (d) => { const k = sd.results.findIndex(x => x.d === d); return k < 0 ? 199 : OUT.includes(sd.results[k].st) ? 100 + k : k + 1; };
   return Object.values(P).filter(o => o.n >= BATTLE_SWAPS && (o.by[o.a] || 0) >= BATTLE_EACH && (o.by[o.b] || 0) >= BATTLE_EACH)
     .map(o => { const [w, l] = fin(o.a) <= fin(o.b) ? [o.a, o.b] : [o.b, o.a]; return { ...o, from: Math.min(...o.laps), to: Math.max(...o.laps), ahead: w, behind: l, posW: fin(w), posL: fin(l) }; })
     .map(o => ({ ...o, forLead: forTheLead(sd, o), leadN: leadChanges(sd, o) }))
