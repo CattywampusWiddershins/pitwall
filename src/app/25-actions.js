@@ -614,6 +614,7 @@ Object.assign(actions, {
   'tyre-add'(el) { const c = career(); const { fmt, p, k } = el.dataset; const plan = planOf(c, fmt, p); plan[k].push(S_); ((c.tyrePlans ||= {})[fmt] ||= {})[p] = plan; store.save(); tyrePresetsModal(); render(); },
   'tyre-presets-reset'(el) { const c = career(); const { fmt, p } = el.dataset; if (c.tyrePlans?.[fmt]) delete c.tyrePlans[fmt][p]; if (c.tyreCounts) delete c.tyreCounts[fmt]; store.save(); tyrePresetsModal(); render(); },
   'tyre-hand'(el) { const s = latestSeason(); const w = weekend(s, el.dataset.round, true); (w.tyreHand ||= {})[el.dataset.id] = el.dataset.v === '1'; store.save(); render(); },
+  async 'rp-log'(el) { el.disabled = true; await logFromRecording(el.dataset.k); replayList = null; render(); },
   async 'rp-open'(el) { const item = replaysHere(career()).find(x => x.x.key === el.dataset.k); if (item) await openReplay(item); },
   'rp-flt'(el) { if (RP) replayToggle(+el.dataset.i); },
   'rp-flt-mode'(el) { if (!RP) return; RP.flt = { mode: el.dataset.v, hide: new Set() }; replayTrack(); },

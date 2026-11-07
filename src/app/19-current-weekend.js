@@ -141,6 +141,7 @@ function renderCurrentWeekend() {
   return `<div class="page">
     ${head(`Round ${rounds.indexOf(r) + 1} · ${esc(r.name)} · ${fmtDay(roundDate(s, r))}${r.sprint ? ' · sprint weekend' : ''}. Forecasts from this weekend's practice in F1 25${done.length ? `; logged so far: ${done.map(k => SESSION_SHORT[k]).join(', ')}` : ''}.`)}
     <div class="row" style="gap:8px"><button class="btn sm" data-act="open-round" data-round="${r.id}">Open the weekend</button></div>
+    ${unloggedHtml(c)}
     <div class="grid-2">
       <div class="panel"><div class="panel-h"><h2>Qualifying forecast</h2><span class="muted" style="font-size:12px">Practice ideal laps at half weight, with the last 10 weekends’ qualifying</span></div><div class="panel-b tight table-wrap">${quali}</div></div>
       <div class="panel"><div class="panel-h"><h2>Race forecast</h2><span class="muted" style="font-size:12px">${F ? `${plural(F.n, 'lap')}${F.plan ? ` · ${plural(F.plan.stops, 'stop')} race` : ''}` : ''}</span></div><div class="panel-b tight table-wrap">${race}</div></div>
@@ -312,7 +313,9 @@ function flLapPanel(c, s, r) {
   const zones = turns.length ? flBands(turns, sA, P.bin || 50) : flCorners(sA).map((z, k) => ({ ...z, grp: k }));
   const vmax = Math.max(...sA, ...sB), vmin = Math.min(...sA, ...sB);
   const CW = 1000, CH = 256, top = 40; const cx = (i) => 40 + i * (CW - 60) / (n - 1); const cy = (v) => top + (1 - (v - vmin) / ((vmax - vmin) || 1)) * (CH - top - 14);
-  const band = (h, labels) => zones.map((z, k) => `<rect x="${cx(z.from).toFixed(1)}" y="${labels ? top - 16 : 0}" width="${(cx(z.to) - cx(z.from)).toFixed(1)}" height="${labels ? h - top + 16 : h}" fill="#fff" opacity="${k % 2 ? 0.045 : 0.1}"/>${labels ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="${top - 4}" fill="#fff" font-size="${Math.max(7, Math.min(12, (cx(z.to) - cx(z.from)) / (z.turns.join(' ').length * 0.62)))}" font-weight="800" text-anchor="middle">${z.turns.join(' ')}</text>` : ''}`).join('')
+  // a zone running across the line (its end before its start) is drawn in two pieces, one each side of it
+  const zrect = (a, b, y, hh, op) => `<rect x="${cx(a).toFixed(1)}" y="${y}" width="${Math.max(0, cx(b) - cx(a)).toFixed(1)}" height="${hh}" fill="#fff" opacity="${op}"/>`;
+  const band = (h, labels) => zones.map((z, k) => `${(() => { const y = labels ? top - 16 : 0, hh = labels ? h - top + 16 : h, op = k % 2 ? 0.045 : 0.1; return z.to >= z.from ? zrect(z.from, z.to, y, hh, op) : zrect(z.from, n - 1, y, hh, op) + zrect(0, z.to, y, hh, op); })()}${labels ? `<text x="${((cx(z.from) + cx(z.to)) / 2).toFixed(1)}" y="${top - 4}" fill="#fff" font-size="${Math.max(7, Math.min(12, (cx(z.to) - cx(z.from)) / (z.turns.join(' ').length * 0.62)))}" font-weight="800" text-anchor="middle">${z.turns.join(' ')}</text>` : ''}`).join('')
     + (labels ? [...new Set(zones.map(z => z.grp))].map(g => { const run = zones.filter(z => z.grp === g); const x0 = cx(run[0].from), x1 = cx(run[run.length - 1].to); return x1 - x0 >= 56 ? `<text x="${((x0 + x1) / 2).toFixed(1)}" y="11" fill="#9AA" font-size="8.5" text-anchor="middle">${run[0].kind}</text>` : ''; }).join('') : '');
   const curve = (arr, col) => `<path d="${flPath(arr.map((v, i) => [cx(i), cy(v)]))}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
   const dlt = flSmooth(tA.map((v, i) => v - tB[i])); const dm = Math.max(0.05, ...dlt.map(Math.abs));

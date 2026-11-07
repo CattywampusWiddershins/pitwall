@@ -390,7 +390,7 @@ function showdownPreviewLines(c, s, i, L) {
   const prev = c.seasons[s.index - 1]; const pr = prev && activeRounds(prev).find(x => trackOf(x) === trackOf(r));
   const pres = pr && prev.weekends[pr.id]?.sessions?.R;
   if (pres?.done) {
-    const W = pres.results.find(x => !OUT.includes(x.st))?.d; const at = (id) => { const k = pres.results.findIndex(x => x.d === id); return k < 0 ? null : OUT.includes(pres.results[k].st) ? 'retired' : `finished ${ordWord(k + 1)}`; };
+    const W = pres.results.find(x => !OUT.includes(x.st))?.d; const at = (id) => { const k = pres.results.findIndex(x => x.d === id); return k < 0 ? null : OUT.includes(pres.results[k].st) ? outPast(pres.results[k].st) : `finished ${ordWord(k + 1)}`; };
     const bits = N.rows.filter(o => o.id !== W && at(o.id)).map(o => `${L(o.id)} ${at(o.id)}`);
     if (W) lines.push(`A year ago here, ${N.rows.some(o => o.id === W) ? `${L(W)} won` : `the win went to ${lastName(dName(prev, W))}`}${bits.length ? `; ${listJoin(bits)}` : ''}.`);
   }
@@ -463,12 +463,12 @@ function raceMemoryLine(mem, res, W, last, name, rnd, status = null) {
   for (const x of res) {
     if (x.d === W) continue;
     const run = mem.run(x.d); const k = res.indexOf(x);
-    if (run.wins >= 2) { bits.push(`${last(x.d)}’s run of ${streakWord(run.wins)} straight wins ends with ${OUT.includes(x.st) ? 'a retirement' : ordWord(k + 1)}.`); break; }
+    if (run.wins >= 2) { bits.push(`${last(x.d)}’s run of ${streakWord(run.wins)} straight wins ends with ${OUT.includes(x.st) ? outNoun(x.st) : ordWord(k + 1)}.`); break; }
   }
   const pod = res.slice(1, 3).find(x => !OUT.includes(x.st) && mem.run(x.d).podiums >= 2);
   if (pod) bits.push(`${last(pod.d)} is on the podium for a ${ordWord(mem.run(pod.d).podiums + 1)} race running.`);
-  if (mem.lastWinner && mem.lastWinner !== W) { const x = res.find(y => y.d === mem.lastWinner); if (x) bits.push(`${mem.lastRound ? `${mem.lastRound.name} winner` : 'Last time out’s winner'} ${last(x.d)} ${OUT.includes(x.st) ? 'did not finish' : `finished ${ordWord(res.indexOf(x) + 1)}`} this time.`); }
-  if (mem.defending && mem.defending !== W && mem.defending !== mem.lastWinner) { const x = res.find(y => y.d === mem.defending); if (x && rnd() < 0.7) bits.push(`Defending champion ${name(x.d)} ${OUT.includes(x.st) ? 'retired' : `came home ${ordWord(res.indexOf(x) + 1)}`}.`); }
+  if (mem.lastWinner && mem.lastWinner !== W) { const x = res.find(y => y.d === mem.lastWinner); if (x) bits.push(`${mem.lastRound ? `${mem.lastRound.name} winner` : 'Last time out’s winner'} ${last(x.d)} ${OUT.includes(x.st) ? outVerb(x.st) : `finished ${ordWord(res.indexOf(x) + 1)}`} this time.`); }
+  if (mem.defending && mem.defending !== W && mem.defending !== mem.lastWinner) { const x = res.find(y => y.d === mem.defending); if (x && rnd() < 0.7) bits.push(`Defending champion ${name(x.d)} ${OUT.includes(x.st) ? outPast(x.st) : `came home ${ordWord(res.indexOf(x) + 1)}`}.`); }
   const why = status && rnd() < 0.55 && winnerStatusLine(W, last, rnd, status); if (why) bits.unshift(why);
   return bits.slice(0, 3).join(' ') || null;
 }
@@ -795,6 +795,10 @@ function raceFacts(c, s, i) {
 const GP_THE = ['Netherlands', 'United States', 'United Kingdom', 'Americas'];
 const gpThe = (n) => GP_THE.includes(n) ? 'the ' + n : n;
 const cap = (x) => x ? x[0].toUpperCase() + x.slice(1) : x;
+/** A race not finished, told for what it was: a retirement, a non-start or a disqualification. */
+const outVerb = (st) => st === 'DNS' ? 'did not start' : st === 'DSQ' ? 'was disqualified' : 'did not finish';
+const outPast = (st) => st === 'DNS' ? 'did not start' : st === 'DSQ' ? 'was disqualified' : 'retired';
+const outNoun = (st) => st === 'DNS' ? 'a non-start' : st === 'DSQ' ? 'a disqualification' : 'a retirement';
 /** A count in words up to ten: "three places", "one round". */
 const pw = (n, w) => `${nw(n)} ${w}${n === 1 ? '' : 's'}`;
 const nw = (n) => n <= 10 ? numWord(n) : String(n);

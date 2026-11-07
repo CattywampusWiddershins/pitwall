@@ -313,14 +313,18 @@ ipcMain.handle('companion:new-pin', () => companion.newPin());
 ipcMain.handle('companion:forget', (_e, id) => companion.forget(id));
 
 // F1 25 telemetry: finished sessions wait here until the window has logged them (so none is lost while it loads)
+// (kept on disk too, so a result that came in just before Pitwall was closed is logged when it opens again)
+const pendingFile = () => path.join(dataDir(), 'pending-results.json');
 let telemetry = null; let pendingResults = [];
+const savePending = () => { try { if (pendingResults.length) writeJsonAtomic(pendingFile(), pendingResults); else fs.unlinkSync(pendingFile()); } catch { /* nothing to remove */ } };
 const replays = createReplays(dataDir); // every race driven with telemetry on, recorded for Race Replay
 let liveRace = null; // the race being driven: its last full ERS profile and your battery now, for a window that (re)loads mid-race
 function setupTelemetry() {
+  pendingResults = readJson(pendingFile(), []) || [];
   const stashFile = () => path.join(dataDir(), 'telemetry-session.json');
   telemetry = createTelemetry({
     stash: { save: (o) => writeJsonAtomic(stashFile(), o), load: () => readJson(stashFile(), null), clear: () => { try { fs.unlinkSync(stashFile()); } catch { /* none */ } } },
-    onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); toWindow('telemetry:result', r); },
+    onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); savePending(); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
     onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); try { companion?.live(m); } catch { /* a phone that's gone never stops the window's feed */ } },
   });
@@ -333,7 +337,7 @@ ipcMain.handle('replay:remove', (_e, key) => replays.remove(key));
 ipcMain.handle('telemetry:configure', (_e, cfg) => { writeJsonAtomic(telemetryFile(), { enabled: !!cfg.enabled, port: +cfg.port || 20778 }); return telemetry.configure(cfg); });
 ipcMain.handle('telemetry:pending', () => pendingResults);
 ipcMain.handle('telemetry:live', () => liveRace);
-ipcMain.handle('telemetry:ack', (_e, key) => { pendingResults = pendingResults.filter(x => x.key !== key); return true; });
+ipcMain.handle('telemetry:ack', (_e, key) => { pendingResults = pendingResults.filter(x => x.key !== key); savePending(); return true; });
 
 app.whenReady().then(() => {
   setupCompanion();

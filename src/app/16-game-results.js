@@ -222,3 +222,53 @@ function gameDriverModal(roundId, key, d) {
       </tbody></table></div>
     </div>`, 'wide');
 }
+
+/* ------------------------------------------------------------- a race logged from its recording */
+/*
+  F1 25 doesn't always send its result: after a retirement it can simulate the rest of the race and go straight to the
+  results screen without a final classification (Australia 2027, Pitwall 3.37). The race was still recorded, a sample a
+  second with every lap time, so it can be logged from the recording: the order when the data stopped, each car's laps,
+  stints, tyre wear and fuel. If the game simulated the rest, the order is put right in the race's results (drag the
+  rows) and retirements set there.
+*/
+/** A recording as a game result, in the shape the telemetry sends one. */
+function recordingResult(D) {
+  const S = D.samples || []; const last = S[S.length - 1]; if (!last?.f?.length) return null;
+  const first = S.find(x => x.f?.some(r => r[1] > 0)) || S[0];
+  const grid = Object.fromEntries(first.f.map(r => [r[0], r[1]]));
+  // stints and tyre wear from the samples: a stint ends when the stop count goes up
+  const stint = {}, wear = {};
+  for (const X of S) for (const [i, , lap, , , , , , stops, c, , w] of X.f) {
+    const L = (stint[i] ||= []); if (c >= 0 && (!L.length || stops > L[L.length - 1].stops)) { if (L.length) L[L.length - 1].end = Math.max(1, lap - 1); L.push({ actual: c, visual: c, end: 255, stops }); }
+    if (w >= 0 && lap > 0) (wear[i] ||= [])[lap - 1] = w / 10;
+  }
+  const cars = last.f.map(([i, pos, lap, , , , , st, stops]) => {
+    const p = (D.meta.parts || []).find(q => q.idx === i) || {}; const laps = D.laps?.[i] || [];
+    const valid = laps.filter(l => l?.[0] && l[1]).map(l => l[0]);
+    return { idx: i, position: pos, laps: laps.length || Math.max(0, lap - 1), grid: grid[i] || 0, points: 0, pits: stops || 0, status: st || 2, reason: 0,
+      best: valid.length ? Math.min(...valid) : 0, total: laps.reduce((a, l) => a + (l?.[0] || 0), 0) / 1000, penalty: 0, penalties: 0,
+      stints: (stint[i] || []).map(({ stops: _, ...t }) => t), name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
+      lapTimes: laps, trace: null, wear: (wear[i] || []).map(v => v ?? null), fuel: D.fuel?.[i] || [], ersDep: [], leadGap: null };
+  }).filter(x => x.position > 0);
+  const M = D.meta;
+  return { key: M.key, uid: M.uid, format: 2025, at: M.at, player: M.player, sessionType: M.sessionType, track: M.track, weekend: M.weekend || [], totalLaps: M.totalLaps, sessionLink: M.link,
+    cars, resumed: false, gridKnown: true, penaltyEvents: [], retirements: [], collisions: [], tyreSets: last.ts || null, safetyCars: 0, virtualSafetyCars: 0, scPeriods: [], overtakes: [], passSource: null, ers: null,
+    fromRecording: { lap: Math.max(...last.f.map(r => r[2])) } };
+}
+/** Recordings of races this season that were never logged (the game sent no result). */
+function unloggedRecordings(c) {
+  const s = latestSeason(); if (!s || isHist(s)) return [];
+  if (replayList == null) { if (!unloggedRecordings.asked) { unloggedRecordings.asked = true; replayApi().list().then(l => { replayList = l || []; render(); }).catch(() => { replayList = []; }); } return []; }
+  const keys = new Set(c.gameKeys || []);
+  return (replayList || []).filter(x => !keys.has(x.key) && [15, 16, 17].includes(x.sessionType) && !x.rebuilt && (x.laps ?? 2) >= 2
+    && activeRounds(s).some(r => trackOf(r) === GAME_TRACKS[x.track] && !s.weekends[r.id]?.sessions?.R?.done));
+}
+async function logFromRecording(key) {
+  const D = await replayApi().load(key); const r = D && recordingResult(D); if (!r) { toast('That recording couldn’t be read'); return; }
+  handleGameResult(r);
+  toast(`Logged from the recording: the order on lap ${r.fromRecording.lap}. If the game simulated the rest, drag the results into its order in the race.`);
+}
+function unloggedHtml(c) {
+  const L = unloggedRecordings(c); if (!L.length) return '';
+  return `<div class="callout" style="border-left-color:var(--yellow)">${L.map(x => `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>${esc(D.TRACKS[GAME_TRACKS[x.track]]?.circuit || 'A race')}</b> was recorded${x.laps ? ` (${plural(x.laps, 'lap')})` : ''} but F1 25 never sent its result, which can happen after a retirement. Log it from the recording, then put the order right from the game’s results screen.</span><button class="btn sm primary" data-act="rp-log" data-k="${esc(x.key)}">Log from the recording</button></div>`).join('')}</div>`;
+}

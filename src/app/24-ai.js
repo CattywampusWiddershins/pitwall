@@ -87,7 +87,9 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
   if (kind === 'race' && ses.R?.done) {
     for (const d of ours) {
       const x = at(ses.R, d); if (!x) continue; const g = grid(d); const nm = you(d);
-      if (x.out) add('dnf-' + d, 9, `${dName(s, d)} did not finish (${x.st}).`, [tp ? `${L(d)} retired today. What happened, and how much does it hurt the team?` : `A ${x.st} today. Talk us through what happened.`, tp ? `Another car out of the race. Is reliability a worry for you?` : `How much does today's ${x.st} cost you?`]);
+      if (x.out) add('dnf-' + d, 9, `${dName(s, d)} ${outVerb(x.st)} (${x.st}).`, x.st === 'DNS' ? [tp ? `${L(d)} didn't even make the start. What went wrong?` : `You didn't make the start today. What happened?`, `How frustrating is it to watch a race you should have been in?`]
+        : x.st === 'DSQ' ? [tp ? `${L(d)} was disqualified. Do you accept the stewards' decision?` : `You've been disqualified. Do you accept the decision?`, `How much does losing that result hurt?`]
+        : [tp ? `${L(d)} retired today. What happened, and how much does it hurt the team?` : `A ${x.st} today. Talk us through what happened.`, tp ? `Another car out of the race. Is reliability a worry for you?` : `How much does today's ${x.st} cost you?`]);
       else {
         add('result-' + d, 5 + (x.pos <= 3 ? 3 : 0), `${dName(s, d)} finished P${x.pos}${g ? ` from P${g} on the grid` : ''}.`, [tp ? `P${x.pos} for ${L(d)}. How do you rate the drive?` : `P${x.pos} at the flag. How do you sum up your afternoon?`]);
         if (g && g - x.pos >= 4) add('climb-' + d, 6 + Math.min(4, (g - x.pos) / 2), `${dName(s, d)} gained ${g - x.pos} places, P${g} to P${x.pos}.`, [`From P${g} to P${x.pos}: where did ${nm === 'you' ? 'you' : nm} find all those places?`, `${g - x.pos} places made up today. Was that the plan, or did the race come to ${nm === 'you' ? 'you' : nm}?`]);

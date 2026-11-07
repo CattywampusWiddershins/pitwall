@@ -401,11 +401,12 @@ function buildStories(c, s) {
     body.push(`${name(W)} (${tName(W)}) finished top in ${gp}${fin[1] ? ` from ${name(fin[1].d)}${gap2 != null ? `, ${gap2.toFixed(3)} seconds behind` : ''}` : ''}${fin[2] ? `, with ${name(fin[2].d)} (${tName(fin[2].d)}) completing the podium` : ''}.`
       + (fin.length > 3 ? ` Behind them, ${last(fin[3].d)} took fourth${fin.length > 4 ? ` ahead of ${listJoin(fin.slice(4, fin.length >= 10 ? 9 : 10).map(x => last(x.d)))}` : ''}${fin.length >= 10 ? `, with ${last(fin[9].d)} taking the final point` : ''}.` : ''));
     const notes = [];
-    if (pole && pole !== W) { const pp = res.findIndex(x => x.d === pole); notes.push(OUT.includes(res[pp]?.st) ? `Pole-sitter ${name(pole)} did not finish.` : `Pole-sitter ${name(pole)} had to settle for ${ordWord(pp + 1)}.`); }
+    if (pole && pole !== W) { const pp = res.findIndex(x => x.d === pole); notes.push(OUT.includes(res[pp]?.st) ? `Pole-sitter ${name(pole)} ${outVerb(res[pp].st)}.` : `Pole-sitter ${name(pole)} had to settle for ${ordWord(pp + 1)}.`); }
     if (pole === W) notes.push(`${last(W)} started from pole.`);
     else if (gpos(W)) notes.push(`${last(W)} started ${ordWord(gpos(W))}.`);
     const dnfs = res.filter(x => x.st === 'DNF'); const dsq = res.filter(x => x.st === 'DSQ');
     if (dnfs.length) notes.push(`${listJoin(dnfs.map(x => name(x.d)))} failed to finish.`);
+    const dns = res.filter(x => x.st === 'DNS' && gpos(x.d)); if (dns.length) notes.push(`${listJoin(dns.map(x => name(x.d)))} did not start.`);
     if (dsq.length) notes.push(`${listJoin(dsq.map(x => name(x.d)))} ${dsq.length > 1 ? 'were' : 'was'} disqualified.`);
     // penalties, when the race came from the game
     const pens = (ses.R.game?.penalties || []).filter(p => (p.type === 4 || p.type <= 1) && !COLLISION_INFR.includes(p.infr)); // collisions get their own line

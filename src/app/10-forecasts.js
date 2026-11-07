@@ -766,12 +766,24 @@ function raceRatings(s, ri) {
     const grid = qi >= 0 ? qi + 1 : null;
     const finish = k + 1;
     const dnf = OUT.includes(x.st);
-    // a retirement in the first race has nothing to rate: there is no separate qualifying rating that day
-    if (dnf && car.first) return;
+    // where a retirement was running, and where it was heading (from the race's lap times, when it came from the game)
+    const run = dnf && x.st === 'DNF' ? dnfRunning(ses.R, x.d) : null;
+    // a retirement in the first race has nothing to rate without that: there is no separate qualifying rating that day
+    if (dnf && car.first && !run) return;
     const gained = grid ? grid - finish : 0;
     let race = null, over = expect - finish, margin = null, rating;
-    // a retirement: halfway between 4 and the qualifying score, so 4 to 7
-    if (dnf) rating = 4 + (quali - 4) / 2;
+    // a retirement: halfway between 4 and the qualifying score, so 4 to 7. With the race's lap times it's rated on the
+    // race it was having too: the place it held a lap before stopping, pulled toward where the car belongs the earlier it
+    // came (a lead on lap 5 says less than one on lap 50), counting for as much of the rating as the share of the race
+    // run. A big lead counts like a dominant win would. Never above 9: it didn't finish
+    let proj = null;
+    if (dnf && run) {
+      proj = run.pos + (expect - run.pos) * (1 - run.frac);
+      let v = raceScore(Math.max(1, proj), expect);
+      if (run.pos === 1 && run.gap != null) v = Math.max(9, v) + Math.min(1.2, run.gap / dominant) * run.frac;
+      const base = car.first ? v : 4 + (quali - 4) / 2;
+      rating = Math.min(9, base * (1 - run.frac) + v * run.frac);
+    } else if (dnf) rating = 4 + (quali - 4) / 2;
     else {
       race = raceScore(finish, expect);
       // the climb counts less when it still ends well below where the car belongs (a top car from the back to P10)
@@ -797,8 +809,9 @@ function raceRatings(s, ri) {
     else if (!car.first && qDelta != null && qDelta <= -400) reasons.push(`qualified ${(-qDelta / 1000).toFixed(2)} s off the car’s pace`);
     else if (!car.first && qDelta == null && grid && expect - grid >= 4) reasons.push(`qualified ${ordWord(grid)}, well above the car`);
     if (!dnf && !win && finish <= 3) pub.push(`finished ${ordWord(finish)}`);
-    if (dnf) reasons.push(`retired, rated on qualifying`);
-    out[x.d] = { id: x.d, rating, quali: car.first ? null : Math.round(quali * 10) / 10, race, finish, grid, expect, rank, carGap, over, gained, margin, dnf, reasons, pub, first: car.first, team: team?.id };
+    if (dnf && run) { const t = `retired from ${run.pos === 1 ? 'the lead' : ordWord(run.pos)} with ${plural(Math.max(1, Math.round((1 - run.frac) * (ses.R.game.totalLaps || 0))), 'lap')} to go${run.pos === 1 && run.gap ? ` (${run.gap.toFixed(1)} s clear)` : ''}`; reasons.push(t); pub.push(t); }
+    else if (dnf) reasons.push(x.st === 'DSQ' ? 'disqualified, rated on qualifying' : 'retired, rated on qualifying');
+    out[x.d] = { id: x.d, rating, quali: car.first ? null : Math.round(quali * 10) / 10, race, finish, grid, expect, rank, carGap, over, gained, margin, dnf, reasons, pub, first: car.first, team: team?.id, ...(run ? { ran: run.pos, proj: Math.round(proj * 10) / 10 } : {}) };
   });
   // beaten by the teammate in the race: no higher rating than theirs, unless they started 5+ places further back
   for (const a of Object.values(out)) {
@@ -810,6 +823,20 @@ function raceRatings(s, ri) {
     }
   }
   return (cache.rounds[ri] = out);
+}
+/**
+ * Where a car that retired was running, from the race's lap times: its place a lap before its last full lap (a car
+ * with a problem slows on the lap it stops, and often the one before is already the last good one), among the cars
+ * that had done as many laps, and the gap to the car behind (to P2 when leading). { pos, lap, gap, frac } or null.
+ */
+function dnfRunning(sd, d) {
+  const g = sd?.game; const L = g?.laps; if (!L?.[d]) return null;
+  const n = (g.finished?.[d] ?? L[d].length); const lap = n - 1; if (lap < 2) return null;
+  const cum = (id) => { const v = L[id]; if (!v || v.length < lap) return null; let t = 0; for (let k = 0; k < lap; k++) { if (!v[k]?.[0]) return null; t += v[k][0]; } return t; };
+  const order = Object.keys(L).map(id => [id, cum(id)]).filter(([, t]) => t != null).sort((a, b) => a[1] - b[1]);
+  const k = order.findIndex(([id]) => id === d); if (k < 0) return null;
+  const next = order[k + 1]; const total = g.totalLaps || Math.max(...Object.values(g.finished || {}), n);
+  return { pos: k + 1, lap, gap: next ? (next[1] - order[k][1]) / 1000 : null, frac: Math.min(1, lap / total) };
 }
 /** How much a finishing position is worth, points-like: the front is worth far more than the back. */
 const posValue = (p) => Math.exp(-(p - 1) / 7);

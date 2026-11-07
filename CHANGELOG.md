@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.37.0
+
+- **Races the game never sent can be logged from the recording.** After a retirement, F1 25 can simulate the rest of the race and show its results without sending them. The race is still recorded, so Current Weekend and Race Replay now offer to log it from the recording: every lap time, stint, tyre wear and fuel up to where the data stopped, in the order at that point. You then put the final order right from the game's results screen by dragging the race's results.
+- Results from F1 25 that haven't been logged yet are now kept on disk, so one that arrives just before Pitwall closes is logged when it opens again.
+- **Retirements rated on the race they were having.** A driver who retires is now rated on where they were running a lap before they stopped, pulled toward where the car belongs the earlier it came, and counted for as much of the rating as the share of the race run. A big lead counts like a dominant win, up to 9.0. Before, a retirement was rated on qualifying alone, 4 to 7.
+- Stories: a driver who didn't start, or was disqualified, is now told as such instead of as a retirement.
+- Fixed: the fastest-lap head to head drew a braking zone across the start/finish line with a negative width.
+
 ## 3.35.0
 
 - **Better weekend forecasts.** I re-ran the qualifying and race forecasts on your 19 played 2026 weekends against what really happened. Practice on its own spread the field about twice as wide as it really was, and made you look 1.2 s quicker in qualifying than you turned out (0.8 s a lap in the race; everyone else within 0.04 s).

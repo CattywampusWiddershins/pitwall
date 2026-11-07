@@ -93,7 +93,7 @@ function incidentStories(c, s, i, r, key, sd, h) {
   const lead = tier[0]; const inc = lead.inc; const lsd = lead.sd;
   const pos = (x, d) => { const k = x.sd.results.findIndex(y => y.d === d); return k < 0 ? null : OUT.includes(x.sd.results[k].st) ? x.sd.results[k].st : ordWord(k + 1); };
   const gp = r.name; const sprint = key === 'SPR'; const rnd = seeded(`${s.index}-${r.id}-inc`);
-  const after = (x) => [x.inc.a, x.inc.b].map(d => `${h.last(d)} ${pos(x, d) && OUT.includes(pos(x, d)) ? (x.inc.out === d ? 'retired with the damage' : 'did not finish') : `${x.inc.dmg?.includes(d) ? 'carried the damage home to ' : 'finished '}${pos(x, d)}`}`);
+  const after = (x) => [x.inc.a, x.inc.b].map(d => `${h.last(d)} ${pos(x, d) && OUT.includes(pos(x, d)) ? (x.inc.out === d ? 'retired with the damage' : outVerb(pos(x, d))) : `${x.inc.dmg?.includes(d) ? 'carried the damage home to ' : 'finished '}${pos(x, d)}`}`);
   const where = (x) => all.some(y => y.k !== x.k) ? (x.k === 'SPR' ? ' in the sprint' : ' in the Grand Prix') : '';
   let headline, standfirst;
   if (tier.length > 1) {
