@@ -31,6 +31,7 @@
       "telemetry.js",
       "replays.js",
       "src/**/*",
+      "!src/_test*",
       "package.json",
       "build/icon.png",
       "build/Pitwall.apk"

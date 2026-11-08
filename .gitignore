@@ -7,3 +7,6 @@ data-raw/
 build/Pitwall.apk.idsig
 *.log
 android/*.keystore
+
+# test data copied in while checking the interface (never shipped)
+src/_test*
