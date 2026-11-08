@@ -254,7 +254,8 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     const n = s.parts?.length ? Math.max(...s.parts.map(p => p.idx)) + 1 : 0;
     msg.parts = (s.parts || []).map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, driver: p.driver, myTeam: p.myTeam, ai: p.ai }));
     msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
-      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length }));
+      c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length,
+      stints: s.stints[i]?.length ? s.stints[i].map(t => [t.visual, t.end]) : null }));
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
     onLive(msg);
   }

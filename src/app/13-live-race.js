@@ -1107,6 +1107,9 @@ function mergeLive(prev, m, now) {
     const was = liveErs.stopsSeen[x.i] ?? 0;
     if ((x.stops || 0) > was) { (liveErs.pitLaps[x.i] ||= []).push(Math.max(1, (x.lap || 1) - 1)); (liveErs.used[x.i] ||= []).push(liveErs.lastC[x.i] ?? x.c); }
     liveErs.stopsSeen[x.i] = x.stops || 0; if (!x.pit && x.c != null) liveErs.lastC[x.i] = x.c;
+    // the game's own stint history, once it has caught up with the stops: the laps and tyres of every stint, even those
+    // run before a save was resumed or before Pitwall was opened (a stint ending on lap n is the stop counted on lap n + 1)
+    const G = x.stints; if (G?.length && G.length - 1 === (x.stops || 0)) { liveErs.pitLaps[x.i] = G.slice(0, -1).map(t => t[1] + 1); liveErs.used[x.i] = G.slice(0, -1).map(t => t[0]); }
   }
   // what each stop cost, once the car has finished its out-lap: the in- and out-lap against two of its laps before
   for (const x of m.field || []) for (const n of L.pitLaps[x.i] || []) {

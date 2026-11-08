@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.37.3
+
+- Live Race: in a race resumed from a save, or one Pitwall was opened partway through, your stints so far are now taken from the game's own tyre history. Before, a stop made before the resume was shown on the lap the race resumed, on the tyre you were on by then (Mediums then Hards read as Hards then Hards), and the strategy was worked out from that.
+
 ## 3.37.2
 
 - A race saved and quit in F1 25 is now kept exactly as it stands when Pitwall closes, along with its recording for Race Replay. Before, the last 30 to 60 seconds before you quit could be lost (an overtake, a penalty, a gap in the replay) if Pitwall was closed before the race was resumed.
