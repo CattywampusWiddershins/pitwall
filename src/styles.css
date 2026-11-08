@@ -1366,3 +1366,9 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .wm-map svg { width: 150px; height: auto; }
 .wm-list { display: grid; gap: 4px; margin-top: 4px; } .wm-list > div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.05); padding: 4px 0; } .wm-list span { color: var(--muted); }
 @media (max-width: 900px) { .wm.sel .wm-globe { right: 0; bottom: 55%; } .wm-panel { width: 100%; top: 45%; } }
+
+/* Single weekend: the track picker */
+.sw-tracks { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.sw-track { display: flex; gap: 10px; align-items: center; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; color: var(--fg); cursor: pointer; }
+.sw-track.on { border-color: var(--team); box-shadow: inset 3px 0 0 var(--team); } .sw-track b { display: block; font-size: 13px; } .sw-track small { color: var(--muted); font-size: 11px; }
+.sw-track svg { width: 46px; height: 46px; flex: none; }

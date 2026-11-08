@@ -914,7 +914,7 @@ function renderLiveRace() {
       <div class="lh-info"><div class="row" style="gap:8px"><span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · ${esc(r.name)}</b></div>${liveWeather(c, s, r, L, meP)}</div>
       <div class="row lh-ctl">${liveLayoutSeg()}${mineIds.length > 1 ? `<div class="seg">${[['player', 'Your car'], ['mate', 'Teammate'], ['both', 'Both']].map(([v, l]) => `<button data-act="live-follow" data-v="${v}" class="${follow === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div></div>
     <div id="live-root"><div class="live-grid ${shown.length > 1 ? 'split' : ''} ${ui.liveCompact ? 'compact' : ''}">${shown.filter(Boolean).map(me => liveDriverCol(c, s, r, L, w, me, idOf(me.i), idOf)).join('')}
-      <div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}${champBar(c, s, r, L, idOf, mineIds, 'team')}</div></div></div>
+      ${c.single ? '' : `<div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}${champBar(c, s, r, L, idOf, mineIds, 'team')}</div>`}</div></div>
   </div>`;
 }
 /** Compact (everything on one screen) or Full, for Live Race and Race Replay. */
@@ -1052,7 +1052,7 @@ function debrief(c, s, r, key, { kept = false } = {}) {
     return `<div class="panel-b"><span class="label">The championship around ${short(me)}, the last ${plural(at - from + 1, 'race')}</span>${lineChart(series, prog.labels.slice(from, at + 1), { names: prog.names.slice(from, at + 1), flags: prog.flags.slice(from, at + 1) })}</div>`;
   })();
   const champLine = champ.length ? `${champChart}<div class="panel-b"><div class="ers-facts">${champ.map(x => `<div><b>P${x.posA}${x.posB && x.posB !== x.posA ? ` <small class="muted">${x.posA < x.posB ? '▲' : '▼'} from P${x.posB}</small>` : ''}</b><span>${short(x.id)} in the championship: ${x.ptsA} points (+${x.ptsA - x.ptsB})</span></div>`).join('')}<div><b>${esc(dsA[0] ? dName(s, dsA[0].id) : '–')}</b><span>leads on ${dsA[0]?.pts || 0}${dsA[1] ? `, ${dsA[0].pts - dsA[1].pts} clear of ${short(dsA[1].id)}` : ''}</span></div></div></div>` : '';
-  return `${party}<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(r.name)}${sprint ? ' sprint' : ''}</h2><span class="muted" style="font-size:12px">${kept ? (W ? `Won by ${nm(W)}` : '') : `${W ? `Won by ${nm(W)} · ` : ''}until the next session is logged (all are kept in Debriefs)`}</span></div>${champLine}</div>
+  return `${c.single ? '' : party}<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(r.name)}${sprint ? ' sprint' : ''}</h2><span class="muted" style="font-size:12px">${kept ? (W ? `Won by ${nm(W)}` : '') : `${W ? `Won by ${nm(W)} · ` : ''}until the next session is logged (all are kept in Debriefs)`}</span></div>${c.single ? '' : champLine}</div>
     ${hasLaps ? '' : '<div class="callout">This race wasn’t logged from F1 25, so there are no laps to break down: only the result.</div>'}
     <div class="debrief-grid ${mineIds.length > 1 ? 'two' : ''}">${cols}</div>
     ${hasLaps ? mineIds.map(id => { const t = mineIds.length > 1 ? lastName(dName(s, id)) : ''; try { return strategyDebrief(c, s, r, sd, key, id, t) + groupingPanel(c, s, sd, id, t); } catch (e) { console.warn(e); return ''; } }).join('') : ''}

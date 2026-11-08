@@ -376,9 +376,11 @@ function renderSetup() {
     <div class="row" style="gap:6px">${t.drivers.map(d => `<button class="seat ${u.teamId === t.id && u.seat === d ? 'on' : ''}" data-act="setup-seat" data-team="${t.id}" data-seat="${d}">${esc(anyName(d))}</button>`).join('')}</div></div></div>`).join('');
   const first = !state.careers.length;
   return `<div class="page" style="max-width:1100px">
-    <div class="page-head"><div>${first ? '<span class="label">Welcome to Pitwall</span>' : ''}<h1>New career</h1><div class="sub">${esc(setupBlurb(u.year))}</div></div>
+    <div class="page-head"><div>${first ? '<span class="label">Welcome to Pitwall</span>' : ''}<h1>${u.single ? 'Single weekend' : 'New career'}</h1><div class="sub">${u.single ? `One weekend in F1 25’s Grand Prix mode, as a driver on the ${u.year} grid: practice, qualifying, Live Race and the debrief, with no championship around it.` : esc(setupBlurb(u.year))}</div></div>
       ${!first ? '<button class="btn ghost" data-act="cancel-setup">Cancel</button>' : ''}</div>
 
+    <div class="panel"><div class="panel-b"><div class="choices">${[['career', 'Career', 'A season, and the seasons after it, in F1 25’s career mode.'], ['single', 'Single weekend', 'One weekend outside any career: pick a year, a driver from that year and a track.']].map(([id, n, b]) => `<button class="choice ${(u.single ? 'single' : 'career') === id ? 'on' : ''}" data-act="setup-single" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div></div></div>
+    ${u.single ? singleSetupHtml(u) + '</div>' : ''}${u.single ? '' : `
     <div class="panel"><div class="panel-h"><h2>First season</h2><span class="muted" style="font-size:12px">Every season from ${HIST_FROM} is in your career either way, so you can look back on all of it</span></div><div class="panel-b stack">
       <div class="row" style="gap:10px"><div class="seg year-seg">${Array.from({ length: 2026 - HIST_FROM + 1 }, (_, k) => HIST_FROM + k).map(y => `<button data-act="setup-year" data-v="${y}" class="${u.year === y ? 'on' : ''}">${y}</button>`).join('')}<button data-act="setup-year" data-v="${Math.max(2027, u.year)}" class="${future ? 'on' : ''}">Later…</button></div>
         ${future ? `<label class="row" style="gap:8px">Year <input type="number" min="2027" max="2060" value="${u.year}" data-ch="setup-year" style="width:90px"></label>` : ''}</div>
@@ -439,7 +441,7 @@ function renderSetup() {
     </div></div>
 
     <div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="create-career">${future && u.year - 1 > HIST_TO ? `Simulate to ${u.year} and start` : `Start ${u.year} season`}</button></div>
-  </div>`;
+  </div>`}`;
 }
 /** Who goals can be set for, and which teams to beat, in the setup or a goals dialog. */
 function goalCtx(scope) {

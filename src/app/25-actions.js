@@ -82,8 +82,12 @@ const actions = {
   'tr-undo'() { confirmBox('Undo transfer', 'Put the drivers back where they were before the latest transfer? Its story is removed too.', 'Undo', undoTransfer); },
   'nd-cancel'(el) { const { scope, key } = el.dataset; delete ndDrafts(scope)[key]; scope === 'setup' ? render() : scope === 'pool' ? closeModal() : drawTransferModal(); },
   'pool-add'() { ui.modal = { kind: 'pool', nd: { 0: {} } }; modal(`<div class="modal-h"><h2>Add a driver to the pool</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b">${newDriverForm('pool', 0, ui.modal.nd[0])}<p class="muted" style="font-size:12px">They wait in the pool until a team signs them in Transfers.</p></div>`); },
+  'setup-single'(el) { const u = ui.setup; u.single = el.dataset.v === 'single'; if (u.single && (u.year > 2026 || u.year < HIST_FROM)) u.year = 2026; render(); },
+  'setup-single-track'(el) { ui.setup.singleTrack = el.dataset.v; render(); },
   'create-career'() {
     const u = ui.setup;
+    // a single weekend: you race as a real driver of that year, so the save starts as their career does
+    if (u.single) { if (!u.realDriver) { toast('Pick the driver you race as'); return; } if (!u.singleTrack) { toast('Pick the track'); return; } Object.assign(u, { type: 'driver', as: 'real', goals: [], bio: '' }); }
     const principal = u.type === 'myteam' && u.role === 'principal';
     const real = u.type === 'driver' && u.as === 'real' && u.year <= 2026 ? u.realDriver : null;
     if (u.type === 'driver' && u.as === 'real' && !real) { toast('Pick the driver you race as'); return; }
@@ -104,7 +108,7 @@ const actions = {
       profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), bio: u.bio.trim(), rival: '', rivalTeam: null, photo: u.photo || null, born: u.born || null },
       customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
       generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
-      startYear: u.year, ...(real ? { realDriver: real } : {}),
+      startYear: u.year, ...(real ? { realDriver: real } : {}), ...(u.single ? { single: { track: u.singleTrack, year: u.year } } : {}),
       // the 2025 11th team: asked now for a 2025 start, when 2025 comes for an earlier one, never after
       extraTeam2025: u.year === 2025 ? (u.type === 'myteam' ? null : u.extra || null) : u.year > 2025 ? null : undefined,
     };
@@ -123,11 +127,13 @@ const actions = {
       if (u.year - 1 > HIST_TO) simulateGap(c, u.year, c.startGrid, u.futureCal);
     }
     c.seasons.push(newSeason(c, c.seasons.length, u.type === 'myteam' ? { teamId: MYTEAM, seatDriverId: null, goals: u.goals, practice: u.practice } : { teamId: u.teamId, seatDriverId: u.seat, goals: u.goals, practice: u.practice }));
-    realTransfers(c);
+    // a single weekend keeps only its round (the others are off the calendar)
+    if (c.single) { const s0 = c.seasons[c.seasons.length - 1]; s0.calendar.forEach(r => { if (r.id !== c.single.track) r.off = true; }); }
+    else realTransfers(c);
     state.careers.push(c); state.activeCareerId = c.id; syncNumbers(c);
-    ui.setup = null; ui.view = 'dashboard'; ui.seasonIdx = null;
+    ui.setup = null; ui.view = c.single ? 'now' : 'dashboard'; ui.nowTab = 'weekend'; ui.seasonIdx = null;
     const first = activeRounds(latestSeason())[0];
-    store.save(); render(); toast(`Career created. Good luck in ${first?.venue || 'the first race'}.`);
+    store.save(); render(); toast(c.single ? `Single weekend ready: ${first?.name || ''}.` : `Career created. Good luck in ${first?.venue || 'the first race'}.`);
     if (!c.profile.photo && !isPrincipal(c) && !real) photoModal(PLAYER_ID);
   },
   'pick-season'(el) { ui.seasonIdx = +el.dataset.idx; render(); },
