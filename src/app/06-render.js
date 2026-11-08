@@ -171,6 +171,7 @@ const NAV = [
   ['drivers', 'Drivers', 'helmet'],
   ['teams', 'Teams', 'garage'],
   ['tracks', 'Circuits', 'track'],
+  ['world', 'World Map', 'globe'],
   ['hof', 'Hall of Fame', 'laurel'],
   ['records', 'Records', 'medal'],
   ['media', 'Media', 'mic'],
@@ -230,6 +231,7 @@ function renderView() {
     case 'track': return renderTrack();
     case 'myteam': ui.view = 'dashboard'; return renderDashboard();
     case 'hof': return renderHof();
+    case 'world': return renderWorld();
     case 'records': return renderRecords();
     case 'review': return renderReview();
     case 'media': return renderMedia();

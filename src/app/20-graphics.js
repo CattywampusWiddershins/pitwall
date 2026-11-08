@@ -1032,10 +1032,10 @@ async function gfxLapGraph(g, k, c, s, { ri }) {
 }
 
 /** The career leaderboard's top 10, by the column it's sorted on (named in the subtitle), with the stats picked. */
-async function gfxLeaderboard(g, k, c, s, { sort, cols, full, rows, since = 1950, filters = [], hl = null, moved = null }) {
+async function gfxLeaderboard(g, k, c, s, { sort, cols, full, rows, since = 1950, filters = [], hl = null, moved = null, country = null }) {
   const label = Object.fromEntries(LB_COLS); const what = { titles: 'Most world titles', starts: 'Most Grand Prix starts', wins: 'Most Grand Prix wins', podiums: 'Most podiums', poles: 'Most pole positions', pts: 'Most points' }[sort];
   const GFX_W = g.canvas.width;
-  await gfxFrame(g, k, 'CAREER LEADERBOARD', { sub: [what.toUpperCase(), full ? (since > 1950 ? `SINCE ${since}` : 'ALL OF F1 HISTORY') : 'THIS CAREER ONLY', ...filters.map(f => f.toUpperCase()), String(s.year)].join('  ·  ') });
+  await gfxFrame(g, k, 'CAREER LEADERBOARD', { sub: [what.toUpperCase(), ...(country ? [country.toUpperCase()] : []), full ? (since > 1950 ? `SINCE ${since}` : 'ALL OF F1 HISTORY') : 'THIS CAREER ONLY', ...filters.map(f => f.toUpperCase()), String(s.year)].join('  ·  ') });
   const order = [sort, ...cols.filter(x => x !== sort)]; const vw = 130; const y0 = 290, rh = Math.floor((GFX_H - 60 - y0) / Math.max(10, rows.length));
   const xs = order.map((_, j) => GFX_W - 30 - (order.length - j) * (vw + 6));
   order.forEach((key, j) => k.text(label[key].toUpperCase(), xs[j] + vw / 2, y0 - 22, { size: 20, weight: 700, color: key === sort ? '#FFFFFF' : '#B8C0D0', align: 'center', max: vw }));

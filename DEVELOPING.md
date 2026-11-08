@@ -77,6 +77,13 @@ node scripts/build-assets.js
 
 The first downloads into `data-raw/` (about an hour, at the API's rate limit) and only fetches what's missing on later runs.
 
+The World Map's `src/world.js` (country shapes from Natural Earth via [world-atlas](https://github.com/topojson/world-atlas), every circuit since 1950 from `data-raw/`) and the map libraries in `src/vendor/` ([d3-geo](https://github.com/d3/d3-geo), d3-array, [topojson-client](https://github.com/topojson/topojson-client), all ISC) come from:
+
+```
+npm install --prefix <folder> d3-geo@3.1.1 d3-array@3.2.4 topojson-client@3.1.0 world-atlas@2.0.2 i18n-iso-countries@7.14.0
+node scripts/build-world.js <folder>
+```
+
 ## Project layout
 
 ```

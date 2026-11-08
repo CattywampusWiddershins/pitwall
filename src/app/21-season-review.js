@@ -568,7 +568,7 @@ function buildStories(c, s) {
     const rnd = seeded(`${s.index}-${e.r.id}-${e.type}-${e.rid || ''}-${e.id || ''}`);
     if (e.type === 'milestones') {
       const top = e.items[0];
-      const num = /(d+)(?:st|nd|rd|th)/.exec(top.text)?.[1] || (/first/i.test(top.text) ? '1ST' : null);
+      const num = /(\d+)(?:st|nd|rd|th)\b/.exec(top.text)?.[1] || (/first/i.test(top.text) ? '1ST' : null);
       // a move up an all-time list: that list's top ten as a graphic, the driver marked
       const lbGfx = e.items.filter(x => x.list).slice(0, 3).map(x => ({ sort: x.list.stat, cols: [x.list.stat], full: true, since: 1950, hl: x.id, moved: x.list.from && x.list.from <= 15 ? x.list.from - x.list.rank : null, rows: x.list.rows.map(o => ({ id: o.id, name: o.name, team: teamOf(s, o.id)?.id || null, [x.list.stat]: o.v })) }));
       out.push({ id: `${s.index}-${e.r.id}-ms`, seq: e.ri * 10 + 5, kind: 'milestone', i: e.ri, r: e.r, subject: top.id, lbGfx, recGfx: num && s.drivers[top.id] && !top.list ? { kind: 'milestone', ids: [top.id], big: num, what: top.text, prev: '' } : null, outlet: choose(rnd, D.OUTLETS), kicker: 'Milestones',

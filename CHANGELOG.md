@@ -2,6 +2,15 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 4.9.0
+
+- **World Map.** A new page with a globe of Formula 1. Drag to turn it. Every country is dark except those with a part in F1's story (a circuit, a driver), in your theme's colour, and every circuit a world championship race was held at since 1950 is a marker. Click a country (or a circuit) and the globe turns to it and moves to the left, with the country on the right:
+  - Overview: what the country means to F1, written from the record (Grands Prix hosted, circuits, drivers, wins, world titles) and your career.
+  - Circuits: each one with its years, Grands Prix, most frequent winners and last real winner, plus the circuit guide's details and the races held there in your career. A country with one circuit shows it straight away.
+  - Drivers: every driver from the country since 1950 with your career, in the all-time leaderboard's style, with its own export.
+- Stories: milestone numbers (a 100th start and the like) get their big-number graphic again.
+- Debrief stint charts: lap times on the axis read to a tenth.
+
 ## 4.2.2
 
 - **Race Replay plays smoothly.** The strategy odds on the replay's dashboard were worked out all at once every five seconds of race time (up to a tenth of a second, a stutter about once a second at speed). They're now worked out in the background, a few races at a time between frames, the last odds standing in meanwhile, and the dashboard is rebuilt after the frame is drawn, not in it.

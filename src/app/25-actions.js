@@ -584,6 +584,10 @@ Object.assign(actions, {
     (c.calAnnounced ||= {})[s.year + 1] = { si: s.index, ri: Math.max(0, roundsDone(s) - 1), at: new Date().toISOString(), cal: clone(cal), newTracks: [...new Set(cal.map(roundTrackId).filter(t => !onNow.has(t)))] };
     store.save(); render(); toast(`The ${s.year + 1} calendar is announced: it’s in Stories`);
   },
+  'wm-close'() { ui.world = { ...(ui.world || {}), sel: null, circuit: null }; WM.spin = false; render(); },
+  'wm-tab'(el) { ui.world = { ...(ui.world || {}), tab: el.dataset.v, circuit: el.dataset.v === 'circuits' ? null : ui.world?.circuit }; render(); },
+  'wm-circuit'(el) { ui.world = { ...(ui.world || {}), circuit: el.dataset.id || null }; const ci = el.dataset.id && W.circuits.find(x => x.id === el.dataset.id); if (ci) { WM.anim = { from: WM.rot.slice(), to: [-ci.lon, -ci.lat], t0: performance.now(), ms: 700 }; while (WM.anim.to[0] - WM.anim.from[0] > 180) WM.anim.to[0] -= 360; while (WM.anim.to[0] - WM.anim.from[0] < -180) WM.anim.to[0] += 360; } render(); },
+  'wm-export'() { const x = ui.wmLast; if (!x) return; const lk = ui.lb.sort; const spec = { type: 'leaderboard', si: career().seasons.length - 1, ri: 0, sort: lk, cols: LB_COLS.map(([k]) => k), full: true, since: 1950, country: ccName(x.cc), rows: x.rows }; gfxModal(gfxKey(spec)); },
   'now-tab'(el) { ui.nowTab = el.dataset.v; render(); },
   'db-pick'(el) { ui.dbPick = el.dataset.v; render(); window.scrollTo?.(0, 0); },
   'live-follow'(el) { ui.liveFollow = el.dataset.v; render(); },

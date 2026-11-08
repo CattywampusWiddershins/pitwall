@@ -126,7 +126,7 @@ function groupingPanel(c, s, sd, d, title) {
     const wv = x.laps.map(q => wearOf[q.n - 1]).filter(v => v != null); const wTop = Math.max(40, Math.ceil(Math.max(0, ...wv) / 10) * 10 + 10);
     const WY = (v) => H - b - v / wTop * (H - t - b);
     let o = x.laps.map(q => `<rect x="${(X(q.n) - bw / 2).toFixed(1)}" y="${t}" width="${bw.toFixed(1)}" height="${H - t - b}" fill="${DB_TAGS[q.tag][0]}" opacity=".16"><title>Lap ${q.n}: ${DB_TAGS[q.tag][1]}</title></rect>`).join('');
-    for (let k = 0; k <= 3; k++) { const ms = lo + (hi - lo) * k / 3; const yy = Y(ms); o += `<line x1="${l}" x2="${W - r}" y1="${yy}" y2="${yy}" class="gx-grid"/><text x="${l - 6}" y="${yy + 3}" class="gx-tick gx-sm" text-anchor="end">${fmtLap(ms).replace(/(.d)d+$/, '$1')}</text>`; }
+    for (let k = 0; k <= 3; k++) { const ms = lo + (hi - lo) * k / 3; const yy = Y(ms); o += `<line x1="${l}" x2="${W - r}" y1="${yy}" y2="${yy}" class="gx-grid"/><text x="${l - 6}" y="${yy + 3}" class="gx-tick gx-sm" text-anchor="end">${fmtLap(ms).replace(/(\.\d)\d+$/, '$1')}</text>`; }
     for (let k = 0; k <= 2; k++) { const v = wTop * k / 2; o += `<text x="${W - r + 6}" y="${WY(v) + 3}" class="gx-tick gx-sm gx-wear">${Math.round(v)}%</text>`; }
     const st = span > 30 ? 10 : span > 12 ? 5 : 2; for (let n = Math.ceil(n0 / st) * st; n <= n1; n += st) o += `<text x="${X(n)}" y="${H - 8}" class="gx-tick gx-sm" text-anchor="middle">L${n}</text>`;
     const wc = gxCol(COMPOUNDS[x.c]?.[2] || '#C9CFDC');
