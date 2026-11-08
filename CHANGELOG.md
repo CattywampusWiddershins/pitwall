@@ -2,6 +2,16 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.39.0
+
+- **Strategy debrief after every race.** A new panel on the race's debrief shows how each choice played out, from the race's own laps:
+  - When to stop: each lap you could have stopped on, from your pace and fall-off on each tyre in this race and the track's pit loss, against the stop you made (a stop under the safety car counted at its cheaper loss).
+  - Through the stops: the order around you before and after each stop, the gaps, and any undercut or overcut won or lost.
+  - The forecasts against the race: wear and fall-off a lap from practice against what the race showed, so you can see when the strategy was working from bad numbers (at Shanghai the hards wore 2.3 times faster than forecast).
+  - In a wet race: each change between slicks and inters against the lap the other tyre first ran quicker across the field.
+- **Grouping.** A new panel for how consistent you were in clean air, stint by stint, as in shooting: every lap coloured by whether it counts (clean air, within a second of the car ahead, battle, safety car, pits), each stint's group (one standard deviation from its own fall-off line), its spread and its flyers (laps more than 0.6 s off), and the field ranked by grouping.
+- The debrief no longer shows the energy deployed or the time off the best race on your pace.
+
 ## 3.38.0
 
 - **Live constructors' championship.** Live Race and Race Replay now show the constructors' championship as it stands under the drivers', in the same style and by the same rules: both cars' points as they run, the five teams around yours, and on a weekend the title can be decided, the top five with the verdict. A team in a position to win it shows its badge, and when it's won, a constructors' champions card.

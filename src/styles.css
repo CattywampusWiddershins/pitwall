@@ -1284,3 +1284,22 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 @media (max-width: 1100px) { .tvb.has-side:has(> .tvb-side) { grid-template-columns: minmax(0, 1fr); } .tvb-side { padding: 0 16px 12px; grid-template-columns: 110px minmax(0, 260px); justify-content: center; } .tvb-fig { height: 180px; min-height: 0; } }
 /* Live Race on a phone: the lap box over the race and weather, so neither runs off the screen */
 @media (max-width: 520px) { .live-head { grid-template-columns: minmax(0, 1fr); } .lh-info .row { flex-wrap: wrap; } .lh-info > * { min-width: 0; overflow-wrap: anywhere; } }
+
+/* Race debrief: strategy debrief and grouping */
+.db-verdict { font-size: 15px; line-height: 1.5; margin: 0; }
+.db-verdict .up, .db-tbl .up, .db-two .up { color: var(--green); } .db-verdict .down, .db-tbl .down, .db-two .down { color: var(--red); } .db-verdict .warn, .db-tbl .warn { color: var(--yellow); }
+.db-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+.db-chart { width: 100%; margin-top: 6px; display: block; }
+.db-tbl { width: 100%; font-size: 13px; }
+.db-tbl tr.me td { background: rgba(255,255,255,.05); }
+.db-strip { display: grid; gap: 2px; margin-top: 6px; } .db-strip span { height: 18px; border-radius: 2px; }
+.db-strip-n { display: flex; justify-content: space-between; font-size: 10px; color: var(--dim); margin: 3px 0 6px; }
+.db-lg { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--line); color: var(--muted); margin: 2px 4px 2px 0; }
+.db-lg i { width: 8px; height: 8px; border-radius: 2px; }
+.db-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.db-card { border: 1px solid var(--line); border-radius: var(--r); padding: 14px; background: var(--panel-2); }
+.db-card h3 { margin: 0 0 8px; font: 700 14px var(--font-display); text-transform: uppercase; letter-spacing: .06em; display: flex; align-items: center; gap: 8px; }
+.db-none { font-size: 13px; line-height: 1.5; margin: 6px 0; }
+.db-big { display: flex; gap: 22px; align-items: baseline; margin: 6px 0 10px; flex-wrap: wrap; }
+.db-big b { display: block; font: 700 26px var(--font-display); } .db-big span { font-size: 11.5px; color: var(--muted); }
+.db-swarm { width: 100%; display: block; }

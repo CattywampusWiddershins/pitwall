@@ -1,0 +1,240 @@
+/*
+  The race debrief's two deeper panels, from the race's own lap times.
+
+  Strategy debrief: how each choice played out. When to stop (each lap you could have stopped on, from your own pace and
+  fall-off on each tyre in this race and the track's pit loss, against the stop you made); through the stops (the order
+  around you before and after, and any undercut or overcut won or lost); the forecasts against the race (wear and
+  fall-off from practice against what the race showed); and in a wet race, each weather call against when the other
+  tyre actually became quicker.
+
+  Grouping: how consistent you were in clean air, stint by stint, as in shooting. A clean-air lap is more than a second
+  clear of the car ahead (any car, lapped ones too) at both ends of the lap, with no pass for or against you on the lap
+  or the laps either side, under green flags, and not the first lap, a restart lap or a lap in or out of the pits. Each
+  lap is measured from the stint's own fall-off line (the tyres slow you through a stint); the group is one standard
+  deviation of those, and a lap more than 0.6 s off the line is a flyer, counted but kept out of the group.
+*/
+const FLYER = 600; // ms off the stint's line: a mistake, a lock-up, traffic
+const CLEAN_GAP = 1000; // ms to the car ahead at the line
+
+/**
+ * A driver's stints with the in-lap where it belongs. The game ends a stint the lap before the in-lap (its tyre wear
+ * shows the old set through the next lap at every track: at Shanghai a stop on lap 17 is a stint ending on 16), so each
+ * stint but the last runs a lap longer here, and the next starts with its out-lap (the lap through the pit lane, or at
+ * a track where the stop falls before the line, the first lap on the new set).
+ */
+function dbStints(sd, d) {
+  const st = stintsOf(sd, d).map(x => ({ ...x })); const n = sd.game?.laps?.[d]?.length || 0;
+  for (let k = 0; k < st.length - 1; k++) if (st[k].to + 1 < (st[k + 1].to || n)) { st[k].to++; st[k + 1].from++; }
+  return st;
+}
+
+/** Laps run behind a safety car or VSC (the game's record: a period cut short by a resume, to 0, runs to the next). */
+function dbScLaps(g) {
+  const out = new Set(); const P = g?.safety?.periods || [];
+  P.forEach((p, k) => { const end = p.to > 0 ? p.to : (P[k + 1]?.from ?? p.from); for (let n = Math.max(1, p.from); n <= end; n++) out.add(n); });
+  return out;
+}
+/** Every car's line crossings on the race clock: { cum: { d: [time at the end of each lap] }, all: [[t, d]] sorted }. */
+function dbCrossings(g) {
+  if (g._x) return g._x;
+  const cum = {}; const all = [];
+  for (const [d, laps] of Object.entries(g.laps || {})) { let t = 0; cum[d] = laps.map(l => (t += l[0] || 0)); cum[d].forEach(v => all.push([v, d])); }
+  all.sort((a, b) => a[0] - b[0]);
+  return Object.defineProperty(g, '_x', { value: { cum, all }, enumerable: false })._x;
+}
+/** The nearest car across the line just before d at its crossing k (0: the end of lap 1), in ms. */
+function dbAhead(X, d, k) {
+  const t = X.cum[d]?.[k]; if (t == null) return Infinity;
+  let lo = 0, hi = X.all.length; while (lo < hi) { const m = (lo + hi) >> 1; if (X.all[m][0] < t) lo = m + 1; else hi = m; }
+  for (let j = lo - 1; j >= 0; j--) if (X.all[j][1] !== d) return t - X.all[j][0];
+  return Infinity;
+}
+/** Each lap of a driver's race and why it does or doesn't count as clean air: [{ n, ms, tag }] (tag null: clean). */
+function dbLapTags(sd, d) {
+  const g = sd.game; const laps = g.laps?.[d] || []; const st = dbStints(sd, d); const sc = dbScLaps(g); const X = dbCrossings(g);
+  const restart = new Set([...sc].map(n => n + 1).filter(n => !sc.has(n)));
+  const pass = new Set((g.overtakes || []).filter(o => o[0] === d || o[1] === d).map(o => o[2]));
+  const inL = new Set(st.slice(0, -1).map(x => x.to)), outL = new Set(st.slice(1).map(x => x.from));
+  return laps.map((l, k) => {
+    const n = k + 1; let tag = null;
+    if (!l[0]) tag = 'none';
+    else if (n === 1) tag = 'start';
+    else if (inL.has(n) || outL.has(n)) tag = 'pit';
+    else if (sc.has(n)) tag = 'sc';
+    else if (restart.has(n)) tag = 'restart';
+    else if (pass.has(n) || pass.has(n - 1) || pass.has(n + 1)) tag = 'battle';
+    else if (Math.min(dbAhead(X, d, k - 1), dbAhead(X, d, k)) < CLEAN_GAP) tag = 'dirty';
+    return { n, ms: l[0], tag };
+  });
+}
+/** A driver's grouping, stint by stint: [{ c, from, to, laps, clean, res: [{ n, r }], sd, spread, fly, fit }]. */
+function dbGrouping(sd, d) {
+  const tags = dbLapTags(sd, d);
+  return dbStints(sd, d).map(x => {
+    const laps = tags.slice(x.from - 1, x.to); const clean = laps.filter(l => !l.tag);
+    const fit = clean.length >= 3 ? fitLine(clean.map(l => [l.n, l.ms])) : null;
+    const res = fit ? clean.map(l => ({ n: l.n, r: l.ms - (fit.a + fit.b * l.n) })) : [];
+    const core = res.filter(q => Math.abs(q.r) <= FLYER);
+    const sdv = core.length >= 3 ? Math.sqrt(core.reduce((a, q) => a + q.r * q.r, 0) / (core.length - 1)) : null;
+    return { ...x, laps, clean: clean.length, res, fit, fly: res.length - core.length, sd: sdv, spread: core.length ? Math.max(...core.map(q => q.r)) - Math.min(...core.map(q => q.r)) : null };
+  });
+}
+/** The field's grouping over the whole race (every stint's clean laps from its own line), tightest first; at least 10 laps. */
+function dbFieldGrouping(sd) {
+  return Object.keys(sd.game.laps || {}).map(d => {
+    const G = dbGrouping(sd, d); const core = G.flatMap(x => x.res.filter(q => Math.abs(q.r) <= FLYER));
+    return { d, n: core.length, fly: G.reduce((a, x) => a + x.fly, 0), sd: core.length >= 10 ? Math.sqrt(core.reduce((a, q) => a + q.r * q.r, 0) / (core.length - 1)) : null };
+  }).filter(x => x.sd != null).sort((a, b) => a.sd - b.sd);
+}
+const DB_TAGS = { null: ['var(--green)', 'Clean air'], dirty: ['var(--red)', 'Within a second of the car ahead'], battle: ['var(--purple)', 'Battle'], sc: ['var(--yellow)', 'Safety car / VSC'], restart: ['#8a7a2a', 'Restart'], start: ['var(--dim)', 'Start'], pit: ['#3a4560', 'In or out of the pits'], none: ['#222', 'No lap time'] };
+const dbSecs = (ms, d = 1) => `${(Math.abs(ms) / 1000).toFixed(d)} s`;
+
+/** The grouping panel for one driver. */
+function groupingPanel(c, s, sd, d, title) {
+  const g = sd.game; if (!g?.laps?.[d]?.length) return '';
+  const G = dbGrouping(sd, d); const tags = G.flatMap(x => x.laps); const N = tags.length;
+  const strip = `<div class="db-strip" style="grid-template-columns:repeat(${N},1fr)">${tags.map(l => `<span title="Lap ${l.n}: ${DB_TAGS[l.tag][1]}" style="background:${DB_TAGS[l.tag][0]}"></span>`).join('')}</div>
+    <div class="db-strip-n"><span>Lap 1</span><span>Lap ${N}</span></div>
+    <div>${[...new Set(tags.map(l => String(l.tag)))].map(t => `<span class="db-lg"><i style="background:${DB_TAGS[t][0]}"></i>${DB_TAGS[t][1]}</span>`).join('')}</div>`;
+  const ranges = (ns) => { const out = []; for (const n of ns) { const r = out[out.length - 1]; if (r && n === r[1] + 1) r[1] = n; else out.push([n, n]); } return out.map(([a, b]) => a === b ? `${a}` : `${a}–${b}`).join(', '); };
+  const why = (x) => {
+    const by = (t) => x.laps.filter(l => l.tag === t).map(l => l.n);
+    const parts = [by('battle').length && `fighting on lap${by('battle').length > 1 ? 's' : ''} ${ranges(by('battle'))}`, by('dirty').length && `within a second of the car ahead on lap${by('dirty').length > 1 ? 's' : ''} ${ranges(by('dirty'))}`, by('sc').length && `under the safety car or VSC on lap${by('sc').length > 1 ? 's' : ''} ${ranges(by('sc'))}`].filter(Boolean);
+    return parts.length ? `: ${listJoin(parts)}` : '';
+  };
+  const swarm = (x) => {
+    const W = 440, cx = 220, k = 160 / 700; let o = `<rect x="${cx - x.sd * k}" y="20" width="${2 * x.sd * k}" height="70" rx="4" fill="var(--green)" opacity=".14"/>`;
+    for (const v of [-FLYER, FLYER]) o += `<line x1="${cx + v * k}" x2="${cx + v * k}" y1="14" y2="96" stroke="var(--red)" stroke-dasharray="3 3" opacity=".6"/>`;
+    o += `<line x1="${cx}" x2="${cx}" y1="14" y2="96" stroke="var(--fg)" opacity=".45"/>`;
+    const placed = [];
+    x.res.slice().sort((a, b) => a.r - b.r).forEach(q => { const X = cx + Math.max(-215, Math.min(215, q.r * k)) - (Math.abs(q.r * k) > 215 ? 0 : 0); let Y = 55, j = 0; while (placed.some(p => Math.hypot(p[0] - X, p[1] - Y) < 9) && j < 12) { j++; Y = 55 + (j % 2 ? 1 : -1) * Math.ceil(j / 2) * 9; } placed.push([X, Y]); o += `<circle cx="${X.toFixed(1)}" cy="${Y}" r="4" fill="${Math.abs(q.r) > FLYER ? 'var(--red)' : 'var(--fg)'}"><title>Lap ${q.n}: ${q.r > 0 ? '+' : '−'}${(Math.abs(q.r) / 1000).toFixed(3)} s</title></circle>`; });
+    for (const v of [-FLYER, -300, 0, 300, FLYER]) o += `<text x="${cx + v * k}" y="112" fill="var(--muted)" font-size="10" text-anchor="middle">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v / 1000).toFixed(1)} s</text>`;
+    return `<svg viewBox="0 0 ${W} 120" class="db-swarm">${o}</svg>`;
+  };
+  const cards = G.map((x, k) => `<div class="db-card"><h3>${tyreChip(x.c)} Stint ${k + 1} · laps ${x.from}–${x.to}</h3>${x.sd == null
+    ? `<p class="muted db-none">No group: ${plural(x.clean, 'clean-air lap')} of ${x.to - x.from + 1}${why(x)}.</p>`
+    : `<div class="db-big"><div><b>±${(x.sd / 1000).toFixed(2)} s</b><span>group (1 standard deviation)</span></div><div><b>${dbSecs(x.spread, 2)}</b><span>slowest to quickest</span></div><div><b>${x.fly}</b><span>${x.fly === 1 ? 'flyer' : 'flyers'}</span></div><div><b>${x.clean}</b><span>clean-air laps of ${x.to - x.from + 1}</span></div></div>${swarm(x)}`}</div>`).join('');
+  const F = dbFieldGrouping(sd); const best = F[0]?.sd; const at = F.findIndex(x => x.d === d);
+  const field = F.length ? `<div><span class="label">The field’s tightest groups this race (at least 10 clean-air laps)</span><div class="table-wrap"><table class="db-tbl"><tbody>${F.map((x, k) => `<tr class="${x.d === d ? 'me' : ''}"><td class="num" style="width:30px">${k + 1}</td><td>${drvCell(s, x.d, { team: true })}</td><td class="num mono">±${(x.sd / 1000).toFixed(3)} s</td><td class="num muted">${plural(x.n, 'lap')}</td><td style="width:35%"><div class="h2h-bar"><i style="--c:${teamColor(s, x.d)};width:${Math.round(best / x.sd * 100)}%"></i></div></td></tr>`).join('')}</tbody></table></div>${at < 0 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${esc(lastName(dName(s, d)))} had too few clean-air laps to rank.</p>` : ''}</div>` : '';
+  return `<div class="panel"><div class="panel-h"><h2>Grouping${title ? ` · ${esc(title)}` : ''}</h2><span class="muted" style="font-size:12px">How tightly the clean-air laps grouped, stint by stint</span></div><div class="panel-b stack">
+    <div><span class="label">Every lap of the race</span>${strip}</div>
+    <p class="muted" style="font-size:12px;margin:0">A clean-air lap: more than a second clear of the car ahead (any car, lapped ones too) at both ends of the lap, no pass for or against on the lap or the laps either side, green flags, and not the first lap, a restart lap or a lap in or out of the pits. Each lap is measured from the stint’s own fall-off line, not the average, as the tyres slow you through a stint. A <b>flyer</b> is a lap more than 0.6 s off the line: counted, but kept out of the group.</p>
+    <div class="db-cards">${cards}</div>${field}</div></div>`;
+}
+
+/** Pace on each compound in this race, by tyre age: { c: { a, b, n } } (a + b × age), from green laps near the stint's pace. */
+function dbRacePace(sd, d) {
+  const tags = dbLapTags(sd, d); const out = {};
+  for (const x of dbStints(sd, d)) {
+    const pts = tags.slice(x.from - 1, x.to).filter(l => !l.tag || l.tag === 'dirty' || l.tag === 'battle').map(l => [l.n - x.from + 1, l.ms]);
+    const med = median(pts.map(p => p[1])); const use = pts.filter(p => p[1] <= med * 1.03);
+    (out[x.c] ||= []).push(...use);
+  }
+  for (const c of Object.keys(out)) { const f = out[c].length >= 4 ? fitLine(out[c]) : null; if (f) out[c] = { a: f.a, b: Math.max(0, f.b), n: out[c].length }; else delete out[c]; }
+  return out;
+}
+/** The strategy debrief panel for one driver. */
+function strategyDebrief(c, s, r, sd, key, d, title) {
+  const g = sd.game; const laps = g.laps?.[d]; if (!laps?.length) return '';
+  const st = dbStints(sd, d); const N = laps.length; const sc = dbScLaps(g); const PL = pitLoss(c, trackOf(r));
+  const pace = dbRacePace(sd, d); const nm = (x) => esc(lastName(dName(s, x)));
+  const verdict = []; const parts = [];
+  // 1. when to stop: each stop moved on its own, the others where they were
+  const stopCharts = st.slice(0, -1).map((A, k) => {
+    const B = st[k + 1]; const pa = pace[A.c], pb = pace[B.c]; if (!pa || !pb) return '';
+    if (isSlick(A.c) !== isSlick(B.c)) return ''; // a change for the weather: the weather calls below judge it
+    const lo = Math.max(A.from + 2, 3), hi = Math.min(B.to - 3, N - 2); if (hi - lo < 3) return '';
+    const T = (L, loss) => { let t = loss; for (let n = A.from; n <= L; n++) t += pa.a + pa.b * (n - A.from + 1); for (let n = L + 1; n <= B.to; n++) t += pb.a + pb.b * (n - L); return t; };
+    const lossAt = (L) => sc.has(L) ? (g.safety?.periods || []).some(p => p.kind === 'sc' && L >= p.from && L <= (p.to > 0 ? p.to : p.from)) ? PL.sc : PL.vsc : PL.green;
+    let pts = []; for (let L = lo; L <= hi; L++) pts.push([L, T(L, PL.green)]);
+    const bestP = pts.reduce((a, p) => p[1] < a[1] ? p : a); const actual = T(A.to, lossAt(A.to)); const diff = actual - bestP[1];
+    // the chart shows the laps within 30 s of the best (and your stop)
+    pts = pts.filter(p => p[1] - bestP[1] <= 30000 || p[0] === A.to); const lo2 = Math.min(pts[0][0], A.to), hi2 = Math.max(pts[pts.length - 1][0], A.to);
+    const under = sc.has(A.to); const where = `lap ${A.to}${under ? ' under the safety car' : ''}`;
+    const line = Math.abs(diff) < 1000 ? `Your stop on ${where} was as good as any (the best green-flag stop was lap ${bestP[0]})` : diff < 0 ? `Stopping on ${where} was worth <b class="up">about ${dbSecs(diff, 0)}</b> against the best green-flag stop (lap ${bestP[0]})` : `Stopping on ${where} cost <b class="down">about ${dbSecs(diff, 0)}</b> against stopping on lap ${bestP[0]}`;
+    verdict.push(line + (st.length > 2 ? ` (stop ${k + 1})` : ''));
+    // the chart: time lost against the best lap, the safety car shaded, your stop marked
+    const W = 520, H = 220, l = 44, rr = 12, t = 14, b = 30; const vals = pts.map(p => (p[1] - bestP[1]) / 1000); const top = Math.min(40, Math.max(5, ...vals)); const bot = Math.min(0, diff / 1000) - 2;
+    const X = (L) => l + (L - lo2) / Math.max(1, hi2 - lo2) * (W - l - rr); const Y = (v) => t + (top - Math.min(top, v)) / (top - bot) * (H - t - b);
+    let o = ''; const step = top - bot > 30 ? 10 : 5;
+    for (let v = Math.ceil(bot / step) * step; v <= top; v += step) o += `<line x1="${l}" x2="${W - rr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${l - 6}" y="${Y(v) + 4}" fill="var(--muted)" font-size="10" text-anchor="end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} s</text>`;
+    const tick = hi2 - lo2 > 30 ? 10 : 5; for (let L = Math.ceil(lo2 / tick) * tick; L <= hi2; L += tick) o += `<text x="${X(L)}" y="${H - 10}" fill="var(--muted)" font-size="10" text-anchor="middle">Lap ${L}</text>`;
+    const scIn = [...sc].filter(n => n >= lo2 && n <= hi2); if (scIn.length) { const a = Math.min(...scIn), z = Math.max(...scIn); o += `<rect x="${X(a) - 4}" y="${t}" width="${X(z) - X(a) + 8}" height="${H - t - b}" fill="var(--yellow)" opacity=".08"/><text x="${(X(a) + X(z)) / 2}" y="${t + 12}" fill="var(--yellow)" font-size="10" text-anchor="middle">safety car</text>`; }
+    o += `<polyline fill="none" stroke="var(--muted)" stroke-width="2" points="${pts.map((p, i) => `${X(p[0]).toFixed(1)},${Y(vals[i]).toFixed(1)}`).join(' ')}"/>`;
+    o += `<circle cx="${X(bestP[0])}" cy="${Y(0)}" r="4" fill="var(--muted)"/><text x="${X(bestP[0])}" y="${Y(0) - 10}" fill="var(--muted)" font-size="10.5" text-anchor="middle">best green-flag stop, lap ${bestP[0]}</text>`;
+    const ax = X(A.to), ay = Y(diff / 1000); const col = diff <= 1000 ? 'var(--green)' : 'var(--red)'; const right = ax < W * 0.6;
+    o += `<circle cx="${ax}" cy="${ay}" r="6" fill="${col}"/><text x="${ax + (right ? 10 : -10)}" y="${ay + 4}" fill="${col}" font-size="11" font-weight="700" text-anchor="${right ? 'start' : 'end'}">You: lap ${A.to}, ${diff < 0 ? '−' : '+'}${dbSecs(diff)}</text>`;
+    return `<div><span class="label">When to stop${st.length > 2 ? ` · stop ${k + 1}` : ''}: time lost against the best lap, on this race’s pace</span><svg viewBox="0 0 ${W} ${H}" class="db-chart">${o}</svg>
+      <p class="muted" style="font-size:12px;margin:0">From the pace and fall-off on each tyre in this race (${COMPOUNDS[A.c]?.[1] || 'tyre'} ${(pa.b / 1000).toFixed(3)} s a lap, ${COMPOUNDS[B.c]?.[1] || 'tyre'} ${(pb.b / 1000).toFixed(3)} s) and a ${dbSecs(PL.green)} stop${under ? `; under the safety car it costs ${dbSecs(lossAt(A.to))}` : ''}.</p></div>`;
+  }).filter(Boolean);
+  // 2. through the stops: the cars around you before each of your stops, and after everyone's stop
+  const P = lapPositions(sd); const X = dbCrossings(g);
+  const through = P ? st.slice(0, -1).map((A, k) => {
+    const L0 = Math.max(1, A.to - 1); const me0 = P.pos[d]?.[L0]; if (!me0) return '';
+    const near = P.ids.filter(o => P.pos[o]?.[L0] && Math.abs(P.pos[o][L0] - me0) <= 2);
+    const stopOf = (o) => dbStints(sd, o).slice(0, -1).map(x => x.to).find(v => Math.abs(v - A.to) <= 6) ?? null;
+    let L1 = Math.max(A.to, ...near.map(o => stopOf(o) || 0)) + 2; while (L1 < N - 1 && (sc.has(L1) || sc.has(L1 - 1))) L1++; L1 = Math.min(N - 1, L1);
+    const gapAhead = (o, L) => { const order = P.ids.filter(q => P.pos[q]?.[L]).sort((a, b) => P.pos[a][L] - P.pos[b][L]); const i = order.indexOf(o); return i > 0 && X.cum[o]?.[L - 1] && X.cum[order[i - 1]]?.[L - 1] ? X.cum[o][L - 1] - X.cum[order[i - 1]][L - 1] : null; };
+    const rows = near.sort((a, b) => P.pos[a][L0] - P.pos[b][L0]).map(o => {
+      const a = P.pos[o][L0], b2 = P.pos[o]?.[L1]; const so = stopOf(o); const g0 = gapAhead(o, L0), g1 = gapAhead(o, L1); const mv = a && b2 ? a - b2 : 0;
+      return `<tr class="${o === d ? 'me' : ''}"><td>${nm(o)}</td><td class="num">${so ? `lap ${so}` : '<span class="muted">stayed out</span>'}</td><td class="num">P${a}</td><td class="num ${mv > 0 ? 'up' : mv < 0 ? 'down' : ''}">${b2 ? `P${b2}${mv ? ` ${mv > 0 ? '▲' : '▼'}${Math.abs(mv)}` : ''}` : '–'}</td><td class="num">${g0 != null && g1 != null ? `${dbSecs(g0)} → ${dbSecs(g1)}` : '–'}</td></tr>`;
+    }).join('');
+    // undercuts and overcuts: a car next to you that stopped on a different lap
+    const calls = near.filter(o => o !== d).map(o => {
+      const so = stopOf(o); if (!so || so === A.to) return null;
+      const was = P.pos[o][L0] < me0, now = (P.pos[o]?.[L1] ?? 99) < (P.pos[d]?.[L1] ?? 99); const meFirst = A.to < so;
+      if (was === now) return meFirst ? `${was ? `Your undercut on ${nm(o)} didn’t work: still behind` : `${nm(o)}’s overcut on you didn’t work: you stayed ahead`}` : `${was ? `Your overcut on ${nm(o)} didn’t work: still behind` : `${nm(o)}’s undercut on you didn’t work: you stayed ahead`}`;
+      return meFirst ? (was ? `<b class="up">Your undercut on ${nm(o)} worked</b>` : `<b class="down">${nm(o)}’s overcut worked: they got ahead</b>`) : (was ? `<b class="up">Your overcut on ${nm(o)} worked</b>` : `<b class="down">${nm(o)}’s undercut worked: they got ahead</b>`);
+    }).filter(Boolean);
+    const same = near.filter(o => o !== d && stopOf(o) === A.to).length;
+    return `<div><span class="label">Through ${st.length > 2 ? `stop ${k + 1}` : 'the stop'}: lap ${L0} against lap ${L1}</span><div class="table-wrap"><table class="db-tbl"><thead><tr><th>Driver</th><th class="num">Stopped</th><th class="num">Lap ${L0}</th><th class="num">Lap ${L1}</th><th class="num">Gap ahead</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:4px 0 0">${calls.length ? calls.join('. ') + '.' : same ? `The cars around you stopped on the same lap, so there was no undercut either way.` : 'No undercut or overcut either way.'}</p></div>`;
+  }).filter(Boolean) : [];
+  // 3. the forecasts against the race
+  const keys = strategyKeys(s, r).keys.filter(k => k !== key && !(key === 'SPR' && k === 'R'));
+  const runs = practiceRuns(s, r, d, keys); orderTyres(runs); fillTyres({}, runs);
+  const wear = g.wear?.[d] || [];
+  const fc = [...new Set(st.map(x => x.c))].filter(cp => DRY.includes(cp)).map(cp => {
+    const F = runs[cp]; const ss = st.filter(x => x.c === cp);
+    const wr = ss.map(x => { const first = x.from === 1; const w0 = first ? 0 : wear[x.from - 1]; const w1 = wear[x.to - 1]; const n = first ? x.to : x.to - x.from; return w1 != null && w0 != null && w1 > w0 && n >= 3 ? (w1 - w0) / n : null; }).filter(v => v != null);
+    const rw = wr.length ? avg(wr) : null; const rb = pace[cp]?.b ?? null;
+    if (!F || (rw == null && rb == null)) return null;
+    const ratio = F.wear > 0 && rw != null ? rw / F.wear : null;
+    let v = ''; let cls = '';
+    if (ratio != null && ratio >= 1.4) { v = `Wore ${ratio.toFixed(1)}× faster than forecast${F.life ? `: good for about ${Math.round(WEAR_LIMIT / rw)} laps, not ${F.life}` : ''}`; cls = 'down'; }
+    else if (ratio != null && ratio <= 0.7) { v = `Wore ${(1 / ratio).toFixed(1)}× slower than forecast: good for about ${Math.round(WEAR_LIMIT / rw)} laps`; cls = 'up'; }
+    else if (ratio != null && Math.abs(ratio - 1) >= 0.12) { v = `Wore ${Math.round(Math.abs(ratio - 1) * 100)}% ${ratio > 1 ? 'faster' : 'slower'} than forecast`; cls = 'warn'; }
+    else if (ratio != null) v = 'Wear as forecast';
+    if (rb != null && F.deg != null && Math.abs(rb - F.deg) >= 60) v += `${v ? '; ' : ''}${rb > F.deg ? 'lost more time as it wore' : 'held its pace better'} than practice showed`;
+    return { cp, F, rw, rb, v, cls, ratio };
+  }).filter(Boolean);
+  const worst = fc.filter(x => x.ratio != null).sort((a, b) => Math.abs(Math.log(b.ratio)) - Math.abs(Math.log(a.ratio)))[0];
+  if (worst && Math.abs(worst.ratio - 1) >= 0.4) verdict.push(`The ${(COMPOUNDS[worst.cp]?.[1] || 'tyre').toLowerCase()} wore <span class="${worst.cls}">${worst.ratio >= 1 ? `${worst.ratio.toFixed(1)}× faster` : `${(1 / worst.ratio).toFixed(1)}× slower`}</span> than practice said`);
+  if (fc.length) parts.push(`<div><span class="label">The forecasts against the race</span><div class="table-wrap"><table class="db-tbl"><thead><tr><th>Tyre</th><th class="num">Wear a lap: forecast</th><th class="num">Race</th><th class="num">Fall-off a lap: forecast</th><th class="num">Race</th><th>Verdict</th></tr></thead><tbody>
+    ${fc.map(x => `<tr><td>${tyreChip(x.cp)} ${COMPOUNDS[x.cp]?.[1] || ''}${x.F.src ? ' <span class="muted" title="' + esc(x.F.src) + '">(estimated)</span>' : ''}</td><td class="num">${x.F.wear != null ? x.F.wear.toFixed(2) + '%' : '–'}</td><td class="num">${x.rw != null ? x.rw.toFixed(2) + '%' : '–'}</td><td class="num">${x.F.deg != null ? (x.F.deg / 1000).toFixed(3) + ' s' : '–'}</td><td class="num">${x.rb != null ? (x.rb / 1000).toFixed(3) + ' s' : '–'}</td><td class="${x.cls}">${x.v || '–'}</td></tr>`).join('')}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:4px 0 0">The forecast is from the practice${keys.includes('SPR') ? ' and sprint' : ''} runs before this race; “estimated” means a tyre that wasn’t run, worked out from the others.</p></div>`);
+  // 4. in a wet race: each change between slicks and inters against the crossover, from the field's laps
+  const wetChanges = st.slice(0, -1).map((A, k) => ({ A, B: st[k + 1] })).filter(({ A, B }) => isSlick(A.c) !== isSlick(B.c) && (A.c === 7 || B.c === 7 || A.c === 8 || B.c === 8));
+  if (wetChanges.length) {
+    const ids = Object.keys(g.laps); const stOf = Object.fromEntries(ids.map(o => [o, dbStints(sd, o)]));
+    const on = (o, n) => { const x = stOf[o].find(y => n >= y.from && n <= y.to); return x && n !== x.from && n !== x.to ? x.c : null; };
+    const medBy = (n, slick) => median(ids.map(o => { const cp = on(o, n); return cp != null && isSlick(cp) === slick && !sc.has(n) ? g.laps[o][n - 1]?.[0] : null; }).filter(Boolean));
+    const diffAt = (n) => { const a = medBy(n, true), b = medBy(n, false); return a && b ? a - b : null; }; // + : inters quicker
+    const rows = wetChanges.map(({ A, B }) => {
+      const toWet = isSlick(A.c); let cross = null;
+      for (let n = 2; n <= N; n++) { const v = diffAt(n); if (v != null && (toWet ? v > 0 : v < 0)) { cross = n; break; } }
+      if (!cross) return `<tr><td>${tyreChip(A.c)} → ${tyreChip(B.c)}</td><td class="num">lap ${A.to}</td><td class="num">–</td><td class="muted">No lap with cars on both tyres to compare: the field changed together</td></tr>`;
+      const a = Math.min(A.to + 1, cross), z = Math.max(A.to + 1, cross); let lost = 0; for (let n = a; n < z; n++) lost += Math.abs(diffAt(n) || 0);
+      const early = A.to + 1 < cross; const txt = Math.abs(A.to + 1 - cross) <= 1 ? 'Right on the crossover' : `${early ? 'Early' : 'Late'} by ${plural(Math.abs(A.to + 1 - cross), 'lap')}: about ${dbSecs(lost, 0)} lost`;
+      if (Math.abs(A.to + 1 - cross) > 1) verdict.push(`The change to ${toWet ? 'inters' : 'slicks'} came ${early ? 'early' : 'late'} and cost about ${dbSecs(lost, 0)}`);
+      return `<tr><td>${tyreChip(A.c)} → ${tyreChip(B.c)}</td><td class="num">lap ${A.to}</td><td class="num">lap ${cross - 1}</td><td class="${Math.abs(A.to + 1 - cross) <= 1 ? 'up' : 'down'}">${txt}</td></tr>`;
+    }).join('');
+    parts.push(`<div><span class="label">The weather calls</span><div class="table-wrap"><table class="db-tbl"><thead><tr><th>Change</th><th class="num">You stopped</th><th class="num">Best lap to stop</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:4px 0 0">The best lap to stop is the one before the other tyre first ran quicker across the field (the median of the cars on each).</p></div>`);
+  }
+  if (!stopCharts.length && !through.length && !parts.length) return '';
+  return `<div class="panel"><div class="panel-h"><h2>Strategy debrief${title ? ` · ${esc(title)}` : ''}</h2><span class="muted" style="font-size:12px">From the laps in this race: how each choice played out</span></div><div class="panel-b stack">
+    ${verdict.length ? `<p class="db-verdict">${verdict.join('. ')}.</p>` : st.length === 1 ? `<p class="db-verdict">No stops: the whole race on one set of ${(COMPOUNDS[st[0].c]?.[1] || 'tyres').toLowerCase()}s.</p>` : ''}
+    ${stopCharts.length || through.length ? `<div class="db-two">${[...stopCharts, ...through].join('')}</div>` : ''}
+    ${parts.join('')}</div></div>`;
+}

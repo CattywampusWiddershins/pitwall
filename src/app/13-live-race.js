@@ -917,8 +917,8 @@ function liveIdle(c, s, r, w) {
 }
 /**
  * After a race: everything to look back on. The result and what it did to the championship; per driver of yours, the
- * strategy against the quickest in hindsight, how far off the best race, the ERS used, each stint's pace and wear, the
- * passes, and a theoretical best lap from their best sectors; then the positions lap by lap (yours highlighted), the lap
+ * strategy against the quickest in hindsight, each stint's pace and wear, the passes, and a theoretical best lap from
+ * their best sectors, then their strategy debrief and grouping (13b-debrief.js); then the positions lap by lap (yours highlighted), the lap
  * times against the winner and the cars around, race pace by driver and by team, who stopped when around you, and the
  * whole field's strategies. A title decided at this race gets its celebration on top.
  */
@@ -957,11 +957,7 @@ function debrief(c, s, r, key) {
     const best = Object.keys(runs).length >= 2 ? optimalStrategies(runs, n, { loss: PL.green })[0] : null;
     // safety-car laps count the same for both, so they're left out of the comparison
     const scLaps = new Set((g.safety?.periods || []).flatMap(p => Array.from({ length: Math.max(0, (p.to || p.from) - p.from + 1) }, (_, k) => p.from + k)));
-    const green = laps.filter((l, k) => l[0] && !scLaps.has(k + 1)); const actual = green.reduce((a, l) => a + l[0], 0);
-    const bestT = best ? best.t * green.length / n : null;
     let lap = 0; const bst = best ? best.seq.map((cp, k) => { const from = lap + 1; lap += best.lens[k]; return { c: cp, from, to: lap }; }) : [];
-    const E = g.ers; let ersPct = null;
-    if (E?.laps?.length && E.d === id) { const dep = E.laps.reduce((a, L2) => a + Math.max(0, ...L2.dep.filter(x => x != null)), 0); const harv = E.laps.reduce((a, L2) => a + Math.max(0, ...L2.harv.filter(x => x != null)), 0); const start = E.laps[0].ers.find(x => x != null) || 0; ersPct = Math.min(100, Math.round(dep / Math.max(1, harv + start) * 100)); }
     // each stint: its pace, fall-off and wear
     const wear = g.wear?.[id] || [];
     const stintRows = st.map((x, k) => {
@@ -979,8 +975,6 @@ function debrief(c, s, r, key) {
     return `<div class="panel"><div class="panel-h"><h2>${nm(id)}</h2><span class="muted" style="font-size:12px">${typeof f === 'number' ? `Finished ${ordWord(f)}` : f === 'DSQ' ? 'Disqualified' : 'Did not finish'}${gr ? ` from ${ordWord(gr)} on the grid` : ''}</span></div>
       <div class="panel-b"><div class="ers-facts">
         ${typeof f === 'number' && gr ? `<div><b>${f < gr ? `+${gr - f}` : f > gr ? `−${f - gr}` : '±0'}</b><span>places, grid to flag</span></div>` : ''}
-        ${bestT ? `<div><b>${(Math.abs(actual - bestT) / 1000).toFixed(1)} s</b><span>${actual >= bestT ? 'off the best race on your pace' : 'quicker than the best plan on your pace: a strong drive'}${scLaps.size ? ' (safety-car laps left out)' : ''}</span></div>` : ''}
-        ${ersPct != null ? `<div><b>${ersPct}%</b><span>of the energy you had (battery and harvest) deployed</span></div>` : ''}
         ${myPace && paceD.length ? `<div><b>${ordWord(paceD.findIndex(x => x.d === id) + 1)}</b><span>on race pace (${fmtLap(myPace)})</span></div>` : ''}
         ${P ? `<div><b>${P.made[id] || 0} / ${P.lost[id] || 0}</b><span>passes made / lost${P.lap1[id] ? `, ${P.lap1[id] > 0 ? '+' : ''}${P.lap1[id]} on lap 1` : ''}</span></div>` : ''}
         ${isFinite(bestLap) ? `<div><b>${fmtLap(bestLap)}</b><span>best lap${bs && bestLap - (bs[0] + bs[1] + bs[2]) > 50 ? `; ${fmtLap(bs[0] + bs[1] + bs[2])} from your best sectors` : ''}</span></div>` : ''}
@@ -1032,6 +1026,7 @@ function debrief(c, s, r, key) {
   return `${party}<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(r.name)}${sprint ? ' sprint' : ''}</h2><span class="muted" style="font-size:12px">${W ? `Won by ${nm(W)} · ` : ''}until the next session is logged</span></div>${champLine}</div>
     ${hasLaps ? '' : '<div class="callout">This race wasn’t logged from F1 25, so there are no laps to break down: only the result.</div>'}
     <div class="debrief-grid ${mineIds.length > 1 ? 'two' : ''}">${cols}</div>
+    ${hasLaps ? mineIds.map(id => { const t = mineIds.length > 1 ? lastName(dName(s, id)) : ''; try { return strategyDebrief(c, s, r, sd, key, id, t) + groupingPanel(c, s, sd, id, t); } catch (e) { console.warn(e); return ''; } }).join('') : ''}
     ${positionChartPanel(s, sd, { mine: mineIds })}
     ${lapChart}
     ${paceD.length ? `<div class="grid-2" style="align-items:start"><div class="panel"><div class="panel-h"><h2>Race pace · drivers</h2><span class="muted" style="font-size:12px">Clean laps: no lap 1, pit laps or slow laps</span></div><div class="panel-b tight">${bar(paceD, (x) => drvCell(s, x.d, { team: true }), (x) => mineIds.includes(x.d))}</div></div>
