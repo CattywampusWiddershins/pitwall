@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 4.1.1
+
+- Stories: moving into the all-time top five for world titles, or up it, is now a milestone with its list as a graphic, like the other all-time lists (further down, too many drivers share a number).
+- All-time list graphics: the driver a story is about is always on it. Drawing level for tenth puts them first among those level, with an extra line for each driver they drew level with.
+
 ## 4.1.0
 
 - **Charts in the graphics' look.** The lap-time charts (the debrief, a driver's lap view, the title by lap in race stories), tyre wear by stint and the season charts now look like the graphics: a dark panel, thick lines in each team's colour, bold condensed figures and a name tag at the end of each line. The text no longer stretches. The season charts mark every round with its country flag instead of a short name, so all of a season’s rounds fit.

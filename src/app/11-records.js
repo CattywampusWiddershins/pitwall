@@ -136,9 +136,10 @@ function buildTimeline(c) {
   const getT = (id) => T[teamRoot(id)] ||= (() => { const b = D.TEAM_BIO[teamRoot(id)]; return { wins: b?.wins || 0, titles: b?.conTitles?.length || 0, lastTitle: b?.conTitles?.slice(-1)[0] ?? null, streak: D.STREAKS_2025.teamStreak[teamRoot(id)] || 0 }; })();
   // The all-time lists (every driver since 1950), top 15 of each, seeded with everyone's record at the end of 2015.
   // A driver moving into the top ten, or up it, is a milestone (and a graphic); the lead is a record, told as one.
-  // Titles aren't followed: too many drivers share a number.
-  const LISTS = { wins: 'wins', podiums: 'podiums', poles: 'pole positions', starts: 'Grand Prix starts', pts: 'career points' };
-  const LIST_J = { starts: 0, wins: 1, podiums: 2, poles: 3, pts: 5 };
+  // Titles only count in the top five: further down, too many drivers share a number.
+  const LISTS = { wins: 'wins', podiums: 'podiums', poles: 'pole positions', starts: 'Grand Prix starts', pts: 'career points', titles: 'world titles' };
+  const LIST_J = { starts: 0, wins: 1, podiums: 2, poles: 3, pts: 5, titles: 6 };
+  const LIST_TOP = { titles: 5 }; const TOP_WORD = { 5: 'five', 10: 'ten' };
   const TOP = {}; {
     const tot = {}; for (const [id, A] of Object.entries(H.allTime || {})) tot[id] = Object.values(A.y).reduce((a, v) => a.map((x, j) => x + v[j]), [0, 0, 0, 0, 0, 0, 0]);
     for (const k of Object.keys(LISTS)) TOP[k] = Object.entries(tot).map(([id, t]) => ({ id, v: t[LIST_J[k]] })).sort((a, b) => b.v - a.v).slice(0, 15);
@@ -149,15 +150,20 @@ function buildTimeline(c) {
     const e = L.find(x => x.id === id); if (!e && v <= min) return;
     const was = rankIn(L, id); const old = e ? e.v : null;
     if (e) e.v = v; else L.push({ id, v }); L.sort((a, b) => b.v - a.v); L.length = Math.min(L.length, 15);
-    const now = rankIn(L, id); if (!now || now > 10 || now < 2 || (was != null && now >= was)) return;
+    const top = LIST_TOP[k] || 10;
+    const now = rankIn(L, id); if (!now || now > top || now < 2 || (was != null && now >= was)) return;
     const passed = L.filter(x => x.id !== id && x.v < v && (old == null || x.v >= old)).map(x => nameOf(x.id));
     const level = L.filter(x => x.id !== id && x.v === v).map(x => nameOf(x.id));
     const fmt = (n) => k === 'pts' ? fmtPts(n) : n;
-    const text = was == null || was > 10
-      ? `${nameOf(id)} enters the all-time top ten for ${LISTS[k]}, ${ordWord(now)} on ${fmt(v)}${level.length ? `, level with ${listJoin(level)}` : ''}`
+    const text = was == null || was > top
+      ? `${nameOf(id)} enters the all-time top ${TOP_WORD[top]} for ${LISTS[k]}, ${ordWord(now)} on ${fmt(v)}${level.length ? `, level with ${listJoin(level)}` : ''}`
       : !passed.length && level.length ? `${nameOf(id)} draws level with ${listJoin(level)} for ${ordWord(now)} on the all-time ${LISTS[k]} list`
       : `${nameOf(id)} moves up to ${ordWord(now)} on the all-time ${LISTS[k]} list${passed.length ? `, passing ${listJoin(passed.slice(-3))}` : ''}${level.length ? `, level with ${listJoin(level)}` : ''}`;
-    mile(id, text, 3, { stat: k, rank: now, from: was, rows: L.slice(0, 10).map(x => ({ id: x.id, name: nameOf(x.id), v: x.v })) });
+    // the graphic's rows: the top ten, the driver who moved first among those level with them, and never left off it
+    // (drawing level for tenth with two others makes it twelve)
+    const ord = L.slice().sort((a, b) => b.v - a.v || (a.id === id ? -1 : b.id === id ? 1 : 0));
+    let n = Math.max(10, ord.findIndex(x => x.id === id) + 1); while (n < ord.length && ord[n].v === ord[n - 1].v && ord[n - 1].v === v) n++;
+    mile(id, text, k === 'titles' ? 5 : 3, { stat: k, rank: now, from: was, rows: ord.slice(0, n).map(x => ({ id: x.id, name: nameOf(x.id), v: x.v })) });
   }
   const spanFrom = (p, key, where) => p.from[key] && p.from[key] !== where.when ? `${p.from[key]} to ${where.when}` : where.when;
   function bump(rid, id, value, where, { team = null, disp = null, when = null } = {}) {
@@ -275,6 +281,7 @@ function buildTimeline(c) {
         p.titleStreak = p.lastTitle === s.year - 1 ? p.titleStreak + 1 : 1; p.titles++; p.lastTitle = s.year;
         const a = age(id);
         mile(id, p.titles === 1 ? `${nameOf(id)} becomes world champion for the first time${a ? `, aged ${a.y}` : ''}` : `${nameOf(id)} wins a ${ordWord(p.titles)} world title`, 6);
+        listMove(id, 'titles', mile, where);
         bump('titles', id, p.titles, where, { when: String(s.year) }); bump('titleStreak', id, p.titleStreak, where, { when: `${s.year - p.titleStreak + 1}–${s.year}` });
         if (a) { if (p.titles <= 8) bump('youngTitle' + p.titles, id, a.days, where, { disp: ageTxt(a), when: String(s.year) }); bump('oldTitle', id, a.days, where, { disp: ageTxt(a), when: String(s.year) }); }
       }
