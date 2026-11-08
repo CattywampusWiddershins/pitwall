@@ -185,9 +185,18 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
     const tick = hi2 - lo2 > 30 ? 10 : 5; for (let L = Math.ceil(lo2 / tick) * tick; L <= hi2; L += tick) o += `<text x="${X(L)}" y="${H - 10}" class="gx-tick gx-sm" text-anchor="middle">L${L}</text>`;
     const scIn = [...sc].filter(n => n >= lo2 && n <= hi2); if (scIn.length) { const a = Math.min(...scIn), z = Math.max(...scIn); o += `<rect x="${X(a) - 4}" y="${t}" width="${X(z) - X(a) + 8}" height="${H - t - b}" fill="var(--yellow)" opacity=".08"/><text x="${(X(a) + X(z)) / 2}" y="${t + 12}" class="gx-sc" style="font-size:${Math.min(10, (X(z) - X(a) + 8) / 6.4).toFixed(1)}px" text-anchor="middle">SAFETY CAR</text>`; }
     o += `<polyline fill="none" stroke="#C9CFDC" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" points="${pts.map((p, i) => `${X(p[0]).toFixed(1)},${Y(vals[i]).toFixed(1)}`).join(' ')}"/>`;
-    o += `<circle cx="${X(bestP[0])}" cy="${Y(0)}" r="4" fill="var(--muted)"/><text x="${X(bestP[0])}" y="${Y(0) - 10}" class="gx-lab" text-anchor="${X(bestP[0]) < l + 70 ? 'start' : X(bestP[0]) > W - rr - 70 ? 'end' : 'middle'}">Best green-flag stop, lap ${bestP[0]}</text>`;
-    const ax = X(A.to), ay = Y(diff / 1000); const col = diff <= 1000 ? 'var(--green)' : 'var(--red)'; const right = ax < W * 0.6;
-    o += `<circle cx="${ax}" cy="${ay}" r="6" fill="${col}"/><text x="${ax + (right ? 10 : -10)}" y="${ay + 4}" style="fill:${col}" class="gx-lab gx-you" text-anchor="${right ? 'start' : 'end'}">You: lap ${A.to}, ${diff < 0 ? '−' : '+'}${dbSecs(diff)}</text>`;
+    // the two labels: each tries its spots in turn (above, below or beside its dot) until neither overlaps the other
+    const bx = X(bestP[0]), by = Y(0); const ax = X(A.to), ay = Y(diff / 1000); const col = diff <= 1000 ? 'var(--green)' : 'var(--red)'; const right = ax < W * 0.6;
+    const bTxt = `Best green-flag stop, lap ${bestP[0]}`, yTxt = `You: lap ${A.to}, ${diff < 0 ? '−' : '+'}${dbSecs(diff)}`;
+    const bW = bTxt.length * 5, yW = yTxt.length * 5.3; const bAnc = bx < l + bW / 2 ? 'start' : bx > W - rr - bW / 2 ? 'end' : 'middle';
+    const bX0 = bAnc === 'start' ? bx : bAnc === 'end' ? bx - bW : bx - bW / 2; const yX0 = right ? ax + 10 : ax - 10 - yW;
+    const box = (x0, w, y) => ({ x0, x1: x0 + w, y0: y - 9, y1: y + 2 }); const hit = (p, q) => p.x0 < q.x1 + 4 && q.x0 < p.x1 + 4 && p.y0 < q.y1 + 2 && q.y0 < p.y1 + 2;
+    let bY = by - 10, yY = ay + 4;
+    for (const [b1, y1] of [[by - 10, ay + 4], [by + 17, ay + 4], [by - 10, ay + 19], [by + 17, ay - 11], [by - 10, ay - 11], [by + 17, ay + 19]]) {
+      if (!hit(box(bX0, bW, b1), box(yX0, yW, y1)) && !(Math.abs(ax - bx) < 2 && Math.abs(ay - by) < 2 && b1 === y1)) { bY = b1; yY = y1; break; }
+    }
+    o += `<circle cx="${bx}" cy="${by}" r="4" fill="var(--muted)"/><text x="${bx}" y="${bY}" class="gx-lab" text-anchor="${bAnc}">${bTxt}</text>`;
+    o += `<circle cx="${ax}" cy="${ay}" r="6" fill="${col}"/><text x="${right ? ax + 10 : ax - 10}" y="${yY}" style="fill:${col}" class="gx-lab gx-you" text-anchor="${right ? 'start' : 'end'}">${yTxt}</text>`;
     return `<div><span class="label">When to stop${st.length > 2 ? ` · stop ${k + 1}` : ''}: time lost against the best lap, on this race’s pace</span><div class="gx-chart"><svg viewBox="0 0 ${W} ${H}">${o}</svg></div>
       <p class="muted" style="font-size:12px;margin:0">From the pace and fall-off on each tyre in this race (${COMPOUNDS[A.c]?.[1] || 'tyre'} ${(pa.b / 1000).toFixed(3)} s a lap, ${COMPOUNDS[B.c]?.[1] || 'tyre'} ${(pb.b / 1000).toFixed(3)} s) and a ${dbSecs(PL.green)} stop${under ? `; under the safety car it costs ${dbSecs(lossAt(A.to))}` : ''}.${capped ? ` Only laps where neither set would have gone past ${WEAR_LIMIT}% wear (at this race’s rate, from the wear each set had) are shown: laps ${lo}–${hi}.` : ''}</p></div>`;
   }).filter(Boolean);

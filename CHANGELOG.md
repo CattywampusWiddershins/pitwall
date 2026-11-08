@@ -6,7 +6,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 - Stories: moving into the all-time top five for world titles, or up it, is now a milestone with its list as a graphic, like the other all-time lists (further down, too many drivers share a number).
 - All-time list graphics: the driver a story is about is always on it. Drawing level for tenth puts them first among those level, with an extra line for each driver they drew level with.
-- Debrief, when-to-stop charts: smaller figures, laps as L15, SAFETY CAR in capitals sized to its band, and the best stop's label kept inside the chart.
+- Debrief, when-to-stop charts: smaller figures, laps as L15, SAFETY CAR in capitals sized to its band, and the best stop's label kept inside the chart. When your stop sits close to the best one, the two labels move apart instead of overlapping.
 
 ## 4.1.0
 
