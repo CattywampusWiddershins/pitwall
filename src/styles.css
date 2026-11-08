@@ -1328,3 +1328,9 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .gx-unit { text-transform: uppercase; }
 .gx-name { font-family: var(--font-display); font-size: 14px; font-weight: 900; fill: #fff; letter-spacing: .02em; }
 .gx-sub { font-family: var(--font-display); font-size: 11px; font-weight: 700; fill: #C9CFDC; }
+
+/* the debrief's stop charts: smaller figures (the chart is drawn narrower than the others) */
+.gx-chart .gx-sm { font-size: 9px; }
+.gx-lab { font-family: var(--font-display); font-size: 9px; font-weight: 600; fill: #8D95A6; }
+.gx-you { font-weight: 800; }
+.gx-sc { font-family: var(--font-display); font-weight: 800; fill: var(--yellow); letter-spacing: .06em; }
