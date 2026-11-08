@@ -4,7 +4,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 4.1.0
 
-- **Charts in the graphics' look.** The lap-time charts (the debrief, a driver's lap view, the title by lap in race stories), tyre wear by stint and the season charts now look like the graphics: a dark panel, thick lines in each team's colour, bold condensed figures and a name tag at the end of each line. The text no longer stretches.
+- **Charts in the graphics' look.** The lap-time charts (the debrief, a driver's lap view, the title by lap in race stories), tyre wear by stint and the season charts now look like the graphics: a dark panel, thick lines in each team's colour, bold condensed figures and a name tag at the end of each line. The text no longer stretches. The season charts mark every round with its country flag instead of a short name, so all of a season’s rounds fit.
 - **Tables in the live standings' look.** The race pace by driver and by team, who stopped when, fastest sectors, strategy and penalties, the through-the-stop tables, the field's grouping and a real season's results now use the same boards as the live championship and the detailed standings.
 - **The debrief knows the tyres you had.** The quickest strategy in hindsight is worked out on the sets you had for the race (the race's own snapshot from F1 25: at Mexico four softs, two mediums and one hard), so it no longer picks sets you didn't have. The when-to-stop charts only offer laps where neither set would have gone past 75% wear, from the wear each set had going in.
 - Debrief: the through-the-stop tables sit under the charts, full width. A car that stops later than the comparison lap shows as yet to stop, and isn't counted as an undercut or overcut.

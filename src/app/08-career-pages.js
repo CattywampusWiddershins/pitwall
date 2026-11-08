@@ -137,6 +137,8 @@ function renderH2H() {
   </div>`;
 }
 
+/** A round's country flag code, from its circuit. */
+const roundFlagCode = (r) => A.country[D.TRACKS[trackOf(r)]?.country] || null;
 /** Championship points and position after every race logged. */
 function progression(s, kind = 'driver') {
   const rounds = activeRounds(s);
@@ -147,12 +149,12 @@ function progression(s, kind = 'driver') {
     const rows = kind === 'team' ? constructorStandings(s, st).map(x => ({ id: x.team.id, pts: x.pts, pos: x.pos })) : driverStandings(s, st).map(x => ({ id: x.id, pts: x.pts, pos: x.pos }));
     for (const x of rows) { const o = (by[x.id] ||= { id: x.id, pts: Array(idx.length).fill(null), pos: Array(idx.length).fill(null) }); o.pts[k] = x.pts; o.pos[k] = x.pos; }
   });
-  return { labels: idx.map(i => rounds[i].id.toUpperCase()), names: idx.map(i => rounds[i].name), by, n: idx.length };
+  return { labels: idx.map(i => rounds[i].id.toUpperCase()), names: idx.map(i => rounds[i].name), flags: idx.map(i => roundFlagCode(rounds[i])), by, n: idx.length };
 }
 /** Line chart for season progress. series: [{ label, color, dash, bold, vals }] */
-function lineChart(series, labels, { invert = false, maxY = null, names = [] } = {}) {
+function lineChart(series, labels, { invert = false, maxY = null, names = [], flags = null } = {}) {
   if (labels.length < 1 || !series.length) return '<div class="empty">Log a race to see the chart.</div>';
-  const W = 760, H = 320, L = 52, R = 130, T = 14, B = 30;
+  const W = 760, H = 320, L = 52, R = 130, T = 14, B = flags ? 36 : 30;
   const all = series.flatMap(x => x.vals.filter(v => v != null));
   const top = maxY ?? Math.max(1, ...all);
   const xs = (i) => L + (labels.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (labels.length - 1));
@@ -169,7 +171,8 @@ function lineChart(series, labels, { invert = false, maxY = null, names = [] } =
   return `<div class="gx-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Season progress chart">
     ${ticks.map(t => `<line x1="${L}" x2="${W - R}" y1="${ys(t)}" y2="${ys(t)}" class="gx-grid"/><text x="${L - 10}" y="${ys(t) + 4}" text-anchor="end" class="gx-tick">${invert ? 'P' + t : t}</text>`).join('')}
     ${splitAt != null ? `<line x1="${xs(splitAt - 1)}" x2="${xs(splitAt - 1)}" y1="${T}" y2="${H - B}" class="gx-grid" stroke-dasharray="4 4"/><text x="${xs(splitAt - 1) + 6}" y="${T + 12}" class="gx-tick">NOW</text>` : ''}
-    ${labels.map((l, i) => (i % every === 0 && labels.length - 1 - i >= every) || i === labels.length - 1 ? `<text x="${xs(i)}" y="${H - 8}" text-anchor="middle" class="gx-tick">${esc(String(l).toUpperCase())}</text>` : '').join('')}
+    ${flags ? labels.map((l, i) => { const svg = flags[i] && A.flags[flags[i]]; const fw = Math.min(20, (W - L - R) / labels.length - 3), fh = fw * 0.75; return svg ? `<image href="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}" x="${(xs(i) - fw / 2).toFixed(1)}" y="${H - B + 12}" width="${fw.toFixed(1)}" height="${fh.toFixed(1)}" preserveAspectRatio="none"><title>${esc(names[i] || l)}</title></image>` : `<text x="${xs(i)}" y="${H - 8}" text-anchor="middle" class="gx-tick" style="font-size:9px">${esc(String(l).toUpperCase())}</text>`; }).join('')
+      : labels.map((l, i) => (i % every === 0 && labels.length - 1 - i >= every) || i === labels.length - 1 ? `<text x="${xs(i)}" y="${H - 8}" text-anchor="middle" class="gx-tick">${esc(String(l).toUpperCase())}</text>` : '').join('')}
     ${series.slice().reverse().map(x => `${x.split != null ? line(x, path(x.vals, 0, x.split), false, 1) + line(x, path(x.vals, x.split - 1), true, 0.6) : line(x, path(x.vals), x.dash, x.bold ? 1 : 0.9)}
       ${x.vals.map((v, i) => v == null ? '' : `<circle cx="${xs(i)}" cy="${ys(v)}" r="${x.bold ? 4 : 3}" fill="${gxCol(x.color)}" ${x.split != null && i >= x.split ? 'opacity="0.55"' : ''}><title>${esc(x.name || x.label)} · ${esc(names[i] || labels[i])}: ${invert ? 'P' + v : fmtPts(v) + ' pts'}</title></circle>`).join('')}`).join('')}
     ${ends.map(e => { const col = gxCol(e.x.color); const x = W - R + 14; return `<line x1="${xs(e.k)}" y1="${e.y0}" x2="${x}" y2="${e.y}" stroke="${col}" stroke-width="1" opacity=".35" stroke-dasharray="2 3"/><rect x="${x + 4}" y="${e.y - 11}" width="5" height="22" fill="${col}"/><text x="${x + 15}" y="${e.y - 1}" class="gx-name">${esc(String(e.x.label).toUpperCase())}</text><text x="${x + 15}" y="${e.y + 12}" class="gx-sub">${invert ? 'P' + e.v : fmtPts(e.v) + ' PTS'}</text>`; }).join('')}
@@ -369,7 +372,7 @@ function renderReview() {
       ${x ? `<div class="row" style="gap:10px;flex-wrap:nowrap">${avatar(c, s, x.id, 40)}<div style="min-width:0"><b>${esc(dName(s, x.id))}</b><div class="muted" style="font-size:12px">${esc(fmt(x))}</div></div></div>` : `<span class="muted">${esc(note || 'Nobody qualifies')}</span>`}</div>`).join('')}
       <div class="award"><span class="label">Team of the year</span><div class="row" style="gap:10px;flex-wrap:nowrap">${teamLogo(c, cs[0].team, 40)}<div><b>${esc(cs[0].team.name)}</b><div class="muted" style="font-size:12px">${cs[0].pts} points</div></div></div></div>
     </div></div></div>
-    <div class="panel"><div class="panel-h"><h2>Championship story</h2></div><div class="panel-b">${lineChart(driverSeries(s, dp, 'pts', 5), dp.labels, { names: dp.names })}</div></div>
+    <div class="panel"><div class="panel-h"><h2>Championship story</h2></div><div class="panel-b">${lineChart(driverSeries(s, dp, 'pts', 5), dp.labels, { names: dp.names, flags: dp.flags })}</div></div>
     <div class="grid-2">
       <div class="panel"><div class="panel-h"><h2>Records</h2><button class="btn sm ghost" data-act="nav" data-view="records">Record book</button></div>
         ${recs.length ? `<div class="panel-b"><ul class="ms-list">${recs.map(e => `<li>${e.team ? teamLogo(c, e.team, 26) : avatar(c, s, e.id, 26)}<span><b>${esc(listJoin(recNames(tl, e)))}</b> ${e.co ? 'share' : e.kind === 'broken' ? 'broke' : 'equalled'} the record for the ${esc(tl.recs[e.rid].label)} <span class="muted">· ${esc(e.r.name)}</span></span></li>`).join('')}</ul></div>` : '<div class="empty">No records broken this season.</div>'}</div>

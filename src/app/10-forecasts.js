@@ -360,6 +360,7 @@ function projectionHtml(c, s, m) {
   const baseLabels = prog.n ? prog.labels : ['NOW'];
   const labels = [...baseLabels, ...m.left.map(l => l.r.id.toUpperCase())];
   const names = [...(prog.n ? prog.names : ['Now']), ...m.left.map(l => l.r.name + ' (projected)')];
+  const flags = [...(prog.n ? prog.flags : [null]), ...m.left.map(l => roundFlagCode(l.r))];
   let picks = Pj.rows.slice(0, 8);
   const me = Pj.rows.find(isMe); if (me && !picks.includes(me)) picks = [...picks, me];
   const series = picks.map(x => {
@@ -377,7 +378,7 @@ function projectionHtml(c, s, m) {
       <div class="tile"><span class="label">Projected decider</span><span class="v" style="font-size:20px">${m.decided ? 'Decided' : Pj.decider ? `R${Pj.decider.i + 1}` : 'Final round'}</span><span class="muted" style="font-size:12px">${m.decided ? 'Already settled' : Pj.decider ? esc(Pj.decider.r.name) : esc(m.left[m.left.length - 1].r.name)}</span></div>
       <div class="tile"><span class="label">Races left</span><span class="v">${m.left.length}</span><span class="muted" style="font-size:12px">${Pj.sprints ? `+ ${Pj.sprints} sprint${Pj.sprints > 1 ? 's' : ''}` : 'no sprints'}</span></div>
     </div>
-    <div class="panel-b">${lineChart(series, labels, { names })}</div>
+    <div class="panel-b">${lineChart(series, labels, { names, flags })}</div>
     <div class="panel-b">${(() => {
       // a weekend that can decide the title (its sprint included) gets the verdict: predicted to win it, or to go on
       const P0 = roundPerms(m); const S0 = sprintPerms(m); const decWeekend = !m.decided && !!(P0?.clinch?.length || S0?.clinch?.length);

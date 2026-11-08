@@ -494,9 +494,9 @@ function renderStandings() {
   } else if (tab === 'progress') {
     const dp = progression(s, 'driver'); const tp = progression(s, 'team');
     body = !dp.n ? '<div class="empty">Log a race to see how the championship develops.</div>' : `<div class="panel-b stack">
-      <div><h3>Drivers’ points</h3><p class="muted" style="font-size:12px;margin:2px 0 6px">Top eight plus you. Second driver of a team is dashed.</p>${lineChart(driverSeries(s, dp, 'pts'), dp.labels, { names: dp.names })}</div>
-      <div><h3>Drivers’ championship position</h3>${lineChart(driverSeries(s, dp, 'pos'), dp.labels, { invert: true, names: dp.names })}</div>
-      <div><h3>Constructors’ points</h3>${lineChart(s.teams.map(t => ({ label: D.TEAM_BIO[t.id]?.short || (t.id === MYTEAM ? c.myTeam?.short : t.name.slice(0, 3).toUpperCase()), name: t.name, color: t.color, bold: t.id === s.playerTeamId, vals: tp.by[t.id]?.pts || [] })), tp.labels, { names: tp.names })}</div>
+      <div><h3>Drivers’ points</h3><p class="muted" style="font-size:12px;margin:2px 0 6px">Top eight plus you. Second driver of a team is dashed.</p>${lineChart(driverSeries(s, dp, 'pts'), dp.labels, { names: dp.names, flags: dp.flags })}</div>
+      <div><h3>Drivers’ championship position</h3>${lineChart(driverSeries(s, dp, 'pos'), dp.labels, { invert: true, names: dp.names, flags: dp.flags })}</div>
+      <div><h3>Constructors’ points</h3>${lineChart(s.teams.map(t => ({ label: D.TEAM_BIO[t.id]?.short || (t.id === MYTEAM ? c.myTeam?.short : t.name.slice(0, 3).toUpperCase()), name: t.name, color: t.color, bold: t.id === s.playerTeamId, vals: tp.by[t.id]?.pts || [] })), tp.labels, { names: tp.names, flags: tp.flags })}</div>
     </div>`;
   } else {
     body = `<table class="matrix"><thead><tr><th>Driver</th>${rounds.map((r, i) => `<th title="${esc(r.name)}">${i + 1}<br><span class="dim">${esc(r.id.toUpperCase())}</span></th>`).join('')}<th class="num">Pts</th></tr></thead><tbody>
