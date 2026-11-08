@@ -152,29 +152,28 @@ function progression(s, kind = 'driver') {
 /** Line chart for season progress. series: [{ label, color, dash, bold, vals }] */
 function lineChart(series, labels, { invert = false, maxY = null, names = [] } = {}) {
   if (labels.length < 1 || !series.length) return '<div class="empty">Log a race to see the chart.</div>';
-  const W = 760, H = 300, L = 40, R = 64, T = 14, B = 30;
+  const W = 760, H = 320, L = 52, R = 130, T = 14, B = 30;
   const all = series.flatMap(x => x.vals.filter(v => v != null));
   const top = maxY ?? Math.max(1, ...all);
   const xs = (i) => L + (labels.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (labels.length - 1));
   const ys = invert ? (v) => T + (v - 1) / Math.max(1, top - 1) * (H - T - B) : (v) => T + (1 - v / top) * (H - T - B);
   const step = invert ? null : [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500].find(st => top / st <= 5) || 1000;
   const ticks = invert ? [1, 5, 10, 15, 20, 25].filter(t => t <= top) : Array.from({ length: Math.floor(top / step) + 1 }, (_, i) => i * step);
-  const every = Math.ceil(labels.length / 14);
-  // end-of-line labels, nudged apart so they don't overlap
-  const ends = series.map(x => { let k = x.vals.length - 1; while (k >= 0 && x.vals[k] == null) k--; return k < 0 ? null : { x, k, y: ys(x.vals[k]) }; }).filter(Boolean).sort((a, b) => a.y - b.y);
-  for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 12) ends[i].y = ends[i - 1].y + 12;
+  const every = Math.ceil(labels.length / 12);
+  // name tags at the end of each line, pushed apart so they never overlap
+  const ends = gxEndLabels(series.map(x => { let k = x.vals.length - 1; while (k >= 0 && x.vals[k] == null) k--; return k < 0 ? null : { x, k, y0: ys(x.vals[k]), y: ys(x.vals[k]), v: x.vals[k] }; }).filter(Boolean), T + 8, H - B - 8);
   const path = (vals, from = 0, to = vals.length) => { let d = ''; vals.forEach((v, i) => { if (v == null || i < from || i >= to) return; d += `${d ? 'L' : 'M'}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`; }); return d; };
-  const line = (x, d, dash, op) => `<path d="${d}" fill="none" stroke="${x.color}" stroke-width="${x.bold ? 3.2 : 2}" ${dash ? 'stroke-dasharray="6 4"' : ''} stroke-linejoin="round" stroke-linecap="round" opacity="${op}"/>`;
+  const line = (x, d, dash, op) => `<path d="${d}" fill="none" stroke="${gxCol(x.color)}" stroke-width="${x.bold ? 4.5 : 3}" ${dash ? 'stroke-dasharray="10 7"' : ''} stroke-linejoin="round" stroke-linecap="round" opacity="${op}"/>`;
   // a series with `split` is real up to that index and projected (dashed, faded) after it
   const splitAt = series.find(x => x.split != null)?.split;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Season progress chart">
-    <g class="grid">${ticks.map(t => `<line x1="${L}" x2="${W - R}" y1="${ys(t)}" y2="${ys(t)}"/><text x="${L - 8}" y="${ys(t) + 4}" text-anchor="end">${invert ? 'P' + t : t}</text>`).join('')}</g>
-    ${splitAt != null ? `<g class="grid"><line x1="${xs(splitAt - 1)}" x2="${xs(splitAt - 1)}" y1="${T}" y2="${H - B}" stroke-dasharray="3 3"/><text x="${xs(splitAt - 1) + 4}" y="${T + 10}">Now</text></g>` : ''}
-    ${labels.map((l, i) => i % every === 0 || i === labels.length - 1 ? `<text x="${xs(i)}" y="${H - 10}" text-anchor="middle">${esc(l)}</text>` : '').join('')}
-    ${series.slice().reverse().map(x => `${x.split != null ? line(x, path(x.vals, 0, x.split), false, x.bold ? 1 : 0.9) + line(x, path(x.vals, x.split - 1), true, x.bold ? 0.85 : 0.6) : line(x, path(x.vals), x.dash, x.bold ? 1 : 0.9)}
-      ${x.vals.map((v, i) => v == null ? '' : `<circle cx="${xs(i)}" cy="${ys(v)}" r="${x.bold ? 3.4 : 2.4}" fill="${x.color}" ${x.split != null && i >= x.split ? 'opacity="0.55"' : ''}><title>${esc(x.name || x.label)} · ${esc(names[i] || labels[i])}: ${invert ? 'P' + v : fmtPts(v) + ' pts'}</title></circle>`).join('')}`).join('')}
-    ${ends.map(e => `<text x="${xs(e.k) + 8}" y="${e.y + 4}" style="fill:${e.x.color};font-weight:700">${esc(e.x.label)}</text>`).join('')}
-  </svg>`;
+  return `<div class="gx-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Season progress chart">
+    ${ticks.map(t => `<line x1="${L}" x2="${W - R}" y1="${ys(t)}" y2="${ys(t)}" class="gx-grid"/><text x="${L - 10}" y="${ys(t) + 4}" text-anchor="end" class="gx-tick">${invert ? 'P' + t : t}</text>`).join('')}
+    ${splitAt != null ? `<line x1="${xs(splitAt - 1)}" x2="${xs(splitAt - 1)}" y1="${T}" y2="${H - B}" class="gx-grid" stroke-dasharray="4 4"/><text x="${xs(splitAt - 1) + 6}" y="${T + 12}" class="gx-tick">NOW</text>` : ''}
+    ${labels.map((l, i) => (i % every === 0 && labels.length - 1 - i >= every) || i === labels.length - 1 ? `<text x="${xs(i)}" y="${H - 8}" text-anchor="middle" class="gx-tick">${esc(String(l).toUpperCase())}</text>` : '').join('')}
+    ${series.slice().reverse().map(x => `${x.split != null ? line(x, path(x.vals, 0, x.split), false, 1) + line(x, path(x.vals, x.split - 1), true, 0.6) : line(x, path(x.vals), x.dash, x.bold ? 1 : 0.9)}
+      ${x.vals.map((v, i) => v == null ? '' : `<circle cx="${xs(i)}" cy="${ys(v)}" r="${x.bold ? 4 : 3}" fill="${gxCol(x.color)}" ${x.split != null && i >= x.split ? 'opacity="0.55"' : ''}><title>${esc(x.name || x.label)} · ${esc(names[i] || labels[i])}: ${invert ? 'P' + v : fmtPts(v) + ' pts'}</title></circle>`).join('')}`).join('')}
+    ${ends.map(e => { const col = gxCol(e.x.color); const x = W - R + 14; return `<line x1="${xs(e.k)}" y1="${e.y0}" x2="${x}" y2="${e.y}" stroke="${col}" stroke-width="1" opacity=".35" stroke-dasharray="2 3"/><rect x="${x + 4}" y="${e.y - 11}" width="5" height="22" fill="${col}"/><text x="${x + 15}" y="${e.y - 1}" class="gx-name">${esc(String(e.x.label).toUpperCase())}</text><text x="${x + 15}" y="${e.y + 12}" class="gx-sub">${invert ? 'P' + e.v : fmtPts(e.v) + ' PTS'}</text>`; }).join('')}
+  </svg></div>`;
 }
 /** Chart series for drivers: the top n plus you, teammates dashed so team colours stay readable. */
 function driverSeries(s, prog, key, n = 8) {

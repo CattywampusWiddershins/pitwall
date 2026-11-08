@@ -253,7 +253,7 @@ function renderWeekend() {
 
 /** A weekend of a real (or simulated) season: the results as they were, read-only. */
 function renderHistWeekend(s, rounds, ri, r) {
-  const w = s.weekends[r.id] || { sessions: {} };
+  const c = career(); const w = s.weekends[r.id] || { sessions: {} };
   const keys = ['Q', 'SPR', 'R'].filter(k => w.sessions[k]?.done);
   if (!keys.includes(ui.session)) ui.session = keys[keys.length - 1];
   const key = ui.session; const sd = w.sessions[key]; const race = isRaceKind(key);
@@ -272,15 +272,8 @@ function renderHistWeekend(s, rounds, ri, r) {
     </div>
     <div class="panel">
       <div class="session-tabs">${keys.map(k => `<button data-act="pick-session" data-key="${k}" class="${k === key ? 'on' : ''}"><span class="ok"></span>${SESSION_LABEL[k]}</button>`).join('')}</div>
-      ${sd ? `<div class="panel-b tight table-wrap"><table class="res-table">
-        <thead><tr><th>Pos</th><th>Driver</th><th>${race ? 'Fastest lap' : 'Best lap'}</th><th>${race ? 'Time / gap' : 'Gap to pole'}</th>${race ? '<th class="num">Pts</th>' : ''}</tr></thead>
-        <tbody>${sd.results.map((x, i) => `<tr class="${x.d === fl ? 'is-fl' : ''}">
-          <td class="pos ${i < 3 && !OUT.includes(x.st) ? 'p' + (i + 1) : ''}">${OUT.includes(x.st) ? `<span class="tag dnf">${x.st}</span>` : i + 1}</td>
-          <td>${drvCell(s, x.d, { team: true })}</td>
-          <td class="mono">${esc(x.lap || '')}${x.d === fl ? ' <span class="fl-tag">FL</span>' : ''}</td>
-          <td class="mono">${OUT.includes(x.st) ? '' : +x.laps > 0 ? `+${x.laps} lap${+x.laps > 1 ? 's' : ''}` : esc(x.gap || (i === 0 && !race ? 'Pole' : ''))}</td>
-          ${race ? `<td class="num">${pointsFor(key, i + 1, x.st, x.pts) || ''}</td>` : ''}</tr>`).join('')}</tbody>
-      </table></div>` : '<div class="empty">No results for this weekend.</div>'}
+      ${sd ? `<div class="panel-b">${tvBoard(`${SESSION_LABEL[key]} · classification`, [{ h: '', w: '34px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(140px, 1.4fr)' }, { h: 'Team', w: 'minmax(100px, 1fr)' }, { h: race ? 'Fastest lap' : 'Best lap', w: '104px', num: true }, { h: race ? 'Time / gap' : 'Gap to pole', w: '110px', num: true }, ...(race ? [{ h: 'Pts', w: '44px', num: true }] : [])],
+        sd.results.map((x, i) => ({ me: x.d === PLAYER, act: 'open-driver', id: x.d, cells: [OUT.includes(x.st) ? `<small>${x.st}</small>` : i + 1, tvLogo(c, teamOf(s, x.d)), `<b>${esc(dName(s, x.d).toUpperCase())}</b>`, `<small>${esc(teamOf(s, x.d)?.name || '')}</small>`, `${esc(x.lap || '')}${x.d === fl ? ' <span class="fl">FL</span>' : ''}`, OUT.includes(x.st) ? '' : +x.laps > 0 ? `+${x.laps} lap${+x.laps > 1 ? 's' : ''}` : esc(x.gap || (i === 0 && !race ? 'Pole' : '')), ...(race ? [pointsFor(key, i + 1, x.st, x.pts) || ''] : [])] })))}</div>` : '<div class="empty">No results for this weekend.</div>'}
       <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">${s.historic === 'sim' ? 'Simulated before your career began. It cannot be edited.' : 'Real results, from before your career began. They cannot be edited.'}</div>
     </div>
   </div>`;
@@ -451,14 +444,14 @@ function standingsBars(c, s, rows, team, prev) {
 }
 /**
  * A table in the live championship's look (Live Race): dark, heavy type, a team-colour chip per row. cols: [{ h, w, num }]
- * (w a CSS grid width); rows: [{ cells, me, act, id }]. side: HTML for a verdict box beside it (the forecast's).
+ * (w a CSS grid width); rows: [{ cells, me, act, id, attrs }] (attrs: more attributes for the row). side: HTML for a verdict box beside it (the forecast's).
  */
 function tvBoard(title, cols, rows, side = '') {
   const tpl = cols.map(c => c.w || 'minmax(0, 1fr)').join(' ');
   const line = (cells, extra = '') => cells.map((v, k) => `<span class="${cols[k].num ? 'n' : ''}">${v}</span>`).join('');
   return `<div class="tvb ${side ? 'has-side' : ''}"><div class="tvb-main"><span class="cb-ttl">${esc(title)}</span><div class="tvb-scroll"><div class="tvb-in" style="--tpl:${tpl}">
     <div class="tvb-h">${line(cols.map(c => c.h))}</div>
-    ${rows.map(r => `<div class="tvb-r ${r.me ? 'me' : ''}" ${r.act ? `data-act="${r.act}" data-id="${esc(r.id)}"` : ''}>${line(r.cells)}</div>`).join('')}
+    ${rows.map(r => `<div class="tvb-r ${r.me ? 'me' : ''} ${r.cls || ''}" ${r.act ? `data-act="${r.act}" data-id="${esc(r.id)}"` : ''} ${r.attrs || ''}>${line(r.cells)}</div>`).join('')}
   </div></div></div>${side}</div>`;
 }
 /** The team's logo beside a name on a board (its badge when no logo is uploaded). */

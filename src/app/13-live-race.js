@@ -948,13 +948,16 @@ function debrief(c, s, r, key, { kept = false } = {}) {
   // race pace: each driver's clean laps (no first lap, no in- or out-laps, nothing 4% off their median)
   const paceD = sd.results.map(x => ({ d: x.d, p: g.laps?.[x.d] ? cleanLapPace(sd, x.d) : null })).filter(x => x.p).sort((a, b) => a.p - b.p);
   const paceT = s.teams.map(t => { const v = paceD.filter(x => teamOf(s, x.d)?.id === t.id); return v.length ? { t, p: avg(v.map(x => x.p)), n: v.length } : null; }).filter(Boolean).sort((a, b) => a.p - b.p);
-  const bar = (rows, label, isMe) => { const best = rows[0]?.p; const worst = rows[rows.length - 1]?.p; return `<div class="table-wrap"><table class="pace-table"><tbody>${rows.map((x, i) => `<tr class="${isMe(x) ? 'me' : ''}"><td class="num">${i + 1}</td><td>${label(x)}</td><td class="num mono">${fmtLap(x.p)}</td><td class="num">${i ? `+${((x.p - best) / 1000).toFixed(3)}` : ''}</td><td style="width:35%"><div class="h2h-bar"><i style="--c:${x.t?.color || teamColor(s, x.d)};width:${Math.max(4, 100 - (x.p - best) / Math.max(1, worst - best) * 85)}%"></i></div></td></tr>`).join('')}</tbody></table></div>`; };
+  // race pace in the live standings' look: place, badge, name, the lap, the gap and a bar in the team's colour
+  const paceBoard = (title, rows, who, isMe, act) => { const best = rows[0]?.p; const worst = rows[rows.length - 1]?.p; return tvBoard(title, [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: act === 'open-team' ? 'Team' : 'Driver', w: 'minmax(130px, 1.4fr)' }, { h: '', w: 'minmax(80px, 1fr)' }, { h: 'Pace', w: '84px', num: true }, { h: 'Gap', w: '66px', num: true }, { h: '', w: 'minmax(90px, 1fr)' }],
+    rows.map((x, i) => { const tm = x.t || teamOf(s, x.d); return { me: isMe(x), act, id: x.t ? x.t.id : x.d, cells: [i + 1, tvLogo(c, tm), ...who(x), fmtLap(x.p), i ? `+${((x.p - best) / 1000).toFixed(3)}` : '', `<span class="tvb-bar"><i style="width:${Math.max(4, 100 - (x.p - best) / Math.max(1, worst - best) * 85)}%;background:${tm?.color || '#5E6A82'}"></i></span>`] }; })); };
   // each of your drivers
   const cols = mineIds.map(id => {
     const laps = g.laps?.[id]; if (!laps?.length) return '';
     const st = stintsOf(sd, id); const n = laps.length;
     const runs = practiceRuns(s, r, id, [key]); orderTyres(runs); fillTyres({}, runs);
-    const best = Object.keys(runs).length >= 2 ? optimalStrategies(runs, n, { loss: PL.green })[0] : null;
+    const sets = dbRaceSets(s, r, sd, id); // only the sets you had for the race
+    const best = Object.keys(runs).length >= 2 ? optimalStrategies(runs, n, { loss: PL.green, sets })[0] : null;
     // safety-car laps count the same for both, so they're left out of the comparison
     const scLaps = new Set((g.safety?.periods || []).flatMap(p => Array.from({ length: Math.max(0, (p.to || p.from) - p.from + 1) }, (_, k) => p.from + k)));
     let lap = 0; const bst = best ? best.seq.map((cp, k) => { const from = lap + 1; lap += best.lens[k]; return { c: cp, from, to: lap }; }) : [];
@@ -981,7 +984,7 @@ function debrief(c, s, r, key, { kept = false } = {}) {
         ${tmPace && myPace ? `<div><b>${myPace <= tmPace ? '−' : '+'}${(Math.abs(myPace - tmPace) / 1000).toFixed(3)} s</b><span>a lap against ${short(tm)}</span></div>` : ''}
       </div></div>
       <div class="panel-b stack" style="border-top:1px solid var(--line)"><div><span class="label">Your strategy</span>${stintBar(st, n)}</div>
-        ${best ? `<div><span class="label">Quickest in hindsight, from your race pace (${plural(best.stops, 'stop')})</span>${stintBar(bst, n)}</div>` : ''}
+        ${best ? `<div><span class="label">Quickest in hindsight, from your race pace${sets ? ' on the sets you had' : ''} (${plural(best.stops, 'stop')})</span>${stintBar(bst, n)}</div>` : ''}
         <div class="table-wrap"><table><thead><tr><th>Stint</th><th class="num">Laps</th><th class="num">Length</th><th class="num">Pace</th><th class="num">Fall-off / lap</th><th class="num">Wear at the end</th></tr></thead><tbody>${stintRows}</tbody></table></div></div></div>`;
   }).join('');
   // lap times: yours against the winner and the cars that finished either side of you
@@ -992,7 +995,7 @@ function debrief(c, s, r, key, { kept = false } = {}) {
     const all = who.flatMap(d => g.laps[d].slice(1).map(l => l[0]).filter(Boolean)); const cap = (median(all) || 90000) * 1.04;
     const sc = new Set((g.safety?.periods || []).flatMap(p => Array.from({ length: Math.max(0, (p.to || p.from) - p.from + 1) }, (_, k) => p.from + k)));
     const pitL = (d) => new Set(stintsOf(sd, d).slice(0, -1).flatMap(x => [x.to, x.to + 1]));
-    const series = who.map(d => { const P = pitL(d); return { color: teamColor(s, d), dashed: !mineIds.includes(d), dots: mineIds.includes(d), pts: g.laps[d].map((l, k) => [k + 1, l[0] / 1000]).filter((p, k) => k > 0 && p[1] && !P.has(k + 1) && !sc.has(k + 1) && p[1] * 1000 <= cap) }; });
+    const series = who.map(d => { const P = pitL(d); return { color: teamColor(s, d), label: lastName(dName(s, d)), sub: d === W ? 'winner' : mineIds.includes(d) ? '' : typeof fin(d) === 'number' ? ordWord(fin(d)) : '', dashed: !mineIds.includes(d), dots: mineIds.includes(d), pts: g.laps[d].map((l, k) => [k + 1, l[0] / 1000]).filter((p, k) => k > 0 && p[1] && !P.has(k + 1) && !sc.has(k + 1) && p[1] * 1000 <= cap) }; });
     return `<div class="panel"><div class="panel-h"><h2>Lap times</h2><span class="muted" style="font-size:12px">${who.map(d => `<span style="color:${teamColor(s, d)}">●</span> ${short(d)}`).join(' · ')} · pit laps and safety-car laps left off</span></div><div class="panel-b">${svgChart(series, { h: 220, yFmt: (v) => fmtLap(v * 1000), invert: true })}</div></div>`;
   })();
   // who stopped when, around you
@@ -1002,7 +1005,8 @@ function debrief(c, s, r, key, { kept = false } = {}) {
     const near = sd.results.slice(Math.max(0, k0 - 3), k0 + 4).map(x => x.d).filter(d => g.laps[d]?.length);
     const at = (d) => { const k = sd.results.findIndex(x => x.d === d); return k < 0 ? 99 : k; };
     const ids = [...new Set([...near, ...mineIds])].filter(d => g.laps[d]?.length).sort((a, b) => at(a) - at(b));
-    return `<div class="panel"><div class="panel-h"><h2>Who stopped when</h2><span class="muted" style="font-size:12px">The cars around ${short(me)} at the finish</span></div><div class="panel-b tight table-wrap"><table><tbody>${ids.map(d => { const st = stintsOf(sd, d); return `<tr class="${mineIds.includes(d) ? 'me' : ''}"><td class="num">${typeof fin(d) === 'number' ? fin(d) : fin(d) || '–'}</td><td>${drvCell(s, d, { team: true })}</td><td>${st.map((x, k) => `${tyreChip(x.c)}${k < st.length - 1 ? ` <span class="muted">lap ${x.to}</span> ` : ''}`).join(' ')}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+    return tvBoard(`Who stopped when · the cars around ${lastName(dName(s, me))} at the finish`, [{ h: '', w: '34px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(120px, 1fr)' }, { h: 'Stops', w: 'minmax(180px, 1.6fr)' }],
+      ids.map(d => { const st = stintsOf(sd, d); return { me: mineIds.includes(d), act: 'open-driver', id: d, cells: [typeof fin(d) === 'number' ? fin(d) : `<small>${fin(d) || '–'}</small>`, tvLogo(c, teamOf(s, d)), `<b>${esc(lastName(dName(s, d)).toUpperCase())}</b>`, `<span class="tvb-stops">${st.map((x, k) => `${tyreChip(x.c)}${k < st.length - 1 ? `<small>L${x.to}</small>` : ''}`).join('')}</span>`] }; }));
   })();
   // fastest sectors of the race
   const sectors = (() => {
@@ -1010,9 +1014,10 @@ function debrief(c, s, r, key, { kept = false } = {}) {
     const bestBy = [2, 3, 4].map(k => { let b = null; for (const [d, laps] of Object.entries(g.laps)) for (const l of laps) if (l[k] && (!b || l[k] < b.v)) b = { d, v: l[k] }; return b; });
     if (!bestBy.every(Boolean)) return '';
     const mineBest = mineIds.filter(id => g.laps[id]).map(id => ({ id, v: [2, 3, 4].map(k => Math.min(...g.laps[id].map(l => l[k]).filter(Boolean))) }));
-    return `<div class="panel"><div class="panel-h"><h2>Fastest sectors</h2></div><div class="panel-b tight table-wrap"><table><thead><tr><th></th><th>Sector 1</th><th>Sector 2</th><th>Sector 3</th><th class="num">Ideal lap</th></tr></thead><tbody>
-      <tr><td class="muted">Fastest</td>${bestBy.map(b => `<td><b class="mono">${(b.v / 1000).toFixed(3)}</b> <span class="muted">${short(b.d)}</span></td>`).join('')}<td class="num mono">${fmtLap(bestBy.reduce((a, b) => a + b.v, 0))}</td></tr>
-      ${mineBest.map(x => `<tr class="me"><td>${short(x.id)}</td>${x.v.map((v, k) => `<td class="mono">${isFinite(v) ? `${(v / 1000).toFixed(3)} <span class="muted">+${((v - bestBy[k].v) / 1000).toFixed(3)}</span>` : '–'}</td>`).join('')}<td class="num mono">${x.v.every(isFinite) ? fmtLap(x.v.reduce((a, b) => a + b, 0)) : '–'}</td></tr>`).join('')}</tbody></table></div></div>`;
+    const cols = [{ h: '', w: '26px' }, { h: '', w: 'minmax(110px, 1fr)' }, ...['Sector 1', 'Sector 2', 'Sector 3'].map(h => ({ h, w: '100px', num: true })), { h: 'Ideal lap', w: '96px', num: true }];
+    return tvBoard('Fastest sectors', cols, [
+      { cells: ['', '<b>FASTEST</b>', ...bestBy.map(b => `${(b.v / 1000).toFixed(3)} <small>${esc(lastName(dName(s, b.d)).toUpperCase())}</small>`), fmtLap(bestBy.reduce((a, b) => a + b.v, 0))] },
+      ...mineBest.map(x => ({ me: true, act: 'open-driver', id: x.id, cells: [tvLogo(c, teamOf(s, x.id)), `<b>${esc(lastName(dName(s, x.id)).toUpperCase())}</b>`, ...x.v.map((v, k) => isFinite(v) ? `${(v / 1000).toFixed(3)} <small>+${((v - bestBy[k].v) / 1000).toFixed(3)}</small>` : '–'), x.v.every(isFinite) ? fmtLap(x.v.reduce((a, b) => a + b, 0)) : '–'] }))]);
   })();
   const champChart = (() => {
     const me = mineIds[0]; const prog = progression(s, 'driver'); const idx = rounds.map((x, k) => k).filter(k => s.weekends[rounds[k].id]?.sessions?.R?.done);
@@ -1029,9 +1034,9 @@ function debrief(c, s, r, key, { kept = false } = {}) {
     ${hasLaps ? mineIds.map(id => { const t = mineIds.length > 1 ? lastName(dName(s, id)) : ''; try { return strategyDebrief(c, s, r, sd, key, id, t) + groupingPanel(c, s, sd, id, t); } catch (e) { console.warn(e); return ''; } }).join('') : ''}
     ${positionChartPanel(s, sd, { mine: mineIds })}
     ${lapChart}
-    ${paceD.length ? `<div class="grid-2" style="align-items:start"><div class="panel"><div class="panel-h"><h2>Race pace · drivers</h2><span class="muted" style="font-size:12px">Clean laps: no lap 1, pit laps or slow laps</span></div><div class="panel-b tight">${bar(paceD, (x) => drvCell(s, x.d, { team: true }), (x) => mineIds.includes(x.d))}</div></div>
-      <div class="panel"><div class="panel-h"><h2>Race pace · teams</h2><span class="muted" style="font-size:12px">Both drivers’ clean laps</span></div><div class="panel-b tight">${bar(paceT, (x) => `${esc(x.t.name)}${x.n < 2 ? ' <span class="muted">(one car)</span>' : ''}`, (x) => x.t.id === s.playerTeamId)}</div></div></div>` : ''}
-    <div class="grid-2" style="align-items:start">${pitTable}${sectors}</div>
+    ${paceD.length ? `<div class="stack">${paceBoard('Race pace · drivers · clean laps: no lap 1, pit laps or slow laps', paceD, (x) => [`<b>${esc(dName(s, x.d).toUpperCase())}</b>`, `<small>${esc(teamOf(s, x.d)?.name || '')}</small>`], (x) => mineIds.includes(x.d), 'open-driver')}
+      ${paceBoard('Race pace · teams · both drivers’ clean laps', paceT, (x) => [`<b>${esc(x.t.name.toUpperCase())}</b>`, x.n < 2 ? '<small>one car</small>' : ''], (x) => x.t.id === s.playerTeamId, 'open-team')}</div>` : ''}
+    <div class="stack">${pitTable}${sectors}</div>
     ${strategyPanel(s, sd, key, r.id)}`;
 }
 /** Sounds for the pit calls: uploaded in Settings, kept with your data. */

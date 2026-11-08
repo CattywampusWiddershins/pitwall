@@ -149,12 +149,12 @@ function strategyPanel(s, sd, key, roundId) {
   const race = isRaceKind(key);
   const pens = (d) => (g.penalties || []).filter(p => p.d === d && PENALTY_NAMES[p.type]);
   return `<div class="panel"><div class="panel-h"><h2>${race ? 'Strategy & penalties' : 'Runs & tyres'}</h2><span class="muted" style="font-size:12px">From F1 25${race && g.safety ? ` · ${plural(g.safety.sc || 0, 'safety car')}, ${plural(g.safety.vsc || 0, 'virtual safety car')}${g.safety.red ? `, ${plural(g.safety.red, 'red flag')}` : ''}` : ''} · tap a driver for every lap</span></div>
-    <div class="panel-b tight table-wrap"><table><thead><tr><th>Pos</th><th>Driver</th><th>${race ? 'Strategy' : 'Tyres (laps)'}</th>${race ? '<th class="num">Stops</th><th>Penalties</th>' : '<th class="num">Laps</th>'}<th class="num">${race ? 'Clean-lap pace' : 'Best'}</th></tr></thead><tbody>
-      ${sd.results.filter(x => g.laps[x.d]?.length).map((x, i) => { const p = race ? cleanLapPace(sd, x.d) : Math.min(...g.laps[x.d].map(l => l[0]).filter(Boolean)); return `<tr class="${x.d === PLAYER ? 'me' : ''}" data-act="gd-open" data-round="${roundId}" data-key="${key}" data-d="${x.d}" style="cursor:pointer"><td class="num">${OUT.includes(x.st) ? x.st : i + 1}</td><td>${drvCell(s, x.d, { team: true })}</td>
-        <td style="${race ? 'min-width:260px;width:40%' : ''}">${race ? stintBar(stintsOf(sd, x.d), Math.max(...Object.keys(g.laps).map(d => stintsOf(sd, d).at(-1)?.to || 0)), { compact: true }) : `<div class="row" style="gap:4px;flex-wrap:nowrap">${stintsOf(sd, x.d).map(st => tyreChip(st.c, st.to - st.from + 1, `${(COMPOUNDS[st.c] || [])[1] || 'Tyre'}, laps ${st.from}–${st.to}`)).join('')}</div>`}</td>
-        ${race ? `<td class="num">${g.pits?.[x.d] ?? '–'}</td><td class="muted" style="font-size:12px">${pens(x.d).map(q => `<span class="pen-item">${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${INFRINGEMENTS[q.infr] ? ` for ${INFRINGEMENTS[q.infr]}` : ''}${q.lap ? ` (lap ${q.lap})` : ''}<button class="pen-x" data-act="pen-remove" data-round="${roundId}" data-key="${key}" data-i="${g.penalties.indexOf(q)}" title="Remove this penalty (say you undid it with a flashback)" aria-label="Remove penalty">×</button></span>`).join(', ') || '–'}</td>` : `<td class="num">${g.laps[x.d].length}</td>`}
-        <td class="num mono">${p && isFinite(p) ? fmtLap(p) : '–'}</td></tr>`; }).join('')}
-    </tbody></table></div>${race ? battlesFooter(s, sd) : ''}</div>`;
+    <div class="panel-b">${tvBoard('', [{ h: '', w: '34px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(120px, 1fr)' }, { h: race ? 'Strategy' : 'Tyres (laps)', w: race ? 'minmax(240px, 2.4fr)' : 'minmax(160px, 1.6fr)' }, ...(race ? [{ h: 'Stops', w: '48px', num: true }, { h: 'Penalties', w: 'minmax(120px, 1.2fr)' }] : [{ h: 'Laps', w: '48px', num: true }]), { h: race ? 'Clean-lap pace' : 'Best', w: '100px', num: true }],
+      sd.results.filter(x => g.laps[x.d]?.length).map((x, i) => { const p = race ? cleanLapPace(sd, x.d) : Math.min(...g.laps[x.d].map(l => l[0]).filter(Boolean));
+        return { me: x.d === PLAYER, attrs: `data-act="gd-open" data-round="${roundId}" data-key="${key}" data-d="${x.d}"`, cls: 'click', cells: [OUT.includes(x.st) ? `<small>${x.st}</small>` : i + 1, tvLogo(career(), teamOf(s, x.d)), `<b>${esc(lastName(dName(s, x.d)).toUpperCase())}</b>`,
+          race ? stintBar(stintsOf(sd, x.d), Math.max(...Object.keys(g.laps).map(d => stintsOf(sd, d).at(-1)?.to || 0)), { compact: true }) : `<span class="row" style="gap:4px;flex-wrap:nowrap">${stintsOf(sd, x.d).map(st => tyreChip(st.c, st.to - st.from + 1, `${(COMPOUNDS[st.c] || [])[1] || 'Tyre'}, laps ${st.from}–${st.to}`)).join('')}</span>`,
+          ...(race ? [g.pits?.[x.d] ?? '–', `<small>${pens(x.d).map(q => `<span class="pen-item">${q.type === 4 ? `${q.time} s` : PENALTY_NAMES[q.type]}${INFRINGEMENTS[q.infr] ? ` for ${INFRINGEMENTS[q.infr]}` : ''}${q.lap ? ` (lap ${q.lap})` : ''}<button class="pen-x" data-act="pen-remove" data-round="${roundId}" data-key="${key}" data-i="${g.penalties.indexOf(q)}" title="Remove this penalty (say you undid it with a flashback)" aria-label="Remove penalty">×</button></span>`).join(', ') || '–'}</small>`] : [g.laps[x.d].length]),
+          p && isFinite(p) ? fmtLap(p) : '–'] }; }))}</div>${race ? battlesFooter(s, sd) : ''}</div>`;
 }
 /** Under the race strategy table: the battles (pairs who swapped places five or more times) and who passed most. */
 function battlesFooter(s, sd) {
@@ -164,21 +164,37 @@ function battlesFooter(s, sd) {
   return `<div class="panel-b battles-foot"><div><span class="label">Battles</span> ${B.length ? B.slice(0, 6).map(b => `<span class="battle-chip"><b>${nm(b.ahead)}</b> v ${nm(b.behind)} · ${b.n} passes${b.to > b.from ? `, laps ${b.from}–${b.to}` : ''}</span>`).join('') : '<span class="muted">Nobody swapped places eight times or more.</span>'}</div>
     <div class="muted">${P.total === 1 ? '1 pass' : `${P.total} passes`} in all${top.length ? `. Most made: ${top.map(([d, n]) => `${nm(d)} ${n}`).join(', ')}` : ''}.${sd.game.passSource === 'positions' ? ' (From position changes: the game sent no overtake events.)' : ''}</div></div>`;
 }
-/** A small line chart: series [{ color, pts: [[x, y]], dashed, label }]. */
+/**
+ * A line chart in the graphics' look (the title-by-lap graphic): a dark panel, faint grid, thick lines in each team's
+ * colour (a dark one lifted so it shows), condensed bold figures, and a name tag at the end of each line that has a
+ * label. series [{ color, pts: [[x, y]], dashed, dots, label, sub }].
+ */
+const gxCol = (c) => { const h = String(c || ''); return /^#[0-9a-f]{6}$/i.test(h) && gfxLum(h) < 60 ? mixHex(h, '#FFFFFF', 0.4) : c; };
+function gxEndLabels(ends, top, bottom) {
+  ends.sort((a, b) => a.y - b.y); for (let j = 1; j < ends.length; j++) if (ends[j].y - ends[j - 1].y < 26) ends[j].y = ends[j - 1].y + 26;
+  const over = ends.length ? ends[ends.length - 1].y - bottom : 0; if (over > 0) ends.forEach(e => { e.y = Math.max(top, e.y - over); });
+  return ends;
+}
 function svgChart(series, { h = 180, yFmt = (v) => v, invert = false, xLabel = 'Lap' } = {}) {
   const all = series.flatMap(s => s.pts); if (!all.length) return '<div class="empty">No data</div>';
-  const W = 640, P = { l: 56, r: 12, t: 10, b: 26 };
+  const named = series.some(s => s.label);
+  const W = 760, H = Math.max(170, h + 30), P = { l: 70, r: named ? 138 : 16, t: 14, b: 30 };
   const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1); let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y1 - y0 < 1e-6) { y0 -= 1; y1 += 1; }
   const pad = (y1 - y0) * 0.08; y0 = y0 >= 0 ? Math.max(0, y0 - pad) : y0 - pad; y1 += pad;
   const X = (v) => P.l + (v - x0) / (x1 - x0) * (W - P.l - P.r);
-  const Y = (v) => invert ? P.t + (v - y0) / (y1 - y0) * (h - P.t - P.b) : h - P.b - (v - y0) / (y1 - y0) * (h - P.t - P.b);
-  const ticks = [0, 0.5, 1].map(k => y0 + (y1 - y0) * k);
-  return `<svg class="g-chart" viewBox="0 0 ${W} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px">
-    ${ticks.map(v => `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" class="g-grid"/><text x="${P.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="g-tick">${esc(yFmt(v))}</text>`).join('')}
-    <text x="${W - P.r}" y="${h - 6}" text-anchor="end" class="g-tick">${xLabel} ${Math.round(x1)}</text><text x="${P.l}" y="${h - 6}" class="g-tick">${Math.round(x0)}</text>
-    ${series.map(s => `<polyline fill="none" stroke="${s.color}" stroke-width="2" ${s.dashed ? 'stroke-dasharray="5 4" opacity=".7"' : ''} points="${s.pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')}"/>${s.dots ? s.pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.5" fill="${s.color}"/>`).join('') : ''}`).join('')}
-  </svg>`;
+  const Y = (v) => invert ? P.t + (v - y0) / (y1 - y0) * (H - P.t - P.b) : H - P.b - (v - y0) / (y1 - y0) * (H - P.t - P.b);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(k => y0 + (y1 - y0) * k);
+  const span = x1 - x0; const st = span > 50 ? 10 : span > 25 ? 5 : span > 10 ? 2 : 1; const xt = [];
+  for (let v = Math.ceil(x0 / st) * st; v <= x1; v += st) xt.push(v);
+  const lap = xLabel === 'Lap'; if (!lap) while (xt.length && X(xt[xt.length - 1]) > W - P.r - 70) xt.pop(); // room for the unit at the end
+  const ends = gxEndLabels(series.filter(s => s.label && s.pts.length).map(s => { const q = s.pts[s.pts.length - 1]; return { s, x: X(q[0]), y0: Y(q[1]), y: Y(q[1]), v: q[1] }; }), P.t + 8, H - P.b - 8);
+  return `<div class="gx-chart"><svg viewBox="0 0 ${W} ${H}" role="img">
+    ${ticks.map(v => `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" class="gx-grid"/><text x="${P.l - 10}" y="${Y(v) + 4}" text-anchor="end" class="gx-tick">${esc(yFmt(v))}</text>`).join('')}
+    ${xt.map(v => `<text x="${X(v)}" y="${H - 8}" text-anchor="middle" class="gx-tick">${lap ? 'L' + Math.round(v) : Math.round(v)}</text>`).join('')}${lap ? '' : `<text x="${W - P.r}" y="${H - 8}" text-anchor="end" class="gx-tick gx-unit">${esc(xLabel)}</text>`}
+    ${series.map(s => { const col = gxCol(s.color); return `<polyline fill="none" stroke="${col}" stroke-width="${s.label ? 3.5 : 3}" stroke-linejoin="round" stroke-linecap="round" ${s.dashed ? 'stroke-dasharray="10 7" opacity=".85"' : ''} points="${s.pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')}"/>${s.dots ? s.pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3" fill="${col}"><title>${esc(s.label || '')} ${lap ? 'lap ' + p[0] : p[0]}: ${esc(yFmt(p[1]))}</title></circle>`).join('') : ''}`; }).join('')}
+    ${ends.map(e => { const col = gxCol(e.s.color); const x = W - P.r + 14; return `<line x1="${e.x}" y1="${e.y0}" x2="${x}" y2="${e.y}" stroke="${col}" stroke-width="1" opacity=".35" stroke-dasharray="2 3"/><rect x="${x + 4}" y="${e.y - 11}" width="5" height="22" fill="${col}"/><text x="${x + 15}" y="${e.y - 1}" class="gx-name">${esc(String(e.s.label).toUpperCase())}</text><text x="${x + 15}" y="${e.y + 12}" class="gx-sub">${esc(e.s.sub ?? yFmt(e.v))}</text>`; }).join('')}
+  </svg></div>`;
 }
 /** Least-squares line through [[x, y]]: { a: intercept, b: slope }. */
 function fitLine(pts) {
@@ -214,7 +230,7 @@ function gameDriverModal(roundId, key, d) {
   modal(`<div class="modal-h"><h2>${esc(dName(s, d))} · ${esc(SESSION_LABEL[key])}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b stack">
       <div class="row" style="gap:6px">${st.map(x => tyreChip(x.c, x.to - x.from + 1)).join('')}<span class="muted" style="font-size:12px">${plural(laps.length, 'lap')}${g.pits?.[d] != null ? ` · ${plural(g.pits[d], 'stop')}` : ''}</span></div>
-      <div><span class="label">Lap times</span>${svgChart([{ color: 'var(--team)', pts: lapPts, dots: true }], { yFmt: (v) => fmtLap(v * 1000), invert: true })}</div>
+      <div><span class="label">Lap times</span>${svgChart([{ color: teamColor(s, d), pts: lapPts, dots: true, label: lastName(dName(s, d)), sub: 'lap times' }], { yFmt: (v) => fmtLap(v * 1000), invert: true })}</div>
       <div><span class="label">Tyre wear by stint${practice ? ' (dashed: where each run was heading)' : ''}</span>${wearSeries.length ? svgChart(wearSeries, { yFmt: (v) => v.toFixed(0) + '%', xLabel: 'Tyre age' }) : '<div class="muted" style="font-size:13px">No tyre wear recorded for this session (it was logged before Pitwall 1.9.1).</div>'}
         ${life.length ? `<div class="muted" style="font-size:12px;display:grid;gap:2px;margin-top:4px">${life.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}</div>
       <div class="table-wrap" style="max-height:260px;overflow:auto"><table><thead><tr><th class="num">Lap</th><th>Tyre</th><th class="num">Time</th><th class="num">Wear</th><th></th></tr></thead><tbody>

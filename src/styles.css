@@ -1310,3 +1310,21 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 
 /* Debriefs tab */
 .db-picker { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .db-rounds { display: flex; gap: 6px; flex-wrap: wrap; } .db-rounds small { opacity: .7; margin-left: 3px; }
+
+/* boards in the live standings' look: colours, a stint bar inside, the stops */
+.tvb .up { color: var(--green); } .tvb .down { color: var(--red); } .tvb .fl { color: var(--purple); font-size: 11px; }
+.tvb-r.click { cursor: pointer; } .tvb-r.click:hover { background: rgba(255,255,255,.05); }
+.tvb-r .stint-bar.compact { min-width: 220px; }
+.tvb-stops { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; } .tvb-stops small { margin-right: 2px; }
+.tvb .pen-item { white-space: normal; }
+.db-two.wide { grid-template-columns: minmax(0, 1fr); }
+.db-tv .tvb { height: 100%; }
+
+/* charts in the graphics' look */
+.gx-chart { background: #121218; border: 1px solid #23232E; border-radius: var(--r); padding: 8px 6px 2px; margin-top: 6px; }
+.gx-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.gx-grid { stroke: #2A2A36; stroke-width: 1.5; }
+.gx-tick { font-family: var(--font-display); font-size: 12px; font-weight: 700; fill: #8D95A6; letter-spacing: .03em; }
+.gx-unit { text-transform: uppercase; }
+.gx-name { font-family: var(--font-display); font-size: 14px; font-weight: 900; fill: #fff; letter-spacing: .02em; }
+.gx-sub { font-family: var(--font-display); font-size: 11px; font-weight: 700; fill: #C9CFDC; }

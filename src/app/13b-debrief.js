@@ -108,20 +108,38 @@ function groupingPanel(c, s, sd, d, title) {
     o += `<line x1="${cx}" x2="${cx}" y1="14" y2="96" stroke="var(--fg)" opacity=".45"/>`;
     const placed = [];
     x.res.slice().sort((a, b) => a.r - b.r).forEach(q => { const X = cx + Math.max(-215, Math.min(215, q.r * k)) - (Math.abs(q.r * k) > 215 ? 0 : 0); let Y = 55, j = 0; while (placed.some(p => Math.hypot(p[0] - X, p[1] - Y) < 9) && j < 12) { j++; Y = 55 + (j % 2 ? 1 : -1) * Math.ceil(j / 2) * 9; } placed.push([X, Y]); o += `<circle cx="${X.toFixed(1)}" cy="${Y}" r="4" fill="${Math.abs(q.r) > FLYER ? 'var(--red)' : 'var(--fg)'}"><title>Lap ${q.n}: ${q.r > 0 ? '+' : '−'}${(Math.abs(q.r) / 1000).toFixed(3)} s</title></circle>`; });
-    for (const v of [-FLYER, -300, 0, 300, FLYER]) o += `<text x="${cx + v * k}" y="112" fill="var(--muted)" font-size="10" text-anchor="middle">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v / 1000).toFixed(1)} s</text>`;
-    return `<svg viewBox="0 0 ${W} 120" class="db-swarm">${o}</svg>`;
+    for (const v of [-FLYER, -300, 0, 300, FLYER]) o += `<text x="${cx + v * k}" y="112" class="gx-tick" text-anchor="middle">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v / 1000).toFixed(1)} s</text>`;
+    return `<div class="gx-chart"><svg viewBox="0 0 ${W} 120">${o}</svg></div>`;
   };
   const cards = G.map((x, k) => `<div class="db-card"><h3>${tyreChip(x.c)} Stint ${k + 1} · laps ${x.from}–${x.to}</h3>${x.sd == null
     ? `<p class="muted db-none">No group: ${plural(x.clean, 'clean-air lap')} of ${x.to - x.from + 1}${why(x)}.</p>`
     : `<div class="db-big"><div><b>±${(x.sd / 1000).toFixed(2)} s</b><span>group (1 standard deviation)</span></div><div><b>${dbSecs(x.spread, 2)}</b><span>slowest to quickest</span></div><div><b>${x.fly}</b><span>${x.fly === 1 ? 'flyer' : 'flyers'}</span></div><div><b>${x.clean}</b><span>clean-air laps of ${x.to - x.from + 1}</span></div></div>${swarm(x)}`}</div>`).join('');
   const F = dbFieldGrouping(sd); const best = F[0]?.sd; const at = F.findIndex(x => x.d === d);
-  const field = F.length ? `<div><span class="label">The field’s tightest groups this race (at least 10 clean-air laps)</span><div class="table-wrap"><table class="db-tbl"><tbody>${F.map((x, k) => `<tr class="${x.d === d ? 'me' : ''}"><td class="num" style="width:30px">${k + 1}</td><td>${drvCell(s, x.d, { team: true })}</td><td class="num mono">±${(x.sd / 1000).toFixed(3)} s</td><td class="num muted">${plural(x.n, 'lap')}</td><td style="width:35%"><div class="h2h-bar"><i style="--c:${teamColor(s, x.d)};width:${Math.round(best / x.sd * 100)}%"></i></div></td></tr>`).join('')}</tbody></table></div>${at < 0 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${esc(lastName(dName(s, d)))} had too few clean-air laps to rank.</p>` : ''}</div>` : '';
+  const field = F.length ? `<div>${tvBoard('The field’s tightest groups · at least 10 clean-air laps', [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(130px, 1.4fr)' }, { h: 'Team', w: 'minmax(100px, 1fr)' }, { h: 'Group', w: '84px', num: true }, { h: 'Laps', w: '54px', num: true }, { h: '', w: 'minmax(80px, 1fr)' }], F.map((x, k) => ({ me: x.d === d, act: 'open-driver', id: x.d, cells: [k + 1, tvLogo(c, teamOf(s, x.d)), `<b>${esc(dName(s, x.d).toUpperCase())}</b>`, `<small>${esc(teamOf(s, x.d)?.name || '')}</small>`, `±${(x.sd / 1000).toFixed(3)} s`, x.n, `<span class="tvb-bar"><i style="width:${Math.round(best / x.sd * 100)}%;background:${teamColor(s, x.d)}"></i></span>`] })))}${at < 0 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${esc(lastName(dName(s, d)))} had too few clean-air laps to rank.</p>` : ''}</div>` : '';
   return `<div class="panel"><div class="panel-h"><h2>Grouping${title ? ` · ${esc(title)}` : ''}</h2><span class="muted" style="font-size:12px">How tightly the clean-air laps grouped, stint by stint</span></div><div class="panel-b stack">
     <div><span class="label">Every lap of the race</span>${strip}</div>
     <p class="muted" style="font-size:12px;margin:0">A clean-air lap: more than a second clear of the car ahead (any car, lapped ones too) at both ends of the lap, no pass for or against on the lap or the laps either side, green flags, and not the first lap, a restart lap or a lap in or out of the pits. Each lap is measured from the stint’s own fall-off line, not the average, as the tyres slow you through a stint. A <b>flyer</b> is a lap more than 0.6 s off the line: counted, but kept out of the group.</p>
     <div class="db-cards">${cards}</div>${field}</div></div>`;
 }
 
+/**
+ * The sets you had for the race, { c: [wear when the race began] }, or null without the game's data. The race's own
+ * snapshot lists every set still yours at the flag (the race sets only become available in the race, so the one taken
+ * after qualifying hasn't got them); each set's wear going in is from the last snapshot before the race.
+ */
+function dbRaceSets(s, r, sd, d) {
+  if (d !== PLAYER) return null; const T = sd.game?.tyreSets?.sets; if (!T?.length) return null;
+  const w = s.weekends[r.id]?.sessions || {}; const before = ['Q', 'SQ', 'SPR', 'FP3', 'FP2', 'FP1'].map(k => w[k]?.game?.tyreSets?.sets).find(x => x?.length === T.length);
+  const out = {}; T.forEach((x, i) => { if (x.avail || x.fitted) (out[x.c] ||= []).push(before ? before[i].wear || 0 : 0); });
+  for (const k in out) out[k].sort((a, b) => a - b);
+  return out;
+}
+/** Wear a lap on each compound in this race, from the driver's own stints: { c: % a lap }. */
+function dbRaceWear(sd, d) {
+  const wear = sd.game?.wear?.[d] || []; const by = {};
+  for (const x of dbStints(sd, d)) { const first = x.from === 1; const w0 = first ? 0 : wear[x.from - 1]; const w1 = wear[x.to - 1]; const n = first ? x.to : x.to - x.from; if (w1 != null && w0 != null && w1 > w0 && n >= 3) (by[x.c] ||= []).push((w1 - w0) / n); }
+  return Object.fromEntries(Object.entries(by).map(([c, v]) => [c, avg(v)]));
+}
 /** Pace on each compound in this race, by tyre age: { c: { a, b, n } } (a + b × age), from green laps near the stint's pace. */
 function dbRacePace(sd, d) {
   const tags = dbLapTags(sd, d); const out = {};
@@ -137,13 +155,19 @@ function dbRacePace(sd, d) {
 function strategyDebrief(c, s, r, sd, key, d, title) {
   const g = sd.game; const laps = g.laps?.[d]; if (!laps?.length) return '';
   const st = dbStints(sd, d); const N = laps.length; const sc = dbScLaps(g); const PL = pitLoss(c, trackOf(r));
-  const pace = dbRacePace(sd, d); const nm = (x) => esc(lastName(dName(s, x)));
+  const pace = dbRacePace(sd, d); const raceWear = dbRaceWear(sd, d); const nm = (x) => esc(lastName(dName(s, x)));
   const verdict = []; const parts = [];
   // 1. when to stop: each stop moved on its own, the others where they were
   const stopCharts = st.slice(0, -1).map((A, k) => {
     const B = st[k + 1]; const pa = pace[A.c], pb = pace[B.c]; if (!pa || !pb) return '';
     if (isSlick(A.c) !== isSlick(B.c)) return ''; // a change for the weather: the weather calls below judge it
-    const lo = Math.max(A.from + 2, 3), hi = Math.min(B.to - 3, N - 2); if (hi - lo < 3) return '';
+    // how long each set could have run: from its wear going in (the lap before its first, at this race's rate), to 75%
+    const wear = g.wear?.[d] || []; const ra = raceWear[A.c], rb = raceWear[B.c];
+    const w0A = A.from === 1 ? Math.max(0, (wear[0] ?? 0) - (ra || 0)) : Math.max(0, (wear[A.from - 1] ?? 0) - (ra || 0));
+    const w0B = Math.max(0, (wear[B.from - 1] ?? 0) - (rb || 0));
+    const maxA = ra > 0 ? A.from - 1 + Math.floor((WEAR_LIMIT - w0A) / ra) : Infinity, minB = rb > 0 ? B.to - Math.floor((WEAR_LIMIT - w0B) / rb) : -Infinity;
+    const lo = Math.max(A.from + 2, 3, minB), hi = Math.min(B.to - 3, N - 2, maxA); if (hi - lo < 3) return '';
+    const capped = maxA < Math.min(B.to - 3, N - 2) || minB > Math.max(A.from + 2, 3);
     const T = (L, loss) => { let t = loss; for (let n = A.from; n <= L; n++) t += pa.a + pa.b * (n - A.from + 1); for (let n = L + 1; n <= B.to; n++) t += pb.a + pb.b * (n - L); return t; };
     const lossAt = (L) => sc.has(L) ? (g.safety?.periods || []).some(p => p.kind === 'sc' && L >= p.from && L <= (p.to > 0 ? p.to : p.from)) ? PL.sc : PL.vsc : PL.green;
     let pts = []; for (let L = lo; L <= hi; L++) pts.push([L, T(L, PL.green)]);
@@ -157,37 +181,39 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
     const W = 520, H = 220, l = 44, rr = 12, t = 14, b = 30; const vals = pts.map(p => (p[1] - bestP[1]) / 1000); const top = Math.min(40, Math.max(5, ...vals)); const bot = Math.min(0, diff / 1000) - 2;
     const X = (L) => l + (L - lo2) / Math.max(1, hi2 - lo2) * (W - l - rr); const Y = (v) => t + (top - Math.min(top, v)) / (top - bot) * (H - t - b);
     let o = ''; const step = top - bot > 30 ? 10 : 5;
-    for (let v = Math.ceil(bot / step) * step; v <= top; v += step) o += `<line x1="${l}" x2="${W - rr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${l - 6}" y="${Y(v) + 4}" fill="var(--muted)" font-size="10" text-anchor="end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} s</text>`;
-    const tick = hi2 - lo2 > 30 ? 10 : 5; for (let L = Math.ceil(lo2 / tick) * tick; L <= hi2; L += tick) o += `<text x="${X(L)}" y="${H - 10}" fill="var(--muted)" font-size="10" text-anchor="middle">Lap ${L}</text>`;
+    for (let v = Math.ceil(bot / step) * step; v <= top; v += step) o += `<line x1="${l}" x2="${W - rr}" y1="${Y(v)}" y2="${Y(v)}" class="gx-grid"/><text x="${l - 6}" y="${Y(v) + 4}" class="gx-tick" text-anchor="end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} s</text>`;
+    const tick = hi2 - lo2 > 30 ? 10 : 5; for (let L = Math.ceil(lo2 / tick) * tick; L <= hi2; L += tick) o += `<text x="${X(L)}" y="${H - 10}" class="gx-tick" text-anchor="middle">Lap ${L}</text>`;
     const scIn = [...sc].filter(n => n >= lo2 && n <= hi2); if (scIn.length) { const a = Math.min(...scIn), z = Math.max(...scIn); o += `<rect x="${X(a) - 4}" y="${t}" width="${X(z) - X(a) + 8}" height="${H - t - b}" fill="var(--yellow)" opacity=".08"/><text x="${(X(a) + X(z)) / 2}" y="${t + 12}" fill="var(--yellow)" font-size="10" text-anchor="middle">safety car</text>`; }
-    o += `<polyline fill="none" stroke="var(--muted)" stroke-width="2" points="${pts.map((p, i) => `${X(p[0]).toFixed(1)},${Y(vals[i]).toFixed(1)}`).join(' ')}"/>`;
+    o += `<polyline fill="none" stroke="#C9CFDC" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" points="${pts.map((p, i) => `${X(p[0]).toFixed(1)},${Y(vals[i]).toFixed(1)}`).join(' ')}"/>`;
     o += `<circle cx="${X(bestP[0])}" cy="${Y(0)}" r="4" fill="var(--muted)"/><text x="${X(bestP[0])}" y="${Y(0) - 10}" fill="var(--muted)" font-size="10.5" text-anchor="middle">best green-flag stop, lap ${bestP[0]}</text>`;
     const ax = X(A.to), ay = Y(diff / 1000); const col = diff <= 1000 ? 'var(--green)' : 'var(--red)'; const right = ax < W * 0.6;
     o += `<circle cx="${ax}" cy="${ay}" r="6" fill="${col}"/><text x="${ax + (right ? 10 : -10)}" y="${ay + 4}" fill="${col}" font-size="11" font-weight="700" text-anchor="${right ? 'start' : 'end'}">You: lap ${A.to}, ${diff < 0 ? '−' : '+'}${dbSecs(diff)}</text>`;
-    return `<div><span class="label">When to stop${st.length > 2 ? ` · stop ${k + 1}` : ''}: time lost against the best lap, on this race’s pace</span><svg viewBox="0 0 ${W} ${H}" class="db-chart">${o}</svg>
-      <p class="muted" style="font-size:12px;margin:0">From the pace and fall-off on each tyre in this race (${COMPOUNDS[A.c]?.[1] || 'tyre'} ${(pa.b / 1000).toFixed(3)} s a lap, ${COMPOUNDS[B.c]?.[1] || 'tyre'} ${(pb.b / 1000).toFixed(3)} s) and a ${dbSecs(PL.green)} stop${under ? `; under the safety car it costs ${dbSecs(lossAt(A.to))}` : ''}.</p></div>`;
+    return `<div><span class="label">When to stop${st.length > 2 ? ` · stop ${k + 1}` : ''}: time lost against the best lap, on this race’s pace</span><div class="gx-chart"><svg viewBox="0 0 ${W} ${H}">${o}</svg></div>
+      <p class="muted" style="font-size:12px;margin:0">From the pace and fall-off on each tyre in this race (${COMPOUNDS[A.c]?.[1] || 'tyre'} ${(pa.b / 1000).toFixed(3)} s a lap, ${COMPOUNDS[B.c]?.[1] || 'tyre'} ${(pb.b / 1000).toFixed(3)} s) and a ${dbSecs(PL.green)} stop${under ? `; under the safety car it costs ${dbSecs(lossAt(A.to))}` : ''}.${capped ? ` Only laps where neither set would have gone past ${WEAR_LIMIT}% wear (at this race’s rate, from the wear each set had) are shown: laps ${lo}–${hi}.` : ''}</p></div>`;
   }).filter(Boolean);
   // 2. through the stops: the cars around you before each of your stops, and after everyone's stop
   const P = lapPositions(sd); const X = dbCrossings(g);
   const through = P ? st.slice(0, -1).map((A, k) => {
     const L0 = Math.max(1, A.to - 1); const me0 = P.pos[d]?.[L0]; if (!me0) return '';
     const near = P.ids.filter(o => P.pos[o]?.[L0] && Math.abs(P.pos[o][L0] - me0) <= 2);
-    const stopOf = (o) => dbStints(sd, o).slice(0, -1).map(x => x.to).find(v => Math.abs(v - A.to) <= 6) ?? null;
+    const stopOf = (o) => dbStints(sd, o).slice(0, -1).map(x => x.to).find(v => Math.abs(v - A.to) <= 12) ?? null;
     let L1 = Math.max(A.to, ...near.map(o => stopOf(o) || 0)) + 2; while (L1 < N - 1 && (sc.has(L1) || sc.has(L1 - 1))) L1++; L1 = Math.min(N - 1, L1);
     const gapAhead = (o, L) => { const order = P.ids.filter(q => P.pos[q]?.[L]).sort((a, b) => P.pos[a][L] - P.pos[b][L]); const i = order.indexOf(o); return i > 0 && X.cum[o]?.[L - 1] && X.cum[order[i - 1]]?.[L - 1] ? X.cum[o][L - 1] - X.cum[order[i - 1]][L - 1] : null; };
+    // a car that stops later than this (a different plan) is still to stop at lap L1: its place there is before its stop
+    const later = (o) => dbStints(sd, o).slice(0, -1).some(x => x.to >= L1);
     const rows = near.sort((a, b) => P.pos[a][L0] - P.pos[b][L0]).map(o => {
       const a = P.pos[o][L0], b2 = P.pos[o]?.[L1]; const so = stopOf(o); const g0 = gapAhead(o, L0), g1 = gapAhead(o, L1); const mv = a && b2 ? a - b2 : 0;
-      return `<tr class="${o === d ? 'me' : ''}"><td>${nm(o)}</td><td class="num">${so ? `lap ${so}` : '<span class="muted">stayed out</span>'}</td><td class="num">P${a}</td><td class="num ${mv > 0 ? 'up' : mv < 0 ? 'down' : ''}">${b2 ? `P${b2}${mv ? ` ${mv > 0 ? '▲' : '▼'}${Math.abs(mv)}` : ''}` : '–'}</td><td class="num">${g0 != null && g1 != null ? `${dbSecs(g0)} → ${dbSecs(g1)}` : '–'}</td></tr>`;
-    }).join('');
+      return { me: o === d, act: 'open-driver', id: o, cells: [P.pos[o][L0], tvLogo(c, teamOf(s, o)), `<b>${esc(lastName(dName(s, o)).toUpperCase())}</b>`, so ? `lap ${so}` : `<small>${later(o) ? 'yet to stop' : 'stayed out'}</small>`, `P${a}`, b2 ? `<span class="${mv > 0 ? 'up' : mv < 0 ? 'down' : ''}">P${b2}${mv ? ` ${mv > 0 ? '▲' : '▼'}${Math.abs(mv)}` : ''}</span>` : '–', g0 != null && g1 != null ? `${dbSecs(g0)} → ${dbSecs(g1)}` : '–'] };
+    });
     // undercuts and overcuts: a car next to you that stopped on a different lap
     const calls = near.filter(o => o !== d).map(o => {
-      const so = stopOf(o); if (!so || so === A.to) return null;
+      const so = stopOf(o); if (!so || so === A.to || so >= L1) return null;
       const was = P.pos[o][L0] < me0, now = (P.pos[o]?.[L1] ?? 99) < (P.pos[d]?.[L1] ?? 99); const meFirst = A.to < so;
       if (was === now) return meFirst ? `${was ? `Your undercut on ${nm(o)} didn’t work: still behind` : `${nm(o)}’s overcut on you didn’t work: you stayed ahead`}` : `${was ? `Your overcut on ${nm(o)} didn’t work: still behind` : `${nm(o)}’s undercut on you didn’t work: you stayed ahead`}`;
       return meFirst ? (was ? `<b class="up">Your undercut on ${nm(o)} worked</b>` : `<b class="down">${nm(o)}’s overcut worked: they got ahead</b>`) : (was ? `<b class="up">Your overcut on ${nm(o)} worked</b>` : `<b class="down">${nm(o)}’s undercut worked: they got ahead</b>`);
     }).filter(Boolean);
     const same = near.filter(o => o !== d && stopOf(o) === A.to).length;
-    return `<div><span class="label">Through ${st.length > 2 ? `stop ${k + 1}` : 'the stop'}: lap ${L0} against lap ${L1}</span><div class="table-wrap"><table class="db-tbl"><thead><tr><th>Driver</th><th class="num">Stopped</th><th class="num">Lap ${L0}</th><th class="num">Lap ${L1}</th><th class="num">Gap ahead</th></tr></thead><tbody>${rows}</tbody></table></div>
+    return `<div class="db-tv">${tvBoard(`Through ${st.length > 2 ? `stop ${k + 1}` : 'the stop'} · lap ${L0} against lap ${L1}`, [{ h: '', w: '26px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(110px, 1fr)' }, { h: 'Stopped', w: '84px', num: true }, { h: `Lap ${L0}`, w: '60px', num: true }, { h: `Lap ${L1}`, w: '74px', num: true }, { h: 'Gap ahead', w: '120px', num: true }], rows)}
       <p class="muted" style="font-size:12px;margin:4px 0 0">${calls.length ? calls.join('. ') + '.' : same ? `The cars around you stopped on the same lap, so there was no undercut either way.` : 'No undercut or overcut either way.'}</p></div>`;
   }).filter(Boolean) : [];
   // 3. the forecasts against the race
@@ -235,7 +261,8 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
   if (!stopCharts.length && !through.length && !parts.length) return '';
   return `<div class="panel"><div class="panel-h"><h2>Strategy debrief${title ? ` · ${esc(title)}` : ''}</h2><span class="muted" style="font-size:12px">From the laps in this race: how each choice played out</span></div><div class="panel-b stack">
     ${verdict.length ? `<p class="db-verdict">${verdict.join('. ')}.</p>` : st.length === 1 ? `<p class="db-verdict">No stops: the whole race on one set of ${(COMPOUNDS[st[0].c]?.[1] || 'tyres').toLowerCase()}s.</p>` : ''}
-    ${stopCharts.length || through.length ? `<div class="db-two">${[...stopCharts, ...through].join('')}</div>` : ''}
+    ${stopCharts.length ? `<div class="db-two">${stopCharts.join('')}</div>` : ''}
+    ${through.length ? `<div class="db-two wide">${through.join('')}</div>` : ''}
     ${parts.join('')}</div></div>`;
 }
 

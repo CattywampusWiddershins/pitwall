@@ -350,7 +350,7 @@ const lapWord = (n) => n === 1 ? 'one lap' : `${nw(n)} laps`;
 function titleChartHtml(s, T, L) {
   if (!T) return '';
   const seen = {};
-  const series = T.ids.slice(0, 4).map(id => { const col = teamColor(s, id); const dashed = !!seen[col]; seen[col] = 1; return { id, color: col, dashed, pts: T.rows.map(r => [r.k, r.pts[id]]) }; });
+  const series = T.ids.slice(0, 4).map(id => { const col = teamColor(s, id); const dashed = !!seen[col]; seen[col] = 1; return { id, color: col, dashed, label: L(id), sub: `${Math.round(T.rows[T.rows.length - 1].pts[id] ?? 0)} pts`, pts: T.rows.map(r => [r.k, r.pts[id]]) }; });
   const flips = T.final ? T.rows.filter((r, k) => k && r.champ !== T.rows[k - 1].champ).map(r => r.k) : [];
   return `<div class="title-chart"><div class="label">The title, lap by lap${T.final ? ' · points if the race ended there' : ' · projected points'}</div>
     ${svgChart(series, { h: 190, yFmt: (v) => Math.round(v), xLabel: 'Lap' })}
