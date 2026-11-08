@@ -1083,6 +1083,8 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .cb-face { position: relative; overflow: hidden; background: linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 45%, #000)); }
 .cb-face img { position: absolute; left: 50%; transform: translateX(-50%); }
 .cb-face img.body { top: 8px; height: 300%; object-fit: contain; object-position: top; } /* head and torso; the rest runs off the bottom */
+.ca-txt.team b { font-size: 26px; padding: 6px 0; }
+.cb-face.team, .ca-fig.team { display: grid; place-items: center; } .cb-face.team > *, .ca-fig.team > * { position: static; transform: none; }
 .cb-face img.head { bottom: 0; height: 100%; aspect-ratio: 1; object-fit: cover; object-position: top; }
 .cb-num { position: absolute; right: 4px; top: -10px; font-size: 64px; font-weight: 900; color: rgba(0,0,0,.2); }
 .cb-verdict { display: grid; place-content: center; text-align: center; padding: 10px; background: #1A1A26; gap: 4px; }

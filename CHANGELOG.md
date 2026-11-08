@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 3.38.0
+
+- **Live constructors' championship.** Live Race and Race Replay now show the constructors' championship as it stands under the drivers', in the same style and by the same rules: both cars' points as they run, the five teams around yours, and on a weekend the title can be decided, the top five with the verdict. A team in a position to win it shows its badge, and when it's won, a constructors' champions card.
+
 ## 3.37.3
 
 - Live Race: in a race resumed from a save, or one Pitwall was opened partway through, your stints so far are now taken from the game's own tyre history. Before, a stop made before the resume was shown on the lap the race resumed, on the tyre you were on by then (Mediums then Hards read as Hards then Hards), and the strategy was worked out from that.

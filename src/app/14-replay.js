@@ -265,7 +265,7 @@ function replayDash() {
   if (RP.data.meta.lapByLap) return `<div class="panel"><div class="panel-h"><h2>Lap by lap</h2></div><div class="panel-b muted" style="font-size:13px">This race was logged before Pitwall recorded races, so it’s rebuilt from every car’s lap times: the order and the gaps are exact each time the cars cross the line and smooth in between, with the pit stops, tyres and safety-car laps as logged. There’s no live dashboard for it.</div></div>`;
   const c = career(); const L = { ...RP.L, key: RP.k === 'SPR' ? 'SPR' : 'R', replay: true, mem: RP.mem, simT: RP.data.samples[RP.i].t * 1000 };
   const me = L.field?.find(x => x.i === RP.data.meta.player); if (!me) return '';
-  try { return `<div class="rp-dash-cols ${ui.liveCompact ? 'compact' : ''}">${liveDriverCol(c, RP.s, RP.r, L, weekend(RP.s, RP.r.id, true), me, PLAYER, RP.idOf)}<div class="live-col">${champBar(c, RP.s, RP.r, L, RP.idOf, [PLAYER])}</div></div>`; } catch (e) { return `<div class="panel"><div class="panel-b muted">The dashboard couldn’t be drawn at this point (${esc(e.message)}).</div></div>`; }
+  try { return `<div class="rp-dash-cols ${ui.liveCompact ? 'compact' : ''}">${liveDriverCol(c, RP.s, RP.r, L, weekend(RP.s, RP.r.id, true), me, PLAYER, RP.idOf)}<div class="live-col">${champBar(c, RP.s, RP.r, L, RP.idOf, [PLAYER])}${champBar(c, RP.s, RP.r, L, RP.idOf, [PLAYER], 'team')}</div></div>`; } catch (e) { return `<div class="panel"><div class="panel-b muted">The dashboard couldn’t be drawn at this point (${esc(e.message)}).</div></div>`; }
 }
 /*
   The field by its gaps to the leader, F1-graphics style. Each recorded second gets a layout (where every car sits),

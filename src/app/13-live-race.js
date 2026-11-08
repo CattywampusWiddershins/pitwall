@@ -658,21 +658,23 @@ function battleCard(s, idOf, ahead, behind, me, left, { title, pits, stopLeft, r
       <div class="bf-mid"><span class="label">${neutral ? 'Within a second' : laps != null && !far ? 'Striking distance' : edge != null && edge <= 0 ? 'Pulling away' : 'Out of reach'}</span>${neutral ? '<b>NOW</b>' : laps != null && !far ? `<b>in ${laps} lap${laps === 1 ? '' : 's'}</b>` : ''}<small>${(gap / 1000).toFixed(3)} s${edge != null ? ` · ${edge > 0 ? '−' : '+'}${(Math.abs(edge) / 1000).toFixed(2)} s a lap` : ''}</small></div>
       <div class="bf-side" style="text-align:right"><b>${nm(behind)}</b><small class="muted">${behind.i === me.i ? 'You' : `P${behind.pos}`}</small></div></div></div>`;
 }
-/** The championship as it stands with this race's running order. */
-function liveStandings(c, s, r, L, idOf) {
-  const sprint = L.key === 'SPR'; const P = sprint ? D.SPRINT_POINTS : D.RACE_POINTS;
+/** The championship as it stands with this race's running order: the drivers' (kind 'driver') or the constructors' ('team'). */
+function liveStandings(c, s, r, L, idOf, kind = 'driver') {
+  const sprint = L.key === 'SPR'; const P = sprint ? D.SPRINT_POINTS : D.RACE_POINTS; const team = kind === 'team';
   // the championship going into this race: the rounds before it, and this weekend's sprint before its Grand Prix. A
   // replay of an old race sees it as it was then, not with the races since
-  const ri = activeRounds(s).findIndex(x => x.id === r.id); const M = titleMath(s, 'driver', ri, { afterSprint: !sprint });
-  const pts = {}; for (const x of M.rows) if (s.drivers[x.id]) pts[x.id] = x.pts || 0;
-  const add = {}; for (const x of L.field) { const id = idOf(x.i); if (id && x.pos && (x.st === 2 || x.st === 3)) add[id] = P[x.pos - 1] || 0; }
+  const ri = activeRounds(s).findIndex(x => x.id === r.id); const M = titleMath(s, kind, ri, { afterSprint: !sprint });
+  const pts = {}; for (const x of M.rows) if (team ? s.teams.some(t => t.id === x.id) : s.drivers[x.id]) pts[x.id] = x.pts || 0;
+  // each car's points as it runs: to its driver, or to the team it races for here (both cars add up)
+  const add = {}; for (const x of L.field) { const d = idOf(x.i); const id = team ? d && (teamAt(s, d, ri) || teamOf(s, d))?.id : d; if (id && x.pos && (x.st === 2 || x.st === 3)) add[id] = (add[id] || 0) + (P[x.pos - 1] || 0); }
   const rows = Object.keys({ ...pts, ...add }).map(id => ({ id, pts: (pts[id] || 0) + (add[id] || 0), now: add[id] || 0 })).sort((a, b) => b.pts - a.pts).map((x, i) => ({ ...x, pos: i + 1 }));
   const teams = s.teams.map(t => ({ t, pts: rows.filter(x => teamOf(s, x.id)?.id === t.id).reduce((a, x) => a + x.pts, 0) })).sort((a, b) => b.pts - a.pts).map((x, i) => ({ ...x, pos: i + 1 }));
   // can the title be decided here? the most points left after this race, against the lead
   // points still up for grabs once this race is over: the rest of the season (and, after a sprint, this Grand Prix)
-  const here = M.left.find(x => x.r.id === r.id);   const after = M.R - (sprint ? D.SPRINT_POINTS[0] : (here?.max || 0));
+  // (the most one entry can take from a race: a win for a driver, a one-two for a team)
+  const here = M.left.find(x => x.r.id === r.id); const most = sprint ? M.M.SPR : M.M.R; const after = M.R - (sprint ? most : (here?.max || 0));
   const gap0 = (M.rows[0]?.pts || 0) - (M.rows[1]?.pts || 0);
-  const canDecide = !!here && !M.decided && gap0 + (sprint ? D.SPRINT_POINTS[0] : D.RACE_POINTS[0]) > after;
+  const canDecide = !!here && !M.decided && gap0 + most > after;
   const decidedNow = rows.length > 1 && rows[0].pts - rows[1].pts > after;
   return { rows, teams, canDecide, decidedNow, after, before: M.rows };
 }
@@ -690,32 +692,38 @@ function lapBox(L, n) {
 }
 /** The driver in a verdict box: a full body pinned at the head, so it shows head and torso; else the headshot. */
 function faceImg(c, s, id) { const b = bodyFor(c, id, s)?.url; const h = !b && headOf(c, id, s); return b ? `<img class="body" src="${esc(b)}" alt="">` : h ? `<img class="head" src="${esc(h)}" alt="">` : ''; }
-function champBar(c, s, r, L, idOf, mineIds) {
-  const S = liveStandings(c, s, r, L, idOf); if (!S.rows.length) return '';
+function champBar(c, s, r, L, idOf, mineIds, kind = 'driver') {
+  const team = kind === 'team'; const S = liveStandings(c, s, r, L, idOf, kind); if (!S.rows.length) return '';
+  if (team) mineIds = s.playerTeamId ? [s.playerTeamId] : [];
+  const tOf = (id) => team ? s.teams.find(t => t.id === id) : teamOf(s, id);
+  const label = (id) => team ? (tOf(id)?.name || id) : lastName(dName(s, id));
   const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
   const was = Object.fromEntries(S.before.map(x => [x.id, x.pos])); // places going into the race
   const lead = S.rows[0]; const sprint = L.key === 'SPR';
   const finished = L.field.some(x => x.pos === 1 && x.st === 3);
   const row = (x, i) => {
-    const tm = teamOf(s, x.id); const mv = was[x.id] ? was[x.id] - x.pos : 0;
-    return `<div class="cb-row ${mineIds.includes(x.id) ? 'me' : ''}" data-id="${x.id}" style="top:${i * CB_ROW}px"><span class="cb-p">${x.pos}</span><span class="cb-logo">${tm ? teamLogo(c, tm, 18) : ''}</span><span class="cb-n">${esc(lastName(dName(s, x.id)).toUpperCase())}${mv > 0 ? `<i class="up">▲${mv}</i>` : mv < 0 ? `<i class="dn">▼${-mv}</i>` : ''}</span><span class="cb-d">${x.now ? '+' + x.now : ''}</span><span class="cb-g">${i ? '−' + fmtPts(lead.pts - x.pts) : ''}</span><span class="cb-pt">${fmtPts(x.pts)}</span></div>`;
+    const tm = tOf(x.id); const mv = was[x.id] ? was[x.id] - x.pos : 0;
+    return `<div class="cb-row ${mineIds.includes(x.id) ? 'me' : ''}" data-id="${x.id}" style="top:${i * CB_ROW}px"><span class="cb-p">${x.pos}</span><span class="cb-logo">${tm ? teamLogo(c, tm, 18) : ''}</span><span class="cb-n">${esc(label(x.id).toUpperCase())}${mv > 0 ? `<i class="up">▲${mv}</i>` : mv < 0 ? `<i class="dn">▼${-mv}</i>` : ''}</span><span class="cb-d">${x.now ? '+' + x.now : ''}</span><span class="cb-g">${i ? '−' + fmtPts(lead.pts - x.pts) : ''}</span><span class="cb-pt">${fmtPts(x.pts)}</span></div>`;
   };
   const dec = S.canDecide;
   const next = sprint ? 'the Grand Prix' : rounds[ri + 1]?.name || 'the next round';
-  const champ = S.decidedNow ? lead.id : null; const ct = champ && teamOf(s, champ); const face = champ ? (bodyFor(c, champ, s)?.url || headOf(c, champ, s)) : null;
-  const verdict = !dec ? '' : `<div class="cb-face" style="--c:${ct?.color || '#2A2A36'}">${champ ? `<span class="cb-num">${esc(String(s.drivers[champ]?.number ?? ''))}</span>${faceImg(c, s, champ)}` : ''}</div>
-    <div class="cb-verdict"><small>${finished ? '' : 'AS IT STANDS'}</small><b>${champ ? `${esc(lastName(dName(s, champ)))} ${finished ? 'is' : 'will be'} world champion` : `The fight goes on to ${esc(next)}`}</b></div>`;
-  const celebrate = champ && finished ? `<div class="panel live-card champ-anim"><div class="ca-fig">${bodyFor(c, champ, s)?.url ? `<img src="${esc(bodyFor(c, champ, s).url)}" alt="">` : face ? `<img class="ca-head" src="${esc(face)}" alt="">` : ''}</div><div class="ca-txt"><small>${s.year} FORMULA 1</small><b>WORLD CHAMPION</b><small>${esc(dName(s, champ).toUpperCase())}</small></div></div>` : '';
-  return `${celebrate}<div class="panel live-card champ-bar ${dec ? 'decider' : ''}" data-keep="champ" data-dec="${dec ? 1 : 0}" data-mine="${esc(mineIds.join(','))}">
-    <div class="cb-tbl"><span class="cb-ttl">DRIVERS’ CHAMPIONSHIP</span><div class="cb-hdr"><span></span><span></span><span></span><span>${sprint ? 'SPRINT' : 'RACE'}</span><span>GAP</span><span>PTS</span></div>
+  const champ = S.decidedNow ? lead.id : null; const ct = champ && tOf(champ); const face = champ && !team ? (bodyFor(c, champ, s)?.url || headOf(c, champ, s)) : null;
+  // a team in a position to win it shows its badge, not its two drivers
+  const verdict = !dec ? '' : `<div class="cb-face ${team ? 'team' : ''}" style="--c:${ct?.color || '#2A2A36'}">${champ && team ? teamLogo(c, ct, 64) : champ ? `<span class="cb-num">${esc(String(s.drivers[champ]?.number ?? ''))}</span>${faceImg(c, s, champ)}` : ''}</div>
+    <div class="cb-verdict"><small>${finished ? '' : 'AS IT STANDS'}</small><b>${champ && team ? `${esc(label(champ))} ${finished ? 'are' : 'will be'} constructors’ champions` : champ ? `${esc(lastName(dName(s, champ)))} ${finished ? 'is' : 'will be'} world champion` : `The fight goes on to ${esc(next)}`}</b></div>`;
+  const celebrate = champ && finished && team ? `<div class="panel live-card champ-anim"><div class="ca-fig team">${teamLogo(c, ct, 96)}</div><div class="ca-txt team"><small>${s.year} FORMULA 1</small><b>CONSTRUCTORS’ CHAMPIONS</b><small>${esc((ct?.name || '').toUpperCase())}</small></div></div>`
+    : champ && finished ? `<div class="panel live-card champ-anim"><div class="ca-fig">${bodyFor(c, champ, s)?.url ? `<img src="${esc(bodyFor(c, champ, s).url)}" alt="">` : face ? `<img class="ca-head" src="${esc(face)}" alt="">` : ''}</div><div class="ca-txt"><small>${s.year} FORMULA 1</small><b>WORLD CHAMPION</b><small>${esc(dName(s, champ).toUpperCase())}</small></div></div>` : '';
+  return `${celebrate}<div class="panel live-card champ-bar ${dec ? 'decider' : ''}" data-keep="champ" data-kind="${kind}" data-dec="${dec ? 1 : 0}" data-mine="${esc(mineIds.join(','))}">
+    <div class="cb-tbl"><span class="cb-ttl">${team ? 'CONSTRUCTORS’ CHAMPIONSHIP' : 'DRIVERS’ CHAMPIONSHIP'}</span><div class="cb-hdr"><span></span><span></span><span></span><span>${sprint ? 'SPRINT' : 'RACE'}</span><span>GAP</span><span>PTS</span></div>
       <div class="cb-win" style="height:${Math.min(5, S.rows.length) * CB_ROW}px"><div class="cb-list">${S.rows.map(row).join('')}</div></div></div>${verdict}</div>`;
 }
-const _cb = { mine: null, until: 0, t: null };
+const _cbs = {}; // per championship: { mine, until, t }
 /** Where the championship window sits: the top on a title weekend (your car for five seconds after it changes place), around you otherwise. */
 function champBarView(el) {
   const rows = [...el.querySelectorAll('.cb-row')]; if (!rows.length) return;
   const order = rows.slice().sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)); const n = order.length;
   const mine = el.dataset.mine.split(','); const at = order.findIndex(x => mine.includes(x.dataset.id));
+  const _cb = (_cbs[el.dataset.kind || 'driver'] ||= { mine: null, until: 0, t: null });
   const now = Date.now(); const key = order.filter(x => mine.includes(x.dataset.id)).map(x => x.dataset.id + ':' + order.indexOf(x)).join();
   if (_cb.mine != null && key !== _cb.mine && at >= 5) { _cb.until = now + 5000; clearTimeout(_cb.t); _cb.t = setTimeout(() => document.querySelectorAll('.champ-bar').forEach(champBarView), 5100); }
   _cb.mine = key;
@@ -882,7 +890,7 @@ function renderLiveRace() {
       <div class="lh-info"><div class="row" style="gap:8px"><span class="tag live">Live</span><b>${L.key === 'SPR' ? 'Sprint' : 'Race'} · ${esc(r.name)}</b></div>${liveWeather(c, s, r, L, meP)}</div>
       <div class="row lh-ctl">${liveLayoutSeg()}${mineIds.length > 1 ? `<div class="seg">${[['player', 'Your car'], ['mate', 'Teammate'], ['both', 'Both']].map(([v, l]) => `<button data-act="live-follow" data-v="${v}" class="${follow === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div></div>
     <div id="live-root"><div class="live-grid ${shown.length > 1 ? 'split' : ''} ${ui.liveCompact ? 'compact' : ''}">${shown.filter(Boolean).map(me => liveDriverCol(c, s, r, L, w, me, idOf(me.i), idOf)).join('')}
-      <div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}</div></div></div>
+      <div class="live-col">${champBar(c, s, r, L, idOf, mineIds)}${champBar(c, s, r, L, idOf, mineIds, 'team')}</div></div></div>
   </div>`;
 }
 /** Compact (everything on one screen) or Full, for Live Race and Race Replay. */
