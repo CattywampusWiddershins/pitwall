@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 4.2.0
+
+- **Each stint lap by lap.** Every stint in the debrief's Grouping panel has a chart of its lap times and the set's wear together: lap times as a line (quicker at the top), wear as a dashed line in the tyre's colour on its own scale, and each lap's band faded in the colour the race timeline gives it (clean air, within a second of the car ahead, battle, safety car, pits). A lap far off the stint's pace keeps its band but is left off the line.
+
 ## 4.1.1
 
 - Stories: moving into the all-time top five for world titles, or up it, is now a milestone with its list as a graphic, like the other all-time lists (further down, too many drivers share a number).

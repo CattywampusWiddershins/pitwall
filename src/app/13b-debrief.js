@@ -111,9 +111,36 @@ function groupingPanel(c, s, sd, d, title) {
     for (const v of [-FLYER, -300, 0, 300, FLYER]) o += `<text x="${cx + v * k}" y="112" class="gx-tick" text-anchor="middle">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v / 1000).toFixed(1)} s</text>`;
     return `<div class="gx-chart"><svg viewBox="0 0 ${W} 120">${o}</svg></div>`;
   };
+  // the stint lap by lap: lap times (quicker up) and the set's wear on one chart, each lap's band faded in the colour
+  // the timeline gives it (clean air, within a second, battle, safety car, pits). A lap far off the stint's pace (the
+  // pits, a safety car) is left off the line so the rest stays readable, but keeps its band.
+  const wearOf = g.wear?.[d] || [];
+  const stintChart = (x) => {
+    const W = 440, H = 176, l = 50, r = 38, t = 10, b = 24; const n0 = x.from, n1 = x.to; const span = Math.max(1, n1 - n0);
+    const X = (n) => l + (n - n0) / span * (W - l - r); const bw = Math.max(2, (W - l - r) / (span + 1));
+    const med = median(x.laps.filter(q => q.ms && !['pit', 'sc', 'start', 'restart', 'none'].includes(q.tag)).map(q => q.ms)) || median(x.laps.map(q => q.ms).filter(Boolean));
+    const keep = x.laps.filter(q => q.ms && med && q.ms <= med * 1.04 && q.ms >= med * 0.97);
+    if (!keep.length) return '';
+    let lo = Math.min(...keep.map(q => q.ms)), hi = Math.max(...keep.map(q => q.ms)); const pad = Math.max(150, (hi - lo) * 0.12); lo -= pad; hi += pad;
+    const Y = (ms) => t + (ms - lo) / (hi - lo) * (H - t - b); // quicker at the top
+    const wv = x.laps.map(q => wearOf[q.n - 1]).filter(v => v != null); const wTop = Math.max(40, Math.ceil(Math.max(0, ...wv) / 10) * 10 + 10);
+    const WY = (v) => H - b - v / wTop * (H - t - b);
+    let o = x.laps.map(q => `<rect x="${(X(q.n) - bw / 2).toFixed(1)}" y="${t}" width="${bw.toFixed(1)}" height="${H - t - b}" fill="${DB_TAGS[q.tag][0]}" opacity=".16"><title>Lap ${q.n}: ${DB_TAGS[q.tag][1]}</title></rect>`).join('');
+    for (let k = 0; k <= 3; k++) { const ms = lo + (hi - lo) * k / 3; const yy = Y(ms); o += `<line x1="${l}" x2="${W - r}" y1="${yy}" y2="${yy}" class="gx-grid"/><text x="${l - 6}" y="${yy + 3}" class="gx-tick gx-sm" text-anchor="end">${fmtLap(ms).replace(/(.d)d+$/, '$1')}</text>`; }
+    for (let k = 0; k <= 2; k++) { const v = wTop * k / 2; o += `<text x="${W - r + 6}" y="${WY(v) + 3}" class="gx-tick gx-sm gx-wear">${Math.round(v)}%</text>`; }
+    const st = span > 30 ? 10 : span > 12 ? 5 : 2; for (let n = Math.ceil(n0 / st) * st; n <= n1; n += st) o += `<text x="${X(n)}" y="${H - 8}" class="gx-tick gx-sm" text-anchor="middle">L${n}</text>`;
+    const wc = gxCol(COMPOUNDS[x.c]?.[2] || '#C9CFDC');
+    const wpts = x.laps.filter(q => wearOf[q.n - 1] != null).map(q => `${X(q.n).toFixed(1)},${WY(wearOf[q.n - 1]).toFixed(1)}`);
+    if (wpts.length > 1) o += `<polyline fill="none" stroke="${wc}" stroke-width="2.5" stroke-dasharray="6 4" stroke-linejoin="round" points="${wpts.join(' ')}"/>`;
+    // the lap times: a line through the laps kept, broken where one is left off
+    const segs = []; let cur = []; for (const q of x.laps) { if (keep.includes(q)) cur.push(q); else if (cur.length) { segs.push(cur); cur = []; } } if (cur.length) segs.push(cur);
+    for (const sg of segs) if (sg.length > 1) o += `<polyline fill="none" stroke="#E7ECF5" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${sg.map(q => `${X(q.n).toFixed(1)},${Y(q.ms).toFixed(1)}`).join(' ')}"/>`;
+    o += keep.map(q => `<circle cx="${X(q.n).toFixed(1)}" cy="${Y(q.ms).toFixed(1)}" r="2.6" fill="#E7ECF5"><title>Lap ${q.n}: ${fmtLap(q.ms)}${wearOf[q.n - 1] != null ? `, ${Math.round(wearOf[q.n - 1])}% worn` : ''}</title></circle>`).join('');
+    return `<div class="gx-chart"><svg viewBox="0 0 ${W} ${H}">${o}</svg></div><div class="db-stint-lg"><span><i class="lt"></i>Lap times</span><span><i class="wr" style="border-color:${wc}"></i>Tyre wear (right)</span>${x.laps.length - keep.length ? `<span class="muted">${plural(x.laps.length - keep.length, 'lap')} off the stint’s pace left off the line</span>` : ''}</div>`;
+  };
   const cards = G.map((x, k) => `<div class="db-card"><h3>${tyreChip(x.c)} Stint ${k + 1} · laps ${x.from}–${x.to}</h3>${x.sd == null
     ? `<p class="muted db-none">No group: ${plural(x.clean, 'clean-air lap')} of ${x.to - x.from + 1}${why(x)}.</p>`
-    : `<div class="db-big"><div><b>±${(x.sd / 1000).toFixed(2)} s</b><span>group (1 standard deviation)</span></div><div><b>${dbSecs(x.spread, 2)}</b><span>slowest to quickest</span></div><div><b>${x.fly}</b><span>${x.fly === 1 ? 'flyer' : 'flyers'}</span></div><div><b>${x.clean}</b><span>clean-air laps of ${x.to - x.from + 1}</span></div></div>${swarm(x)}`}</div>`).join('');
+    : `<div class="db-big"><div><b>±${(x.sd / 1000).toFixed(2)} s</b><span>group (1 standard deviation)</span></div><div><b>${dbSecs(x.spread, 2)}</b><span>slowest to quickest</span></div><div><b>${x.fly}</b><span>${x.fly === 1 ? 'flyer' : 'flyers'}</span></div><div><b>${x.clean}</b><span>clean-air laps of ${x.to - x.from + 1}</span></div></div>${swarm(x)}`}${stintChart(x)}</div>`).join('');
   const F = dbFieldGrouping(sd); const best = F[0]?.sd; const at = F.findIndex(x => x.d === d);
   const field = F.length ? `<div>${tvBoard('The field’s tightest groups · at least 10 clean-air laps', [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(130px, 1.4fr)' }, { h: 'Team', w: 'minmax(100px, 1fr)' }, { h: 'Group', w: '84px', num: true }, { h: 'Laps', w: '54px', num: true }, { h: '', w: 'minmax(80px, 1fr)' }], F.map((x, k) => ({ me: x.d === d, act: 'open-driver', id: x.d, cells: [k + 1, tvLogo(c, teamOf(s, x.d)), `<b>${esc(dName(s, x.d).toUpperCase())}</b>`, `<small>${esc(teamOf(s, x.d)?.name || '')}</small>`, `±${(x.sd / 1000).toFixed(3)} s`, x.n, `<span class="tvb-bar"><i style="width:${Math.round(best / x.sd * 100)}%;background:${teamColor(s, x.d)}"></i></span>`] })))}${at < 0 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${esc(lastName(dName(s, d)))} had too few clean-air laps to rank.</p>` : ''}</div>` : '';
   return `<div class="panel"><div class="panel-h"><h2>Grouping${title ? ` · ${esc(title)}` : ''}</h2><span class="muted" style="font-size:12px">How tightly the clean-air laps grouped, stint by stint</span></div><div class="panel-b stack">

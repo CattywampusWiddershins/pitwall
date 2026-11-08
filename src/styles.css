@@ -1334,3 +1334,9 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .gx-lab { font-family: var(--font-display); font-size: 9px; font-weight: 600; fill: #8D95A6; }
 .gx-you { font-weight: 800; }
 .gx-sc { font-family: var(--font-display); font-weight: 800; fill: var(--yellow); letter-spacing: .06em; }
+
+/* the debrief's stint charts */
+.gx-wear { fill: #C9CFDC; }
+.db-stint-lg { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.db-stint-lg i { display: inline-block; width: 16px; vertical-align: middle; margin-right: 5px; }
+.db-stint-lg i.lt { border-top: 2.5px solid #E7ECF5; } .db-stint-lg i.wr { border-top: 2.5px dashed; }
