@@ -17,7 +17,8 @@ function gfxSlot(spec) {
   return `<button class="gfx ${spec.type === 'graph' ? 'wide' : ''}" data-act="gfx-open" data-gfx="${esc(key)}" title="Open to save the image">${url ? `<img src="${url}" alt="">` : '<span class="spinner"></span>'}</button>`;
 }
 /** Graphs are landscape, 1920×1080; everything else 1080 wide. */
-const gfxWidth = (spec) => spec.type === 'graph' ? 1920 : GFX_W;
+// a leaderboard with more figures runs wider, so the names and faces keep their room (about 510 px for them, as three figures leave at the usual width)
+const gfxWidth = (spec) => spec.type === 'graph' ? 1920 : spec.type === 'leaderboard' ? Math.max(GFX_W, 672 + 136 * new Set([spec.sort, ...(spec.cols || [])]).size) : GFX_W;
 /** Registers a spec, for a button that opens its graphic (data-act="gfx-open"). */
 function gfxKey(spec) { const key = JSON.stringify(spec); _gfxSpecs.set(key, spec); return key; }
 /** Ratings for every driver run taller than the portrait 1080×1350. */
@@ -49,7 +50,7 @@ async function gfxModal(key) {
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h'].includes(spec.type) ? '' : `${esc(r?.name || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
-    <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">${gfxWidth(spec)} × ${gfxHeight(spec)} PNG${gfxHeight(spec) === GFX_H ? ', sized for social posts' : ''}.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`);
+    <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">${gfxWidth(spec)} × ${gfxHeight(spec)} PNG${gfxHeight(spec) === GFX_H && gfxWidth(spec) === GFX_W ? ', sized for social posts' : ''}.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`);
 }
 
 // ---- drawing
@@ -92,12 +93,12 @@ async function gfxHeader(g, k, W = GFX_W) {
 }
 /** The frame: dark background, the red stripes either side of the logo slot, and the title. */
 async function gfxFrame(g, k, title, { sub = '' } = {}) {
-  const H = g.canvas.height;
+  const H = g.canvas.height, GFX_W = g.canvas.width; // (a wide leaderboard runs past the usual width)
   g.fillStyle = GFX_BG; g.fillRect(0, 0, GFX_W, H);
   g.save(); g.globalAlpha = 0.06; g.strokeStyle = '#FFFFFF'; g.lineWidth = 3;
   for (let x = -400 - H * 0.4; x < GFX_W + 400; x += 70) { g.beginPath(); g.moveTo(x, H); g.lineTo(x + H * 0.37, 0); g.stroke(); }
   g.restore();
-  await gfxHeader(g, k);
+  await gfxHeader(g, k, GFX_W);
   k.text(title, GFX_W / 2, 150, { size: 92, weight: 800, align: 'center', max: GFX_W - 80 });
   if (sub) k.text(sub, GFX_W / 2, 214, { size: 30, weight: 600, color: '#B8C0D0', align: 'center', max: GFX_W - 80 });
 }
@@ -1033,6 +1034,7 @@ async function gfxLapGraph(g, k, c, s, { ri }) {
 /** The career leaderboard's top 10, by the column it's sorted on (named in the subtitle), with the stats picked. */
 async function gfxLeaderboard(g, k, c, s, { sort, cols, full, rows }) {
   const label = Object.fromEntries(LB_COLS); const what = { titles: 'Most world titles', starts: 'Most Grand Prix starts', wins: 'Most Grand Prix wins', podiums: 'Most podiums', poles: 'Most pole positions', pts: 'Most points' }[sort];
+  const GFX_W = g.canvas.width;
   await gfxFrame(g, k, 'CAREER LEADERBOARD', { sub: `${what.toUpperCase()}  ·  ${full ? 'ENTIRE F1 CAREERS' : 'THIS CAREER ONLY'}  ·  ${s.year}` });
   const order = [sort, ...cols.filter(x => x !== sort)]; const vw = 130; const y0 = 290, rh = Math.floor((GFX_H - 60 - y0) / Math.max(10, rows.length));
   const xs = order.map((_, j) => GFX_W - 30 - (order.length - j) * (vw + 6));

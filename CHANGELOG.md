@@ -5,6 +5,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 ## 3.38.0
 
 - **Live constructors' championship.** Live Race and Race Replay now show the constructors' championship as it stands under the drivers', in the same style and by the same rules: both cars' points as they run, the five teams around yours, and on a weekend the title can be decided, the top five with the verdict. A team in a position to win it shows its badge, and when it's won, a constructors' champions card.
+- Career Stats: the leaderboard graphic runs wider with each figure past three (up to 1488 px wide with all six), so names and driver pictures are no longer cut off.
 
 ## 3.37.3
 
