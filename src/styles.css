@@ -1340,3 +1340,5 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .db-stint-lg { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 4px; }
 .db-stint-lg i { display: inline-block; width: 16px; vertical-align: middle; margin-right: 5px; }
 .db-stint-lg i.lt { border-top: 2.5px solid #E7ECF5; } .db-stint-lg i.wr { border-top: 2.5px dashed; }
+
+.gx-name.gx-c { font-size: 11px; } .gx-name.gx-c .gx-sub { font-size: 10px; }

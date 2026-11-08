@@ -170,9 +170,15 @@ function battlesFooter(s, sd) {
  * label. series [{ color, pts: [[x, y]], dashed, dots, label, sub }].
  */
 const gxCol = (c) => { const h = String(c || ''); return /^#[0-9a-f]{6}$/i.test(h) && gfxLum(h) < 60 ? mixHex(h, '#FFFFFF', 0.4) : c; };
+/**
+ * Name tags at the ends of the lines, top to bottom in the order the lines end, never overlapping: two lines each (name,
+ * figure) 26 px apart when there's room, else spread evenly over the chart's height on one line each (compact).
+ */
 function gxEndLabels(ends, top, bottom) {
-  ends.sort((a, b) => a.y - b.y); for (let j = 1; j < ends.length; j++) if (ends[j].y - ends[j - 1].y < 26) ends[j].y = ends[j - 1].y + 26;
-  const over = ends.length ? ends[ends.length - 1].y - bottom : 0; if (over > 0) ends.forEach(e => { e.y = Math.max(top, e.y - over); });
+  ends.sort((a, b) => a.y - b.y); const n = ends.length; if (!n) return ends;
+  const gap = Math.min(26, n > 1 ? (bottom - top) / (n - 1) : 26); const compact = gap < 26;
+  for (let j = 0; j < n; j++) { ends[j].y = Math.max(ends[j].y, top, j ? ends[j - 1].y + gap : top); ends[j].compact = compact; }
+  if (ends[n - 1].y > bottom) { ends[n - 1].y = bottom; for (let j = n - 2; j >= 0; j--) ends[j].y = Math.min(ends[j].y, ends[j + 1].y - gap); }
   return ends;
 }
 function svgChart(series, { h = 180, yFmt = (v) => v, invert = false, xLabel = 'Lap' } = {}) {
@@ -193,7 +199,7 @@ function svgChart(series, { h = 180, yFmt = (v) => v, invert = false, xLabel = '
     ${ticks.map(v => `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" class="gx-grid"/><text x="${P.l - 10}" y="${Y(v) + 4}" text-anchor="end" class="gx-tick">${esc(yFmt(v))}</text>`).join('')}
     ${xt.map(v => `<text x="${X(v)}" y="${H - 8}" text-anchor="middle" class="gx-tick">${lap ? 'L' + Math.round(v) : Math.round(v)}</text>`).join('')}${lap ? '' : `<text x="${W - P.r}" y="${H - 8}" text-anchor="end" class="gx-tick gx-unit">${esc(xLabel)}</text>`}
     ${series.map(s => { const col = gxCol(s.color); return `<polyline fill="none" stroke="${col}" stroke-width="${s.label ? 3.5 : 3}" stroke-linejoin="round" stroke-linecap="round" ${s.dashed ? 'stroke-dasharray="10 7" opacity=".85"' : ''} points="${s.pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')}"/>${s.dots ? s.pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3" fill="${col}"><title>${esc(s.label || '')} ${lap ? 'lap ' + p[0] : p[0]}: ${esc(yFmt(p[1]))}</title></circle>`).join('') : ''}`; }).join('')}
-    ${ends.map(e => { const col = gxCol(e.s.color); const x = W - P.r + 14; return `<line x1="${e.x}" y1="${e.y0}" x2="${x}" y2="${e.y}" stroke="${col}" stroke-width="1" opacity=".35" stroke-dasharray="2 3"/><rect x="${x + 4}" y="${e.y - 11}" width="5" height="22" fill="${col}"/><text x="${x + 15}" y="${e.y - 1}" class="gx-name">${esc(String(e.s.label).toUpperCase())}</text><text x="${x + 15}" y="${e.y + 12}" class="gx-sub">${esc(e.s.sub ?? yFmt(e.v))}</text>`; }).join('')}
+    ${ends.map(e => { const col = gxCol(e.s.color); const x = W - P.r + 14; return `<line x1="${e.x}" y1="${e.y0}" x2="${x}" y2="${e.y}" stroke="${col}" stroke-width="1" opacity=".35" stroke-dasharray="2 3"/>${e.compact ? `<rect x="${x + 4}" y="${e.y - 7}" width="4" height="14" fill="${col}"/><text x="${x + 13}" y="${e.y + 4}" class="gx-name gx-c">${esc(String(e.s.label).toUpperCase())} <tspan class="gx-sub">${esc(e.s.sub ?? yFmt(e.v))}</tspan></text>` : `<rect x="${x + 4}" y="${e.y - 11}" width="5" height="22" fill="${col}"/><text x="${x + 15}" y="${e.y - 1}" class="gx-name">${esc(String(e.s.label).toUpperCase())}</text><text x="${x + 15}" y="${e.y + 12}" class="gx-sub">${esc(e.s.sub ?? yFmt(e.v))}</text>`}`; }).join('')}
   </svg></div>`;
 }
 /** Least-squares line through [[x, y]]: { a: intercept, b: slope }. */
