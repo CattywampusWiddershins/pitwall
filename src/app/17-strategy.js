@@ -682,7 +682,9 @@ function wetCall(c, s, r, L, me, loss) {
   const soon = (thr, rising) => { const f = ahead.find(x => rising ? x.rain >= thr : x.rain <= thr); return f ? f.at : null; };
   const secs = (pct) => (pct / 100 * ref / 1000).toFixed(1);
   let text = '', cls = '', tyre = null;
-  if (onSlick && slick != null) {
+  // with no one on inters yet, slow slicks are only the track getting wet if rain is falling: with none, a slow lap
+  // was something else (a safety car Pitwall didn't see, as when a race resumed under one at Shanghai)
+  if (onSlick && slick != null && (inter != null || (W.now ?? 0) >= 3)) {
     // inters run about the crossover in these conditions until someone shows otherwise
     const iv = inter ?? M.toInter.slow; const dS = Math.max(0, S.d), dI = inter != null ? I.d : 0;
     const next = (slick + dS) - (iv + dI); // what inters would gain on the coming lap

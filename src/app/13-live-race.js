@@ -1102,6 +1102,14 @@ function mergeLive(prev, m, now) {
   if (m.field && !m.sc) { let D = null; for (const x of m.field) { if (x.st !== 2 || x.pit || !(x.pos > 1) || !(x.gapF > 0 && x.gapF < 1000) || !x.lap) continue; D ||= (L.dirtyLaps = { ...(prev.dirtyLaps || {}) }); const a = D[x.i] || []; if (a[a.length - 1] !== x.lap) D[x.i] = [...a.slice(-30), x.lap]; } }
   // the laps each car ran with the safety car or VSC out, for any part of the lap
   if (m.sc && m.field) { L.scLaps = { ...(prev.scLaps || {}) }; for (const x of m.field) { const a = L.scLaps[x.i] || []; if (x.lap && a[a.length - 1] !== x.lap) L.scLaps[x.i] = [...a, x.lap]; } }
+  // and the game's own record of them (your laps), for laps run before a save was resumed or before Pitwall was opened:
+  // each car shifted by the laps it is behind or ahead of you. A period cut short by the resume (to 0) runs to the next
+  if (m.scPeriods?.length && m.field) {
+    const meNow = m.field.find(x => x.i === m.player); const cur = meNow?.lap || 0; const P = m.scPeriods; const own = new Set();
+    P.forEach((p, k) => { const end = p.to > 0 ? p.to : p.to == null ? cur : (P[k + 1]?.from ?? p.from); for (let n = Math.max(1, p.from); n <= end; n++) own.add(n); });
+    if (cur && own.size) { const S = L.scLaps = { ...(L.scLaps || {}) };
+      for (const x of m.field) { if (!x.lap) continue; const off = x.lap - cur; const a = S[x.i] || []; const add = [...own].map(n => n + off).filter(n => n > 0 && !a.includes(n)); if (add.length) S[x.i] = [...a, ...add].sort((p, q) => p - q); } }
+  }
   // a car's stop count went up: note the lap, and the tyre it came in on
   for (const x of m.field || []) {
     const was = liveErs.stopsSeen[x.i] ?? 0;

@@ -5,6 +5,8 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 ## 3.37.3
 
 - Live Race: in a race resumed from a save, or one Pitwall was opened partway through, your stints so far are now taken from the game's own tyre history. Before, a stop made before the resume was shown on the lap the race resumed, on the tyre you were on by then (Mediums then Hards read as Hards then Hards), and the strategy was worked out from that.
+- Live Race: a safety car or VSC that came out before a save was resumed is now known from the game's own record, so its slow laps are no longer read as a wet track. At Shanghai a race resumed under the safety car was told to box for inters on a dry track with no rain forecast.
+- Weather call: with nobody on inters yet, slow laps on slicks only call for inters while rain is falling.
 
 ## 3.37.2
 
