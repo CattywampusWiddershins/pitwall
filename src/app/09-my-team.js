@@ -278,6 +278,48 @@ function renderMtSponsors(c, m, s) {
 }
 
 /* ------------------------------------------------------------ hall of fame */
+/**
+ * What a champion did in this career, written from the career itself: each title won in it (the team, the title's
+ * number, a rookie's title, one won on countback, how early it was settled, back to back) and the records that came
+ * with them. Sentences without pronouns, by last name. '' for a champion with no title in the career.
+ */
+function champNotes(c, key, ctx) {
+  const mine = ctx.filter(x => x.champ === key && !isHist(x.s)); if (!mine.length) return '';
+  const name = key === PLAYER_ID ? c.profile.last : lastName(dName(latestSeason(), key) || D.CHAMP_BIO[key]?.name || key);
+  const all = ctx.filter(x => x.champ); const realBefore = D.CHAMPIONS.filter(([y]) => y < (ctx.find(x => !isHist(x.s))?.s.year ?? 9999)).filter(([, k]) => k === key).length;
+  const before = (x) => realBefore + ctx.filter(y => y.champ === key && isHist(y.s) && y.s.year < x.s.year).length + mine.filter(y => y.s.year < x.s.year).length;
+  // the rookie champions in history: a title in the first season with a start (every driver ever, then the career)
+  const firstYear = {}; for (const [id, A] of Object.entries(H.allTime || {})) { const ys = Object.keys(A.y).filter(y => A.y[y][0] > 0).map(Number); if (ys.length) firstYear[id] = Math.min(...ys); }
+  for (const x of ctx) for (const [id, o] of Object.entries(x.st)) if (o.starts && x.s.drivers[id] && firstYear[id] == null && !(D.DRIVER_BIO[id]?.starts > 0 && !H.allTime?.[id])) firstYear[id] = x.s.year;
+  const rookieTitles = [...D.CHAMPIONS.filter(([y]) => y < HIST_FROM).map(([y, k]) => ({ y, k })), ...all.map(x => ({ y: x.s.year, k: x.champ }))].filter(t => firstYear[t.k] === t.y).sort((a, b) => a.y - b.y);
+  const nameOf = (k) => k === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : D.CHAMP_BIO[k]?.name || dName(latestSeason(), k) || H.allTime?.[k]?.n || k;
+  const cbTitles = all.filter(x => { const ds = x.ds; return ds.length > 1 && ds[0].pts === ds[1].pts; }); // no real title was ever settled on countback
+  const out = []; let lastTeam = null;
+  mine.forEach((x) => {
+    const n = before(x) + 1; const t = teamOf(x.s, key); const rounds = activeRounds(x.s).length; const fh = fightHistory(x.s, 'driver');
+    const left = fh.decidedAt ? rounds - 1 - fh.decidedAt.i : 0; const ds = x.ds; const tie = ds.length > 1 && ds[0].pts === ds[1].pts;
+    const prevYear = all.some(y => y.champ === key && y.s.year === x.s.year - 1);
+    let line = n === 1 ? `${name} became world champion in ${x.s.year}` : `${name} won a ${prevYear ? `${n === 2 ? 'second' : ordWord(n)} title in a row` : `${ordWord(n)} world title`} in ${x.s.year}`;
+    if (t) line += t.name === lastTeam ? `, again with ${t.name}` : lastTeam ? `, this time with ${t.name}` : ` with ${t.name}`;
+    lastTeam = t?.name || lastTeam;
+    const wins = x.st[key]?.wins || 0; if (wins) line += `, winning ${wins} of ${rounds} races`;
+    out.push(line + '.');
+    if (firstYear[key] === x.s.year) {
+      const k = rookieTitles.findIndex(r => r.y === x.s.year && r.k === key); const earlier = rookieTitles.slice(0, k);
+      out.push(earlier.length ? `It came in a first Formula 1 season: only the ${ordWord(k + 1)} rookie champion, after ${listJoin(earlier.map(r => `${nameOf(r.k)} in ${r.y}`))}${earlier.some(r => r.y === 1950) ? ' (the first championship, when every driver was new to it)' : ''}.` : 'It came in a first Formula 1 season: the first rookie champion.');
+    }
+    if (tie) { const k = cbTitles.findIndex(y => y.s.year === x.s.year); const w2 = x.st[ds[1].id]?.wins || 0;
+      out.push(`The title was level on points with ${nameOf(ds[1].id)} at the end and settled on countback, ${wins} wins to ${w2}: ${k === 0 ? 'the first world title ever decided that way' : `only the ${ordWord(k + 1)} title decided that way`}.`); }
+    else if (left >= 1) out.push(`It was settled with ${left === 1 ? 'a round' : `${left} rounds`} to spare, by ${fmtPts(ds[0].pts - ds[1].pts)} points in the end.`);
+    else if (fh.decidedAt) out.push(`It went down to the final round${ds[1] ? `, ahead of ${nameOf(ds[1].id)} by ${fmtPts(ds[0].pts - ds[1].pts)} points` : ''}.`);
+  });
+  // the records the titles brought, from the career's record book
+  const tl = careerTimeline(c); const REC = { titles: 'the most world titles of anyone', titleStreak: 'the longest run of titles in a row', youngTitle1: 'the youngest world champion', titleMargin: 'the biggest title-winning margin', seasonWins: 'the most wins in a season', seasonPts: 'the most points in a season' };
+  const recs = tl.events.filter(e => e.type === 'record' && e.id === key && !e.hist && REC[e.rid]).map(e => `${e.kind === 'equalled' ? 'equalled' : 'set'} the record for ${REC[e.rid]} (${e.when || e.year})`);
+  const uniq = [...new Set(recs)].slice(0, 4); if (uniq.length) out.push(`Along the way, ${name} ${listJoin(uniq)}.`);
+  return out.join(' ');
+}
+/* ---------------------------------------------------------------- the hall */
 function hallOfFame(c) {
   const ctx = careerCtx(c);
   const years = D.CHAMPIONS.map(([year, key, team]) => ({ year, key, team, career: false }));
@@ -297,7 +339,9 @@ function hallOfFame(c) {
       stats = tot; nat = key === PLAYER_ID ? c.profile.nationality : bio?.nat;
     } else { stats = cb; nat = cb.nat; }
     const name = key === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : cb?.name || known[key]?.name || key;
-    const about = key === PLAYER_ID ? (c.profile.bio || 'Crowned world champion in your career.') : cb?.about || D.DRIVER_BIO[key]?.note || 'World champion in your career.';
+    // the champion's story, with what they did in this career written in (yours from your career, not your profile)
+    const notes = champNotes(c, key, ctx);
+    const about = key === PLAYER_ID ? (notes || c.profile.bio || 'Crowned world champion in your career.') : [cb?.about || D.DRIVER_BIO[key]?.note || '', notes ? (cb?.about ? `In this career: ${notes}` : notes) : ''].filter(Boolean).join(' ') || 'World champion in your career.';
     const last = ys[ys.length - 1];
     return { key, name, nat, years: ys, titles: ys.length, stats, about, life: cb?.life || (D.DRIVER_BIO[key]?.born ? 'b. ' + D.DRIVER_BIO[key].born.slice(0, 4) : ''), color: last.color || D.TITLE_TEAM_COLORS[last.team] || '#5E6A82', active: key === PLAYER || gridIds(latestSeason()).includes(key), career: ys.some(y => y.career) };
   });

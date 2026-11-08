@@ -483,6 +483,10 @@ function planLaps(runs, cur, age, p, left, loss, firstLoss = loss) {
 const RIVAL_JITTER = [[-2, 0.1], [-1, 0.2], [0, 0.4], [1, 0.2], [2, 0.1]];
 const RETRY_LAPS = 3; // a car that failed to pass has another go this many laps later
 const _odds = new Map();
+// Race Replay: the odds last worked out for each plan, by the lap it stops on and its tyres, so a new five-second tick
+// can show them at once while they're worked out again in the background, a plan at a time between frames (all at once
+// they took up to a tenth of a second, a visible stutter every few seconds of race time)
+const _oddsAbs = new Map(); const _oddsBusy = new Set();
 /**
  * The odds of each finishing position for each of your plans: [{ p, dist: [prob by position (index 1 = P1)], best, worst, mode, pMode }].
  * The other cars run their own plans, their next stop a lap or two either way; lapped cars behind you are left out.
@@ -528,10 +532,11 @@ function raceOdds(s, r, L, me, idOf, ST, plans) {
     const tot = V.reduce((a, v) => a + v.w, 0); let acc = 0; V.forEach(v => { acc += v.w / tot; v.cum = acc; });
     return { g: G[x.i].g, V };
   }).filter(Boolean);
-  const out = plans.map(p => {
+  // a plan's simulated races, from run `from` up to `to` (a part, added to `acc`, returns the counts so far)
+  const simOne = (p, from = 0, to = SIM_RUNS, acc = null) => {
     const mine = { g: G[me.i]?.g ?? (me.gapL || 0), ...withOffset(planLaps(ST.runs, ST.cur, ST.age, p, left, loss, sc && p.k === 1 ? lossNow : loss), myOff, me) };
-    const n = cars.length + 1; const dist = Array(n + 1).fill(0);
-    for (let run = 0; run < SIM_RUNS; run++) {
+    const n = cars.length + 1; const dist = acc || Array(n + 1).fill(0);
+    for (let run = from; run < to; run++) {
       const rnd = mulberry(`odds-${run}`);
       const all = [mine, ...cars.map(x => { const u = rnd(); const v = x.V.find(v => u <= v.cum) || x.V[x.V.length - 1]; return { g: x.g, laps: v.laps, pits: v.pits }; })];
       const t = all.map(x => x.g); const lastPit = all.map(() => -1); const failed = new Map();
@@ -556,11 +561,30 @@ function raceOdds(s, r, L, me, idOf, ST, plans) {
       }
       dist[order.indexOf(0) + 1]++;
     }
+    if (to < SIM_RUNS) return dist;
     const D = dist.map(v => v / SIM_RUNS); const seen = D.map((v, k) => v >= 0.01 ? k : null).filter(v => v);
     const mode = D.indexOf(Math.max(...D));
     return { p, dist: D, best: Math.min(...seen), worst: Math.max(...seen), mode, pMode: D[mode] };
-  });
-  _odds.set(key, out); if (_odds.size > 60) _odds.delete(_odds.keys().next().value);
+  };
+  const ak = `${L.uid}:${me.i}`; const A = _oddsAbs.get(ak) || new Map(); _oddsAbs.set(ak, A); if (_oddsAbs.size > 8) _oddsAbs.delete(_oddsAbs.keys().next().value);
+  const abs = (p) => `${sc}:${me.lap + p.k}:${p.stints.map(x => x.c + '/' + x.L).join(',')}`;
+  const tyres = (p) => `${sc}:t:${p.stints.map(x => x.c).join(',')}`; // the same tyres, whatever the laps: a stand-in until a plan's own odds are in
+  const keep = (list) => { list.forEach((o, j) => { A.set(abs(plans[j]), o); A.set(tyres(plans[j]), o); }); while (A.size > 80) A.delete(A.keys().next().value); _odds.set(key, list); if (_odds.size > 60) _odds.delete(_odds.keys().next().value); };
+  if (L.replay) {
+    const stale = plans.map(p => A.get(abs(p)) || A.get(tyres(p)));
+    if (stale.every(Boolean)) {
+      const out = plans.map((p, j) => ({ ...stale[j], p }));
+      if (!_oddsBusy.has(key)) {
+        _oddsBusy.add(key); const fresh = out.slice(); let j = 0;
+        const CH = 30; let run = 0, acc = null; // thirty races at a time: a few milliseconds a step
+        const step = () => { while (j < plans.length && !stale[j]) j++; if (j >= plans.length) { keep(fresh); _oddsBusy.delete(key); if (RP) RP.dashAt = 0; return; }
+          const to = Math.min(SIM_RUNS, run + CH); const r2 = simOne(plans[j], run, to, acc); if (to < SIM_RUNS) { acc = r2; run = to; } else { fresh[j] = r2; j++; run = 0; acc = null; } setTimeout(step, 0); };
+        setTimeout(step, 0);
+      }
+      return out;
+    }
+  }
+  const out = plans.map(simOne); keep(out);
   return out;
 }
 /** The chance plan A finishes ahead of plan B (taking the two as independent). */

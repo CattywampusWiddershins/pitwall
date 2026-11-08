@@ -104,10 +104,13 @@ function allTyres(b, L) {
 }
 /** Lap data: each car's race position, current lap, grid slot, result status and whether it is in the pit lane. */
 function parseLapData(b, L) {
+  // a gap's milliseconds part is under a minute: just after a pass the game can send a small negative one, which reads as
+  // 65 s (it wraps round); it's taken as level instead
+  const gap = (ms, min) => ms >= 60000 ? 0 : ms + min * 60000;
   const out = [];
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
-    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: b.readUInt16LE(o + 17) + b[o + 19] * 60000, front: b.readUInt16LE(o + 14) + b[o + 16] * 60000,
+    out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: gap(b.readUInt16LE(o + 17), b[o + 19]), front: gap(b.readUInt16LE(o + 14), b[o + 16]),
       last: b.readUInt32LE(o), cur: b.readUInt32LE(o + 4), s1: b.readUInt16LE(o + 8) + b[o + 10] * 60000, s2: b.readUInt16LE(o + 11) + b[o + 13] * 60000, sector: b[o + 36], stops: b[o + 35] });
   }
   return out;

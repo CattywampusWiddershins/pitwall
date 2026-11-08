@@ -90,6 +90,29 @@ function replayTo(idx) {
   RP.at = idx;
 }
 /**
+ * The game's gaps catch up with a pass a moment late: for a second or two the car passed (a pass for the lead most of
+ * all) shows a gap well over what it was just before and just after. A car's gap (to the leader, and to the car ahead)
+ * that jumps more than half a second and comes straight back within three samples (the game's negative gap just after a pass, read as 65 s in recordings made before 4.2.2, is one), with the car running and not in the
+ * pits, takes the line between the samples either side instead.
+ */
+function smoothGapBlips(samples) {
+  const by = {}; samples.forEach((S, k) => S.f.forEach((x, j) => { (by[x[0]] ||= [])[k] = j; }));
+  for (const [i, idx] of Object.entries(by)) for (const col of [4, 5]) {
+    const at = (k) => { const j = idx[k]; const x = j != null ? samples[k].f[j] : null; return x && x[7] === 2 && !x[6] && x[1] > 1 ? x : null; };
+    for (let k = 1; k < samples.length - 1; k++) {
+      const a = at(k - 1); if (!a) continue;
+      for (const w of [1, 2, 3]) { // a blip up to three samples long
+        const c = at(k + w); if (!c || k + w >= samples.length) continue;
+        const mid = []; for (let m = k; m < k + w; m++) mid.push(at(m)); if (mid.some(x => !x)) continue;
+        const lo = Math.max(a[col], c[col]); if (Math.abs(a[col] - c[col]) > 500 || !mid.every(x => x[col] - lo > 500)) continue;
+        mid.forEach((x, n) => { x[col] = Math.round(a[col] + (c[col] - a[col]) * (n + 1) / (w + 1)); });
+        break;
+      }
+    }
+  }
+  return samples;
+}
+/**
  * A flashback winds the cars back without the game's clock going back, so a recording holds it: the cars jump back. Each
  * time most of the field is suddenly further back than a moment before, the samples since the point they went back to
  * are cut, and the time after it closes up, so the race plays on smoothly.
@@ -110,7 +133,7 @@ function dropFlashbacks(samples) {
 const replayIdx = (T) => { const S = RP.data.samples; let lo = 0, hi = S.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S[m].t <= T) lo = m; else hi = m - 1; } return lo; };
 async function openReplay(item) {
   const D = item.x.rebuilt ? rebuildReplay(item.s, item.r, item.k) : await replayApi().load(item.x.key); if (!D?.samples?.length) { toast('That recording couldn’t be read'); return; }
-  if (!item.x.rebuilt) D.samples = dropFlashbacks(D.samples);
+  if (!item.x.rebuilt) { D.samples = dropFlashbacks(D.samples); smoothGapBlips(D.samples); }
   const c = career(); const map = D.meta.ids ? Object.fromEntries(D.meta.ids.map((d, i) => [i, d])) : liveMap(c, item.s, { parts: D.meta.parts, player: D.meta.player }); const idOf = (i) => map[i];
   // each car's position at the start of every lap (lap 0: the first sample), for the chart
   const posLaps = {}; const seen = {};
@@ -258,7 +281,9 @@ function replayShow(force = false) {
   el('rp-clock').textContent = `${clk(RP.T)} / ${clk(RP.dur)}`; el('rp-lap').textContent = `Lap ${Math.min(lead, RP.data.meta.totalLaps || lead)} of ${RP.data.meta.totalLaps || '?'}${S.sc === 1 ? ' · SAFETY CAR' : S.sc === 2 ? ' · VSC' : ''}`;
   const seek = el('rp-seek'); if (document.activeElement !== seek) seek.value = Math.floor(RP.T);
   el('rp-play').textContent = RP.playing ? 'Pause' : 'Play';
-  if (force || now - RP.dashAt > 1000) { RP.dashAt = now; el('rp-dash').innerHTML = replayDash(); el('rp-dash').querySelectorAll('.champ-bar').forEach(champBarView); }
+  const dash = () => { const d = el('rp-dash'); if (!d || !RP) return; d.innerHTML = replayDash(); d.querySelectorAll('.champ-bar').forEach(champBarView); };
+  // once a second, the dashboard (the strategy, the battles, the championship): built just after this frame is drawn
+  if (force) { RP.dashAt = now; dash(); } else if (now - RP.dashAt > 1000 && !RP.dashQ) { RP.dashAt = now; RP.dashQ = true; setTimeout(() => { RP.dashQ = false; dash(); }, 0); }
   if (force || lead !== RP.chartLap) { RP.chartLap = lead; el('rp-chart').innerHTML = replayChart(); }
 }
 function replayDash() {

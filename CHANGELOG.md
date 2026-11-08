@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 4.2.2
+
+- **Race Replay plays smoothly.** The strategy odds on the replay's dashboard were worked out all at once every five seconds of race time (up to a tenth of a second, a stutter about once a second at speed). They're now worked out in the background, a few races at a time between frames, the last odds standing in meanwhile, and the dashboard is rebuilt after the frame is drawn, not in it.
+- **No gap spike after a pass.** Just after a pass (for the lead most of all) the game sends a small negative gap, which read as 65 seconds for a moment. It's now taken as level when read, and in recordings made before, a gap that jumps and comes straight back within three seconds is smoothed out.
+- **Hall of Fame: champions' stories written from the career.** Every champion with a title in your career gets it written into their story: the title's number and team, how many races they won, a rookie's title (and who else ever did it), a title settled on countback (no real title ever was), how many rounds were left when it was settled, titles in a row, and the records that came with them. Your own card is written from your career instead of your profile bio.
+
 ## 4.2.1
 
 - Charts: the name tags at the ends of the lines no longer pile on top of each other when many lines end close together (the constructors' points with eleven teams). They spread evenly down the chart, on one line each when space is short.
