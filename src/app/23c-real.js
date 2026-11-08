@@ -62,7 +62,12 @@ function realSeasonOf(c, year, index) {
 }
 
 /* ----------------------------------------------------------- following */
-const realGet = async (path) => { const api = window.api?.real || window.__realTest; const t = api ? await api.get(path) : null; return t ? JSON.parse(t) : null; };
+// a request the API refused, or one that couldn't get through: the look stops there and tries again shortly
+class RealHold extends Error { constructor(retry) { super('held'); this.retry = retry; } }
+const realGet = async (path) => {
+  const api = window.api?.real || window.__realTest; const t = api ? await api.get(path) : null;
+  if (t == null) throw new RealHold(0); const j = JSON.parse(t); if (j?.__status) throw new RealHold(j.retry || 0); return j;
+};
 const realSleep = (ms) => new Promise(r => setTimeout(r, ms));
 /** One look for new results: the year's schedule, then each race run since that isn't in yet (race, qualifying, sprint). */
 async function realSync() {
@@ -86,13 +91,18 @@ async function realSync() {
       Y.races[r.round] = { r: res.Results.map(row), q: q.map(x => ({ id: x.Driver.driverId, code: x.Driver.code, name: `${x.Driver.givenName} ${x.Driver.familyName}`, number: x.Driver.permanentNumber || x.number, q1: x.Q1, q2: x.Q2, q3: x.Q3 })), s: s.map(row) };
       changed = true;
     }
-    c.real.checked = new Date().toISOString();
-    if (changed) {
-      const k = c.seasons.findIndex(x => x.year === year); if (k >= 0) c.seasons[k] = realSeasonOf(c, year, c.seasons[k].index);
-      renderGen++; store.save(); if (career() === c) render();
-    }
-  } catch (e) { console.warn('Real season:', e); }
-  finally { realSync.busy = false; }
+    c.real.checked = new Date().toISOString(); if (!changed) { store.save(); if (career() === c) render(); } // the time it was looked at, in the sidebar
+  } catch (e) {
+    // held up partway (the API's limit, or no connection): what came in is kept, and the rest is looked for again in a
+    // minute (or when the API says), not at the next 20-minute look
+    if (e instanceof RealHold) { clearTimeout(realSync.retry); realSync.retry = setTimeout(realSync, Math.max(60, e.retry || 0) * 1000); }
+    else console.warn('Real season:', e);
+  }
+  finally {
+    if (changed) { const c = state.careers.find(x => x.realSeason); const year = realYear(); const k = c ? c.seasons.findIndex(x => x.year === year) : -1;
+      if (k >= 0) { c.seasons[k] = realSeasonOf(c, year, c.seasons[k].index); renderGen++; store.save(); if (career() === c) render(); } }
+    realSync.busy = false;
+  }
 }
 /** Start following: a look now, then every 20 minutes while Pitwall is open. */
 function realStart() {

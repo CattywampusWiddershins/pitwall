@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.0.1
+
+- Real season: when the results service turned a request away partway through a look (too many requests at once, or no connection), the rest of the season was taken as not run yet, so the season could stop part of the way through (at Belgium, say) until the next look 20 minutes later. A look that's held up now keeps what came in and tries again a minute later, from where it stopped.
+
 ## 5.0.0
 
 - **Follow the Real Season.** A save that's always there beside your careers and follows the real Formula 1 season with nothing to do: every real season since 2016, then this year's as it happens. Pitwall looks for new results when it opens and every 20 minutes while it's open (from the Jolpica F1 API) and keeps them in the save, so the season is there offline too. It has the pages that read a season (Season, Standings, Head to Head, Drivers, Teams, Circuits, the World Map, the Hall of Fame and Records), with no driver of yours in it. Switch to it from the save list in the sidebar.
