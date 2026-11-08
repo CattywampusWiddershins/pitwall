@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.0.2
+
+- **World Map: smooth, and zoom.** The globe was drawn at about 20 frames a second (46 ms a frame), so it turned in fits and starts. While it moves it's now drawn from coarser country shapes, in a few batches, leaving out the far side (about 7 ms a frame), and the detailed shapes come back once it settles. A drag carries on turning with the speed you let go at, a picked country is turned to with a gentle ease, and the globe glides aside for the panel instead of jumping. Zoom with the mouse wheel (or a pinch on a trackpad) or the + and − buttons; a picked country is zoomed to fit (close in on Belgium or Monaco, the whole of the United States).
+
 ## 5.0.1
 
 - Real season: when the results service turned a request away partway through a look (too many requests at once, or no connection), the rest of the season was taken as not run yet, so the season could stop part of the way through (at Belgium, say) until the next look 20 minutes later. A look that's held up now keeps what came in and tries again a minute later, from where it stopped.

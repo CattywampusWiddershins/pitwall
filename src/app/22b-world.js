@@ -5,7 +5,7 @@
    leaderboard, for that country, with its own export). Drawn on a canvas with d3-geo (src/vendor), from src/world.js. */
 'use strict';
 const W = window.F1WORLD || null;
-const WM = { rot: [-10, -25, 0], spin: true, drag: null, anim: null, raf: 0, hover: null };
+const WM = { rot: [-10, -25, 0], spin: true, drag: null, anim: null, raf: 0, hover: null, zoom: 1, zoomT: 1 };
 // nationalities and countries the flag table doesn't cover
 const NAT_FIX = { 'East German': 'de', 'West German': 'de', Rhodesian: 'zw', 'American-Italian': 'us', 'Argentine-Italian': 'ar' };
 const natCode = (nat) => nat ? (NAT_FIX[nat] || A.nat[nat] || null) : null;
@@ -18,12 +18,12 @@ const gpWord = (n) => `${n} world championship Grand${n === 1 ? ' Prix' : 's Pri
 
 /* ------------------------------------------------------------------ data */
 let _wmFeat = null;
-function worldFeatures() {
-  if (_wmFeat || !W || !window.topojson) return _wmFeat;
-  const fc = topojson.feature(W.topo, W.topo.objects.countries);
-  fc.features.forEach(f => { f.cc = W.code[f.id] || null; });
-  return (_wmFeat = fc.features);
-}
+// each country with its centre and how far it reaches from it (radians), for leaving out those on the far side
+const wmPrep = (topo) => { const fc = topojson.feature(topo, topo.objects.countries); for (const f of fc.features) { f.cc = W.code[f.id] || null; f.ctr = d3.geoCentroid(f); const [[x0, y0], [x1, y1]] = d3.geoBounds(f); f.rad = Math.max(...[[x0, y0], [x1, y1], [x0, y1], [x1, y0]].map(p => d3.geoDistance(f.ctr, p))); } return fc.features; };
+function worldFeatures() { if (_wmFeat || !W || !window.topojson) return _wmFeat; return (_wmFeat = wmPrep(W.topo)); }
+let _wmLow = null;
+/** The coarse 1:110m shapes, drawn while the globe moves (the detailed ones if they're missing). */
+function worldFeaturesLow() { if (_wmLow || !W?.low || !window.topojson) return _wmLow || worldFeatures(); return (_wmLow = wmPrep(W.low)); }
 /** Everything the map knows, by country code: circuits (real, and the career's own rounds), drivers, champions. Cached per render. */
 let _wmData = null;
 function worldData(c) {
@@ -54,92 +54,127 @@ function worldData(c) {
 }
 
 /* ----------------------------------------------------------------- globe */
+// One canvas, kept for as long as Pitwall runs and moved into the page each time it's drawn, so a click that opens the
+// panel never blanks the globe. The globe glides aside for the panel (its centre and size eased in the drawing loop),
+// zooms with the wheel, the buttons or a pinch on a trackpad, and turns on after a drag with the speed it was let go at.
+// While it moves it's drawn from the coarser 1:110m shapes, countries in a few batches and those on the far side left
+// out; once it settles, from the 1:50m ones.
 function worldMount() {
-  const cv = document.getElementById('wm-canvas'); if (!cv || !window.d3?.geoOrthographic) return;
-  const box = cv.parentElement; const dpr = window.devicePixelRatio || 1;
-  const size = () => { const w = box.clientWidth, h = box.clientHeight; cv.width = w * dpr; cv.height = h * dpr; cv.style.width = w + 'px'; cv.style.height = h + 'px'; return { w, h }; };
-  WM.cv = cv; WM.size = size();
-  if (!WM.bound) {
-    WM.bound = true;
-    window.addEventListener('resize', () => { if (WM.cv && document.body.contains(WM.cv)) { WM.size = size(); worldDraw(); } });
+  const host = document.getElementById('wm-globe'); if (!host || !window.d3?.geoOrthographic) return;
+  let cv = WM.cv;
+  if (!cv) {
+    cv = WM.cv = document.createElement('canvas'); cv.id = 'wm-canvas';
+    cv.addEventListener('pointerdown', (e) => { WM.drag = { x: e.clientX, y: e.clientY, rot: WM.rot.slice(), moved: false, t: performance.now(), vx: 0, vy: 0 }; WM.spin = false; WM.anim = null; WM.vel = null; cv.setPointerCapture(e.pointerId); worldWake(); });
+    cv.addEventListener('pointermove', (e) => {
+      const d = WM.drag; if (!d) { WM.hoverAt = e; worldWake(); return; }
+      const k = 180 / Math.PI / (WM.r * WM.zoom); const dx = e.clientX - d.x, dy = e.clientY - d.y; if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+      const now = performance.now(); const dt = Math.max(1, now - d.t); const rot = [d.rot[0] + dx * k, Math.max(-85, Math.min(85, d.rot[1] - dy * k)), 0];
+      d.vx = (rot[0] - WM.rot[0]) / dt; d.vy = (rot[1] - WM.rot[1]) / dt; d.t = now; WM.rot = rot; worldWake();
+    });
+    cv.addEventListener('pointerup', (e) => {
+      const d = WM.drag; WM.drag = null; if (!d) return;
+      if (!d.moved) { const hit = worldHit(e); if (hit?.cc) worldPick(hit.cc, hit.circuit); }
+      else if (performance.now() - d.t < 80 && Math.hypot(d.vx, d.vy) > 0.01) WM.vel = [d.vx, d.vy]; // let go while moving: it turns on
+      worldWake();
+    });
+    cv.addEventListener('pointerleave', () => { WM.hoverAt = null; if (WM.hover) { WM.hover = null; worldWake(); } });
+    cv.addEventListener('wheel', (e) => { e.preventDefault(); worldZoom(WM.zoomT * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))); }, { passive: false });
+    window.addEventListener('resize', () => { if (document.body.contains(WM.cv)) { worldSize(); worldWake(); } });
   }
-  cv.onpointerdown = (e) => { WM.drag = { x: e.clientX, y: e.clientY, rot: WM.rot.slice(), moved: false }; WM.spin = false; WM.anim = null; cv.setPointerCapture(e.pointerId); };
-  cv.onpointermove = (e) => {
-    const d = WM.drag;
-    if (!d) { const hit = worldHit(e); const cc = hit?.cc || null; if (cc !== WM.hover) { WM.hover = cc; cv.style.cursor = cc ? 'pointer' : 'grab'; cv.title = cc ? ccName(cc) : ''; worldDraw(); } return; }
-    const k = 0.25 * (360 / Math.max(300, WM.r * 2)) * 2.4; const dx = e.clientX - d.x, dy = e.clientY - d.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
-    WM.rot = [d.rot[0] + dx * k, Math.max(-85, Math.min(85, d.rot[1] - dy * k)), 0]; worldDraw();
-  };
-  cv.onpointerup = (e) => { const d = WM.drag; WM.drag = null; if (d && !d.moved) { const hit = worldHit(e); if (hit?.cc) worldPick(hit.cc, hit.circuit); } };
-  worldDraw(); worldLoop();
+  host.replaceChildren(cv); worldSize(); WM.primary = null; WM.hi = false; worldWake(); // (the theme colour read again)
 }
-/** The turning: a slow spin until you take hold of it, and the turn to a country when one's picked. */
-function worldLoop() {
-  cancelAnimationFrame(WM.raf);
-  const step = (now) => {
-    if (!WM.cv || !document.body.contains(WM.cv)) return;
-    if (WM.anim) {
-      const a = WM.anim; const u = Math.min(1, (now - a.t0) / a.ms); const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
-      WM.rot = [a.from[0] + (a.to[0] - a.from[0]) * e, a.from[1] + (a.to[1] - a.from[1]) * e, 0]; if (u >= 1) WM.anim = null; worldDraw();
-    } else if (WM.spin && !WM.drag) { WM.rot = [WM.rot[0] + 0.06, WM.rot[1], 0]; worldDraw(); }
-    WM.raf = requestAnimationFrame(step);
-  };
-  WM.raf = requestAnimationFrame(step);
+function worldSize() {
+  const cv = WM.cv; const box = cv.parentElement; if (!box) return; const dpr = window.devicePixelRatio || 1; const w = box.clientWidth, h = box.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
+  WM.size = { w, h };
+}
+/** The zoom it's heading for: 1 (the whole globe) to 9. */
+function worldZoom(z) { WM.zoomT = Math.max(1, Math.min(9, z)); WM.spin = false; worldWake(); }
+/** The drawing loop runs only while something moves; when it all settles, one last frame from the detailed shapes. */
+function worldWake() { if (!WM.raf) WM.raf = requestAnimationFrame(worldStep); }
+function worldStep(now) {
+  WM.raf = 0; if (!WM.cv || !document.body.contains(WM.cv)) return;
+  const dt = Math.min(50, now - (WM.last || now)); WM.last = now; let moving = false;
+  const ease = (cur, to, k = 0.16) => { const d = to - cur; if (Math.abs(d) < 1e-3) return to; moving = true; return cur + d * (1 - Math.pow(1 - k, dt / 16.7)); };
+  if (WM.anim) {
+    const a = WM.anim; const u = Math.min(1, (now - a.t0) / a.ms); const e = 1 - Math.pow(1 - u, 3); // ease out
+    WM.rot = [a.from[0] + (a.to[0] - a.from[0]) * e, a.from[1] + (a.to[1] - a.from[1]) * e, 0]; if (u >= 1) WM.anim = null; moving = true;
+  } else if (WM.vel && !WM.drag) {
+    WM.rot = [WM.rot[0] + WM.vel[0] * dt, Math.max(-85, Math.min(85, WM.rot[1] + WM.vel[1] * dt)), 0];
+    const f = Math.pow(0.94, dt / 16.7); WM.vel = [WM.vel[0] * f, WM.vel[1] * f]; if (Math.hypot(...WM.vel) < 0.0008) WM.vel = null; moving = true;
+  } else if (WM.spin && !WM.drag) { WM.rot = [WM.rot[0] + 0.004 * dt, WM.rot[1], 0]; moving = true; }
+  if (WM.drag) moving = true;
+  // the globe's place and size: the middle, or the left with the panel open
+  // (on a narrow window the panel comes up from the bottom, so the globe moves up instead)
+  const { w, h } = WM.size; const sel = !!ui.world?.sel; const wide = w > 900;
+  WM.cx = ease(WM.cx ?? w / 2, sel && wide ? w * 0.23 : w / 2); WM.cy = ease(WM.cy ?? h / 2, sel && !wide ? h * 0.25 : h / 2);
+  WM.r = ease(WM.r ?? Math.min(w, h) * 0.44, (sel ? (wide ? Math.min(w * 0.46, h) : Math.min(w, h * 0.5)) : Math.min(w, h)) * 0.44);
+  WM.zoom = ease(WM.zoom, WM.zoomT, 0.2);
+  // the country under the pointer, once the frame's other work is done
+  if (WM.hoverAt && !moving) { const hit = worldHit(WM.hoverAt); const cc = hit?.cc || null; WM.hoverAt = null; if (cc !== WM.hover) { WM.hover = cc; WM.cv.style.cursor = cc ? 'pointer' : 'grab'; WM.cv.title = cc ? ccName(cc) : ''; WM.hi = false; } }
+  if (moving) { worldDraw(false); WM.hi = false; WM.raf = requestAnimationFrame(worldStep); }
+  // settled: the detailed frame, once it's been still a moment (so it never lands in the middle of a movement)
+  else if (!WM.hi) { WM.last = 0; clearTimeout(WM.hiT); WM.hiT = setTimeout(() => { if (!WM.raf && !WM.hi && WM.cv && document.body.contains(WM.cv)) { worldDraw(true); WM.hi = true; } }, 180); }
+  else WM.last = 0;
 }
 function worldProj() {
-  const { w, h } = WM.size; const r = Math.min(w, h) * 0.44; WM.r = r;
-  return d3.geoOrthographic().scale(r).translate([w / 2, h / 2]).rotate(WM.rot).clipAngle(90).precision(0.6);
+  const { w, h } = WM.size;
+  return d3.geoOrthographic().scale(WM.r * WM.zoom).translate([WM.cx ?? w / 2, WM.cy ?? h / 2]).rotate(WM.rot).clipAngle(90);
 }
 /** What's under the pointer: a circuit marker (8 px) first, else the country. */
 function worldHit(e) {
   const feats = worldFeatures(); if (!feats || !WM.cv) return null;
   const rect = WM.cv.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top; const P = worldProj();
-  const center = P.invert([WM.size.w / 2, WM.size.h / 2]);
+  const center = [-WM.rot[0], -WM.rot[1]];
   for (const ci of W.circuits) { if (d3.geoDistance([ci.lon, ci.lat], center) > Math.PI / 2 - 0.05) continue; const p = P([ci.lon, ci.lat]); if (p && Math.hypot(p[0] - x, p[1] - y) < 8) return { cc: ci.cc, circuit: ci.id }; }
   const ll = P.invert([x, y]); if (!ll || d3.geoDistance(ll, center) > Math.PI / 2) return null;
-  const f = feats.find(f => f.cc && d3.geoContains(f, ll)); return f ? { cc: f.cc } : null;
+  const f = feats.find(f => f.cc && d3.geoDistance(f.ctr, ll) <= f.rad + 0.02 && d3.geoContains(f, ll)); return f ? { cc: f.cc } : null;
 }
-function worldDraw() {
-  const cv = WM.cv; const feats = worldFeatures(); if (!cv || !feats) return;
+function worldDraw(hi) {
+  const cv = WM.cv; const feats = hi ? worldFeatures() : worldFeaturesLow(); if (!cv || !feats || !WM.size) return;
   const g = cv.getContext('2d'); const dpr = window.devicePixelRatio || 1; g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const { w, h } = WM.size; g.clearRect(0, 0, w, h);
-  const P = worldProj(); const path = d3.geoPath(P, g); const r = WM.r; const cx = w / 2, cy = h / 2;
-  const css = getComputedStyle(document.body); const primary = (css.getPropertyValue('--team') || '#E10600').trim();
-  const data = worldData(career()).by; const sel = ui.world?.sel;
-  // the glow, the sea
-  const glow = g.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.18); glow.addColorStop(0, 'rgba(60,120,255,0.35)'); glow.addColorStop(1, 'rgba(60,120,255,0)'); g.fillStyle = glow; g.fillRect(0, 0, w, h);
+  const P = worldProj().precision(hi ? 0.9 : 1.2); const path = d3.geoPath(P, g); const r = WM.r * WM.zoom; const cx = WM.cx, cy = WM.cy;
+  const primary = WM.primary ||= (getComputedStyle(document.body).getPropertyValue('--team') || '#E10600').trim();
+  const data = worldData(career()).by; const sel = ui.world?.sel; const center = [-WM.rot[0], -WM.rot[1]];
+  // the glow, the sea, the lines of latitude and longitude
+  const glow = g.createRadialGradient(cx, cy, r * 0.92, cx, cy, r * 1.16); glow.addColorStop(0, 'rgba(60,120,255,0.32)'); glow.addColorStop(1, 'rgba(60,120,255,0)'); g.fillStyle = glow; g.fillRect(0, 0, w, h);
   const sea = g.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.1, cx, cy, r); sea.addColorStop(0, '#16233F'); sea.addColorStop(1, '#090E1B');
   g.beginPath(); path({ type: 'Sphere' }); g.fillStyle = sea; g.fill();
-  g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = 'rgba(255,255,255,0.06)'; g.lineWidth = 1; g.stroke();
-  // the countries: dark, those with F1 history in the theme's colour, the one picked or under the pointer brighter
+  g.beginPath(); path(WM.grat ||= d3.geoGraticule10()); g.strokeStyle = 'rgba(255,255,255,0.06)'; g.lineWidth = 1; g.stroke();
+  // the countries in batches: the rest, those with F1 history, the one under the pointer, the one picked
+  const groups = [[], [], [], []];
   for (const f of feats) {
+    if (d3.geoDistance(f.ctr, center) > Math.PI / 2 + f.rad) continue; // all of it on the far side
     const has = f.cc && data[f.cc] && (data[f.cc].circuits.length || data[f.cc].drivers.length);
-    g.beginPath(); path(f);
-    g.fillStyle = f.cc === sel ? mixHexSafe(primary, '#FFFFFF', 0.35) : has ? (f.cc === WM.hover ? mixHexSafe(primary, '#FFFFFF', 0.2) : primary) : (f.cc === WM.hover ? '#2B3245' : '#1A1F2B');
-    g.globalAlpha = has || f.cc === sel ? 0.92 : 1; g.fill(); g.globalAlpha = 1;
-    g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 0.6; g.stroke();
+    groups[f.cc === sel ? 3 : f.cc && f.cc === WM.hover ? 2 : has ? 1 : 0].push({ f, has });
   }
-  // the circuits on the near side
-  const center = P.invert([cx, cy]);
+  const fills = [() => '#1A1F2B', () => primary, (x) => x.has ? mixHexSafe(primary, '#FFFFFF', 0.2) : '#2B3245', () => mixHexSafe(primary, '#FFFFFF', 0.35)];
+  g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 0.6;
+  groups.forEach((list, k) => {
+    if (!list.length) return; g.beginPath(); for (const x of list) path(x.f);
+    g.fillStyle = fills[k](list[0]); g.globalAlpha = k === 0 ? 1 : 0.92; g.fill(); g.globalAlpha = 1; g.stroke();
+  });
+  // the circuits on the near side (bigger as it zooms in)
+  const rr0 = Math.min(6, 3.4 + (WM.zoom - 1) * 0.35);
   for (const ci of W.circuits) {
     if (d3.geoDistance([ci.lon, ci.lat], center) > Math.PI / 2 - 0.05) continue; const p = P([ci.lon, ci.lat]); if (!p) continue;
-    const on = sel && ci.cc === sel; const rr = on ? 5 : 3.6;
+    const rr = sel && ci.cc === sel ? rr0 + 1.4 : rr0;
     g.beginPath(); g.arc(p[0], p[1], rr + 2, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.9)'; g.fill();
     g.beginPath(); g.arc(p[0], p[1], rr, 0, Math.PI * 2); g.fillStyle = '#E10600'; g.fill();
   }
-  // a rim of light
   g.beginPath(); path({ type: 'Sphere' }); g.strokeStyle = 'rgba(140,180,255,0.35)'; g.lineWidth = 1.5; g.stroke();
 }
 const mixHexSafe = (a, b, t) => /^#[0-9a-f]{6}$/i.test(a) ? mixHex(a, b, t) : a;
-/** A country picked: the globe turns to it (and the panel comes in). */
+/** A country picked: the globe turns to it (and zooms in on a small one) and the panel comes in. */
 function worldPick(cc, circuit = null) {
   const f = worldFeatures()?.find(x => x.cc === cc); const ci = circuit && W.circuits.find(x => x.id === circuit);
-  const [lon, lat] = ci ? [ci.lon, ci.lat] : f ? d3.geoCentroid(f) : [0, 0];
+  const [lon, lat] = ci ? [ci.lon, ci.lat] : f ? f.ctr : [0, 0];
   ui.world = { ...(ui.world || {}), sel: cc, tab: circuit ? 'circuits' : (ui.world?.sel === cc ? ui.world.tab : 'overview'), circuit: circuit || null };
-  WM.spin = false; WM.anim = { from: WM.rot.slice(), to: [-lon, -lat], t0: performance.now(), ms: 900 };
-  // the shortest way round
-  while (WM.anim.to[0] - WM.anim.from[0] > 180) WM.anim.to[0] -= 360; while (WM.anim.to[0] - WM.anim.from[0] < -180) WM.anim.to[0] += 360;
+  WM.spin = false; WM.vel = null; WM.anim = { from: WM.rot.slice(), to: [-lon, -lat], t0: performance.now(), ms: 1100 };
+  while (WM.anim.to[0] - WM.anim.from[0] > 180) WM.anim.to[0] -= 360; while (WM.anim.to[0] - WM.anim.from[0] < -180) WM.anim.to[0] += 360; // the shortest way round
+  // the zoom that fits the country: a small one (Monaco, Belgium) close up, a big one (the United States) whole
+  if (f) WM.zoomT = Math.max(1, Math.min(7, 0.42 / Math.max(0.02, f.rad)));
   render();
 }
 
@@ -199,5 +234,5 @@ function renderWorld() {
   }
   setTimeout(worldMount);
   return `<div class="page wm-page"><div class="page-head"><div><h1>World Map</h1><div class="sub">${countries} countries in Formula 1’s story, ${W.circuits.length} circuits since 1950. Drag to turn the globe, click a country.</div></div></div>
-    <div class="wm ${d ? 'sel' : ''}"><div class="wm-globe"><canvas id="wm-canvas"></canvas></div>${panel}</div></div>`;
+    <div class="wm ${d ? 'sel' : ''}"><div class="wm-globe" id="wm-globe"></div><div class="wm-zoom"><button class="icon-btn" data-act="wm-zoom" data-v="1.6" title="Zoom in">+</button><button class="icon-btn" data-act="wm-zoom" data-v="0.625" title="Zoom out">−</button><button class="icon-btn" data-act="wm-zoom" data-v="0" title="The whole globe">⟲</button></div>${panel}</div></div>`;
 }

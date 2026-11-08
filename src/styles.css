@@ -1346,8 +1346,8 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 /* World Map */
 .wm-page { display: flex; flex-direction: column; }
 .wm { position: relative; height: calc(100vh - 150px); min-height: 520px; overflow: hidden; border-radius: var(--r); background: radial-gradient(circle at 50% 45%, #0E1630 0%, #05070D 70%); border: 1px solid var(--line); }
-.wm-globe { position: absolute; top: 0; bottom: 0; left: 0; right: 0; transition: right .7s cubic-bezier(.4,0,.2,1); }
-.wm.sel .wm-globe { right: 54%; }
+.wm-globe { position: absolute; inset: 0; }
+.wm-zoom { position: absolute; left: 14px; bottom: 14px; display: grid; gap: 6px; z-index: 2; } .wm-zoom .icon-btn { width: 34px; height: 34px; font: 800 18px var(--font-display); background: rgba(15,19,31,.85); border: 1px solid var(--line); color: var(--fg); }
 .wm-globe canvas { display: block; cursor: grab; touch-action: none; }
 .wm-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 54%; display: flex; flex-direction: column; background: linear-gradient(90deg, rgba(10,13,22,.6), rgba(15,19,31,.97) 12%); border-left: 1px solid var(--line); animation: wmIn .6s cubic-bezier(.4,0,.2,1) both; }
 @keyframes wmIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -1365,7 +1365,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .wm-circuit { display: grid; gap: 12px; } .wm-ch { display: flex; gap: 14px; align-items: center; } .wm-ch h3 { margin: 0 0 2px; font: 800 20px var(--font-display); }
 .wm-map svg { width: 150px; height: auto; }
 .wm-list { display: grid; gap: 4px; margin-top: 4px; } .wm-list > div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.05); padding: 4px 0; } .wm-list span { color: var(--muted); }
-@media (max-width: 900px) { .wm.sel .wm-globe { right: 0; bottom: 55%; } .wm-panel { width: 100%; top: 45%; } }
+@media (max-width: 900px) { .wm-panel { width: 100%; top: 50%; } }
 
 /* Single weekend: the track picker */
 .sw-tracks { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
