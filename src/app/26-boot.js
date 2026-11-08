@@ -14,8 +14,11 @@
   }
   try { ui.liveCompact = localStorage.getItem('pitwall.liveCompact') === '1'; } catch { /* Full, then */ }
   setTimeout(() => learnWetFromReplays(), 15000); // wet-weather crossovers from races recorded before // Live Race and Race Replay: compact or full
-  if (!state.careers.length) { ui.view = 'setup'; ui.setup = defaultSetup(); }
-  else if (!career()) state.activeCareerId = state.careers[0].id;
+  // the real season, followed: always there beside the careers (made the first time), never the one that opens
+  try { ensureRealSave(); } catch (e) { console.error(e); }
+  const own = state.careers.filter(x => !x.realSeason);
+  if (!own.length && !career()?.realSeason) { ui.view = 'setup'; ui.setup = defaultSetup(); }
+  else if (!career()) state.activeCareerId = (own[0] || state.careers[0]).id;
   // the number 1 follows your career's champions (older saves had it fixed to the real 2025 champion)
   let renumbered = false;
   for (const cc of state.careers) { try { renumbered = syncNumbers(cc) || renumbered; } catch { } }
@@ -23,6 +26,7 @@
   for (const cc of state.careers) { try { renumbered = repairQualiParts(cc) || renumbered; } catch (e) { console.error(e); } }
   for (const cc of state.careers) { try { renumbered = repairLappedGaps(cc) || renumbered; } catch (e) { console.error(e); } }
   render();
+  try { realStart(); } catch (e) { console.error(e); }
   if (renumbered || store.dirty()) store.save(); // also saves an older career that just gained its real seasons
   window.api?.onRemote?.(applyRemote);
   // F1 25 telemetry: results that finished while the window was loading, then anything new

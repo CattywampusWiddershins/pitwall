@@ -374,7 +374,7 @@ function renderSetup() {
   const teamCards = grid.map(t => `<div class="choice team-choice ${u.teamId === t.id ? 'on' : ''}" style="--c:${t.color}">
     <span class="bar"></span><div class="inner"><b>${esc(t.name)}</b><small>Replace a driver:</small>
     <div class="row" style="gap:6px">${t.drivers.map(d => `<button class="seat ${u.teamId === t.id && u.seat === d ? 'on' : ''}" data-act="setup-seat" data-team="${t.id}" data-seat="${d}">${esc(anyName(d))}</button>`).join('')}</div></div></div>`).join('');
-  const first = !state.careers.length;
+  const first = !state.careers.some(x => !x.realSeason);
   return `<div class="page" style="max-width:1100px">
     <div class="page-head"><div>${first ? '<span class="label">Welcome to Pitwall</span>' : ''}<h1>${u.single ? 'Single weekend' : 'New career'}</h1><div class="sub">${u.single ? `One weekend in F1 25’s Grand Prix mode, as a driver on the ${u.year} grid: practice, qualifying, Live Race and the debrief, with no championship around it.` : esc(setupBlurb(u.year))}</div></div>
       ${!first ? '<button class="btn ghost" data-act="cancel-setup">Cancel</button>' : ''}</div>

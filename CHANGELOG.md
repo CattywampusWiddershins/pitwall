@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.0.0
+
+- **Follow the Real Season.** A save that's always there beside your careers and follows the real Formula 1 season with nothing to do: every real season since 2016, then this year's as it happens. Pitwall looks for new results when it opens and every 20 minutes while it's open (from the Jolpica F1 API) and keeps them in the save, so the season is there offline too. It has the pages that read a season (Season, Standings, Head to Head, Drivers, Teams, Circuits, the World Map, the Hall of Fame and Records), with no driver of yours in it. Switch to it from the save list in the sidebar.
+- **Single weekend.** New Career now offers a single weekend: one F1 25 weekend outside any career (the game's Grand Prix mode). Pick a year from 2016 to 2026, a driver from that year's grid and one of that year's tracks. Only Current Weekend (with Live Race and the debrief) and Settings are there, and Live Race and the debrief leave out the championship.
+
 ## 4.9.0
 
 - **World Map.** A new page with a globe of Formula 1. Drag to turn it. Every country is dark except those with a part in F1's story (a circuit, a driver), in your theme's colour, and every circuit a world championship race was held at since 1950 is a marker. Click a country (or a circuit) and the globe turns to it and moves to the left, with the country on the right:

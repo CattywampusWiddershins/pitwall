@@ -193,18 +193,18 @@ function renderTopbar() {
 function renderRail() {
   const c = career();
   const s = curSeason();
-  const nav = NAV.filter(([id]) => !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
+  const nav = NAV.filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
   return `
     <div class="brand">${state.gfxLogo ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}</div>
     ${c ? `<div class="career-pill">
-      ${c.myTeam ? `<div class="row" style="gap:8px;flex-wrap:nowrap">${teamBadge(c.myTeam, 28)}<span class="label">My Team · ${esc(c.myTeam.name)}</span></div>` : `<span class="label">${c.single ? 'Single weekend' : 'Driver Career'}</span>`}
-      ${isPrincipal(c) ? `<span class="who"><span class="n" style="font-size:12px">TP</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`
+      ${c.myTeam ? `<div class="row" style="gap:8px;flex-wrap:nowrap">${teamBadge(c.myTeam, 28)}<span class="label">My Team · ${esc(c.myTeam.name)}</span></div>` : `<span class="label">${c.realSeason ? 'Real season' : c.single ? 'Single weekend' : 'Driver Career'}</span>`}
+      ${c.realSeason ? `<span class="who">${esc(String(s?.year || ''))} Formula 1 season</span><span class="muted" style="font-size:12px">${c.real?.checked ? `Results checked ${new Date(c.real.checked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Looking for results…'}</span>` : isPrincipal(c) ? `<span class="who"><span class="n" style="font-size:12px">TP</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`
         : `<span class="who">${avatar(c, s, PLAYER, 26)}<span class="n">${esc(s?.drivers?.[PLAYER]?.number ?? c.profile.number)}</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`}
-      <span class="muted" style="font-size:12px">${esc(s?.teams.find(t => t.id === s.playerTeamId)?.name || '')} · ${s?.year || ''}</span>
+      ${c.realSeason ? '' : `<span class="muted" style="font-size:12px">${esc(s?.teams.find(t => t.id === s.playerTeamId)?.name || '')} · ${s?.year || ''}</span>`}
     </div>` : ''}
     ${c ? `<nav class="nav">${nav.map(([id, label, ic]) => `<button data-act="nav" data-view="${id}" class="${navActive() === id ? 'active' : ''}">${ic}<span>${label}</span>${id === 'now' && isLive() ? '<i class="live-dot" title="Tracking a race live"></i>' : ''}</button>`).join('')}</nav>` : ''}
     <div class="rail-foot">
-      ${state.careers.length > 1 ? `<label class="field"><span>Career save</span><select data-ch="switch-career">${state.careers.map(x => `<option value="${x.id}" ${x.id === state.activeCareerId ? 'selected' : ''}>${esc(x.profile.first)} ${esc(x.profile.last)}${x.single ? ` · ${x.single.year} single weekend` : ` · ${x.seasons.length} season${x.seasons.length > 1 ? 's' : ''}`}</option>`).join('')}</select></label>` : ''}
+      ${state.careers.length > 1 ? `<label class="field"><span>Career save</span><select data-ch="switch-career">${state.careers.map(x => `<option value="${x.id}" ${x.id === state.activeCareerId ? 'selected' : ''}>${x.realSeason ? `Real season · ${realYear()}` : `${esc(x.profile.first)} ${esc(x.profile.last)}${x.single ? ` · ${x.single.year} single weekend` : ` · ${x.seasons.length} season${x.seasons.length > 1 ? 's' : ''}`}`}</option>`).join('')}</select></label>` : ''}
       <button class="btn ghost sm" data-act="new-career">+ New career</button>
     </div>`;
 }
@@ -212,6 +212,7 @@ function renderRail() {
 function renderView() {
   if (ui.view === 'setup' || !career()) return renderSetup();
   if (career().single && ui.view !== 'now' && ui.view !== 'settings') ui.view = 'now'; // a single weekend is only the weekend
+  if (career().realSeason && !REAL_VIEWS.includes(ui.view)) ui.view = 'standings'; // the real season: only what reads a season
   switch (ui.view) {
     case 'calendar': return renderCalendar();
     case 'weekend': return renderWeekend();

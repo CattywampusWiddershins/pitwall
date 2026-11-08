@@ -137,6 +137,12 @@ async function checkUpdate() {
   } catch (e) { return { current, configured: true, error: 'No connection to GitHub' }; }
 }
 ipcMain.handle('update:check', () => checkUpdate());
+// The real season's results, from the Jolpica F1 API (the page itself may only talk to Pitwall): a path under
+// /ergast/f1/ only, the JSON text back, or null when it can't be reached
+ipcMain.handle('real:get', async (_e, p) => {
+  if (typeof p !== 'string' || !/^[\w/.-]+\.json(\?[\w=&]+)?$/.test(p) || p.includes('..')) return null;
+  try { const res = await fetch(`https://api.jolpi.ca/ergast/f1/${p}`, { headers: { 'User-Agent': 'Pitwall' } }); return res.ok ? await res.text() : null; } catch { return null; }
+});
 /**
  * The new version, downloaded in the background (reporting progress) as soon as it's found. It goes in when you
  * restart Pitwall from the app, or by itself when you close Pitwall: the installer runs quietly over this version.

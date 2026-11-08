@@ -37,8 +37,9 @@ const REAL_RETIREMENTS = { 2016: ['ROS', 'BUT', 'MAS'], 2017: ['MAS'], 2018: ['A
 })();
 
 /** A real season as Pitwall season data. Saved as { index, year, historic } and rebuilt on load. */
-function histSeason(year, index) {
-  const h = H.seasons[year];
+// h: the season's data (the bundled history's by default; the real season being followed builds its own, with
+// h.upcoming for the races still to come and h.live set, so it saves as a stub rebuilt from the save's results)
+function histSeason(year, index, h = H.seasons[year]) {
   const drivers = {};
   for (const [id, [name, number, code]] of Object.entries(h.drivers)) drivers[id] = { id, name, abbr: code, number };
   const calendar = [], weekends = {}, raceTeams = {};
@@ -54,10 +55,12 @@ function histSeason(year, index) {
     weekends[r.id] = { sessions, notes: '', raceLength: 100 };
     raceTeams[r.id] = Object.fromEntries([...(r.s || []), ...r.r].map(x => [x[0], x[5]]));
   }
-  const s = { index, year, historic: 'real', teams: h.teams.map(t => ({ ...t, drivers: [...t.drivers] })), drivers, calendar, benched: null, playerTeamId: null,
-    format: { practice: 'none' }, goals: [], weekends, completed: true, raceTeams, transfers: [],
+  for (const r of h.upcoming || []) calendar.push({ id: r.id, name: r.name, venue: r.venue, sprint: !!r.sprint, off: false, ...(r.track ? { track: r.track } : {}), date: r.date });
+  const kind = h.live ? 'live' : 'real';
+  const s = { index, year, historic: kind, teams: h.teams.map(t => ({ ...t, drivers: [...t.drivers] })), drivers, calendar, benched: null, playerTeamId: null,
+    format: { practice: 'none' }, goals: [], weekends, completed: !h.upcoming?.length, raceTeams, transfers: [],
     scoring: { fl: year >= 2019 && year <= 2024 ? 1 : 0, spr: year === 2021 ? [3, 2, 1] : null } };
-  Object.defineProperty(s, 'toJSON', { value: () => ({ index, year, historic: 'real' }) });
+  Object.defineProperty(s, 'toJSON', { value: () => ({ index, year, historic: kind }) });
   return s;
 }
 /** Each team's line-up at one race of a real season, with stand-ins (three races or fewer for the team that year)
@@ -140,7 +143,8 @@ function hydrateCareer(c) {
     shiftSeasonRefs(c, n);
     c.seasons.unshift(...Array.from({ length: n }, (_, i) => ({ index: i, year: HIST_FROM + i, historic: 'real' })));
   }
-  c.seasons = c.seasons.map(s => s.historic === 'real' && !s.teams ? histSeason(s.year, s.index) : s);
+  c.seasons = c.seasons.map(s => s.historic === 'real' && !s.teams ? histSeason(s.year, s.index) : s.historic === 'live' && !s.teams ? realSeasonOf(c, s.year, s.index) : s);
+  if (c.realSeason) return; // the real season being followed: nothing of a career's to set up
   c.startYear ||= firstPlayed(c).year;
   // older saves that started in 2025 had APXGP as standard
   if (c.extraTeam2025 === undefined && c.startYear >= 2025) c.extraTeam2025 = c.startYear === 2025 ? ['apxgp', 'konnersport'].find(x => firstPlayed(c).teams.some(t => t.id === x)) || null : null;
