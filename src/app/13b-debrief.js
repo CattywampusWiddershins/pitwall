@@ -238,3 +238,24 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
     ${stopCharts.length || through.length ? `<div class="db-two">${[...stopCharts, ...through].join('')}</div>` : ''}
     ${parts.join('')}</div></div>`;
 }
+
+/*
+  Debriefs: every race and sprint of the career, to come back to. The debrief between weekends only shows the last
+  one; here any can be picked, by season and round (all of it is worked out again from the logged sessions).
+*/
+function renderDebriefs() {
+  const c = career(); const list = [];
+  for (const s of playedSeasons(c)) for (const r of activeRounds(s)) for (const key of ['SPR', 'R']) if (s.weekends[r.id]?.sessions?.[key]?.done) list.push({ s, r, key, v: `${s.index}:${r.id}:${key}` });
+  const head = `<div class="page-head"><div><h1>Debriefs</h1><div class="sub">Every race and sprint of your career, to look back on</div></div>${nowTabs()}</div>`;
+  if (!list.length) return `<div class="page">${head}<div class="panel"><div class="panel-b muted">No race logged yet: each race’s debrief is kept here once it’s logged.</div></div></div>`;
+  const pick = list.find(x => x.v === ui.dbPick) || list[list.length - 1];
+  const seasons = [...new Set(list.map(x => x.s))];
+  const inSeason = list.filter(x => x.s === pick.s);
+  const label = (x) => `${esc(x.r.name)}${x.key === 'SPR' ? ' <small>sprint</small>' : ''}`;
+  return `<div class="page">${head}
+    <div class="panel"><div class="panel-b db-picker">
+      ${seasons.length > 1 ? `<select data-ch="db-season" style="width:auto">${seasons.map(s => `<option value="${s.index}" ${s === pick.s ? 'selected' : ''}>${s.year}</option>`).join('')}</select>` : `<b>${pick.s.year}</b>`}
+      <div class="db-rounds">${inSeason.map(x => `<button class="btn sm ${x === pick ? 'primary' : 'ghost'}" data-act="db-pick" data-v="${x.v}">${label(x)}</button>`).join('')}</div>
+    </div></div>
+    ${debrief(c, pick.s, pick.r, pick.key, { kept: true })}</div>`;
+}

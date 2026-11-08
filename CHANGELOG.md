@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 4.0.0
+
+- **Every Formula 1 driver ever on the all-time leaderboard.** “Entire careers” is now **Since**, with the season to count from (1950 by default): every driver who started a championship race or scored since 1950, from the real results, plus your career. Since 2000, say, counts only what each driver did from 2000 on.
+- **Leaderboard filters.** Each figure can be limited to a range (between 20 and 100 starts, at least 10 wins), and the export says which filters it used. The list shows the top 100 that match.
+- **All-time lists in the stories.** A driver moving into the all-time top ten for wins, podiums, poles, starts or points, or up it, is a milestone (who they passed, or drew level with), with that list's top ten as a graphic, the driver outlined in gold. Taking the lead is a record, as before. Titles aren't followed: too many drivers share a number.
+- **Debriefs tab.** Current Weekend has a Debriefs tab with every race and sprint of your career, picked by season and round, so a debrief no longer goes away when the next weekend starts.
+- Leaderboard graphics: drivers level on the figure share a place.
+
 ## 3.39.0
 
 - **Strategy debrief after every race.** A new panel on the race's debrief shows how each choice played out, from the race's own laps:

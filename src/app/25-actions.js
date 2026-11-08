@@ -20,7 +20,7 @@ const actions = {
   'lb-export'() { lbExportModal(); },
   async 'lb-export-go'() {
     const lk = ui.lb.sort; const cols = LB_COLS.filter(([k]) => k === lk || ui.modal.pick[k]).map(([k]) => k);
-    const spec = { type: 'leaderboard', si: career().seasons.length - 1, ri: 0, sort: lk, cols, full: ui.lbLast.full, rows: ui.lbLast.rows };
+    const spec = { type: 'leaderboard', si: career().seasons.length - 1, ri: 0, sort: lk, cols, full: ui.lbLast.full, since: ui.lbLast.since, filters: ui.lbLast.filters, rows: ui.lbLast.rows };
     closeModal(); gfxModal(gfxKey(spec));
   },
   'story-round'(el) { ui.storyRound = el.dataset.v; render(); },
@@ -379,6 +379,9 @@ const changes = {
     c.pitLoss ||= {}; c.pitLoss[tid] = { green: cur.green / 1000, vsc: cur.vsc / 1000, sc: cur.sc / 1000, [el.dataset.k]: v }; store.save(); render();
   },
   'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
+  'db-season'(el) { const c = career(); const s = c.seasons[+el.value]; const r = s && [...activeRounds(s)].reverse().find(x => s.weekends[x.id]?.sessions?.R?.done || s.weekends[x.id]?.sessions?.SPR?.done); if (r) ui.dbPick = `${s.index}:${r.id}:${s.weekends[r.id].sessions.R?.done ? 'R' : 'SPR'}`; render(); },
+  'lb-since'(el) { ui.lb.since = +el.value; render(); },
+  'lb-f'(el) { const f = (ui.lb.f ||= {}); const r = (f[el.dataset.k] ||= [null, null]); r[+el.dataset.i] = el.value === '' ? null : Math.max(0, +el.value); if (r[0] == null && r[1] == null) delete f[el.dataset.k]; render(); },
   'tm-sort-sel'(el) { ui.tms.sort = el.value; render(); },
   'setup-year'(el) { setupYear(Math.max(2027, Math.min(2060, +el.value || 2027))); },
   'fg-name'(el) { ui.setup.futureGrid[+el.dataset.i].name = el.value; },
@@ -558,6 +561,8 @@ Object.assign(actions, {
   'fv-open'(el) { ui.view = 'performance'; ui.perfView = 'fanvoice'; ui.fvRound = +el.dataset.ri; render(); },
   'lb-sort'(el) { ui.lb.sort = el.dataset.k; render(); },
   'lb-scope'(el) { ui.lb.scope = el.dataset.v; render(); },
+  'lb-filters'() { ui.lbFiltersOpen = !ui.lbFiltersOpen; render(); },
+  'lb-f-clear'() { ui.lb.f = {}; render(); },
   'add-scope'(el) { state.addScope = el.dataset.v; store.save(); render(); },
   'standings-detail'(el) { ui.standingsDetail = el.dataset.v; render(); },
   'stories-filter'(el) { ui.stories = el.dataset.v; render(); },
@@ -580,6 +585,7 @@ Object.assign(actions, {
     store.save(); render(); toast(`The ${s.year + 1} calendar is announced: it’s in Stories`);
   },
   'now-tab'(el) { ui.nowTab = el.dataset.v; render(); },
+  'db-pick'(el) { ui.dbPick = el.dataset.v; render(); window.scrollTo?.(0, 0); },
   'live-follow'(el) { ui.liveFollow = el.dataset.v; render(); },
   'live-pick'(el) {
     const s = latestSeason(); const r = s.calendar.find(x => x.id === el.dataset.round); const c = career(); const w = weekend(s, r.id, true);

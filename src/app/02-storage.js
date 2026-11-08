@@ -148,7 +148,7 @@ const ui = {
   setup: null, mediaOpen: null, busy: false, dragIdx: null,
   driverId: null, trackId: null, trackAll: false, drv: { sort: 'wins', scope: 'grid' },
   mt: 'overview', hof: { view: 'champions', sort: 'titles' },
-  teamId: null, tms: { sort: 'conTitles', scope: 'grid' }, fc: 'driver', stories: 'all', lb: { sort: 'pts', scope: 'full' }, perf: 'season',
+  teamId: null, tms: { sort: 'conTitles', scope: 'grid' }, fc: 'driver', stories: 'all', lb: { sort: 'pts', scope: 'since', since: 1950, f: {} }, perf: 'season',
 };
 
 /* ----------------------------------------------------------- career model */

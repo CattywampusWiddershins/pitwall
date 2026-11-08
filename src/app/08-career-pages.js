@@ -13,10 +13,37 @@ function lbBoard(c, latest, board, lk, add) {
   const fmt = (k, v) => k === 'pts' ? fmtPts(v) : k === 'titles' ? (v || '–') : v;
   return `<div class="lbx"><div class="lbx-row lbx-h"><span></span><span>Driver</span>${LB_COLS.map(([k, l]) => `<span class="sortable ${lk === k ? 'on' : ''}" data-act="lb-sort" data-k="${k}">${l}${lk === k ? ' ▼' : ''}</span>`).join('')}</div>
     ${board.map((x, i) => { const col = x.team?.color; const ph = headOf(c, x.id, latest);
-      return `<div class="lbx-row ${x.team ? '' : 'off'} ${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}" style="--c:${col || '#3A3F4A'};--i:${col ? contrastInk(col) : '#fff'}"><span class="lbx-p">${i + 1}</span>
+      return `<div class="lbx-row ${x.team ? '' : 'off'} ${x.id === PLAYER ? 'me' : ''}" ${x.known === false ? '' : `data-act="open-driver" data-id="${x.id}"`} style="--c:${col || '#3A3F4A'};--i:${col ? contrastInk(col) : '#fff'}"><span class="lbx-p">${i + 1}</span>
         <span class="lbx-bar">${x.team ? `<span class="sgx-logo">${teamLogo(c, x.team, 24)}</span>` : ''}${ph ? `<img class="sgx-ph" src="${esc(ph)}" alt="">` : ''}<b>${esc(lastName(x.name).toUpperCase())}</b><small>${esc(x.name.split(' ').slice(0, -1).join(' '))}</small></span>
         ${LB_COLS.map(([k]) => `<span class="lbx-v ${lk === k ? 'sort' : ''}">${fmt(k, x[k])}${k !== 'titles' ? add(x, k, k === 'pts' ? fmtPts : undefined) : ''}</span>`).join('')}</div>`; }).join('')}</div>`;
 }
+/**
+ * Every driver ever, counted from a year: the real seasons before 2016 from the bundled history (every driver who
+ * started a championship race or scored since 1950), then every season in the career (the real ones from 2016 and
+ * the career's own). { id, name, team, starts, wins, podiums, poles, fls, pts, titles, real: { … the real part } }.
+ */
+const LB_KEYS = ['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'];
+function allTimeBoard(c, since, ctx, known, latest) {
+  const by = {}; const row = (id) => by[id] ||= { id, starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0, titles: 0, real: { starts: 0, wins: 0, podiums: 0, poles: 0, fls: 0, pts: 0 } };
+  for (const [id, A] of Object.entries(H.allTime || {})) for (const [y, v] of Object.entries(A.y)) {
+    if (+y < since) continue; const o = row(id);
+    LB_KEYS.forEach((k, j) => { o[k] += v[j]; o.real[k] += v[j]; }); o.titles += v[6];
+  }
+  for (const { s, st, champ } of ctx) {
+    if (s.year < since) continue;
+    for (const [id, x] of Object.entries(st)) {
+      if (!s.drivers[id] || !(x.starts || x.pts)) continue; const o = row(id);
+      for (const k of LB_KEYS) { o[k] += x[k] || 0; if (isHist(s)) o.real[k] += x[k] || 0; }
+      if (champ === id) o.titles++;
+    }
+  }
+  const nameOf = (id) => id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id]?.name || H.allTime?.[id]?.n || id;
+  return Object.values(by).filter(o => o.starts || o.pts).map(o => ({ ...o, pts: Math.round(o.pts * 10) / 10, name: nameOf(o.id), team: teamOf(latest, o.id), known: !!known[o.id] || o.id === PLAYER_ID }));
+}
+/** The leaderboard's filters: each figure between a lowest and a highest value (either can be left empty). */
+const lbFilters = () => (ui.lb.f ||= {});
+const lbPass = (x) => Object.entries(lbFilters()).every(([k, [lo, hi]]) => (lo == null || x[k] >= lo) && (hi == null || x[k] <= hi));
+const lbFilterText = () => Object.entries(lbFilters()).filter(([, [lo, hi]]) => lo != null || hi != null).map(([k, [lo, hi]]) => { const l = (Object.fromEntries(LB_COLS)[k] || k).toLowerCase(); return lo != null && hi != null ? `${lo}–${hi} ${l}` : lo != null ? `${lo}+ ${l}` : `up to ${hi} ${l}`; });
 /** The export dialog: which stats go on the image (the sorted one always does). */
 function lbExportModal() {
   ui.modal = { kind: 'lb-export', pick: ui.lbPick || { [ui.lb.sort]: true } };
@@ -198,18 +225,21 @@ function renderStats() {
   const ctx = careerCtx(c);
   const known = allKnownDrivers(c, latest);
   const lbIds = [...new Set([...gridIds(latest), ...c.seasons.flatMap(se => Object.entries(seasonStatsCache(se)).filter(([, o]) => o.starts).map(([id]) => id))])].filter(id => known[id]);
-  const full = ui.lb.scope === 'full';
-  const board = lbIds.map(id => {
+  if (ui.lb.scope === 'full') ui.lb.scope = 'since'; // (was 'Entire careers': since 1950)
+  const full = ui.lb.scope === 'since'; const since = Math.max(1950, Math.min(latest.year, +ui.lb.since || 1950));
+  const all = full ? allTimeBoard(c, since, ctx, known, latest) : null;
+  const board0 = full ? all : lbIds.map(id => {
     const rec = driverRecord(c, id, ctx);
     const t = full ? rec.tot : Object.fromEntries(['starts', 'wins', 'podiums', 'poles', 'fls', 'pts'].map(k => [k, rec.tot[k] - rec.base[k]]));
     const titles = full ? rec.tot.titles.length : rec.seasons.filter(x => x.title && !isHist(x.s)).length;
     return { id, name: id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id].name, team: teamOf(latest, id), ...t, titles, from: rec.from };
   });
+  const board = board0.filter(lbPass); const LB_SHOW = 100;
   const lk = ui.lb.sort;
   board.sort((a, b) => (b[lk] - a[lk]) || b.wins - a.wins || b.pts - a.pts || a.name.localeCompare(b.name));
-  ui.lbLast = { full, rows: board.slice(0, 10).map(x => ({ id: x.id, name: x.name, team: x.team?.id || null, ...Object.fromEntries(LB_COLS.map(([k]) => [k, x[k]])) })) };
+  ui.lbLast = { full, since, filters: lbFilterText(), rows: board.slice(0, 10).map(x => ({ id: x.id, name: x.name, team: x.team?.id || null, ...Object.fromEntries(LB_COLS.map(([k]) => [k, x[k]])) })) };
   const lth = (key, label) => `<th class="num sortable ${lk === key ? 'on' : ''}" data-act="lb-sort" data-k="${key}">${label}</th>`;
-  const lbAdd = (x, k, fmt) => full ? plus(x[k] - x.from[k], fmt) : '';
+  const lbAdd = (x, k, fmt) => full ? plus(x[k] - x.real[k], fmt) : '';
 
   const wins = [];
   for (const s of played) {
@@ -235,9 +265,10 @@ function renderStats() {
         <td class="num">${fmtAvg(avg(r.me.qPos))}</td><td class="num">${fmtAvg(avg(r.me.finPos))}</td>
         <td><span class="tnum">${r.h.q[0]}–${r.h.q[1]} / ${r.h.r[0]}–${r.h.r[1]}</span> <span class="muted">vs ${esc(dAbbr(r.s, r.mate))}</span></td></tr>`).join('')}</tbody>
     </table></div></div>
-    <div class="panel"><div class="panel-h"><div><h2>All-time leaderboard</h2><span class="muted" style="font-size:12px">${full ? `Entire F1 careers: real records up to ${firstPlayed(c).year - 1} plus your career (shown in green)` : `Only what each driver has done since ${firstPlayed(c).year} in your career`}. The ${latest.year} grid plus everyone who has raced since ${c.seasons[0].year}. Click a column to sort.</span></div>
-      ${full ? addScopeSeg() : ''}<div class="seg">${[['full', 'Entire careers'], ['career', 'This career only']].map(([v, l]) => `<button data-act="lb-scope" data-v="${v}" class="${ui.lb.scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-      <div class="panel-b"><div class="row" style="justify-content:flex-end;margin-bottom:8px"><button class="btn sm primary" data-act="lb-export">${ICON.camera} Export top 10 as image</button></div>${lbBoard(c, latest, board, lk, full ? lbAdd : () => '')}</div></div>
+    <div class="panel"><div class="panel-h"><div><h2>All-time leaderboard</h2><span class="muted" style="font-size:12px">${full ? `Every Formula 1 driver since ${since}: the real records plus your career (shown in green)` : `Only what each driver has done since ${firstPlayed(c).year} in your career: the ${latest.year} grid plus everyone who has raced since ${c.seasons[0].year}`}. Click a column to sort.</span></div>
+      <div class="row" style="gap:8px"><div class="seg">${[['since', 'Since'], ['career', 'This career only']].map(([v, l]) => `<button data-act="lb-scope" data-v="${v}" class="${ui.lb.scope === v ? 'on' : ''}">${l}</button>`).join('')}</div>${full ? `<select data-ch="lb-since" style="width:auto" title="Count from this season">${Array.from({ length: latest.year - 1949 }, (_, k) => 1950 + k).map(y => `<option value="${y}" ${y === since ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}<button class="btn sm ${lbFilterText().length ? 'primary' : ''}" data-act="lb-filters">Filters${lbFilterText().length ? ` (${lbFilterText().length})` : ''}</button></div></div>
+      ${ui.lbFiltersOpen ? `<div class="panel-b lb-filters">${LB_COLS.map(([k, l]) => { const [lo, hi] = lbFilters()[k] || []; return `<label><span class="label">${l}</span><input type="number" min="0" placeholder="Any" data-ch="lb-f" data-k="${k}" data-i="0" value="${lo ?? ''}"><span class="muted">to</span><input type="number" min="0" placeholder="Any" data-ch="lb-f" data-k="${k}" data-i="1" value="${hi ?? ''}"></label>`; }).join('')}<button class="btn sm ghost" data-act="lb-f-clear">Clear filters</button></div>` : ''}
+      <div class="panel-b"><div class="row" style="justify-content:flex-end;margin-bottom:8px"><button class="btn sm primary" data-act="lb-export">${ICON.camera} Export top 10 as image</button></div>${board.length ? lbBoard(c, latest, board.slice(0, LB_SHOW), lk, full ? lbAdd : () => '') : '<p class="muted" style="margin:0">No driver matches the filters.</p>'}${board.length > LB_SHOW ? `<p class="muted" style="font-size:12px;margin:8px 0 0">The top ${LB_SHOW} of ${board.length} drivers. Filters narrow the list.</p>` : ''}</div></div>
     <div>
       <div class="panel"><div class="panel-h"><h2>Your records</h2></div><div class="panel-b">
         <dl class="kv">

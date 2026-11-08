@@ -569,7 +569,9 @@ function buildStories(c, s) {
     if (e.type === 'milestones') {
       const top = e.items[0];
       const num = /(d+)(?:st|nd|rd|th)/.exec(top.text)?.[1] || (/first/i.test(top.text) ? '1ST' : null);
-      out.push({ id: `${s.index}-${e.r.id}-ms`, seq: e.ri * 10 + 5, kind: 'milestone', i: e.ri, r: e.r, subject: top.id, recGfx: num && s.drivers[top.id] ? { kind: 'milestone', ids: [top.id], big: num, what: top.text, prev: '' } : null, outlet: choose(rnd, D.OUTLETS), kicker: 'Milestones',
+      // a move up an all-time list: that list's top ten as a graphic, the driver marked
+      const lbGfx = e.items.filter(x => x.list).slice(0, 3).map(x => ({ sort: x.list.stat, cols: [x.list.stat], full: true, since: 1950, hl: x.id, moved: x.list.from && x.list.from <= 15 ? x.list.from - x.list.rank : null, rows: x.list.rows.map(o => ({ id: o.id, name: o.name, team: teamOf(s, o.id)?.id || null, [x.list.stat]: o.v })) }));
+      out.push({ id: `${s.index}-${e.r.id}-ms`, seq: e.ri * 10 + 5, kind: 'milestone', i: e.ri, r: e.r, subject: top.id, lbGfx, recGfx: num && s.drivers[top.id] && !top.list ? { kind: 'milestone', ids: [top.id], big: num, what: top.text, prev: '' } : null, outlet: choose(rnd, D.OUTLETS), kicker: 'Milestones',
         headline: e.items.length > 1 ? `${e.r.name} milestones: ${top.text} and more` : `${top.text} in ${e.r.name}`, standfirst: '', list: e.items.length > 1 ? e.items.map(x => ({ id: x.id, text: x.text })) : null });
     } else {
       const R = tl.recs[e.rid];
@@ -835,6 +837,7 @@ function storyGfx(s, x) {
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });
   if (x.recGfx) out.push({ type: 'record', ...x.recGfx, ...base });
+  for (const lb of x.lbGfx || []) out.push({ type: 'leaderboard', ...lb, ...base });
   const qg = quoteGfx(s, x); if (qg) out.push({ ...qg, ...base });
   return out;
 }

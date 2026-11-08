@@ -1032,21 +1032,25 @@ async function gfxLapGraph(g, k, c, s, { ri }) {
 }
 
 /** The career leaderboard's top 10, by the column it's sorted on (named in the subtitle), with the stats picked. */
-async function gfxLeaderboard(g, k, c, s, { sort, cols, full, rows }) {
+async function gfxLeaderboard(g, k, c, s, { sort, cols, full, rows, since = 1950, filters = [], hl = null, moved = null }) {
   const label = Object.fromEntries(LB_COLS); const what = { titles: 'Most world titles', starts: 'Most Grand Prix starts', wins: 'Most Grand Prix wins', podiums: 'Most podiums', poles: 'Most pole positions', pts: 'Most points' }[sort];
   const GFX_W = g.canvas.width;
-  await gfxFrame(g, k, 'CAREER LEADERBOARD', { sub: `${what.toUpperCase()}  ·  ${full ? 'ENTIRE F1 CAREERS' : 'THIS CAREER ONLY'}  ·  ${s.year}` });
+  await gfxFrame(g, k, 'CAREER LEADERBOARD', { sub: [what.toUpperCase(), full ? (since > 1950 ? `SINCE ${since}` : 'ALL OF F1 HISTORY') : 'THIS CAREER ONLY', ...filters.map(f => f.toUpperCase()), String(s.year)].join('  ·  ') });
   const order = [sort, ...cols.filter(x => x !== sort)]; const vw = 130; const y0 = 290, rh = Math.floor((GFX_H - 60 - y0) / Math.max(10, rows.length));
   const xs = order.map((_, j) => GFX_W - 30 - (order.length - j) * (vw + 6));
   order.forEach((key, j) => k.text(label[key].toUpperCase(), xs[j] + vw / 2, y0 - 22, { size: 20, weight: 700, color: key === sort ? '#FFFFFF' : '#B8C0D0', align: 'center', max: vw }));
   for (let i = 0; i < rows.length; i++) {
     const x = rows[i]; const y = y0 + i * rh; const tm = x.team ? s.teams.find(t => t.id === x.team) : null; const col = tm?.color || '#3A3F4A'; const ink = tm ? contrastInk(col) : '#FFFFFF';
-    g.fillStyle = GFX_ROW; g.fillRect(30, y, 90, rh - 6); k.text(String(i + 1), 75, y + rh / 2 - 3, { size: 40, weight: 600, align: 'center', fam: k.body });
+    // drivers level on the figure share a place
+    const place = 1 + rows.filter(o => (o[sort] || 0) > (x[sort] || 0)).length;
+    g.fillStyle = GFX_ROW; g.fillRect(30, y, 90, rh - 6); k.text(String(place), 75, y + rh / 2 - 3, { size: 40, weight: 600, align: 'center', fam: k.body });
     const bw = xs[0] - 6 - 126; g.fillStyle = col; g.fillRect(126, y, bw, rh - 6);
     if (tm) await gfxLogo(g, k, c, tm, 140, y + 14, 80, rh - 34, ink);
     const ph = await headOfAsync(c, x.id, s); if (ph) await k.img(ph, tm ? 230 : 140, y, 84, rh - 6, { cover: true });
     k.text(lastName(x.name).toUpperCase(), (tm ? 230 : 140) + (ph ? 100 : 0), y + rh / 2 - 3, { size: 40, weight: 800, color: ink, max: bw - 220 });
     order.forEach((key, j) => { g.fillStyle = key === sort ? '#B80500' : GFX_RED; g.fillRect(xs[j], y, vw, rh - 6); k.text(key === 'pts' ? fmtPts(x[key]) : String(x[key] || (key === 'titles' ? '–' : 0)), xs[j] + vw / 2, y + rh / 2 - 3, { size: 38, weight: 800, align: 'center', max: vw - 12 }); });
+    // the driver a story is about: outlined in gold, with the places gained
+    if (hl && x.id === hl) { g.save(); g.strokeStyle = '#E9C46A'; g.lineWidth = 5; g.strokeRect(27, y - 3, GFX_W - 54, rh); g.restore(); if (moved > 0) k.text(`▲${moved}`, 75, y + rh - 18, { size: 18, weight: 800, color: '#2FD07A', align: 'center' }); }
   }
 }
 

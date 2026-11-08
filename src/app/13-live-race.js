@@ -895,7 +895,7 @@ function renderLiveRace() {
 }
 /** Compact (everything on one screen) or Full, for Live Race and Race Replay. */
 const liveLayoutSeg = () => `<div class="seg">${[[1, 'Compact'], [0, 'Full']].map(([v, l]) => `<button data-act="live-layout" data-v="${v}" class="${!!ui.liveCompact === !!v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Race']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
+const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Race'], ['debriefs', 'Debriefs']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
 /** Between races: the debrief of the last one (until this weekend's first session), then the strategy to follow. */
 function liveIdle(c, s, r, w) {
   const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
@@ -922,7 +922,7 @@ function liveIdle(c, s, r, w) {
  * times against the winner and the cars around, race pace by driver and by team, who stopped when around you, and the
  * whole field's strategies. A title decided at this race gets its celebration on top.
  */
-function debrief(c, s, r, key) {
+function debrief(c, s, r, key, { kept = false } = {}) {
   const sd = s.weekends[r.id]?.sessions?.[key]; if (!sd?.done) return '';
   const g = sd.game || {}; const sprint = key === 'SPR';
   const mineIds = c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
@@ -1023,7 +1023,7 @@ function debrief(c, s, r, key) {
     return `<div class="panel-b"><span class="label">The championship around ${short(me)}, the last ${plural(at - from + 1, 'race')}</span>${lineChart(series, prog.labels.slice(from, at + 1), { names: prog.names.slice(from, at + 1) })}</div>`;
   })();
   const champLine = champ.length ? `${champChart}<div class="panel-b"><div class="ers-facts">${champ.map(x => `<div><b>P${x.posA}${x.posB && x.posB !== x.posA ? ` <small class="muted">${x.posA < x.posB ? '▲' : '▼'} from P${x.posB}</small>` : ''}</b><span>${short(x.id)} in the championship: ${x.ptsA} points (+${x.ptsA - x.ptsB})</span></div>`).join('')}<div><b>${esc(dsA[0] ? dName(s, dsA[0].id) : '–')}</b><span>leads on ${dsA[0]?.pts || 0}${dsA[1] ? `, ${dsA[0].pts - dsA[1].pts} clear of ${short(dsA[1].id)}` : ''}</span></div></div></div>` : '';
-  return `${party}<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(r.name)}${sprint ? ' sprint' : ''}</h2><span class="muted" style="font-size:12px">${W ? `Won by ${nm(W)} · ` : ''}until the next session is logged</span></div>${champLine}</div>
+  return `${party}<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(r.name)}${sprint ? ' sprint' : ''}</h2><span class="muted" style="font-size:12px">${kept ? (W ? `Won by ${nm(W)}` : '') : `${W ? `Won by ${nm(W)} · ` : ''}until the next session is logged (all are kept in Debriefs)`}</span></div>${champLine}</div>
     ${hasLaps ? '' : '<div class="callout">This race wasn’t logged from F1 25, so there are no laps to break down: only the result.</div>'}
     <div class="debrief-grid ${mineIds.length > 1 ? 'two' : ''}">${cols}</div>
     ${hasLaps ? mineIds.map(id => { const t = mineIds.length > 1 ? lastName(dName(s, id)) : ''; try { return strategyDebrief(c, s, r, sd, key, id, t) + groupingPanel(c, s, sd, id, t); } catch (e) { console.warn(e); return ''; } }).join('') : ''}

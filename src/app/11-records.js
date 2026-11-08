@@ -117,7 +117,7 @@ const recPrev = (e) => e.prev.holders.filter(h => h.id !== e.id && !e.co?.some(o
  */
 function buildTimeline(c) {
   const known = allKnownDrivers(c, c.seasons[c.seasons.length - 1]);
-  const nameOf = (id) => id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id]?.name || id;
+  const nameOf = (id) => id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : known[id]?.name || H.allTime?.[id]?.n || id;
   const teamRoot = (id) => D.TEAM_BIO[id]?.lineage?.[0] || id;
   const recs = {};
   for (const R of D.RECORDS) {
@@ -134,6 +134,31 @@ function buildTimeline(c) {
   })();
   const T = {};
   const getT = (id) => T[teamRoot(id)] ||= (() => { const b = D.TEAM_BIO[teamRoot(id)]; return { wins: b?.wins || 0, titles: b?.conTitles?.length || 0, lastTitle: b?.conTitles?.slice(-1)[0] ?? null, streak: D.STREAKS_2025.teamStreak[teamRoot(id)] || 0 }; })();
+  // The all-time lists (every driver since 1950), top 15 of each, seeded with everyone's record at the end of 2015.
+  // A driver moving into the top ten, or up it, is a milestone (and a graphic); the lead is a record, told as one.
+  // Titles aren't followed: too many drivers share a number.
+  const LISTS = { wins: 'wins', podiums: 'podiums', poles: 'pole positions', starts: 'Grand Prix starts', pts: 'career points' };
+  const LIST_J = { starts: 0, wins: 1, podiums: 2, poles: 3, pts: 5 };
+  const TOP = {}; {
+    const tot = {}; for (const [id, A] of Object.entries(H.allTime || {})) tot[id] = Object.values(A.y).reduce((a, v) => a.map((x, j) => x + v[j]), [0, 0, 0, 0, 0, 0, 0]);
+    for (const k of Object.keys(LISTS)) TOP[k] = Object.entries(tot).map(([id, t]) => ({ id, v: t[LIST_J[k]] })).sort((a, b) => b.v - a.v).slice(0, 15);
+  }
+  const rankIn = (L, id) => { const e = L.find(x => x.id === id); return e ? 1 + L.filter(x => x.id !== id && x.v > e.v).length : null; };
+  function listMove(id, k, mile, where) {
+    const L = TOP[k]; const v = getP(id)[k]; const min = L.length >= 15 ? L[L.length - 1].v : -1;
+    const e = L.find(x => x.id === id); if (!e && v <= min) return;
+    const was = rankIn(L, id); const old = e ? e.v : null;
+    if (e) e.v = v; else L.push({ id, v }); L.sort((a, b) => b.v - a.v); L.length = Math.min(L.length, 15);
+    const now = rankIn(L, id); if (!now || now > 10 || now < 2 || (was != null && now >= was)) return;
+    const passed = L.filter(x => x.id !== id && x.v < v && (old == null || x.v >= old)).map(x => nameOf(x.id));
+    const level = L.filter(x => x.id !== id && x.v === v).map(x => nameOf(x.id));
+    const fmt = (n) => k === 'pts' ? fmtPts(n) : n;
+    const text = was == null || was > 10
+      ? `${nameOf(id)} enters the all-time top ten for ${LISTS[k]}, ${ordWord(now)} on ${fmt(v)}${level.length ? `, level with ${listJoin(level)}` : ''}`
+      : !passed.length && level.length ? `${nameOf(id)} draws level with ${listJoin(level)} for ${ordWord(now)} on the all-time ${LISTS[k]} list`
+      : `${nameOf(id)} moves up to ${ordWord(now)} on the all-time ${LISTS[k]} list${passed.length ? `, passing ${listJoin(passed.slice(-3))}` : ''}${level.length ? `, level with ${listJoin(level)}` : ''}`;
+    mile(id, text, 3, { stat: k, rank: now, from: was, rows: L.slice(0, 10).map(x => ({ id: x.id, name: nameOf(x.id), v: x.v })) });
+  }
   const spanFrom = (p, key, where) => p.from[key] && p.from[key] !== where.when ? `${p.from[key]} to ${where.when}` : where.when;
   function bump(rid, id, value, where, { team = null, disp = null, when = null } = {}) {
     const R = recs[rid]; if (value == null) return;
@@ -177,13 +202,14 @@ function buildTimeline(c) {
       const where = { seasonIdx: s.index, hist: isHist(s), ri, r, date, year: s.year, when: `${s.year} ${r.name} GP` };
       const ms = [];
       const age = (id, d = date) => ageParts(bornOf(c, id), d);
-      const mile = (id, text, rank = 1) => ms.push({ id, text, rank });
+      const mile = (id, text, rank = 1, list = null) => ms.push({ id, text, rank, ...(list ? { list } : {}) });
       const addPts = (id, pts) => {
         if (!pts) return;
         const p = getP(id); const before = p.pts;
         p.pts += pts; sget(id).pts += pts;
         if (!p.scored) { p.scored = true; mile(id, `${nameOf(id)} scores ${pts > 1 ? 'first F1 points' : 'a first F1 point'}`, 3); const a = age(id); if (a) bump('youngPoints', id, a.days, where, { disp: ageTxt(a) }); }
         else if (Math.floor(before / 500) < Math.floor(p.pts / 500)) mile(id, `${nameOf(id)} passes ${Math.floor(p.pts / 500) * 500} career points`, 1);
+        listMove(id, 'pts', mile, where);
         bump('pts', id, p.pts, where); bump('seasonPts', id, sget(id).pts, where, { when: String(s.year) });
       };
       if (ses.Q?.done) {
@@ -196,6 +222,7 @@ function buildTimeline(c) {
           p.poleStreak++;
           if (p.poles === 1) { mile(pole, `${nameOf(pole)} takes a first pole position`, 4); const a = age(pole, qd); if (a) bump('youngPole', pole, a.days, where, { disp: ageTxt(a) }); }
           else if (p.poles % 10 === 0) mile(pole, `${nameOf(pole)} takes a ${ordWord(p.poles)} career pole`, 2);
+          listMove(pole, 'poles', mile, where);
           bump('poles', pole, p.poles, where); bump('poleStreak', pole, p.poleStreak, where, { when: spanFrom(p, 'pole', where) }); bump('seasonPoles', pole, sget(pole).poles, where, { when: String(s.year) });
         }
       }
@@ -209,6 +236,7 @@ function buildTimeline(c) {
           p.starts++;
           if (p.starts === 1) { const a = age(id); mile(id, `${nameOf(id)} makes a Formula 1 debut${a ? ` aged ${a.y}` : ''}`, 3); if (a) bump('youngStart', id, a.days, where, { disp: ageTxt(a) }); }
           else if (p.starts % 50 === 0) mile(id, `${nameOf(id)} starts a ${ordWord(p.starts)} Grand Prix`, 2);
+          listMove(id, 'starts', mile, where);
           bump('starts', id, p.starts, where);
           addPts(id, pts);
           if (pts > 0) { if (!p.ptsStreak) p.from.pts = where.when; p.ptsStreak++; bump('ptsStreak', id, p.ptsStreak, where, { when: spanFrom(p, 'pts', where) }); } else p.ptsStreak = 0;
@@ -218,6 +246,7 @@ function buildTimeline(c) {
             p.podStreak++;
             if (p.podiums === 1) { mile(id, `${nameOf(id)} stands on an F1 podium for the first time`, 4); const a = age(id); if (a) bump('youngPodium', id, a.days, where, { disp: ageTxt(a) }); }
             else if (p.podiums % 25 === 0) mile(id, `${nameOf(id)} scores a ${ordWord(p.podiums)} career podium`, 2);
+            listMove(id, 'podiums', mile, where);
             bump('podiums', id, p.podiums, where); bump('podStreak', id, p.podStreak, where, { when: spanFrom(p, 'pod', where) }); bump('seasonPods', id, sget(id).pods, where, { when: String(s.year) });
           } else p.podStreak = 0;
           if (!out && pos === 1) {
@@ -227,6 +256,7 @@ function buildTimeline(c) {
             const a = age(id);
             if (WIN_MS(p.wins)) mile(id, p.wins === 1 ? `${nameOf(id)} wins a Grand Prix for the first time${a ? `, aged ${a.y}` : ''}` : `${nameOf(id)} takes a ${ordWord(p.wins)} Grand Prix win`, p.wins === 1 ? 5 : 2);
             if (a) { bump('youngWin', id, a.days, where, { disp: ageTxt(a) }); bump('oldWin', id, a.days, where, { disp: ageTxt(a) }); }
+            listMove(id, 'wins', mile, where);
             bump('wins', id, p.wins, where); bump('winStreak', id, p.winStreak, where, { when: spanFrom(p, 'win', where) }); bump('seasonWins', id, sget(id).wins, where, { when: String(s.year) });
             const t = teamOf(s, id);
             if (t) {

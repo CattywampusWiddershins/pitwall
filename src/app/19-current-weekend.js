@@ -120,6 +120,7 @@ function raceForecast(s, round) {
 }
 function renderCurrentWeekend() {
   if (ui.nowTab === 'live') return renderLiveRace();
+  if (ui.nowTab === 'debriefs') return renderDebriefs();
   const c = career(); const s = latestSeason(); const r = nextRound(s);
   const head = (sub) => `<div class="page-head"><div><h1>Current Weekend</h1><div class="sub">${sub}</div></div>${nowTabs()}</div>`;
   if (!r || isHist(s)) return `<div class="page">${head('No weekend left to run this season.')}</div>`;
