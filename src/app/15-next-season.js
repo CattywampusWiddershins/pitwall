@@ -76,6 +76,7 @@ function calendarStories(c, s) {
   const out = []; const rounds = activeRounds(s);
   const ann = c.calAnnounced?.[s.year + 1];
   // a driver's name as of a season they raced (they may not be on this year's grid)
+  const told = new Set(); // track deals already told in a new venue's story
   const name = (d, s2 = s) => d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : (s2.drivers[d] ? dName(s2, d) : null) || refName(d);
   // the announcement for next season, and a fresh one when this season started on a calendar never announced or changed since
   for (const [ann, y] of [[c.calAnnounced?.[s.year + 1], s.year + 1], [c.calReannounced?.[s.year], s.year]]) if (ann && ann.si === s.index) { const rnd = seeded(`cal-${y}-${ann.at}`); const r0 = rounds[ann.ri] || null;
@@ -89,11 +90,13 @@ function calendarStories(c, s) {
       standfirst: `The ${y} season opens in ${ann.cal[0].name} and ends in ${ann.cal[ann.cal.length - 1].name}${ann.newTracks.length ? `, with ${listJoin(ann.newTracks.map(t => trackGp(t).name))} new to the calendar` : ''}.`, body: [], more: { title: 'Round by round', lines }, quotes: [] });
     for (const tid of ann.newTracks) {
       const last = lastHeld(c, tid, y); const deal = (c.trackDeals || []).filter(d => d.tid === tid && d.si === s.index).pop(); const T = D.TRACKS[tid]; const nm = trackGp(tid).name;
+      if (deal) told.add(deal); // one story for the new venue and its deal, not two
+      const yrs = deal ? deal.to - s.year : 0;
       out.push({ id: `cal-new-${y}-${tid}${ann.ri < 0 ? '-re' : ''}`, seq: ann.ri * 10 + 9.1, kind: 'calendar', i: ann.ri, r: r0, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
-        headline: `BREAKING: F1 to race in ${T?.country || nm}`, standfirst: `${nm}${T?.circuit ? ` (${T.circuit})` : ''} joins the ${y} calendar${last ? `, the first race there since ${last}` : ', a brand-new venue for Formula 1'}${deal ? ` on a deal to the end of ${deal.to}` : ''}.`, body: [], quotes: [] });
+        headline: `BREAKING: F1 to race in ${T?.country || nm}${deal && yrs > 0 ? ` on a ${yrs}-year deal` : ''}`, standfirst: `${nm}${T?.circuit ? ` (${T.circuit})` : ''} joins the ${y} calendar${last ? `, the first race there since ${last}` : ', a brand-new venue for Formula 1'}${deal ? `, ${yrs > 0 ? `on a ${yrs}-year contract` : 'on a contract'} running to the end of ${deal.to}` : ''}.`, body: [], quotes: [] });
     }
   }
-  for (const d of (c.trackDeals || []).filter(x => x.si === s.index)) {
+  for (const d of (c.trackDeals || []).filter(x => x.si === s.index && !told.has(x))) {
     const nm = trackGp(d.tid).name; const rnd = seeded(`deal-${d.tid}-${d.at}`); const years = d.to - s.year;
     const longer = d.from == null || d.to > d.from;
     out.push({ id: `deal-${d.tid}-${d.at}`, seq: d.ri * 10 + 9.2, kind: 'calendar', i: d.ri, r: rounds[d.ri] || null, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: longer ? 'Breaking' : 'Calendar',

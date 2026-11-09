@@ -6,6 +6,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 - **Sprint weekends on the calendar graphic.** The announced calendar marks each sprint weekend with a Sprint tag.
 - An added track's country shows in capitals like every other, straight away (it waited for a restart, or longer).
+- **One story for a new venue and its deal.** A track new to the calendar gets one breaking story with its contract in it ("F1 to race in Portugal on a 5-year deal"), not a second one for the deal.
 
 ## 5.1.1
 
