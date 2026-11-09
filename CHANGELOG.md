@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.1.3
+
+- **Projected finish in a live race works again.** Since 4.2.2 a live race (not a replay) ran none of its simulated races, so the projection showed P0 (best case "PInfinity") and the strategy call had no odds to weigh one plan against another; it fell back to the quickest plan every time. Both work as they should again.
+
 ## 5.1.2
 
 - **Sprint weekends on the calendar graphic.** The announced calendar marks each sprint weekend with a Sprint tag.

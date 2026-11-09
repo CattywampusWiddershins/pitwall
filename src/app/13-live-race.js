@@ -584,7 +584,7 @@ function raceOdds(s, r, L, me, idOf, ST, plans) {
       return out;
     }
   }
-  const out = plans.map(simOne); keep(out);
+  const out = plans.map(p => simOne(p)); keep(out); // (not map(simOne): map would pass the index and the list as from and to, and no race would run)
   return out;
 }
 /** The chance plan A finishes ahead of plan B (taking the two as independent). */
