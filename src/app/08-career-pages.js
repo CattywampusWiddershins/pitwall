@@ -750,7 +750,7 @@ function gpName(s, tid) {
   const own = s.calendar.find(x => x.id === tid);
   if (own) return own.name;
   // off this calendar: take the name from a template, unless another round already uses it (Madrid vs Barcelona)
-  const name = [...D.CAL_2026, ...D.CAL_2025].find(([id]) => id === tid)?.[1] || Object.values(H.seasons).flatMap(h => h.rounds).find(r => r.id === tid)?.name;
+  const name = [...D.CAL_2026, ...D.CAL_2025].find(([id]) => id === tid)?.[1] || Object.values(H.seasons).flatMap(h => h.rounds).find(r => r.id === tid)?.name || D.TRACKS[tid]?.gp;
   return name && !s.calendar.some(x => x.name === name) ? name : D.TRACKS[tid]?.city || tid;
 }
 /* Flags and circuit outlines (src/assets.js). Flags go in as images so their SVG ids never clash on a page. */
@@ -771,7 +771,7 @@ function learnedTrackPath(tid) {
   return (_learnedPath[key] = pts.map((p, i) => `${i ? 'L' : 'M'}${(ox + (p[0] - x0) / span * 90).toFixed(1)} ${(oz + (p[1] - z0) / span * 90).toFixed(1)}`).join('') + 'Z');
 }
 function trackMap(tid, size = 120) {
-  const d = A.maps[tid] || learnedTrackPath(tid);
+  const d = A.maps[tid] || D.TRACKS[tid]?.map || learnedTrackPath(tid);
   return d ? `<svg class="track-map" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><path d="${d}"/></svg>` : '';
 }
 const edAbbr = (e, id) => e.career ? dAbbr(e.s, id) : id;

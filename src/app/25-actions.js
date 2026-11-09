@@ -395,6 +395,7 @@ const changes = {
   'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
   'setup-single-sprint'(el) { ui.setup.singleSprint = el.checked; },
   'track-add'(el) { if (ui.modal?.kind === 'track-add') ui.modal.t[el.dataset.k] = el.value; },
+  'track-add-wm'(el) { if (ui.modal?.kind !== 'track-add') return; ui.modal.t = el.value ? wmPreset(el.value) || {} : {}; drawTrackAddModal(); },
   'db-season'(el) { const c = career(); const s = c.seasons[+el.value]; const r = s && [...activeRounds(s)].reverse().find(x => s.weekends[x.id]?.sessions?.R?.done || s.weekends[x.id]?.sessions?.SPR?.done); if (r) ui.dbPick = `${s.index}:${r.id}:${s.weekends[r.id].sessions.R?.done ? 'R' : 'SPR'}`; render(); },
   'lb-since'(el) { ui.lb.since = +el.value; render(); },
   'lb-f'(el) { const f = (ui.lb.f ||= {}); const r = (f[el.dataset.k] ||= [null, null]); r[+el.dataset.i] = el.value === '' ? null : Math.max(0, +el.value); if (r[0] == null && r[1] == null) delete f[el.dataset.k]; render(); },

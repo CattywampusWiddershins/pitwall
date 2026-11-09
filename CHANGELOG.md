@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.1.1
+
+- **Add a track from the World Map.** Adding a track now starts from any circuit on the World Map that isn't in Pitwall yet (Kyalami, Estoril, Magny-Cours, Watkins Glen, Jacarepaguá and 40-odd more): it fills in the circuit, city and country, the latest race's laps, its first Grand Prix and a few words on its history, and for 39 of them the real lap length, the outline and (from 2004) the fastest race lap. Change anything before adding it. The World Map then links that circuit to your track.
+- An added track that isn't on the calendar is titled by its Grand Prix's name, not its city.
+
 ## 5.1.0
 
 - **Single weekend: any track, sprint or not.** Pick any circuit (that year's, any other current or former one, or one you add), and whether it's a sprint weekend (it starts as the track's own calendar has it).

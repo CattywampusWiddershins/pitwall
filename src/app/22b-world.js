@@ -29,7 +29,9 @@ let _wmData = null;
 function worldData(c) {
   if (_wmData?.gen === renderGen && _wmData.c === c) return _wmData;
   const by = {}; const at = (cc) => by[cc] ||= { cc, circuits: [], drivers: [], champs: {}, careerGPs: 0 };
-  for (const x of W?.circuits || []) if (x.cc) at(x.cc).circuits.push({ ...x, career: [] });
+  // (a track added from the World Map is that circuit's)
+  const added = {}; for (const [id, t] of Object.entries(D.TRACKS)) if (t.custom && t.wc) added[t.wc] = id;
+  for (const x of W?.circuits || []) if (x.cc) at(x.cc).circuits.push({ ...x, track: x.track || added[x.id] || null, career: [] });
   // the career's own rounds: added to their circuit (or a circuit of their own, for a track the real results never had)
   for (const s of c.seasons) {
     if (isHist(s)) continue;
