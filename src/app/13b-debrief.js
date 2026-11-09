@@ -199,19 +199,30 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
     const lossAt = (L) => sc.has(L) ? (g.safety?.periods || []).some(p => p.kind === 'sc' && L >= p.from && L <= (p.to > 0 ? p.to : p.from)) ? PL.sc : PL.vsc : PL.green;
     let pts = []; for (let L = lo; L <= hi; L++) pts.push([L, T(L, PL.green)]);
     const bestP = pts.reduce((a, p) => p[1] < a[1] ? p : a); const actual = T(A.to, lossAt(A.to)); const diff = actual - bestP[1];
+    const scPts = []; for (let L = lo; L <= hi; L++) if (sc.has(L)) scPts.push([L, T(L, lossAt(L))]);
+    const bestSc = scPts.length ? scPts.reduce((a, p) => p[1] < a[1] ? p : a) : null;
     // the chart shows the laps within 30 s of the best (and your stop)
     pts = pts.filter(p => p[1] - bestP[1] <= 30000 || p[0] === A.to); const lo2 = Math.min(pts[0][0], A.to), hi2 = Math.max(pts[pts.length - 1][0], A.to);
     const under = sc.has(A.to); const where = `lap ${A.to}${under ? ' under the safety car' : ''}`;
     const line = Math.abs(diff) < 1000 ? `Your stop on ${where} was as good as any (the best green-flag stop was lap ${bestP[0]})` : diff < 0 ? `Stopping on ${where} was worth <b class="up">about ${dbSecs(diff, 0)}</b> against the best green-flag stop (lap ${bestP[0]})` : `Stopping on ${where} cost <b class="down">about ${dbSecs(diff, 0)}</b> against stopping on lap ${bestP[0]}`;
-    verdict.push(line + (st.length > 2 ? ` (stop ${k + 1})` : ''));
+    // and the cheapest stop under a safety car, when it beat both the best green-flag stop and yours
+    const scWord = (L) => (g.safety?.periods || []).some(q => q.kind === 'sc' && L >= q.from && L <= (q.to > 0 ? q.to : q.from)) ? 'safety car' : 'VSC';
+    const scLine = bestSc && bestSc[0] !== A.to && bestSc[1] < bestP[1] - 1000 && bestSc[1] < actual - 1000 ? `; a stop under the ${scWord(bestSc[0])} on lap ${bestSc[0]} would have been worth <b class="up">about ${dbSecs(bestSc[1] - bestP[1], 0)}</b> against it${diff > 1000 || diff < -1000 ? ` (${dbSecs(actual - bestSc[1], 0)} better than yours)` : ''}` : '';
+    verdict.push(line + scLine + (st.length > 2 ? ` (stop ${k + 1})` : ''));
     // the chart: time lost against the best lap, the safety car shaded, your stop marked
-    const W = 520, H = 220, l = 44, rr = 12, t = 14, b = 30; const vals = pts.map(p => (p[1] - bestP[1]) / 1000); const top = Math.min(40, Math.max(5, ...vals)); const bot = Math.min(0, diff / 1000) - 2;
+    const W = 520, H = 220, l = 44, rr = 12, t = 14, b = 30; const vals = pts.map(p => (p[1] - bestP[1]) / 1000); const top = Math.min(40, Math.max(5, ...vals)); const bot = Math.min(0, diff / 1000, ...scPts.map(p => (p[1] - bestP[1]) / 1000)) - 2;
     const X = (L) => l + (L - lo2) / Math.max(1, hi2 - lo2) * (W - l - rr); const Y = (v) => t + (top - Math.min(top, v)) / (top - bot) * (H - t - b);
     let o = ''; const step = top - bot > 30 ? 10 : 5;
     for (let v = Math.ceil(bot / step) * step; v <= top; v += step) o += `<line x1="${l}" x2="${W - rr}" y1="${Y(v)}" y2="${Y(v)}" class="gx-grid"/><text x="${l - 6}" y="${Y(v) + 4}" class="gx-tick gx-sm" text-anchor="end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} s</text>`;
     const tick = hi2 - lo2 > 30 ? 10 : 5; for (let L = Math.ceil(lo2 / tick) * tick; L <= hi2; L += tick) o += `<text x="${X(L)}" y="${H - 10}" class="gx-tick gx-sm" text-anchor="middle">L${L}</text>`;
-    const scIn = [...sc].filter(n => n >= lo2 && n <= hi2); if (scIn.length) { const a = Math.min(...scIn), z = Math.max(...scIn); o += `<rect x="${X(a) - 4}" y="${t}" width="${X(z) - X(a) + 8}" height="${H - t - b}" fill="var(--yellow)" opacity=".08"/><text x="${(X(a) + X(z)) / 2}" y="${t + 12}" class="gx-sc" style="font-size:${Math.min(10, (X(z) - X(a) + 8) / 6.4).toFixed(1)}px" text-anchor="middle">SAFETY CAR</text>`; }
+    const scIn = [...sc].filter(n => n >= lo2 && n <= hi2).sort((a, b) => a - b); const runs = [];
+    for (const n of scIn) { const R = runs[runs.length - 1]; if (R && n === R[1] + 1) R[1] = n; else runs.push([n, n]); }
+    for (const [a, z] of runs) { const w = X(z) - X(a) + 8; const lab = scWord(a) === 'VSC' ? 'VSC' : w >= 50 ? 'SAFETY CAR' : 'SC';
+      o += `<rect x="${X(a) - 4}" y="${t}" width="${w}" height="${H - t - b}" fill="var(--yellow)" opacity=".08"/><text x="${(X(a) + X(z)) / 2}" y="${t + 12}" class="gx-sc" style="font-size:${Math.min(10, w / (lab.length * 0.64)).toFixed(1)}px" text-anchor="middle">${lab}</text>`; }
     o += `<polyline fill="none" stroke="#C9CFDC" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" points="${pts.map((p, i) => `${X(p[0]).toFixed(1)},${Y(vals[i]).toFixed(1)}`).join(' ')}"/>`;
+    const scShow = scPts.filter(p => p[0] >= lo2 && p[0] <= hi2);
+    for (const [a, z] of runs) { const q = scShow.filter(p => p[0] >= a && p[0] <= z); if (q.length > 1) o += `<polyline fill="none" stroke="var(--yellow)" stroke-width="2" stroke-dasharray="4 3" points="${q.map(p => `${X(p[0]).toFixed(1)},${Y((p[1] - bestP[1]) / 1000).toFixed(1)}`).join(' ')}"/>`; }
+    for (const p of scShow) o += `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y((p[1] - bestP[1]) / 1000).toFixed(1)}" r="3" fill="var(--yellow)"><title>Lap ${p[0]} under the ${scWord(p[0])}: ${p[1] - bestP[1] < 0 ? '−' : '+'}${dbSecs(p[1] - bestP[1])}</title></circle>`;
     // the two labels: each tries its spots in turn (above, below or beside its dot) until neither overlaps the other
     const bx = X(bestP[0]), by = Y(0); const ax = X(A.to), ay = Y(diff / 1000); const col = diff <= 1000 ? 'var(--green)' : 'var(--red)'; const right = ax < W * 0.6;
     const bTxt = `Best green-flag stop, lap ${bestP[0]}`, yTxt = `You: lap ${A.to}, ${diff < 0 ? '−' : '+'}${dbSecs(diff)}`;

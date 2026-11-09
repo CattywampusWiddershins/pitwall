@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.1.4
+
+- **Each safety car on its own in the strategy debrief.** The stop chart shaded everything from the first safety car lap to the last as one period; now each safety car or VSC has its own band (labelled VSC for a virtual one).
+- **What a stop under the safety car would have cost.** The stop chart marks each lap under a safety car or VSC with a yellow dot, at the cheaper stop, and the verdict says when one of them would have beaten both the best green-flag stop and yours.
+
 ## 5.1.3
 
 - **Projected finish in a live race works again.** Since 4.2.2 a live race (not a replay) ran none of its simulated races, so the projection showed P0 (best case "PInfinity") and the strategy call had no odds to weigh one plan against another; it fell back to the quickest plan every time. Both work as they should again.
