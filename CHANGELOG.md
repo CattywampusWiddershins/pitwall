@@ -6,7 +6,6 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 - **The Android app stops asking to update.** The app and the computer each fingerprint the interface to see if they match, from the same files in name order, but sorted them differently (the Android build ignored hyphens, so 13b-debrief came before 13-live-race), so since 3.39.0 they never matched and the app updated over and over. They now sort the same way. Update Pitwall on the computer first; the app then updates once more and stops.
 - The Android app now includes the World Map's files.
-- **Settings: hardware acceleration.** A Display panel with a switch for hardware acceleration (on, as Pitwall has always run, and the fastest way for the charts, the replay and the globe). Turn it off only if the window glitches or flickers on your graphics driver; it takes a restart.
 
 ## 5.0.2
 

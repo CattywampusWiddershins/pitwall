@@ -49,18 +49,6 @@ function updateNoticeHtml() {
     <span class="row" style="gap:6px">${notes}<button class="btn sm primary" data-act="update-get">Download${mbOf(U.size)}</button><button class="btn sm ghost" data-act="update-skip">Not now</button></span></div>`;
   return '';
 }
-/** Hardware acceleration: on by default; off only for a graphics driver that draws glitches (it makes drawing slower). */
-let displayInfo = null;
-function displayPanel() {
-  if (!window.api?.display) return '';
-  if (!displayInfo) { window.api.display.get().then(d => { displayInfo = d; if (ui.view === 'settings') render(); }).catch(() => {}); return ''; }
-  const D2 = displayInfo; const pending = D2.gpu !== D2.running;
-  const canvas = D2.canvas ? (/enabled/.test(D2.canvas) ? 'Charts and the globe are drawn on the graphics card.' : 'Charts and the globe are drawn by the processor (slower).') : '';
-  return `<div class="panel"><div class="panel-h"><h2>Display</h2><span class="muted" style="font-size:12px">${esc(canvas)}</span></div><div class="panel-b stack" style="gap:8px">
-    <label class="row" style="gap:10px"><input type="checkbox" data-ch="display-gpu" ${D2.gpu ? 'checked' : ''}><span><b>Hardware acceleration</b> <span class="muted">(recommended)</span></span></label>
-    <p class="muted" style="font-size:12px;margin:0">On, Pitwall draws with the graphics card: the charts, the race replay and the globe run smoothest this way, and it's how Pitwall has always run. Turn it off only if the window shows glitches, flickering or black areas (a graphics driver problem): everything is then drawn by the processor, which is slower.</p>
-    ${pending ? `<div class="row" style="gap:8px"><span class="tag next">Restart to apply</span><button class="btn sm primary" data-act="display-restart">Restart now</button></div>` : ''}</div></div>`;
-}
 function updatesPanel() {
   if (!window.api?.updates) return '';
   const U = updateInfo || {};
@@ -85,7 +73,6 @@ function renderSettings() {
   return `<div class="page">
     <div class="page-head"><div><h1>Settings</h1><div class="sub">Appearance, career profile, ${s.year} roster and calendar, AI media and your data.</div></div></div>
     ${updatesPanel()}
-    ${displayPanel()}
     ${renderLookPicker()}
     ${renderThemePicker(c, s)}
     ${fontsPanel()}

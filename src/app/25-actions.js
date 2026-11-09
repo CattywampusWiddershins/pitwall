@@ -385,7 +385,6 @@ const changes = {
     c.pitLoss ||= {}; c.pitLoss[tid] = { green: cur.green / 1000, vsc: cur.vsc / 1000, sc: cur.sc / 1000, [el.dataset.k]: v }; store.save(); render();
   },
   'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
-  async 'display-gpu'(el) { await window.api.display.set({ gpu: el.checked }); displayInfo = await window.api.display.get(); render(); },
   'db-season'(el) { const c = career(); const s = c.seasons[+el.value]; const r = s && [...activeRounds(s)].reverse().find(x => s.weekends[x.id]?.sessions?.R?.done || s.weekends[x.id]?.sessions?.SPR?.done); if (r) ui.dbPick = `${s.index}:${r.id}:${s.weekends[r.id].sessions.R?.done ? 'R' : 'SPR'}`; render(); },
   'lb-since'(el) { ui.lb.since = +el.value; render(); },
   'lb-f'(el) { const f = (ui.lb.f ||= {}); const r = (f[el.dataset.k] ||= [null, null]); r[+el.dataset.i] = el.value === '' ? null : Math.max(0, +el.value); if (r[0] == null && r[1] == null) delete f[el.dataset.k]; render(); },
@@ -596,7 +595,6 @@ Object.assign(actions, {
   'wm-tab'(el) { ui.world = { ...(ui.world || {}), tab: el.dataset.v, circuit: el.dataset.v === 'circuits' ? null : ui.world?.circuit }; render(); },
   'wm-circuit'(el) { ui.world = { ...(ui.world || {}), circuit: el.dataset.id || null }; const ci = el.dataset.id && W.circuits.find(x => x.id === el.dataset.id); if (ci) { WM.anim = { from: WM.rot.slice(), to: [-ci.lon, -ci.lat], t0: performance.now(), ms: 700 }; while (WM.anim.to[0] - WM.anim.from[0] > 180) WM.anim.to[0] -= 360; while (WM.anim.to[0] - WM.anim.from[0] < -180) WM.anim.to[0] += 360; } render(); },
   'wm-export'() { const x = ui.wmLast; if (!x) return; const lk = ui.lb.sort; const spec = { type: 'leaderboard', si: career().seasons.length - 1, ri: 0, sort: lk, cols: LB_COLS.map(([k]) => k), full: true, since: 1950, country: ccName(x.cc), rows: x.rows }; gfxModal(gfxKey(spec)); },
-  async 'display-restart'() { store.save(); await new Promise(r => setTimeout(r, 300)); window.api.display.restart(); },
   'now-tab'(el) { ui.nowTab = el.dataset.v; render(); },
   'db-pick'(el) { ui.dbPick = el.dataset.v; render(); window.scrollTo?.(0, 0); },
   'live-follow'(el) { ui.liveFollow = el.dataset.v; render(); },
