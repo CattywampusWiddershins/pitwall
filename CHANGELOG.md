@@ -4,6 +4,8 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 5.1.4
 
+- **The stop verdict counts the places a stop gives away.** Each lap you could have stopped on now counts the cars you'd have come out behind that weren't stopping themselves, and the time to get past them at that track: one at a time, likelier the fresher your tyres are against theirs, held up a few laps when a move doesn't come off (losing your pace advantage once a lap, not once a car), and let through when a car ahead stops. An early stop that drops you into the pack now costs what it should; a stop when everyone stops costs nothing extra. The verdict says how many cars each stop would have come out behind.
+- A tyre's race pace in the debrief no longer takes in a short stint of very slow laps (after an incident at the start, say), which could make a stop look over a thousand seconds out.
 - **Strategy bars to scale again.** A car that never started (no laps) has its tyre stint ending on "lap 255" in the game's data, which stretched every bar in Strategy & penalties to 255 laps and squashed the real race into the first fifth. Such a car is left out of the scale now.
 - **Each safety car on its own in the strategy debrief.** The stop chart shaded everything from the first safety car lap to the last as one period; now each safety car or VSC has its own band (labelled VSC for a virtual one).
 - **What a stop under the safety car would have cost.** The stop chart marks each lap under a safety car or VSC with a yellow dot, at the cheaper stop, and the verdict says when one of them would have beaten both the best green-flag stop and yours.

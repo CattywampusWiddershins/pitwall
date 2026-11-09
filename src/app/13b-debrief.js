@@ -175,7 +175,14 @@ function dbRacePace(sd, d) {
     const med = median(pts.map(p => p[1])); const use = pts.filter(p => p[1] <= med * 1.03);
     (out[x.c] ||= []).push(...use);
   }
-  for (const c of Object.keys(out)) { const f = out[c].length >= 4 ? fitLine(out[c]) : null; if (f) out[c] = { a: f.a, b: Math.max(0, f.b), n: out[c].length }; else delete out[c]; }
+  // and against the tyre's laps from every stint together: a short stint of slow laps (an incident, a lap behind the
+  // safety car the game didn't flag) passes its own stint's check but not this one. A fit that slopes down (faster as
+  // the tyre gets older: fuel, or a slow start to the stint) is taken as flat at the average, not as its intercept.
+  for (const c of Object.keys(out)) {
+    const med = median(out[c].map(p => p[1])); const pts = out[c].filter(p => p[1] <= med * 1.03);
+    const f = pts.length >= 4 ? fitLine(pts) : null; if (!f) { delete out[c]; continue; }
+    out[c] = f.b >= 0 ? { a: f.a, b: f.b, n: pts.length } : { a: pts.reduce((t, p) => t + p[1], 0) / pts.length, b: 0, n: pts.length };
+  }
   return out;
 }
 /** The strategy debrief panel for one driver. */
@@ -184,6 +191,10 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
   const st = dbStints(sd, d); const N = laps.length; const sc = dbScLaps(g); const PL = pitLoss(c, trackOf(r));
   const pace = dbRacePace(sd, d); const raceWear = dbRaceWear(sd, d); const nm = (x) => esc(lastName(dName(s, x)));
   const verdict = []; const parts = [];
+  const XC = dbCrossings(g); const myCum = XC.cum[d] || []; const OV = overtakeOf(c, trackOf(r));
+  const stopsOf = {}; for (const o of Object.keys(g.laps || {})) if (o !== d) stopsOf[o] = stintsOf(sd, o).slice(0, -1).map(x => x.to);
+  // the field's lap n: the median of the cars not in or out of the pits on it (a safety car lap is slow for everyone)
+  const fieldLap = (n) => { const v = Object.keys(stopsOf).filter(o => !stopsOf[o].some(t => t === n || t === n - 1)).map(o => g.laps[o]?.[n - 1]?.[0]).filter(x => x > 0); return v.length ? median(v) : 0; };
   // 1. when to stop: each stop moved on its own, the others where they were
   const stopCharts = st.slice(0, -1).map((A, k) => {
     const B = st[k + 1]; const pa = pace[A.c], pb = pace[B.c]; if (!pa || !pb) return '';
@@ -197,17 +208,44 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
     const capped = maxA < Math.min(B.to - 3, N - 2) || minB > Math.max(A.from + 2, 3);
     const T = (L, loss) => { let t = loss; for (let n = A.from; n <= L; n++) t += pa.a + pa.b * (n - A.from + 1); for (let n = L + 1; n <= B.to; n++) t += pb.a + pb.b * (n - L); return t; };
     const lossAt = (L) => sc.has(L) ? (g.safety?.periods || []).some(p => p.kind === 'sc' && L >= p.from && L <= (p.to > 0 ? p.to : p.from)) ? PL.sc : PL.vsc : PL.green;
-    let pts = []; for (let L = lo; L <= hi; L++) pts.push([L, T(L, PL.green)]);
-    const bestP = pts.reduce((a, p) => p[1] < a[1] ? p : a); const actual = T(A.to, lossAt(A.to)); const diff = actual - bestP[1];
-    const scPts = []; for (let L = lo; L <= hi; L++) if (sc.has(L)) scPts.push([L, T(L, lossAt(L))]);
+    // Places: a stop on lap L comes out behind every car that was within the stop's loss behind you and wasn't stopping
+    // itself (that lap, or the next three). They're passed one at a time, nearest first, as the live odds have it: a
+    // pass is likelier the more pace the fresh tyres have over the old ones, each costs a little (the dirty air, the
+    // move), and one that doesn't come off holds you up for three laps before the next try, your pace advantage lost
+    // each lap. A car that stops while you're behind it lets you through. Held up behind a train you lose the advantage
+    // once a lap, not once a car, and never past the end of the stint.
+    const posAt = (L) => { if (L < A.to) return myCum[L - 1]; let t = myCum[A.to - 2] ?? 0; for (let n = A.to; n <= L; n++) t += fieldLap(n); return t; }; // (your own laps from your real stop on would have its loss in them)
+    const traffic = (L, loss) => {
+      const me = posAt(L); if (me == null) return { n: 0, ms: 0 };
+      const adv = Math.max(0, pa.a + pa.b * (L - A.from + 1) - (pb.a + pb.b)); const pe = 1 - Math.pow(1 - OV.p, Math.max(0.4, Math.min(3, adv / 500)));
+      const held = (1 / Math.max(0.05, pe) - 1) * RETRY_LAPS; const end = B.to - L;
+      // a lap held up costs the pace your fresh set has over the old ones, which grows as theirs wear (and yours doesn't, much)
+      const lapCost = (j) => Math.max(200, pa.a + pa.b * (L - A.from + 1 + j) - (pb.a + pb.b * (j + 1)));
+      const ahead = Object.keys(stopsOf).map(o => ({ o, t: XC.cum[o]?.[L - 1] })).filter(x => x.t != null && x.t > me && x.t <= me + loss && !stopsOf[x.o].some(y => y >= L - 1 && y <= L + 3)).sort((a, b) => b.t - a.t);
+      let laps = 0, passes = 0;
+      for (const x of ahead) {
+        if (laps >= end) break;
+        const next = stopsOf[x.o].find(y => y > L + 3); const free = next != null ? next - L : Infinity;
+        if (free <= laps + held) { laps = Math.max(laps, free); continue; } // it stops before you'd have got by
+        laps += held; passes++;
+      }
+      let ms = passes * passCost(OV.p); for (let j = 0; j < Math.min(Math.round(laps), end); j++) ms += lapCost(j);
+      return { n: ahead.length, ms };
+    };
+    const TT = (L, loss) => T(L, loss) + traffic(L, loss).ms;
+    let pts = []; for (let L = lo; L <= hi; L++) pts.push([L, TT(L, PL.green)]);
+    const bestP = pts.reduce((a, p) => p[1] < a[1] ? p : a); const actual = TT(A.to, lossAt(A.to)); const diff = actual - bestP[1];
+    const behind = (L, loss) => { const n = traffic(L, loss).n; return n ? ` (out behind ${plural(n, 'car')} that ${n === 1 ? "wasn't" : "weren't"} stopping)` : ''; };
+    const scPts = []; for (let L = lo; L <= hi; L++) if (sc.has(L)) scPts.push([L, TT(L, lossAt(L))]);
     const bestSc = scPts.length ? scPts.reduce((a, p) => p[1] < a[1] ? p : a) : null;
     // the chart shows the laps within 30 s of the best (and your stop)
     pts = pts.filter(p => p[1] - bestP[1] <= 30000 || p[0] === A.to); const lo2 = Math.min(pts[0][0], A.to), hi2 = Math.max(pts[pts.length - 1][0], A.to);
-    const under = sc.has(A.to); const where = `lap ${A.to}${under ? ' under the safety car' : ''}`;
-    const line = Math.abs(diff) < 1000 ? `Your stop on ${where} was as good as any (the best green-flag stop was lap ${bestP[0]})` : diff < 0 ? `Stopping on ${where} was worth <b class="up">about ${dbSecs(diff, 0)}</b> against the best green-flag stop (lap ${bestP[0]})` : `Stopping on ${where} cost <b class="down">about ${dbSecs(diff, 0)}</b> against stopping on lap ${bestP[0]}`;
+    const under = sc.has(A.to); const where = `lap ${A.to}${under ? ' under the safety car' : ''}${behind(A.to, lossAt(A.to))}`;
+    const bestWhere = `lap ${bestP[0]}${behind(bestP[0], PL.green)}`;
+    const line = Math.abs(diff) < 1000 ? `Your stop on ${where} was as good as any (the best green-flag stop was ${bestWhere})` : diff < 0 ? `Stopping on ${where} was worth <b class="up">about ${dbSecs(diff, 0)}</b> against the best green-flag stop (${bestWhere})` : `Stopping on ${where} cost <b class="down">about ${dbSecs(diff, 0)}</b> against stopping on ${bestWhere}`;
     // and the cheapest stop under a safety car, when it beat both the best green-flag stop and yours
     const scWord = (L) => (g.safety?.periods || []).some(q => q.kind === 'sc' && L >= q.from && L <= (q.to > 0 ? q.to : q.from)) ? 'safety car' : 'VSC';
-    const scLine = bestSc && bestSc[0] !== A.to && bestSc[1] < bestP[1] - 1000 && bestSc[1] < actual - 1000 ? `; a stop under the ${scWord(bestSc[0])} on lap ${bestSc[0]} would have been worth <b class="up">about ${dbSecs(bestSc[1] - bestP[1], 0)}</b> against it${diff > 1000 || diff < -1000 ? ` (${dbSecs(actual - bestSc[1], 0)} better than yours)` : ''}` : '';
+    const scLine = bestSc && bestSc[0] !== A.to && bestSc[1] < bestP[1] - 1000 && bestSc[1] < actual - 1000 ? `; a stop under the ${scWord(bestSc[0])} on lap ${bestSc[0]}${behind(bestSc[0], lossAt(bestSc[0]))} would have been worth <b class="up">about ${dbSecs(bestSc[1] - bestP[1], 0)}</b> against it${diff > 1000 || diff < -1000 ? ` (${dbSecs(actual - bestSc[1], 0)} better than yours)` : ''}` : '';
     verdict.push(line + scLine + (st.length > 2 ? ` (stop ${k + 1})` : ''));
     // the chart: time lost against the best lap, the safety car shaded, your stop marked
     const W = 520, H = 220, l = 44, rr = 12, t = 14, b = 30; const vals = pts.map(p => (p[1] - bestP[1]) / 1000); const top = Math.min(40, Math.max(5, ...vals)); const bot = Math.min(0, diff / 1000, ...scPts.map(p => (p[1] - bestP[1]) / 1000)) - 2;
@@ -236,7 +274,7 @@ function strategyDebrief(c, s, r, sd, key, d, title) {
     o += `<circle cx="${bx}" cy="${by}" r="4" fill="var(--muted)"/><text x="${bx}" y="${bY}" class="gx-lab" text-anchor="${bAnc}">${bTxt}</text>`;
     o += `<circle cx="${ax}" cy="${ay}" r="6" fill="${col}"/><text x="${right ? ax + 10 : ax - 10}" y="${yY}" style="fill:${col}" class="gx-lab gx-you" text-anchor="${right ? 'start' : 'end'}">${yTxt}</text>`;
     return `<div><span class="label">When to stop${st.length > 2 ? ` · stop ${k + 1}` : ''}: time lost against the best lap, on this race’s pace</span><div class="gx-chart"><svg viewBox="0 0 ${W} ${H}">${o}</svg></div>
-      <p class="muted" style="font-size:12px;margin:0">From the pace and fall-off on each tyre in this race (${COMPOUNDS[A.c]?.[1] || 'tyre'} ${(pa.b / 1000).toFixed(3)} s a lap, ${COMPOUNDS[B.c]?.[1] || 'tyre'} ${(pb.b / 1000).toFixed(3)} s) and a ${dbSecs(PL.green)} stop${under ? `; under the safety car it costs ${dbSecs(lossAt(A.to))}` : ''}.${capped ? ` Only laps where neither set would have gone past ${WEAR_LIMIT}% wear (at this race’s rate, from the wear each set had) are shown: laps ${lo}–${hi}.` : ''}</p></div>`;
+      <p class="muted" style="font-size:12px;margin:0">From the pace and fall-off on each tyre in this race (${COMPOUNDS[A.c]?.[1] || 'tyre'} ${(pa.b / 1000).toFixed(3)} s a lap, ${COMPOUNDS[B.c]?.[1] || 'tyre'} ${(pb.b / 1000).toFixed(3)} s) and a ${dbSecs(PL.green)} stop${under ? `; under the safety car it costs ${dbSecs(lossAt(A.to))}` : ''}. Each lap counts the cars you'd have come out behind that weren't stopping themselves, and the time to get past them here (overtaking is ${OV.hard}% hard; fresher tyres make it easier).${capped ? ` Only laps where neither set would have gone past ${WEAR_LIMIT}% wear (at this race’s rate, from the wear each set had) are shown: laps ${lo}–${hi}.` : ''}</p></div>`;
   }).filter(Boolean);
   // 2. through the stops: the cars around you before each of your stops, and after everyone's stop
   const P = lapPositions(sd); const X = dbCrossings(g);
