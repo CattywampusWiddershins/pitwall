@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.1.0
+
+- **Single weekend: any track, sprint or not.** Pick any circuit (that year's, any other current or former one, or one you add), and whether it's a sprint weekend (it starts as the track's own calendar has it).
+- **Add a track.** From Single weekend, Circuits, or the calendar in Settings or Next Season ("+ A new track…"): the Grand Prix's name, the circuit, the city and country, race laps, lap length, corners, its first Grand Prix and a few words about it, as every built-in track has. It joins Circuits and the calendars of every save. Its outline comes from practice the first time you drive it with telemetry on, and Pitwall learns which F1 25 track it is from that first session; both are kept for every save, and the outline shows wherever track maps do.
+- **Nationality and country lists.** Your driver's nationality (a new career and the profile), a new driver's nationality (now asked for) and a track's country are picked from a list you can type into.
+- A new save no longer offers recordings from your other saves to log: only those made since it began and not logged in any save.
+
 ## 5.0.4
 
 - World Map: a long list (a country's drivers or circuits) squeezed the Overview, Circuits and Drivers tabs out of sight. The header and tabs now keep their size, and only the list scrolls.
