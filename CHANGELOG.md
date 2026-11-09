@@ -4,6 +4,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 5.1.4
 
+- **Strategy bars to scale again.** A car that never started (no laps) has its tyre stint ending on "lap 255" in the game's data, which stretched every bar in Strategy & penalties to 255 laps and squashed the real race into the first fifth. Such a car is left out of the scale now.
 - **Each safety car on its own in the strategy debrief.** The stop chart shaded everything from the first safety car lap to the last as one period; now each safety car or VSC has its own band (labelled VSC for a virtual one).
 - **What a stop under the safety car would have cost.** The stop chart marks each lap under a safety car or VSC with a yellow dot, at the cheaper stop, and the verdict says when one of them would have beaten both the best green-flag stop and yours.
 

@@ -61,6 +61,7 @@ function stintsOf(sd, d) {
   const g = sd?.game; const raw = g?.stints?.[d] || []; const n = g?.laps?.[d]?.length || g?.finished?.[d] || 0;
   const out = []; let from = 1;
   for (const [c, end0] of raw) {
+    if (end0 >= 200 && !n) continue; // the game's "unknown" (255) for a car with no laps (it never started): nothing to draw
     const end = Math.min(end0 >= 200 || (n && end0 > n) ? n || end0 : end0, n || end0);
     if (end < from) continue;
     out.push({ c, from, to: end }); from = end + 1;
