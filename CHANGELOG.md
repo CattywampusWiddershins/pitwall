@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.0.3
+
+- **The Android app stops asking to update.** The app and the computer each fingerprint the interface to see if they match, from the same files in name order, but sorted them differently (the Android build ignored hyphens, so 13b-debrief came before 13-live-race), so since 3.39.0 they never matched and the app updated over and over. They now sort the same way. Update Pitwall on the computer first; the app then updates once more and stops.
+- The Android app now includes the World Map's files.
+- **Settings: hardware acceleration.** A Display panel with a switch for hardware acceleration (on, as Pitwall has always run, and the fastest way for the charts, the replay and the globe). Turn it off only if the window glitches or flickers on your graphics driver; it takes a restart.
+
 ## 5.0.2
 
 - **World Map: smooth, and zoom.** The globe was drawn at about 20 frames a second (46 ms a frame), so it turned in fits and starts. While it moves it's now drawn from coarser country shapes, in a few batches, leaving out the far side (about 7 ms a frame), and the detailed shapes come back once it settles. A drag carries on turning with the speed you let go at, a picked country is turned to with a gentle ease, and the globe glides aside for the panel instead of jumping. Zoom with the mouse wheel (or a pinch on a trackpad) or the + and − buttons; a picked country is zoomed to fit (close in on Belgium or Monaco, the whole of the United States).

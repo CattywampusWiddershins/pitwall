@@ -9,6 +9,12 @@ const dataDir = () => app.getPath('userData');
 const dataFile = () => path.join(dataDir(), 'career-data.json');
 const settingsFile = () => path.join(dataDir(), 'settings.json');
 const telemetryFile = () => path.join(dataDir(), 'telemetry.json');
+const displayFile = () => path.join(dataDir(), 'display.json');
+// Hardware acceleration: on unless it's been turned off in Settings (for a graphics driver that draws glitches or
+// flickers). It's decided before the window opens, so a change takes a restart.
+try { if (JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'display.json'), 'utf8')).gpu === false) app.disableHardwareAcceleration(); } catch { /* on, the default */ }
+const gpuOn = () => { try { return JSON.parse(fs.readFileSync(displayFile(), 'utf8')).gpu !== false; } catch { return true; } };
+const gpuAtStart = gpuOn(); // what this run started with
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')); } catch { return fallback; }
@@ -257,6 +263,10 @@ ipcMain.handle('settings:get', () => {
   return { hasKey: !!s.apiKey, model: s.model };
 });
 ipcMain.handle('settings:set', (_e, payload) => applySettings(payload));
+// the display settings: hardware acceleration as set, as this run started, and what Chromium is using
+ipcMain.handle('display:get', () => { const st = app.getGPUFeatureStatus?.() || {}; return { gpu: gpuOn(), running: gpuAtStart, canvas: st['2d_canvas'] || null, webgl: st.webgl || null }; });
+ipcMain.handle('display:set', (_e, { gpu }) => { writeJsonAtomic(displayFile(), { gpu: !!gpu }); return { gpu: !!gpu }; });
+ipcMain.handle('display:restart', () => { app.relaunch(); app.exit(0); });
 
 ipcMain.handle('ai:generate', (_e, req) => generate(req));
 async function generate({ system, prompt, maxTokens } = {}) {

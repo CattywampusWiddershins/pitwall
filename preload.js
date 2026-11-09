@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('api', {
   saveImage: (dataUrl, name) => ipcRenderer.invoke('image:save', { dataUrl, name }),
   // the real season's results (the Jolpica F1 API, fetched by the main process)
   real: { get: (path) => ipcRenderer.invoke('real:get', path) },
+  // hardware acceleration (takes effect on a restart)
+  display: { get: () => ipcRenderer.invoke('display:get'), set: (o) => ipcRenderer.invoke('display:set', o), restart: () => ipcRenderer.invoke('display:restart') },
   // new versions, from the GitHub releases
   updates: {
     check: () => ipcRenderer.invoke('update:check'),
