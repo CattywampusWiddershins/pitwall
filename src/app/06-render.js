@@ -102,7 +102,7 @@ function applyTheme() {
 let _caps = { key: null, re: null };
 function capsRe() {
   const c = career(); const S = c?.seasons || [];
-  const key = `${c?.id}|${S.length}|${S.reduce((a, s) => a + Object.keys(s.drivers || {}).length + (s.calendar || []).length, 0)}|${Object.keys(c?.generated || {}).length}|${c?.customDrivers?.length}|${c?.profile?.last}`;
+  const key = `${c?.id}|${S.length}|${S.reduce((a, s) => a + Object.keys(s.drivers || {}).length + (s.calendar || []).length, 0)}|${Object.keys(c?.generated || {}).length}|${c?.customDrivers?.length}|${c?.profile?.last}|${Object.keys(D.TRACKS || {}).length}`; // (a track added brings its country)
   if (_caps.key === key) return _caps.re;
   const words = new Set();
   const addName = (n) => { const l = lastName(n); if (l && l.length >= 3 && /^\p{Lu}/u.test(l.replace(/^(de|van|von|di|da|del|der) /, ''))) words.add(l); };

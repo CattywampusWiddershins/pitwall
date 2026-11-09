@@ -821,12 +821,12 @@ async function gfxPreview(g, k, c, s, { ri }) {
   g.save(); g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 14; g.shadowOffsetY = 8; k.text(title, GFX_W / 2, 1210, { size: 170, weight: 900, color: '#F2C14E', align: 'center', max: GFX_W - 60 }); g.restore();
 }
 
-/** The calendar, F1-style: a row per round, flag, dates, Grand Prix and venue. New and moved rounds outlined in yellow. */
+/** The calendar, F1-style: a row per round, flag, dates, Grand Prix and venue, and a tag on sprint weekends. New and moved rounds outlined in yellow. */
 async function gfxCalendar(g, k, c, s, { year, cal = null, fresh = [] }) {
   const W = GFX_W, H = GFX_H; g.fillStyle = '#F1F1F1'; g.fillRect(0, 0, W, H);
   gfxDiag(g, 0, 0, W, H, { gap: 18, width: 6, alpha: 0.035, color: '#000000' });
   // an announced calendar for a season that doesn't exist yet gets its dates the way a real one would
-  const se = c.seasons.find(x => x.year === year) || { year, calendar: (cal || []).map(([id, name, venue, track]) => ({ id, name, venue, track })) }; const rounds = activeRounds(se);
+  const se = c.seasons.find(x => x.year === year) || { year, calendar: (cal || []).map(([id, name, venue, track, sprint]) => ({ id, name, venue, track, sprint: !!sprint })) }; const rounds = activeRounds(se);
   if (!rounds.length) return false;
   await k.logo(50, 40, 300, 100, GFX_RED, 'left');
   k.text(String(year), 50, 210, { size: 150, weight: 900, color: '#15151E' });
@@ -840,9 +840,13 @@ async function gfxCalendar(g, k, c, s, { year, cal = null, fresh = [] }) {
     const code = A.country[D.TRACKS[trackOf(r)]?.country]; const svg = code && A.flags[code];
     if (svg) await k.img(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, x + 110, y + rh * 0.22, 66, rh * 0.56);
     const d = roundDate(se, r); const tx = x + 192;
-    k.text(d ? fmtDay(d).toUpperCase() : '', tx, y + rh * 0.24, { size: Math.min(22, rh * 0.24), weight: 600, color: '#CCCCCC', max: cw - 200 });
-    k.text(String(r.name).toUpperCase(), tx, y + rh * 0.52, { size: Math.min(32, rh * 0.36), weight: 900, color: GFX_RED, max: cw - 200 });
-    k.text(String(r.venue).toUpperCase(), tx, y + rh * 0.8, { size: Math.min(22, rh * 0.24), weight: 700, max: cw - 200 });
+    // a sprint weekend: a white tag at the row's end, the text kept clear of it
+    const sw = r.sprint ? Math.min(150, cw * 0.24) : 0; const tmax = cw - 200 - (sw ? sw + 16 : 0);
+    if (sw) { const th = Math.min(40, rh * 0.42); g.fillStyle = '#FFFFFF'; g.fillRect(x + cw - sw - 14, y + (rh - th) / 2, sw, th);
+      k.text('SPRINT', x + cw - 14 - sw / 2, y + rh / 2, { size: Math.min(24, th * 0.6), weight: 900, color: '#15151E', align: 'center', max: sw - 12 }); }
+    k.text(d ? fmtDay(d).toUpperCase() : '', tx, y + rh * 0.24, { size: Math.min(22, rh * 0.24), weight: 600, color: '#CCCCCC', max: tmax });
+    k.text(String(r.name).toUpperCase(), tx, y + rh * 0.52, { size: Math.min(32, rh * 0.36), weight: 900, color: GFX_RED, max: tmax });
+    k.text(String(r.venue).toUpperCase(), tx, y + rh * 0.8, { size: Math.min(22, rh * 0.24), weight: 700, max: tmax });
     if (fresh.includes(j)) { g.strokeStyle = '#F5C518'; g.lineWidth = 6; g.strokeRect(x + 3, y + 3, cw - 6, rh - 6); }
   }
 }
