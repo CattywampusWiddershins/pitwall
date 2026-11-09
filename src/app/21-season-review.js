@@ -836,6 +836,7 @@ function storyGfx(s, x) {
   if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });
+  if (x.trackGfx) out.push({ type: 'track', ...x.trackGfx, ...base });
   if (x.recGfx) out.push({ type: 'record', ...x.recGfx, ...base });
   for (const lb of x.lbGfx || []) out.push({ type: 'leaderboard', ...lb, ...base });
   const qg = quoteGfx(s, x); if (qg) out.push({ ...qg, ...base });

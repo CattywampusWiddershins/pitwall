@@ -77,29 +77,49 @@ function calendarStories(c, s) {
   const ann = c.calAnnounced?.[s.year + 1];
   // a driver's name as of a season they raced (they may not be on this year's grid)
   const told = new Set(); // track deals already told in a new venue's story
+  // When the news comes out. The next season's calendar is decided when you announce it, but the paddock hears it over
+  // the season: each new venue on a weekend of its own after that (in the first 70% of what's left), then the full
+  // calendar on a weekend after the last of them. A deal for a track on this season's calendar is announced on its
+  // race weekend (or straight away, if that's been and gone); any other deal on a weekend after it was made. Each
+  // weekend is picked at random but always the same one, and a story waits until its weekend's race has been run.
+  const lastI = rounds.length - 1; const showTo = Math.max(0, roundsDone(s) - 1);
+  const pickIn = (key, a, b) => b <= a ? a : a + Math.floor(seeded(key)() * (b - a + 1));
   const name = (d, s2 = s) => d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : (s2.drivers[d] ? dName(s2, d) : null) || refName(d);
   // the announcement for next season, and a fresh one when this season started on a calendar never announced or changed since
-  for (const [ann, y] of [[c.calAnnounced?.[s.year + 1], s.year + 1], [c.calReannounced?.[s.year], s.year]]) if (ann && ann.si === s.index) { const rnd = seeded(`cal-${y}-${ann.at}`); const r0 = rounds[ann.ri] || null;
+  for (const [ann, y] of [[c.calAnnounced?.[s.year + 1], s.year + 1], [c.calReannounced?.[s.year], s.year]]) if (ann && ann.si === s.index) { const rnd = seeded(`cal-${y}-${ann.at}`);
+    // (a calendar announced again at the start of its own season comes out at once, as before)
+    const spread = y === s.year + 1 && ann.ri >= 0 && lastI >= 0; const a0 = Math.max(0, Math.min(ann.ri, lastI)); const kNew = {}; let kCal = ann.ri;
+    if (spread) {
+      const newTo = a0 + Math.floor((lastI - a0) * 0.7);
+      for (const tid of ann.newTracks) kNew[tid] = pickIn(`cal-new-at-${y}-${tid}`, a0, newTo);
+      const after = ann.newTracks.length ? Math.min(lastI, Math.max(...Object.values(kNew)) + 1) : a0;
+      kCal = pickIn(`cal-at-${y}`, after, lastI);
+    }
+    const r0 = rounds[kCal] || null;
     const lines = ann.cal.map((r, k) => {
       const tid = roundTrackId(r); const W = trackWinners(c, tid); const most = Object.entries(W.reduce((a, x) => (a[x.d] = (a[x.d] || 0) + 1, a), {})).sort((a, b) => b[1] - a[1])[0];
       const isNew = ann.newTracks.includes(tid); const last = isNew ? lastHeld(c, tid, y) : null;
       return `Round ${k + 1}: ${r.name}${r.venue ? ` (${r.venue})` : ''}${r.sprint ? ', a sprint weekend' : ''}.${isNew ? (last ? ` Back on the calendar for the first time since ${last}.` : ' A new venue for Formula 1.') : ''}${W[0] ? ` Last winner: ${name(W[0].d, W[0].s)} (${W[0].year}).` : ''}${most && most[1] >= 2 ? ` Most wins: ${name(most[0], W.find(x => x.d === most[0]).s)}, ${most[1]}.` : ''}`;
     });
-    out.push({ id: `cal-${y}${ann.ri < 0 ? '-re' : ''}`, seq: ann.ri * 10 + 9, kind: 'calendar', i: ann.ri, r: r0, subject: null, calGfx: { year: y, cal: ann.cal.map(r => [r.id, r.name, r.venue, roundTrackId(r), !!r.sprint]), fresh: ann.cal.map((r, k) => ann.newTracks.includes(roundTrackId(r)) ? k : -1).filter(k => k >= 0) }, outlet: choose(rnd, D.OUTLETS), kicker: 'Calendar', massive: true,
+    if (!spread || kCal <= showTo) out.push({ id: `cal-${y}${ann.ri < 0 ? '-re' : ''}`, seq: kCal * 10 + 9.3, kind: 'calendar', i: kCal, r: r0, subject: null, calGfx: { year: y, cal: ann.cal.map(r => [r.id, r.name, r.venue, roundTrackId(r), !!r.sprint]), fresh: ann.cal.map((r, k) => ann.newTracks.includes(roundTrackId(r)) ? k : -1).filter(k => k >= 0) }, outlet: choose(rnd, D.OUTLETS), kicker: 'Calendar', massive: true,
       headline: choose(rnd, [`F1 reveals the ${y} calendar: ${ann.cal.length} rounds`, `${ann.cal.length} races, ${ann.cal.filter(r => r.sprint).length} sprints: the ${y} calendar is out`, `From ${ann.cal[0].name} to ${ann.cal[ann.cal.length - 1].name}: F1’s ${y} schedule`]),
       standfirst: `The ${y} season opens in ${ann.cal[0].name} and ends in ${ann.cal[ann.cal.length - 1].name}${ann.newTracks.length ? `, with ${listJoin(ann.newTracks.map(t => trackGp(t).name))} new to the calendar` : ''}.`, body: [], more: { title: 'Round by round', lines }, quotes: [] });
     for (const tid of ann.newTracks) {
       const last = lastHeld(c, tid, y); const deal = (c.trackDeals || []).filter(d => d.tid === tid && d.si === s.index).pop(); const T = D.TRACKS[tid]; const nm = trackGp(tid).name;
       if (deal) told.add(deal); // one story for the new venue and its deal, not two
-      const yrs = deal ? deal.to - s.year : 0;
-      out.push({ id: `cal-new-${y}-${tid}${ann.ri < 0 ? '-re' : ''}`, seq: ann.ri * 10 + 9.1, kind: 'calendar', i: ann.ri, r: r0, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
+      const yrs = deal ? deal.to - s.year : 0; const k = spread ? kNew[tid] : ann.ri; if (spread && k > showTo) continue;
+      out.push({ id: `cal-new-${y}-${tid}${ann.ri < 0 ? '-re' : ''}`, seq: k * 10 + 9.1, kind: 'calendar', i: k, r: rounds[k] || null,
+        trackGfx: { tid, kick: 'Breaking', line: `${last ? `Back in ${y}, the first race there since ${last}` : `New to the calendar in ${y}`}${deal ? ` · deal to ${deal.to}` : ''}` }, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
         headline: `BREAKING: F1 to race in ${T?.country || nm}${deal && yrs > 0 ? ` on a ${yrs}-year deal` : ''}`, standfirst: `${nm}${T?.circuit ? ` (${T.circuit})` : ''} joins the ${y} calendar${last ? `, the first race there since ${last}` : ', a brand-new venue for Formula 1'}${deal ? `, ${yrs > 0 ? `on a ${yrs}-year contract` : 'on a contract'} running to the end of ${deal.to}` : ''}.`, body: [], quotes: [] });
     }
   }
   for (const d of (c.trackDeals || []).filter(x => x.si === s.index && !told.has(x))) {
     const nm = trackGp(d.tid).name; const rnd = seeded(`deal-${d.tid}-${d.at}`); const years = d.to - s.year;
     const longer = d.from == null || d.to > d.from;
-    out.push({ id: `deal-${d.tid}-${d.at}`, seq: d.ri * 10 + 9.2, kind: 'calendar', i: d.ri, r: rounds[d.ri] || null, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: longer ? 'Breaking' : 'Calendar',
+    const kt = rounds.findIndex(r => roundTrackId(r) === d.tid); const k = kt >= d.ri ? kt : pickIn(`deal-at-${d.tid}-${d.at}`, Math.min(d.ri, lastI), lastI);
+    if (k > showTo) continue;
+    out.push({ id: `deal-${d.tid}-${d.at}`, seq: k * 10 + 9.2, kind: 'calendar', i: k, r: rounds[k] || null,
+      trackGfx: { tid: d.tid, kick: longer ? 'Breaking' : 'Calendar', line: d.from == null ? `Signs a ${years}-year deal, to ${d.to}` : longer ? `Extends its F1 deal to ${d.to}` : `Deal cut short: now ends in ${d.to}` }, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: longer ? 'Breaking' : 'Calendar',
       headline: d.from == null ? `BREAKING: ${nm} seals ${years}-year deal with F1` : longer ? choose(rnd, [`BREAKING: ${nm} extends F1 deal to ${d.to}`, `${nm} stays on the calendar until ${d.to}`]) : choose(rnd, [`${nm}’s F1 deal cut short`, `${nm} to leave the calendar sooner: deal now ends in ${d.to}`]),
       standfirst: d.from == null ? `${nm} has signed a ${years}-year contract to host Formula 1, running to the end of ${d.to}.` : longer ? `${nm}’s contract, due to end in ${d.from}, now runs to the end of ${d.to}: ${plural(years, 'more season')} after ${s.year}.` : `${nm}’s contract was due to run until ${d.from}. It now ends after ${d.to}${d.to <= s.year ? ', this season' : ''}.`, body: [], quotes: [] });
   }

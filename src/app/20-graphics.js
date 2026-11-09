@@ -161,7 +161,7 @@ async function drawGraphic(spec) {
   const cv = document.createElement('canvas'); cv.width = gfxWidth(spec); cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
   if (spec.type === 'title') { const ok = await gfxTitle(g, k, c, s, spec); return ok === false ? null : cv; }
-  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -882,6 +882,54 @@ async function gfxBreaking(g, k, c, s, { tr: trId }) {
   k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });
   // the team's logo sits in the triangle cutting into the photo, above the words
   if (tm) await gfxLogo(g, k, c, tm, GFX_W - 340, py + ph - 175, 300, 150, ink);
+}
+
+/** A flag's main colour: the one that covers most of it, leaving out white and black (Japan is red, Germany red, Brazil green). */
+const _flagCol = {};
+async function flagMainCol(code) {
+  if (code in _flagCol) return _flagCol[code]; const svg = code && A.flags[code];
+  const im = svg && await loadImg(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`); if (!im) return (_flagCol[code] = null);
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 48; const x = cv.getContext('2d'); x.drawImage(im, 0, 0, 64, 48);
+  const px = x.getImageData(0, 0, 64, 48).data; const bins = new Map();
+  for (let j = 0; j < px.length; j += 4) {
+    const [r, g2, b, a] = [px[j], px[j + 1], px[j + 2], px[j + 3]]; if (a < 200 || Math.min(r, g2, b) > 215 || Math.max(r, g2, b) < 45) continue; // (nor black: a black frame would hide a black circuit)
+    const key = (r >> 5) << 6 | (g2 >> 5) << 3 | (b >> 5); const o = bins.get(key) || { n: 0, r: 0, g: 0, b: 0 }; o.n++; o.r += r; o.g += g2; o.b += b; bins.set(key, o);
+  }
+  const top = [...bins.values()].sort((p, q) => q.n - p.n)[0];
+  return (_flagCol[code] = top ? '#' + [top.r, top.g, top.b].map(v => Math.round(v / top.n).toString(16).padStart(2, '0')).join('') : null);
+}
+/** A track's breaking news (new to the calendar, a deal signed, extended or cut short), laid out like a driver's: framed in
+ *  the main colour of its country's flag, the flag faded behind the circuit's outline, drawn in the frame's colour. */
+async function gfxTrack(g, k, c, s, { tid, kick = 'Breaking', line = '' }) {
+  const T = D.TRACKS[tid]; if (!T) return false; const code = A.country[T.country]; const svg = code && A.flags[code];
+  const col = gfxDeep(await flagMainCol(code) || GFX_RED); const ink = gfxLum(col) > 150 ? '#15151E' : '#FFFFFF';
+  g.fillStyle = col; g.fillRect(0, 0, GFX_W, GFX_H);
+  gfxDiag(g, 0, 0, GFX_W, GFX_H, { gap: 70, width: 22, alpha: 0.12 });
+  // the picture: the flag, faded over a dark panel, and the circuit on it
+  const py = 180, ph = GFX_H - 180 - 230;
+  g.fillStyle = '#121218'; g.fillRect(0, py, GFX_W, ph);
+  g.save(); g.beginPath(); g.rect(0, py, GFX_W, ph); g.clip();
+  if (svg) { g.globalAlpha = 0.42; await k.img(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, 0, py, GFX_W, ph, { cover: true }); g.globalAlpha = 1; }
+  const vg = g.createRadialGradient(GFX_W / 2, py + ph / 2, ph * 0.2, GFX_W / 2, py + ph / 2, ph * 0.85); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)'); g.fillStyle = vg; g.fillRect(0, py, GFX_W, ph);
+  const d = A.maps[tid] || T.map || learnedTrackPath(tid);
+  if (d) {
+    const S = Math.min(ph * 0.82, GFX_W * 0.78); const P = new Path2D(d);
+    g.save(); g.translate(GFX_W / 2 - S / 2, py + ph * 0.47 - S / 2); g.scale(S / 100, S / 100); g.lineJoin = 'round'; g.lineCap = 'round';
+    g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 4.6; g.stroke(P); // a dark edge, so the line stands off a flag of its own colour
+    g.shadowColor = mixHex(col, '#FFFFFF', 0.35); g.shadowBlur = 40; g.strokeStyle = col; g.lineWidth = 2.6; g.stroke(P);
+    g.shadowBlur = 0; g.strokeStyle = mixHex(col, '#FFFFFF', 0.25); g.lineWidth = 0.7; g.stroke(P); g.restore();
+  }
+  g.restore();
+  // the wedges cutting into the picture, textured like the frame
+  for (const pts of [[[GFX_W * 0.45, py + ph], [GFX_W, py + ph - 260], [GFX_W, py + ph]], [[GFX_W * 0.7, py], [GFX_W, py], [GFX_W, py + 130]]]) {
+    g.save(); g.beginPath(); pts.forEach(([x, y], j) => j ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fillStyle = col; g.fill(); g.clip(); gfxDiag(g, 0, 0, GFX_W, GFX_H, { gap: 70, width: 22, alpha: 0.12 }); g.restore();
+  }
+  await k.logo(50, 46, 150, 90, ink, 'left');
+  k.text(kick.toUpperCase(), 230, 96, { size: 132, weight: 900, color: ink, max: GFX_W - 280 });
+  // the circuit's name in the triangle, the Grand Prix and the news below
+  if (T.circuit) k.wrap(T.circuit.toUpperCase(), GFX_W - 40, py + ph - 92, { size: 34, weight: 800, color: ink, align: 'right', max: 400, lines: 2, lh: 1.1, fam: k.disp, middle: true });
+  k.text(`${trackGp(tid).name} Grand Prix`.toUpperCase(), 50, GFX_H - 160, { size: 96, weight: 900, color: ink, max: GFX_W - 100 });
+  k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });
 }
 
 /** A record or a milestone: a huge number, what it is, who held it before. */

@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.2.0
+
+- **Track announcements get their own graphic.** A track new to the calendar, a new deal, an extension or a deal cut short has a breaking-news graphic like a driver's: framed in the main colour of the country's flag (white and black left out, so Japan and Germany are red), the flag faded behind the circuit's outline, drawn in the frame's colour, with the circuit, the Grand Prix and the news.
+- **Calendar news comes out over the season.** Once you announce next season's calendar, each new venue is announced on a weekend of its own after that, and the full calendar on a weekend after the last of them. A deal for a track on this season's calendar is announced on that track's race weekend (your Brazil extension at the Brazilian Grand Prix); any other deal on a weekend after it was made. The weekends are picked at random but never move, and a story waits until its weekend's race is run. A calendar announced after the last race still comes out at once.
+
 ## 5.1.4
 
 - **The stop verdict counts the places a stop gives away.** Each lap you could have stopped on now counts the cars you'd have come out behind that weren't stopping themselves, and the time to get past them at that track: one at a time, likelier the fresher your tyres are against theirs, held up a few laps when a move doesn't come off (losing your pace advantage once a lap, not once a car), and let through when a car ahead stops. An early stop that drops you into the pack now costs what it should; a stop when everyone stops costs nothing extra. The verdict says how many cars each stop would have come out behind.
