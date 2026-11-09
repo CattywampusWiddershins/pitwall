@@ -1345,7 +1345,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 
 /* World Map */
 .wm-page { display: flex; flex-direction: column; }
-.wm { position: relative; height: calc(100vh - 150px); min-height: 520px; overflow: hidden; border-radius: var(--r); background: radial-gradient(circle at 50% 45%, #0E1630 0%, #05070D 70%); border: 1px solid var(--line); }
+.wm { position: relative; height: calc(100vh - 150px); min-height: 360px; overflow: hidden; border-radius: var(--r); background: radial-gradient(circle at 50% 45%, #0E1630 0%, #05070D 70%); border: 1px solid var(--line); }
 .wm-globe { position: absolute; inset: 0; }
 .wm-zoom { position: absolute; left: 14px; bottom: 14px; display: grid; gap: 6px; z-index: 2; } .wm-zoom .icon-btn { width: 34px; height: 34px; font: 800 18px var(--font-display); background: rgba(15,19,31,.85); border: 1px solid var(--line); color: var(--fg); }
 .wm-globe canvas { display: block; cursor: grab; touch-action: none; }
@@ -1354,7 +1354,8 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .wm-ph { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px 10px; } .wm-ph h2 { margin: 0; font: 900 26px var(--font-display); text-transform: uppercase; letter-spacing: .02em; }
 .wm-ph .flag { border-radius: 3px; }
 .wm-tabs { margin: 0 18px 10px; align-self: flex-start; }
-.wm-body { padding: 0 18px 18px; overflow-y: auto; display: grid; gap: 12px; align-content: start; }
+.wm-body { padding: 0 18px 18px; overflow-y: auto; display: block; }
+.wm-body > * + * { margin-top: 12px; }
 .wm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .wm-tiles > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; } .wm-tiles b { display: block; font: 800 22px var(--font-display); }
 .wm-about { font-size: 14px; line-height: 1.55; margin: 0; }
@@ -1372,3 +1373,16 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .sw-track { display: flex; gap: 10px; align-items: center; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; color: var(--fg); cursor: pointer; }
 .sw-track.on { border-color: var(--team); box-shadow: inset 3px 0 0 var(--team); } .sw-track b { display: block; font-size: 13px; } .sw-track small { color: var(--muted); font-size: 11px; }
 .sw-track svg { width: 46px; height: 46px; flex: none; }
+
+/* World Map on a narrow window or phone: a compact header, tabs sharing the width, the zoom out of the panel's way */
+@media (max-width: 900px) {
+  .wm-ph { padding: 10px 12px 6px; } .wm-ph h2 { font-size: 20px; } .wm-ph .row { flex-wrap: nowrap; min-width: 0; } .wm-ph h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wm-tabs { display: flex; margin: 0 12px 8px; align-self: stretch; } .wm-tabs button { flex: 1; min-width: 0; padding: 6px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wm-body { padding: 0 12px 12px; }
+  .wm.sel .wm-zoom { top: 10px; bottom: auto; grid-auto-flow: column; }
+  .wm-card { padding: 6px 10px; } .wm-card svg { width: 40px; height: 40px; }
+  .wm-tiles { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); } .wm-tiles b { font-size: 18px; }
+}
+
+/* the panel's header and tabs keep their size; only the content shrinks (and scrolls) */
+.wm-ph, .wm-tabs { flex: none; } .wm-body { flex: 1; min-height: 0; }

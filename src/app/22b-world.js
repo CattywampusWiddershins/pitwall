@@ -83,8 +83,13 @@ function worldMount() {
   }
   host.replaceChildren(cv); worldSize(); WM.primary = null; WM.hi = false; worldWake(); // (the theme colour read again)
 }
+/** The map fills what's left of the window below the heading (whatever the window's bars, the zoom, a phone's taller heading). */
+function worldFit() {
+  const wm = document.querySelector('.wm'); if (!wm) return;
+  const top = wm.getBoundingClientRect().top; wm.style.height = Math.max(360, Math.floor(window.innerHeight - top - 14)) + 'px';
+}
 function worldSize() {
-  const cv = WM.cv; const box = cv.parentElement; if (!box) return; const dpr = window.devicePixelRatio || 1; const w = box.clientWidth, h = box.clientHeight;
+  worldFit(); const cv = WM.cv; const box = cv.parentElement; if (!box) return; const dpr = window.devicePixelRatio || 1; const w = box.clientWidth, h = box.clientHeight;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
   WM.size = { w, h };
 }

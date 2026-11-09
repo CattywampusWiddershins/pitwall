@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.0.4
+
+- World Map: a long list (a country's drivers or circuits) squeezed the Overview, Circuits and Drivers tabs out of sight. The header and tabs now keep their size, and only the list scrolls.
+- World Map on a phone or narrow window: the map fits the screen (it ran past the bottom), the tabs share the width, the header is compact, and the zoom buttons move out of the panel's way.
+
 ## 5.0.3
 
 - **The Android app stops asking to update.** The app and the computer each fingerprint the interface to see if they match, from the same files in name order, but sorted them differently (the Android build ignored hyphens, so 13b-debrief came before 13-live-race), so since 3.39.0 they never matched and the app updated over and over. They now sort the same way. Update Pitwall on the computer first; the app then updates once more and stops.
