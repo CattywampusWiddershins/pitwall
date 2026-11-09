@@ -55,7 +55,7 @@ const actions = {
   'nd-add'(el) {
     const { scope, key } = el.dataset; const drafts = ndDrafts(scope); const nd = drafts[key] || {};
     const name = (nd.name || '').trim(); if (!name) { toast('Enter the new driver’s name'); return; }
-    const d = { id: 'C' + uid().slice(0, 6), name, abbr: ((nd.abbr || '').trim() || name.split(' ').slice(-1)[0].slice(0, 3)).toUpperCase(), number: +nd.number || 0, born: nd.born || null, photo: nd.photo || null, custom: true };
+    const d = { id: 'C' + uid().slice(0, 6), name, abbr: ((nd.abbr || '').trim() || name.split(' ').slice(-1)[0].slice(0, 3)).toUpperCase(), number: +nd.number || 0, born: nd.born || null, nat: (nd.nat || '').trim() || null, photo: nd.photo || null, custom: true };
     delete drafts[key];
     if (scope === 'setup') {
       ui.setup.newDrivers.push(d);
@@ -83,7 +83,15 @@ const actions = {
   'nd-cancel'(el) { const { scope, key } = el.dataset; delete ndDrafts(scope)[key]; scope === 'setup' ? render() : scope === 'pool' ? closeModal() : drawTransferModal(); },
   'pool-add'() { ui.modal = { kind: 'pool', nd: { 0: {} } }; modal(`<div class="modal-h"><h2>Add a driver to the pool</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b">${newDriverForm('pool', 0, ui.modal.nd[0])}<p class="muted" style="font-size:12px">They wait in the pool until a team signs them in Transfers.</p></div>`); },
   'setup-single'(el) { const u = ui.setup; u.single = el.dataset.v === 'single'; if (u.single && (u.year > 2026 || u.year < HIST_FROM)) u.year = 2026; render(); },
-  'setup-single-track'(el) { ui.setup.singleTrack = el.dataset.v; render(); },
+  'setup-single-track'(el) { ui.setup.singleTrack = el.dataset.v; ui.setup.singleSprint = null; render(); }, // (the sprint follows the track's own calendar until you change it)
+  'track-add-open'(el) { ui.modal = null; trackAddModal(el.dataset.v); },
+  'track-add-save'() {
+    const ctx = ui.modal?.ctx; const r = swAddTrack(ui.modal?.t); if (r.error) { toast(r.error); return; } closeModal();
+    // where it was asked for gets it: the single weekend picks it, a calendar adds it
+    if (ctx === 'single') { ui.setup.singleTrack = r.id; ui.setup.singleSprint = null; }
+    else if (['cal', 'nc', 'fc'].includes(ctx)) changes[ctx + '-add']({ value: r.id });
+    renderGen++; render(); toast(`${D.TRACKS[r.id].circuit} added: it’s in Circuits and the calendars of every save.`);
+  },
   'create-career'() {
     const u = ui.setup;
     // a single weekend: you race as a real driver of that year, so the save starts as their career does
@@ -108,7 +116,7 @@ const actions = {
       profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), bio: u.bio.trim(), rival: '', rivalTeam: null, photo: u.photo || null, born: u.born || null },
       customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
       generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
-      startYear: u.year, ...(real ? { realDriver: real } : {}), ...(u.single ? { single: { track: u.singleTrack, year: u.year } } : {}),
+      startYear: u.year, ...(real ? { realDriver: real } : {}),
       // the 2025 11th team: asked now for a 2025 start, when 2025 comes for an earlier one, never after
       extraTeam2025: u.year === 2025 ? (u.type === 'myteam' ? null : u.extra || null) : u.year > 2025 ? null : undefined,
     };
@@ -128,7 +136,7 @@ const actions = {
     }
     c.seasons.push(newSeason(c, c.seasons.length, u.type === 'myteam' ? { teamId: MYTEAM, seatDriverId: null, goals: u.goals, practice: u.practice } : { teamId: u.teamId, seatDriverId: u.seat, goals: u.goals, practice: u.practice }));
     // a single weekend keeps only its round (the others are off the calendar)
-    if (c.single) { const s0 = c.seasons[c.seasons.length - 1]; s0.calendar.forEach(r => { if (r.id !== c.single.track) r.off = true; }); }
+    if (u.single) swRound(c, u);
     else realTransfers(c);
     state.careers.push(c); state.activeCareerId = c.id; syncNumbers(c);
     ui.setup = null; ui.view = c.single ? 'now' : 'dashboard'; ui.nowTab = 'weekend'; ui.seasonIdx = null;
@@ -340,7 +348,7 @@ function redrawModal() { if (ui.modal?.kind === 'goals') drawGoalsModal(); else 
 
 const changes = {
   'nc-sprint'(el) { const c = career(); const s = latestSeason(); ncList(c, s)[+el.dataset.i].sprint = el.checked; store.save(); render(); },
-  'nc-add'(el) { if (!el.value) return; const c = career(); const s = latestSeason(); const g = trackGp(el.value); ncList(c, s).push({ ...g, sprint: false, off: false, ...(H.roundTrack[g.id] ? { track: H.roundTrack[g.id] } : {}) }); store.save(); render(); },
+  'nc-add'(el) { if (el.value === '__new') { el.value = ''; trackAddModal('nc'); return; } if (!el.value) return; const c = career(); const s = latestSeason(); const g = trackGp(el.value); ncList(c, s).push({ ...g, sprint: false, off: false, ...(H.roundTrack[g.id] ? { track: H.roundTrack[g.id] } : {}) }); store.save(); render(); },
   'nc-contract'(el) {
     const c = career(); const s = latestSeason(); const tid = el.dataset.track; const from = trackDeal(c, tid);
     const to = el.value === '' ? null : s.year + Math.max(0, Math.min(20, Math.round(+el.value)));
@@ -385,6 +393,8 @@ const changes = {
     c.pitLoss ||= {}; c.pitLoss[tid] = { green: cur.green / 1000, vsc: cur.vsc / 1000, sc: cur.sc / 1000, [el.dataset.k]: v }; store.save(); render();
   },
   'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
+  'setup-single-sprint'(el) { ui.setup.singleSprint = el.checked; },
+  'track-add'(el) { if (ui.modal?.kind === 'track-add') ui.modal.t[el.dataset.k] = el.value; },
   'db-season'(el) { const c = career(); const s = c.seasons[+el.value]; const r = s && [...activeRounds(s)].reverse().find(x => s.weekends[x.id]?.sessions?.R?.done || s.weekends[x.id]?.sessions?.SPR?.done); if (r) ui.dbPick = `${s.index}:${r.id}:${s.weekends[r.id].sessions.R?.done ? 'R' : 'SPR'}`; render(); },
   'lb-since'(el) { ui.lb.since = +el.value; render(); },
   'lb-f'(el) { const f = (ui.lb.f ||= {}); const r = (f[el.dataset.k] ||= [null, null]); r[+el.dataset.i] = el.value === '' ? null : Math.max(0, +el.value); if (r[0] == null && r[1] == null) delete f[el.dataset.k]; render(); },
@@ -398,7 +408,7 @@ const changes = {
     render();
   },
   'fc-sprint'(el) { ui.setup.futureCal[+el.dataset.i].sprint = el.checked; },
-  'fc-add'(el) { if (!el.value) return; const tr = trackGp(el.value); ui.setup.futureCal.push({ ...tr, sprint: false, ...(H.roundTrack[tr.id] ? { track: H.roundTrack[tr.id] } : {}) }); render(); },
+  'fc-add'(el) { if (el.value === '__new') { el.value = ''; trackAddModal('fc'); return; } if (!el.value) return; const tr = trackGp(el.value); ui.setup.futureCal.push({ ...tr, sprint: false, ...(H.roundTrack[tr.id] ? { track: H.roundTrack[tr.id] } : {}) }); render(); },
   'season-sel'(el) { actions[el.dataset.to]({ dataset: { idx: el.value } }); },
   'switch-career'(el) { state.activeCareerId = el.value; ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render(); },
   setup(el) { ui.setup[el.dataset.k] = el.value; if (el.dataset.k === 'realDriver') render(); },
@@ -485,7 +495,7 @@ const changes = {
   practice(el) { latestSeason().format.practice = el.value; store.save(); render(); },
   'cal-sprint'(el) { latestSeason().calendar[+el.dataset.i].sprint = el.checked; store.save(); render(); },
   'cal-on'(el) { latestSeason().calendar[+el.dataset.i].off = !el.checked; store.save(); render(); },
-  'cal-add'(el) { if (!el.value) return; const s = latestSeason(); const g = trackGp(el.value); let id = g.id; while (s.calendar.some(r => r.id === id)) id += '2'; s.calendar.push({ ...g, id, ...(id !== g.id ? { track: g.id } : {}), sprint: false, off: false, added: true }); store.save(); render(); toast(`${g.name} added to the ${s.year} calendar`); },
+  'cal-add'(el) { if (el.value === '__new') { el.value = ''; trackAddModal('cal'); return; } if (!el.value) return; const s = latestSeason(); const g = trackGp(el.value); let id = g.id; while (s.calendar.some(r => r.id === id)) id += '2'; s.calendar.push({ ...g, id, ...(id !== g.id ? { track: g.id } : {}), sprint: false, off: false, added: true }); store.save(); render(); toast(`${g.name} added to the ${s.year} calendar`); },
 };
 function goalList(el) { return el.dataset.scope === 'setup' ? ui.setup.goals : ui.modal.goals; }
 // team identity fields live on the setup form or on the active career's team

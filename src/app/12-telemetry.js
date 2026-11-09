@@ -7,6 +7,17 @@
 // race times and gaps (penalties included), laps down and retirements. Every lap, tyre stint, pit stop and penalty
 // is kept too, for the pace tables, the strategy table and the stories. The last import can be undone.
 const GAME_TRACKS = { 0: 'aus', 2: 'chn', 3: 'bhr', 4: 'esp', 5: 'mon', 6: 'can', 7: 'gbr', 9: 'hun', 10: 'bel', 11: 'ita', 12: 'sgp', 13: 'jpn', 14: 'abu', 15: 'usa', 16: 'bra', 17: 'aut', 19: 'mex', 20: 'aze', 26: 'ned', 27: 'emi', 29: 'sau', 30: 'mia', 31: 'lvg', 32: 'qat', 39: 'gbr', 40: 'aut', 41: 'ned', 42: 'mad' };
+/**
+ * The circuit for one of F1 25's track ids: its own table, then ids Pitwall learned. A single weekend at a track with no
+ * id yet (one you added, or an old circuit) takes the first unknown id that turns up on its weekend, and keeps it for
+ * every save after.
+ */
+function gameTrack(id) {
+  if (id == null) return null; if (GAME_TRACKS[id]) return GAME_TRACKS[id]; if (state.gameTracks?.[id]) return state.gameTracks[id];
+  const c = career(); const s = c?.single && latestSeason(); const r = s && activeRounds(s)[0]; const tid = r && trackOf(r);
+  if (tid && !Object.values(GAME_TRACKS).includes(tid) && !Object.values(state.gameTracks || {}).includes(tid)) { (state.gameTracks ||= {})[id] = tid; store.save(); return tid; }
+  return null;
+}
 const NOT_CAREER_MODES = [5, 6, 7, 15, 17, 75, 127]; // time trial, split screen, online, story mode, benchmark
 const GAME_STATUS = { 2: 'FIN', 3: 'FIN', 4: 'DNF', 6: 'DNF', 7: 'DNF', 5: 'DSQ' };
 const COMPOUNDS = { 16: ['S', 'Soft', '#E8002D'], 17: ['M', 'Medium', '#F5C518'], 18: ['H', 'Hard', '#E7ECF5'], 7: ['I', 'Intermediate', '#2FD07A'], 8: ['W', 'Wet', '#3A8DFF'] };
@@ -128,7 +139,7 @@ function gameKey(r, keys) {
 /** Where a result belongs: the round at that circuit this weekend is, or the next one not yet logged there. */
 function placeGameResult(c, r) {
   const s = latestSeason(); if (!s || isHist(s)) return { error: 'There is no season to log into.' };
-  const tid = GAME_TRACKS[r.track];
+  const tid = gameTrack(r.track);
   const rounds = activeRounds(s).filter(x => trackOf(x) === tid);
   if (!rounds.length) return { error: `${D.TRACKS[tid]?.circuit || 'This circuit'} is not on your ${s.year} calendar.`, s };
   const round = rounds.find(x => s.weekends[x.id]?.game?.weekend === r.weekendLink)
@@ -377,7 +388,7 @@ function applyGameResult(c, r, place) {
   if (game.ers) {
     // the ERS profile is big: keep it for this weekend only (the outline of the track is kept for good)
     for (const [rid, w2] of Object.entries(s.weekends)) if (rid !== round.id) for (const k of Object.keys(w2.sessions || {})) if (w2.sessions[k]?.game?.ers) delete w2.sessions[k].game.ers;
-    if (game.ers.map?.filter(Boolean).length >= game.ers.map.length * 0.8 && mapExtent(game.ers.map) >= 200) (c.trackMaps ||= {})[trackOf(round)] = { map: game.ers.map, length: game.ers.length };
+    if (game.ers.map?.filter(Boolean).length >= game.ers.map.length * 0.8 && mapExtent(game.ers.map) >= 200) { const tm = { map: game.ers.map, length: game.ers.length }; (c.trackMaps ||= {})[trackOf(round)] = tm; (state.trackMaps ||= {})[trackOf(round)] = tm; }
   }
   w.game = { weekend: r.weekendLink };
   if (key === 'Q' || key === 'SQ') estimatePractice(s, round, key);
@@ -395,7 +406,7 @@ function applyGameResult(c, r, place) {
 /** A race or sprint has started: its grid puts provisional qualifying places in order. */
 function applyGameGrid(c, r) {
   const s = latestSeason(); if (!s || isHist(s)) return;
-  const qk = qualiFor(r); const tid = GAME_TRACKS[r.track];
+  const qk = qualiFor(r); const tid = gameTrack(r.track);
   const rounds = activeRounds(s).filter(x => trackOf(x) === tid);
   const round = rounds.find(x => s.weekends[x.id]?.game?.weekend === r.weekendLink) || rounds.find(x => s.weekends[x.id]?.sessions?.[qk]?.game?.provisional);
   if (!round) return;

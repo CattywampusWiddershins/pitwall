@@ -12,7 +12,7 @@ const LIVE_FRESH = 30e3; // ms without a message before the race counts as gone
 const isLive = () => !!liveErs && !liveErs.done && Date.now() - Date.parse(liveErs.at || 0) < LIVE_FRESH;
 /** The live race if it's this round's: { ...msg, key: 'R' | 'SPR' }. */
 function liveFor(c, r) {
-  const L = liveErs; if (!L || !isLive() || GAME_TRACKS[L.track] !== trackOf(r)) return null;
+  const L = liveErs; if (!L || !isLive() || gameTrack(L.track) !== trackOf(r)) return null;
   if ((c.gameKeys || []).includes(`${L.uid}:${L.sessionType}`)) return null;
   return { ...L, key: L.sessionType === 15 && (L.weekend || []).includes(16) ? 'SPR' : 'R' };
 }
@@ -1180,7 +1180,7 @@ function racePitLoss(c, tid, L) {
   return { ...PL, green, sc: PL.sc * k, vsc: PL.vsc * k, track: PL.green, n: v.length };
 }
 function savePitLoss(L) {
-  const c = career(); const tid = GAME_TRACKS[L.track]; if (!c || !tid) return;
+  const c = career(); const tid = gameTrack(L.track); if (!c || !tid) return;
   const PL = racePitLoss(c, tid, L); if (!PL.n) return; const s1 = (ms) => Math.round(ms / 100) / 10;
   (c.pitLoss ||= {})[tid] = { green: s1(PL.green), vsc: s1(PL.vsc), sc: s1(PL.sc), learned: { stops: PL.n, at: new Date().toISOString() } }; store.save();
 }
@@ -1191,7 +1191,7 @@ function onLiveMsg(m) {
   const before = same ? liveErs.passTally?.f || 0 : 0;
   liveErs = mergeLive(same ? liveErs : {}, m, Date.now());
   // what the fights say about passing here, kept per race for the overtaking slider
-  { const c = career(); const tid = GAME_TRACKS[m.track];
+  { const c = career(); const tid = gameTrack(m.track);
     if (!follower && c && tid && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
   // a race starting: open Live Race, once
   if (!liveOpened.has(m.uid) && m.lap <= 1) { liveOpened.add(m.uid); ui.view = 'now'; ui.nowTab = 'live'; }

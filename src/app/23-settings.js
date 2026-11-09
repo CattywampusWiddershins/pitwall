@@ -107,7 +107,7 @@ function renderSettings() {
       <div class="form-grid">
         <label class="field"><span>First name</span><input type="text" id="pf-first" value="${esc(c.profile.first)}"></label>
         <label class="field"><span>Last name</span><input type="text" id="pf-last" value="${esc(c.profile.last)}"></label>
-        <label class="field"><span>Nationality</span><input type="text" id="pf-nat" value="${esc(c.profile.nationality)}"></label>
+        <label class="field"><span>Nationality</span><input type="text" id="pf-nat" list="dl-nat" autocomplete="off" value="${esc(c.profile.nationality)}">${natDatalist()}</label>
         <label class="field"><span>Date of birth</span><input type="date" id="pf-born" value="${esc(c.profile.born || '')}"></label>
       </div>
       <label class="field"><span>Backstory (used by the media)</span><textarea id="pf-bio">${esc(c.profile.bio || '')}</textarea></label>
@@ -119,7 +119,7 @@ function renderSettings() {
         <label class="field"><span>Last name</span><input type="text" id="pf-last" value="${esc(c.profile.last)}"></label>
         <label class="field"><span>Abbreviation</span><input type="text" id="pf-abbr" maxlength="3" value="${esc(c.profile.abbr)}"></label>
         <label class="field"><span>Number</span><input type="number" id="pf-number" min="1" max="99" value="${esc(c.profile.number)}"></label>
-        <label class="field"><span>Nationality</span><input type="text" id="pf-nat" value="${esc(c.profile.nationality)}"></label>
+        <label class="field"><span>Nationality</span><input type="text" id="pf-nat" list="dl-nat" autocomplete="off" value="${esc(c.profile.nationality)}">${natDatalist()}</label>
         <label class="field"><span>Date of birth</span><input type="date" id="pf-born" value="${esc(c.profile.born || '')}"></label>
       </div>
       <label class="field"><span>Backstory (used by the media)</span><textarea id="pf-bio">${esc(c.profile.bio || '')}</textarea></label>
@@ -145,7 +145,7 @@ function renderSettings() {
         <td><input type="checkbox" data-ch="cal-sprint" data-i="${i}" ${r.sprint ? 'checked' : ''}></td><td><input type="checkbox" data-ch="cal-on" data-i="${i}" ${r.off ? '' : 'checked'}></td>
         <td><div class="row" style="gap:2px"><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="-1" title="Move earlier">${ICON.up}</button><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="1" title="Move later">${ICON.down}</button>${r.added && !s.weekends[r.id] ? `<button class="icon-btn" data-act="cal-del" data-i="${i}" title="Remove">${ICON.x}</button>` : ''}</div></td></tr>`).join('')}
       </tbody></table></div>
-      <div class="panel-b"><select data-ch="cal-add" style="width:auto"><option value="">+ Add a circuit…</option>${Object.keys(D.TRACKS).filter(id => !s.calendar.some(r => trackOf(r) === id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div></div>
+      <div class="panel-b"><select data-ch="cal-add" style="width:auto"><option value="">+ Add a circuit…</option><option value="__new">+ A new track…</option>${Object.keys(D.TRACKS).filter(id => !s.calendar.some(r => trackOf(r) === id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div></div>
 
     ${renderTelemetryPanel()}
     ${renderCompanionPanel()}
@@ -267,7 +267,7 @@ function newDriverForm(scope, key, nd) {
   const f = (k, label, type = 'text', extra = '') => `<label class="field"><span>${label}</span><input type="${type}" data-ch="nd-field" data-scope="${scope}" data-key="${key}" data-k="${k}" value="${esc(nd[k] || '')}" ${extra}></label>`;
   return `<div class="nd-form">
     <span class="label">New driver</span>
-    <div class="form-grid">${f('name', 'Full name', 'text', 'placeholder="Full name"')}${f('abbr', 'Abbreviation', 'text', 'maxlength="3" placeholder="ABC"')}${f('number', 'Number', 'number', 'min="1" max="99"')}${f('born', 'Date of birth', 'date')}</div>
+    <div class="form-grid">${f('name', 'Full name', 'text', 'placeholder="Full name"')}${f('abbr', 'Abbreviation', 'text', 'maxlength="3" placeholder="ABC"')}${f('number', 'Number', 'number', 'min="1" max="99"')}${f('born', 'Date of birth', 'date')}${f('nat', 'Nationality', 'text', 'list="dl-nat" autocomplete="off" placeholder="Start typing…"')}</div>${natDatalist()}
     <div class="row" style="gap:12px">${nd.photo ? `<img class="avatar" src="${esc(nd.photo)}" alt="" style="width:48px;height:48px">` : ''}${pictureControls('newdriver', `${scope}:${key}`, !!nd.photo)}
       <button class="btn sm primary" data-act="nd-add" data-scope="${scope}" data-key="${key}">Add driver</button><button class="btn sm ghost" data-act="nd-cancel" data-scope="${scope}" data-key="${key}">Cancel</button></div>
   </div>`;
@@ -300,7 +300,7 @@ function trackGp(tid) {
   const t = D.TRACKS[tid] || {};
   const cal = [...D.CAL_2026, ...D.CAL_2025].find(([id]) => id === tid);
   const h = Object.values(H.seasons).flatMap(x => x.rounds).find(r => r.id === tid);
-  return { id: tid, name: cal?.[1] || h?.name || t.country || tid, venue: cal?.[2] || h?.venue || t.city || '' };
+  return { id: tid, name: cal?.[1] || h?.name || t.gp || t.country || tid, venue: cal?.[2] || h?.venue || t.city || '' };
 }
 /** A driver's age in a year, for drivers picked before the career exists. */
 const setupAge = (u, id, year) => { const b = u.newDrivers.find(d => d.id === id)?.born || D.DRIVER_BIO[id]?.born || FEEDER[id]?.bornEst; return b ? year - +b.slice(0, 4) - (b.slice(5) > '03-01' ? 1 : 0) : null; };
@@ -350,7 +350,7 @@ function futureGridEditor(u) {
       <div class="panel-b tight table-wrap"><table><tbody>${u.futureCal.map((r, i) => `<tr><td class="muted num">${i + 1}</td><td>${countryFlag(D.TRACKS[r.track || r.id]?.country, 12)} <b>${esc(r.name)}</b> <span class="muted">${esc(r.venue)}</span></td>
         <td><label class="check"><input type="checkbox" data-ch="fc-sprint" data-i="${i}" ${r.sprint ? 'checked' : ''}> Sprint</label></td>
         <td><div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:flex-end"><button class="icon-btn" title="Earlier" data-act="fc-move" data-i="${i}" data-dir="-1">${ICON.up}</button><button class="icon-btn" title="Later" data-act="fc-move" data-i="${i}" data-dir="1">${ICON.down}</button><button class="icon-btn" title="Remove" data-act="fc-remove" data-i="${i}">${ICON.x}</button></div></td></tr>`).join('')}</tbody></table></div>
-      <div class="panel-b"><select data-ch="fc-add" style="width:auto"><option value="">+ Add a circuit…</option>${Object.keys(D.TRACKS).filter(id => !onCal.has(id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div>
+      <div class="panel-b"><select data-ch="fc-add" style="width:auto"><option value="">+ Add a circuit…</option><option value="__new">+ A new track…</option>${Object.keys(D.TRACKS).filter(id => !onCal.has(id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div>
     </div>`;
 }
 /** A real driver's career path from a year on: the teams, and when each move came. */
@@ -407,7 +407,7 @@ function renderSetup() {
         <label class="field"><span>Last name</span><input type="text" data-ch="setup" data-k="last" value="${esc(u.last)}" placeholder="Morgan"></label>
         ${principal ? '' : `<label class="field"><span>Abbreviation</span><input type="text" data-ch="setup" data-k="abbr" maxlength="3" value="${esc(u.abbr)}" placeholder="MOR"></label>
         <label class="field"><span>Race number</span><input type="number" data-ch="setup" data-k="number" min="1" max="99" value="${esc(u.number)}"></label>`}
-        <label class="field"><span>Nationality</span><input type="text" data-ch="setup" data-k="nationality" value="${esc(u.nationality)}" placeholder="South African"></label>
+        <label class="field"><span>Nationality</span><input type="text" data-ch="setup" data-k="nationality" list="dl-nat" autocomplete="off" value="${esc(u.nationality)}" placeholder="Start typing…">${natDatalist()}</label>
         <label class="field"><span>Date of birth</span><input type="date" data-ch="setup" data-k="born" value="${esc(u.born || '')}" max="2012-12-31"></label>
       </div>
       ${principal ? '' : `<div class="row" style="gap:14px">

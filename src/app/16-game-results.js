@@ -18,7 +18,7 @@ function nextGameDecision() {
   if (!gameQueue.length) return;
   if ($('#modal-root').innerHTML) { setTimeout(nextGameDecision, 3000); return; }
   const q = gameQueue[0]; const c = career(); const s = latestSeason();
-  const what = `${D.TRACKS[GAME_TRACKS[q.r.track]]?.circuit || 'Unknown circuit'} · ${GAME_SESSION_NAMES[q.r.sessionType] || 'Session'}`;
+  const what = `${D.TRACKS[gameTrack(q.r.track)]?.circuit || 'Unknown circuit'} · ${GAME_SESSION_NAMES[q.r.sessionType] || 'Session'}`;
   ui.modal = { kind: 'game' };
   if (q.why === 'replace') modal(`<div class="modal-h"><h2>Results from F1 25</h2></div><div class="modal-b"><p><b>${esc(what)}</b> has finished in the game, but you have already logged ${esc(q.place.round.name)} ${esc(SESSION_LABEL[q.place.key])}.</p><p class="muted">Replace your logged results with the game’s?</p></div>
     <div class="modal-f"><button class="btn ghost" data-act="game-skip">Keep mine</button><button class="btn primary" data-act="game-apply">Replace</button></div>`);
@@ -52,7 +52,7 @@ function renderTelemetryPanel() {
       <div class="muted" style="font-size:13px;line-height:1.5">In F1 25: <b>Settings → Telemetry Settings</b>: UDP Telemetry <b>On</b>, UDP Broadcast Mode <b>Off</b>, UDP Format <b>2025</b>, Send Rate 20 Hz or more.
         Then either send it straight here (UDP IP Address <b>127.0.0.1</b> if the game runs on this PC, otherwise this PC's network address; UDP Port the same as above),
         or, if another app (your wheel's software, say) already receives it, have that app forward it to this PC on the port above. Pitwall only has to be open when a session ends.</div>
-      ${t.session ? `<div class="muted" style="font-size:12px">Current session: ${esc(D.TRACKS[GAME_TRACKS[t.session.track]]?.circuit || 'unknown circuit')} · ${esc(GAME_SESSION_NAMES[t.session.sessionType] || 'session')}${NOT_CAREER_MODES.includes(t.session.gameMode) ? ' · not a career session, so it won’t be logged' : ''}</div>` : ''}
+      ${t.session ? `<div class="muted" style="font-size:12px">Current session: ${esc(D.TRACKS[gameTrack(t.session.track)]?.circuit || 'unknown circuit')} · ${esc(GAME_SESSION_NAMES[t.session.sessionType] || 'session')}${NOT_CAREER_MODES.includes(t.session.gameMode) ? ' · not a career session, so it won’t be logged' : ''}</div>` : ''}
     </div></div>`;
 }
 /** A driver's tyre stints from the game, cleaned up: [{ c: compound, from, to }]. Older imports could end the last
@@ -281,9 +281,10 @@ function recordingResult(D) {
 function unloggedRecordings(c) {
   const s = latestSeason(); if (!s || isHist(s)) return [];
   if (replayList == null) { if (!unloggedRecordings.asked) { unloggedRecordings.asked = true; replayApi().list().then(l => { replayList = l || []; render(); }).catch(() => { replayList = []; }); } return []; }
-  const keys = new Set(c.gameKeys || []);
-  return (replayList || []).filter(x => !keys.has(x.key) && [15, 16, 17].includes(x.sessionType) && !x.rebuilt && (x.laps ?? 2) >= 2
-    && activeRounds(s).some(r => trackOf(r) === GAME_TRACKS[x.track] && !s.weekends[r.id]?.sessions?.R?.done));
+  // a recording logged in any save is done with, and one made before this save began isn't this save's
+  const keys = new Set(state.careers.flatMap(x => x.gameKeys || [])); const since = c.createdAt || '';
+  return (replayList || []).filter(x => !keys.has(x.key) && (!x.at || x.at >= since) && [15, 16, 17].includes(x.sessionType) && !x.rebuilt && (x.laps ?? 2) >= 2
+    && activeRounds(s).some(r => trackOf(r) === gameTrack(x.track) && !s.weekends[r.id]?.sessions?.R?.done));
 }
 async function logFromRecording(key) {
   const D = await replayApi().load(key); const r = D && recordingResult(D); if (!r) { toast('That recording couldn’t be read'); return; }
@@ -292,5 +293,5 @@ async function logFromRecording(key) {
 }
 function unloggedHtml(c) {
   const L = unloggedRecordings(c); if (!L.length) return '';
-  return `<div class="callout" style="border-left-color:var(--yellow)">${L.map(x => `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>${esc(D.TRACKS[GAME_TRACKS[x.track]]?.circuit || 'A race')}</b> was recorded${x.laps ? ` (${plural(x.laps, 'lap')})` : ''} but F1 25 never sent its result, which can happen after a retirement. Log it from the recording, then put the order right from the game’s results screen.</span><button class="btn sm primary" data-act="rp-log" data-k="${esc(x.key)}">Log from the recording</button></div>`).join('')}</div>`;
+  return `<div class="callout" style="border-left-color:var(--yellow)">${L.map(x => `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>${esc(D.TRACKS[gameTrack(x.track)]?.circuit || 'A race')}</b> was recorded${x.laps ? ` (${plural(x.laps, 'lap')})` : ''} but F1 25 never sent its result, which can happen after a retirement. Log it from the recording, then put the order right from the game’s results screen.</span><button class="btn sm primary" data-act="rp-log" data-k="${esc(x.key)}">Log from the recording</button></div>`).join('')}</div>`;
 }

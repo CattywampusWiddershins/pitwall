@@ -761,8 +761,17 @@ function flagHtml(code, h = 14) {
 }
 const natFlag = (nat, h) => flagHtml(A.nat[nat], h);
 const countryFlag = (country, h) => flagHtml(A.country[country], h);
+/** A track outline learned from practice, as an SVG path in a 100 × 100 box. */
+const _learnedPath = {};
+function learnedTrackPath(tid) {
+  const m = career()?.trackMaps?.[tid] || state.trackMaps?.[tid]; const pts = m?.map?.filter(Boolean); if (!pts?.length) return null;
+  const key = tid + ':' + pts.length; if (_learnedPath[key]) return _learnedPath[key];
+  const xs = pts.map(p => p[0]), zs = pts.map(p => p[1]); const x0 = Math.min(...xs), z0 = Math.min(...zs); const span = Math.max(Math.max(...xs) - x0, Math.max(...zs) - z0) || 1;
+  const ox = (100 - (Math.max(...xs) - x0) / span * 90) / 2, oz = (100 - (Math.max(...zs) - z0) / span * 90) / 2;
+  return (_learnedPath[key] = pts.map((p, i) => `${i ? 'L' : 'M'}${(ox + (p[0] - x0) / span * 90).toFixed(1)} ${(oz + (p[1] - z0) / span * 90).toFixed(1)}`).join('') + 'Z');
+}
 function trackMap(tid, size = 120) {
-  const d = A.maps[tid];
+  const d = A.maps[tid] || learnedTrackPath(tid);
   return d ? `<svg class="track-map" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><path d="${d}"/></svg>` : '';
 }
 const edAbbr = (e, id) => e.career ? dAbbr(e.s, id) : id;
@@ -836,7 +845,7 @@ function renderTracks() {
     </button>`;
   };
   return `<div class="page">
-    <div class="page-head"><div><h1>Circuits</h1><div class="sub">Track guides and recent results. Every race you log is added to the circuit's history.</div></div></div>
+    <div class="page-head"><div><h1>Circuits</h1><div class="sub">Track guides and recent results. Every race you log is added to the circuit's history.</div></div><button class="btn sm primary" data-act="track-add-open" data-v="circuits">+ Add a track</button></div>
     <div class="rounds">${rounds.filter(r => D.TRACKS[trackOf(r)]).map(r => card(trackOf(r), r.name, `Round ${rounds.indexOf(r) + 1} · ${fmtDay(roundDate(s, r))}`, r.sprint)).join('')}</div>
     ${formHtml}
     ${others.length ? `<h2 style="margin-top:8px">Not on the ${s.year} calendar</h2><div class="rounds">${others.map(id => card(id, gpName(s, id), 'Off calendar', false)).join('')}</div>` : ''}
@@ -893,7 +902,7 @@ function renderTrack() {
       <div class="tile"><span class="label">Lap length</span><span class="v">${t.km.toFixed(3)}<small> km</small></span></div>
       <div class="tile"><span class="label">Laps</span><span class="v">${t.laps}</span></div>
       <div class="tile"><span class="label">Race distance</span><span class="v">${(t.km * t.laps).toFixed(1)}<small> km</small></span></div>
-      <div class="tile"><span class="label">Corners</span><span class="v">${t.corners}</span></div>
+      <div class="tile"><span class="label">Corners</span><span class="v">${t.corners ?? '–'}</span></div>
       <div class="tile"><span class="label">First Grand Prix</span><span class="v">${t.firstGP}</span></div>
       <div class="tile"><span class="label">Lap record</span><span class="v" style="color:var(--purple);font-size:24px">${rec ? esc(rec.lap) : '–'}</span><span class="muted" style="font-size:12px">${rec ? `${esc(rec.who)} · ${rec.year}${rec.career ? ' · your career' : ''}` : 'Not set yet'}</span></div>
     </div>
@@ -919,7 +928,7 @@ function renderTrack() {
         : '<div class="empty">You have not raced here yet.</div>'}
       </div>
       <div class="panel"><div class="panel-h"><h2>Circuit guide</h2></div><div class="panel-b stack">
-        ${A.maps[tid] ? `<div class="track-map-big">${trackMap(tid, 260)}</div>` : ''}
+        ${trackMap(tid, 260) ? `<div class="track-map-big">${trackMap(tid, 260)}</div>` : ''}
         <p style="margin:0">${esc(t.about)}</p>
         <dl class="kv">
           <dt>Location</dt><dd>${esc(t.city)}, ${esc(t.country)}</dd>

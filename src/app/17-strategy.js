@@ -595,7 +595,7 @@ async function learnWetFromReplays() {
     const list = await window.api.replays.list(); const seen = new Set(c.wetSeen || []); let changed = false;
     for (const x of list || []) {
       if (seen.has(x.key) || x.sessionType < 15 || !x.done) continue;
-      const tid = GAME_TRACKS[x.track]; if (!tid) continue;
+      const tid = gameTrack(x.track); if (!tid) continue;
       const D = await window.api.replays.load(x.key); seen.add(x.key);
       if (D && addWet(c, tid, learnWet(D))) changed = true;
     }

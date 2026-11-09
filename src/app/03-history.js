@@ -151,7 +151,9 @@ function hydrateCareer(c) {
   feederBios(c);
   realTransfers(c);
 }
-function hydrateState(st) { for (const c of st?.careers || []) hydrateCareer(c); return st; }
+function hydrateState(st) { addCustomTracks(st); for (const c of st?.careers || []) hydrateCareer(c); return st; }
+/** Tracks added for a single weekend: part of the circuits for every save. */
+function addCustomTracks(st = state) { for (const [id, t] of Object.entries(st?.customTracks || {})) D.TRACKS[id] ||= { ...t, custom: true }; }
 
 /* F1 25 lets a career add an 11th team for 2025 only: APXGP or Konnersport (c.extraTeam2025: 'apxgp' | 'konnersport' |
    null; undefined while a career that started earlier hasn't reached 2025 and been asked). My Team careers have
