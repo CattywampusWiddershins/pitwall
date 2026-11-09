@@ -737,7 +737,7 @@ function previewStory(c, s, i, mem, { name, last, tName }) {
 function dotdStory(c, s, i, dd, mem, { name, last, tName }) {
   const r = activeRounds(s)[i]; const rnd = seeded(`${s.index}-${r.id}-dotd`);
   const R = raceRatings(s, i);
-  const runners = Object.values(R).filter(x => !x.dnf && x.id !== dd.id).sort((a, b) => b.rating - a.rating).slice(0, 3);
+  const V = dotdVotes(s, i) || {}; const runners = Object.values(R).filter(x => !x.dnf && x.id !== dd.id).sort((a, b) => (V[b.id] || 0) - (V[a.id] || 0)).slice(0, 3);
   const repeat = mem.run(dd.id).dotd;
   // their drive of the season: better than every earlier rating they've had this year
   const before = []; for (let j = 0; j < i; j++) { const v = raceRatings(s, j)?.[dd.id]; if (v) before.push(v.rating); }
@@ -745,9 +745,9 @@ function dotdStory(c, s, i, dd, mem, { name, last, tName }) {
   const headline = best ? choose(rnd, [`${last(dd.id)}’s drive of the season`, `${r.name}: ${last(dd.id)}’s drive of the season`, `Drive of the season: ${last(dd.id)} in ${r.name}`])
     : choose(rnd, [`${last(dd.id)} voted Driver of the Day`, `${last(dd.id)} voted Driver of the Day in ${r.name}`, `Fans vote ${last(dd.id)} Driver of the Day`, `${r.name}: ${last(dd.id)} is the fans’ Driver of the Day`]);
   const body = [
-    `Pitwall rates the drive ${dd.rating.toFixed(1)} out of 10.${dd.grid ? ` From ${ordWord(dd.grid)} on the grid to ${ordWord(dd.finish)} at the flag.` : ` ${ordWord(dd.finish)[0].toUpperCase() + ordWord(dd.finish).slice(1)} at the flag.`}`,
+    `${last(dd.id)} took ${votePct(V[dd.id])} of the fans’ vote${runners[0] && Math.abs((V[runners[0].id] || 0) - (V[dd.id] || 0)) < 0.0005 ? `, level with ${last(runners[0].id)} and given it on the better drive` : (V[dd.id] || 0) >= 0.4 ? ', a landslide' : (V[dd.id] || 0) < 0.22 && runners[0] ? `, narrowly ahead of ${last(runners[0].id)}` : ''}.${dd.grid ? ` From ${ordWord(dd.grid)} on the grid to ${ordWord(dd.finish)} at the flag.` : ` ${ordWord(dd.finish)[0].toUpperCase() + ordWord(dd.finish).slice(1)} at the flag.`}`,
     repeat ? `It is ${repeat + 1 >= 3 ? `a ${ordWord(repeat + 1)} straight award` : 'back-to-back awards'} for ${last(dd.id)}.` : '',
-    runners.length ? `Also highly rated: ${listJoin(runners.map(x => `${name(x.id)} (${x.rating.toFixed(1)})`))}.` : '',
+    runners.length ? `Next in the vote: ${listJoin(runners.map(x => `${name(x.id)} (${votePct(V[x.id])})`))}.` : '',
   ].filter(Boolean);
   return { id: `${s.index}-${r.id}-dotd`, seq: i * 10 + 4, kind: 'dotd', i, r, subject: dd.id, outlet: choose(rnd, D.OUTLETS), kicker: 'Driver of the Day', headline,
     standfirst: dd.pub.length ? `${name(dd.id)} (${tName(dd.id)}) ${listJoin(dd.pub)}.` : `${name(dd.id)} (${tName(dd.id)}) was the standout driver of the race.`, body, dotd: { ri: i } };
@@ -892,7 +892,7 @@ function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) 
     else add('sprint', 2, w('spr', [`${L(F.sprW)} had taken the sprint.`, `The sprint had gone to ${L(F.sprW)}.`, `${L(F.sprW)} won the sprint the day before.`]), [F.sprW]);
   }
   // the fans' standout, when it wasn't the winner
-  if (F.dotd && F.dotd.id !== F.W && F.dotd.rating >= 9) add('dotd', 3.5, w('dotd', [`${L(F.dotd.id)}’s drive to ${o(F.dotd.finish)} was rated the best of the day.`, `Fans voted ${L(F.dotd.id)} Driver of the Day for the run to ${o(F.dotd.finish)}.`, `The drive of the day was ${L(F.dotd.id)}’s, to ${o(F.dotd.finish)}.`]), [F.dotd.id]);
+  if (F.dotd && F.dotd.id !== F.W && F.dotd.rating >= 9) add('dotd', 3.5, w('dotd', [`${L(F.dotd.id)}’s drive to ${o(F.dotd.finish)} took ${votePct(F.dotd.votes)} of the fans’ vote for Driver of the Day.`, `Fans voted ${L(F.dotd.id)} Driver of the Day for the run to ${o(F.dotd.finish)}.`, `The drive of the day was ${L(F.dotd.id)}’s, to ${o(F.dotd.finish)}.`]), [F.dotd.id]);
   // you, when you're not already in the story
   const pp = F.pos(PLAYER);
   if (pp && ![F.W, F.P2, F.P3].includes(PLAYER) && !out.some(b => b.ids.includes(PLAYER))) {

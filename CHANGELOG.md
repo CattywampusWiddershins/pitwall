@@ -4,6 +4,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 5.2.0
 
+- **Driver of the Day is a vote.** The fans' vote comes from the race ratings, leaning hard towards the best drive (each point of rating is worth 3.3 times the votes), so a 10 on its own takes around 45% and drivers on the same rating split it. The Driver of the Day story, its graphic ("46.4% of the vote", next in the vote) and the Fan Voice list show each driver's share of the vote; a tie says so. The ratings themselves, and who wins, are unchanged.
 - **Track announcements get their own graphic.** A track new to the calendar, a new deal, an extension or a deal cut short has a breaking-news graphic like a driver's: framed in the main colour of the country's flag (white and black left out, so Japan and Germany are red), the flag faded behind the circuit's outline, drawn in the frame's colour, with the circuit, the Grand Prix and the news.
 - **Calendar news comes out over the season.** Once you announce next season's calendar, each new venue is announced on a weekend of its own after that, and the full calendar on a weekend after the last of them. A deal for a track on this season's calendar is announced on that track's race weekend (your Brazil extension at the Brazilian Grand Prix); any other deal on a weekend after it was made. The weekends are picked at random but never move, and a story waits until its weekend's race is run. A calendar announced after the last race still comes out at once.
 

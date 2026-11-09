@@ -672,11 +672,11 @@ async function gfxAward(c, s, kind, ri) {
   // the name and team, and the headline figure
   k.text(lastName(trName(c, s, id)).toUpperCase(), X, fig ? 325 : 690, { size: fig ? 92 : 110, weight: 900, max: fig ? CW : 640 });
   k.text(`${trName(c, s, id).split(' ').slice(0, -1).join(' ').toUpperCase()}  ·  ${(tm?.name || '').toUpperCase()}`, X + 4, fig ? 390 : 770, { size: 30, weight: 600, color: '#D0D6E2', max: fig ? CW : 640, fam: k.body });
-  const big = kind === 'dots' ? String(pick.dotd) : gfxR(pick.rating);
+  const big = kind === 'dots' ? String(pick.dotd) : votePct(pick.votes);
   const bx = fig ? X : GFX_W - 330, by = fig ? 430 : 600, bw = fig ? 250 : 270, bh = fig ? 170 : 190;
   g.fillStyle = kind === 'dots' ? goldFill(g, bx, by, bw, bh) : '#22D04A'; g.beginPath(); g.roundRect(bx, by, bw, bh, 18); g.fill();
-  k.text(big, bx + bw / 2, by + bh * 0.43, { size: fig ? 104 : 120, weight: 900, color: '#0B1A0B', align: 'center' });
-  k.text(kind === 'dots' ? (pick.dotd === 1 ? 'AWARD' : 'AWARDS') : 'RATING', bx + bw / 2, by + bh - 28, { size: 26, weight: 700, color: '#0B1A0B', align: 'center' });
+  k.text(big, bx + bw / 2, by + bh * 0.43, { size: fig ? 104 : 120, weight: 900, color: '#0B1A0B', align: 'center', max: bw - 24 });
+  k.text(kind === 'dots' ? (pick.dotd === 1 ? 'AWARD' : 'AWARDS') : 'OF THE VOTE', bx + bw / 2, by + bh - 28, { size: 26, weight: 700, color: '#0B1A0B', align: 'center' });
   // the figures
   const tiles = kind === 'dots' ? [['AVERAGE RATING', gfxR(pick.avg)], ['LAST 5', gfxR(pick.last5)], ['RACES RATED', String(pick.list.length)]]
     : [['GRID', pick.grid ? 'P' + pick.grid : '–'], ['FINISH', 'P' + pick.finish], ['CAR PACE', pick.carGap >= 5 ? `+${(pick.carGap / 1000).toFixed(2)}s` : 'FASTEST'], ['QUALIFYING', pick.quali != null ? gfxR(pick.quali) : '–']];
@@ -693,9 +693,9 @@ async function gfxAward(c, s, kind, ri) {
   if (fig) k.wrap(why, X, tilesEnd + 24, { size: 24, color: '#D0D6E2', max: CW });
   else k.text(why, GFX_W / 2, 1000, { size: 26, weight: 500, color: '#D0D6E2', align: 'center', max: GFX_W - 100, fam: k.body });
   const others = kind === 'dots' ? Object.values(pick.SR.by).filter(o => o.id !== id && o.dotd).sort((a, b) => b.dotd - a.dotd || b.avg - a.avg).slice(0, 3).map(o => ({ id: o.id, v: String(o.dotd) }))
-    : Object.values(raceRatings(s, ri)).filter(x => !x.dnf && x.id !== id).sort((a, b) => b.rating - a.rating).slice(0, 3).map(o => ({ id: o.id, v: gfxR(o.rating) }));
+    : (() => { const V = dotdVotes(s, ri) || {}; return Object.values(raceRatings(s, ri)).filter(x => !x.dnf && x.id !== id).sort((a, b) => (V[b.id] || 0) - (V[a.id] || 0)).slice(0, 3).map(o => ({ id: o.id, v: votePct(V[o.id]) })); })();
   const oy = fig ? GFX_H - 50 - others.length * 78 - 30 : 1060;
-  k.text(kind === 'dots' ? 'RUNNERS-UP' : 'ALSO RATED', X, oy, { size: 24, weight: 800, color: '#A9B2C3', fam: k.body });
+  k.text(kind === 'dots' ? 'RUNNERS-UP' : 'NEXT IN THE VOTE', X, oy, { size: 24, weight: 800, color: '#A9B2C3', fam: k.body });
   for (let j = 0; j < others.length; j++) {
     const o = others[j]; const y = oy + 25 + j * 78; const t2 = (kind === 'dotd' ? teamAt(s, o.id, ri) : null) || teamOf(s, o.id); const c2 = t2?.color || '#5E6A82'; const ink = contrastInk(c2);
     g.fillStyle = c2; g.beginPath(); g.roundRect(X, y, CW, 66, 10); g.fill();
@@ -703,7 +703,7 @@ async function gfxAward(c, s, kind, ri) {
     const p2 = await headOfAsync(c, o.id, s); if (p2) await k.img(p2, X + 120, y, 66, 66, { cover: true });
     k.text(gfxLast(s, o.id), X + 210, y + 33, { size: 34, weight: 800, color: ink, max: CW - 350 });
     g.fillStyle = kind === 'dots' ? goldFill(g, X + CW - 130, y + 10, 110, 46) : '#22D04A'; g.beginPath(); g.roundRect(X + CW - 130, y + 10, 110, 46, 8); g.fill();
-    k.text(o.v, X + CW - 75, y + 33, { size: 32, weight: 800, color: '#0B1A0B', align: 'center' });
+    k.text(o.v, X + CW - 75, y + 33, { size: 32, weight: 800, color: '#0B1A0B', align: 'center', max: 100 });
   }
   return cv;
 }

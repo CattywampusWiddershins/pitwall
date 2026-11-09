@@ -857,8 +857,21 @@ function raceScore(finish, expect) {
 function driverOfTheDay(s, ri) {
   const R = raceRatings(s, ri); if (!R) return null;
   const list = Object.values(R).filter(x => !x.dnf).sort((a, b) => b.rating - a.rating || (a.finish === 1 ? -1 : b.finish === 1 ? 1 : b.carGap - a.carGap));
-  return list[0] || null;
+  return list[0] ? { ...list[0], votes: dotdVotes(s, ri)?.[list[0].id] ?? null } : null;
 }
+/**
+ * The fans' vote for Driver of the Day, from the race ratings: each finisher's share of the votes, { [id]: 0–1 }. A vote
+ * leans hard towards the best drive, so each rating counts e^(1.2 × rating): a point more is worth 3.3 times the votes.
+ * A 10 on its own (the next best 8.6) takes about 45%; two 9.5s split the lead at about 27% each. The order is the
+ * ratings' order, so Driver of the Day is who it always was.
+ */
+const DOTD_LEAN = 1.2;
+function dotdVotes(s, ri) {
+  const R = raceRatings(s, ri); if (!R) return null; const L = Object.values(R).filter(x => !x.dnf); if (!L.length) return null;
+  const w = L.map(x => Math.exp(DOTD_LEAN * (x.rating - 10))); const tot = w.reduce((a, b) => a + b, 0);
+  return Object.fromEntries(L.map((x, j) => [x.id, w[j] / tot]));
+}
+const votePct = (v) => v == null ? '–' : `${(v * 100).toFixed(1)}%`;
 /** Season ratings per driver: average over all rated races and the last five, plus Driver of the Day awards. */
 function seasonRatings(s) {
   const rounds = activeRounds(s);
@@ -937,7 +950,7 @@ function renderFanVoice(c, s, head) {
           <div class="panel-b row" style="gap:14px;flex-wrap:nowrap">${avatar(c, s, dots.id, 64)}<div><div class="hof-name">${esc(dName(s, dots.id))}</div><span class="muted">${plural(dots.dotd, 'Driver of the Day award')} · ${dots.avg.toFixed(1)}/10 average</span></div></div></div>` : ''}
         <div class="panel fv-panel"><div class="panel-h"><div><span class="label">Voted by the fans</span><h2>Driver of the Day</h2></div></div><div class="panel-b tight">
           ${SR.dotd.slice().reverse().map(x => `<div class="dotd-row"><span class="label">R${x.ri + 1}</span>${avatar(c, s, x.id, 30)}<div style="min-width:0;flex:1"><b>${esc(dName(s, x.id))}</b> <span class="muted">· ${esc(x.r.name)}</span><div class="muted" style="font-size:12px">${esc(x.reasons.join(', ') || `${ordWord(x.finish)} at the flag`)}</div></div>
-            <span class="v" style="color:${ratingColor(x.rating)}">${x.rating.toFixed(1)}</span><button class="icon-btn" title="Image" data-act="award-card" data-kind="dotd" data-ri="${x.ri}">${ICON.camera}</button></div>`).join('')}
+            <span class="v" title="Share of the fans' vote">${votePct(x.votes)}</span><button class="icon-btn" title="Image" data-act="award-card" data-kind="dotd" data-ri="${x.ri}">${ICON.camera}</button></div>`).join('')}
         </div></div>
       </div>
     </div>
