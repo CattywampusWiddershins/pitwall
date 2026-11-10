@@ -599,6 +599,7 @@ function buildStories(c, s) {
   }
   out.push(...rivalryStories(c, s));
   out.push(...calendarStories(c, s));
+  out.push(...teamStories(c, s));
   for (const tr of s.transfers || []) out.push(transferStory(c, s, tr));
   const spoke = new Set(c.media.filter(x => x.article && x.seasonIdx === s.index && x.roundId).map(x => x.roundId));
   for (const x of out) if (x.quotes?.length && x.r && spoke.has(x.r.id)) x.quotes = x.quotes.filter(q => q.id !== PLAYER || q.real);
@@ -837,6 +838,7 @@ function storyGfx(s, x) {
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });
   if (x.trackGfx) out.push({ type: 'track', ...x.trackGfx, ...base });
+  if (x.teamGfx) out.push({ type: 'team', ...x.teamGfx, ...base });
   if (x.recGfx) out.push({ type: 'record', ...x.recGfx, ...base });
   for (const lb of x.lbGfx || []) out.push({ type: 'leaderboard', ...lb, ...base });
   const qg = quoteGfx(s, x); if (qg) out.push({ ...qg, ...base });

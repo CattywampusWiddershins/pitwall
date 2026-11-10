@@ -187,11 +187,11 @@ function simWinter(c, prevS, year, lineup, target, rnd) {
   for (const d of pool.free) if (d !== PLAYER_ID && (year - (lastRaced[d] ?? year) > 3 || (turnsIn(c, d, year) ?? 0) >= RETIRE_AGE)) step(d, null, 'retire');
   const winters = target ? Math.max(1, target.year - year + 1) : Infinity; // winters left before your first season
   // nobody races in the year they turn 44
-  for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && d !== PLAYER_ID && (turnsIn(c, d, year) ?? 0) >= RETIRE_AGE) leave(d, 'retire');
+  for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) if (d && d !== PLAYER_ID && !isLegend(c, d) && (turnsIn(c, d, year) ?? 0) >= RETIRE_AGE) leave(d, 'retire'); // (a legend brought back stays)
   if (winters >= 3) {
     // retirement: from the mid-thirties, rising every year (drivers on your grid stay to race it)
     for (const t of Object.keys(lineup)) for (const d of [...lineup[t]]) {
-      if (!d || locked(d) || want[d]) continue;
+      if (!d || locked(d) || want[d] || isLegend(c, d)) continue;
       const a = age(d) || 25;
       if ((a >= 37 && rnd() < 0.15 + 0.11 * (a - 37)) || (a >= 33 && a < 37 && rnd() < 0.04)) leave(d, 'retire');
     }
@@ -303,11 +303,31 @@ function driverEntry(c, id) {
   return null;
 }
 
+/*
+  Next season's teams. A season with real data can start from its real grid (teams and line-ups) or keep the teams the
+  last season ended with (c.gridMode[year] = 'real' | 'keep'): F1 25 never moves on to 2026's grid, so from 2026 the
+  default is to keep them; up to 2025 (a career that starts in a past year) it's the real grid, and a Real Season or a
+  real driver's career always follows it. Teams can be added or taken off either way (c.teamEdits[year] = { add, remove }:
+  an old team from F1's history or one of c.customTeams). The calendar still comes from real life where there is one.
+*/
+function gridMode(c, year) {
+  if (c?.realSeason || realDriverOf(c)) return 'real';
+  return c?.gridMode?.[year] || (year <= 2025 ? 'real' : 'keep');
+}
+const followsReal = (c, year) => !!templateFor(year, c) && gridMode(c, year) === 'real';
+/** Teams added to or taken off a season's grid: an added team starts with two empty seats. */
+function applyTeamEdits(c, year, teams) {
+  const E = c?.teamEdits?.[year]; if (!E) return;
+  for (const id of E.remove || []) { const k = teams.findIndex(t => t.id === id); if (k >= 0 && id !== MYTEAM) teams.splice(k, 1); }
+  for (const id of E.add || []) if (!teams.some(t => t.id === id)) { const m = teamMeta(c, id); teams.push({ id, name: m.name, color: m.color, drivers: [null, null] }); }
+}
+
 /** Build the roster a season starts from, before the player is placed. */
 function baseRoster(c, index, prev) {
   let out;
   const year = prev ? prev.year + 1 : c.startYear;
-  const tpl = templateFor(year, c);
+  const tpl0 = templateFor(year, c); const real = !prev || followsReal(c, year);
+  const tpl = real ? tpl0 : null; // (kept teams: the real grid is left out, the real calendar isn't)
   if (!tpl && prev) {
     const teams = clone(prev.teams);
     const drivers = clone(prev.drivers);
@@ -316,7 +336,7 @@ function baseRoster(c, index, prev) {
       const i = t.drivers.indexOf(PLAYER_ID);
       if (i >= 0) t.drivers[i] = prev.benched && drivers[prev.benched] ? prev.benched : null;
     }
-    out = { teams, drivers, calendar: clone(prev.calendar).map(r => ({ ...r })) };
+    out = { teams, drivers, calendar: tpl0 ? tpl0.cal.map(([id, name, venue, sprint, track, date]) => ({ id, name, venue, sprint, off: false, ...(track ? { track } : {}), ...(date ? { date } : {}) })) : clone(prev.calendar).map(r => ({ ...r })) };
     // past the real data nothing is predicted: the grid carries over with the moves you confirmed (applied below), as
     // the Next Season tab shows it
   } else {
@@ -334,6 +354,7 @@ function baseRoster(c, index, prev) {
     // drivers your career retired stay retired, whatever they did in real life
     if (prev) for (const id of Object.keys(c.retired || {})) for (const t of out.teams) { const k = t.drivers.indexOf(id); if (k >= 0) t.drivers[k] = null; }
   }
+  applyTeamEdits(c, year, out.teams);
   // your career's driver market carries over: moves signed for next season, and (onto a fresh real grid) last year's
   // moves too. Real seasons' moves are already in the real grid. (Your own moves aren't replayed here: you are placed
   // in your seat when the season starts.)

@@ -137,6 +137,7 @@ function shiftSeasonRefs(c, n) {
 }
 /** Fill in the real seasons of a loaded career (and give an older save its 2016 onwards). */
 function hydrateCareer(c) {
+  for (const d of c.customDrivers || []) addLegend(d);
   if (!c?.seasons?.length) return;
   if (!c.seasons.some(isHist) && c.seasons[0].year > HIST_FROM) {
     const n = Math.min(c.seasons[0].year, HIST_TO + 1) - HIST_FROM;
@@ -152,6 +153,27 @@ function hydrateCareer(c) {
   realTransfers(c);
 }
 function hydrateState(st) { addCustomTracks(st); for (const c of st?.careers || []) hydrateCareer(c); return st; }
+/*
+  Legends: a driver from the all-time leaderboard brought back (a custom driver with legend: true and the leaderboard's
+  id). Their real record becomes a bio like every real driver's, so the totals, the all-time lists and the stories carry
+  on from it: a return is a comeback, never a debut. Pitwall doesn't retire them for their age.
+*/
+function legendBio(id) {
+  const A = H.allTime?.[id]; if (!A) return null; const t = [0, 0, 0, 0, 0, 0]; const titles = [];
+  for (const [y, v] of Object.entries(A.y)) { for (let j = 0; j < 6; j++) t[j] += v[j] || 0; if (v[6]) titles.push(+y); }
+  const yrs = Object.keys(A.y).map(Number);
+  return { name: A.n, nat: A.nat, starts: t[0], wins: t[1], podiums: t[2], poles: t[3], fls: t[4], pts: t[5], titles, bestChamp: titles.length ? 1 : null, bestFinish: t[1] ? 1 : null, legend: true, first: Math.min(...yrs), last: Math.max(...yrs) };
+}
+function addLegend(d) { if (d?.legend && !D.DRIVER_BIO[d.id]) { const b = legendBio(d.id); if (b) D.DRIVER_BIO[d.id] = { ...b, born: d.born || null }; } }
+const isLegend = (c, id) => !!c?.customDrivers?.some(d => d.id === id && d.legend);
+/** Who can be brought back: everyone on the all-time leaderboard who stopped racing before 2016 (later drivers are in
+ *  the driver pool already), most wins first. */
+let _legends = null;
+function legendChoices() {
+  return _legends ||= Object.entries(H.allTime || {}).filter(([id]) => !H.bios[id] && !D.DRIVERS[id] && !(D.DRIVER_BIO[id] && !D.DRIVER_BIO[id].legend)).map(([id]) => ({ id, ...legendBio(id) }))
+    .sort((a, b) => b.titles.length - a.titles.length || b.wins - a.wins || b.starts - a.starts);
+}
+
 /** Tracks added for a single weekend: part of the circuits for every save. */
 function addCustomTracks(st = state) { for (const [id, t] of Object.entries(st?.customTracks || {})) D.TRACKS[id] ||= { ...t, custom: true }; }
 

@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.3.0
+
+- **Keep your teams, or follow the real grid.** F1 25 never moves on to 2026's grid, so from 2026 a new season keeps the teams the last one ended with (and their drivers, with the moves you've signed) unless you choose the real grid on the Next Season tab ("Follow the real 2026 grid": Audi and Cadillac in, APXGP out). There's no real grid to follow from 2028. The real calendar is still used where there is one. Careers that start in a past year follow the real grid up to 2025, and a Real Season or a real driver's career always does.
+- **Add or remove teams.** On the Next Season tab, take any team off next season's grid (its drivers become free to sign) or add one: a classic team (Lotus, Brabham, Tyrrell, Jordan, Minardi, Benetton, Brawn and 17 more, back to Cooper in 1950), any team from 2016 on, or one of your own (name, short name, main and second colour, base, engine and logo). Its seats start empty. In Settings you can do the same for the season you're in: a team joins from the next race, and one that has already raced can't be taken off. Seats in Settings can now be left empty.
+- **New teams are breaking news.** A team added on the Next Season tab gets a story ("Lotus returns to the grid in 2028, its first season since 1994") and a graphic like a driver's or a track's: its main colour for the banner, its logo large on its second colour (its short name where it has no logo).
+- **Bring back a legend.** Adding a driver can start from anyone on the all-time leaderboard who stopped before 2016 (Senna, Prost, Clark, Fangio…). The driver is that driver: same record and leaderboard row (Senna: 161 starts, 41 wins, three titles), a signing is a comeback ("makes a sensational F1 comeback", their last race and how long ago), never a debut, and Pitwall won't retire them for their age.
+
 ## 5.2.0
 
 - **Driver of the Day is a vote.** The fans' vote comes from the race ratings, leaning hard towards the best drive (each point of rating is worth 3.3 times the votes), so a 10 on its own takes around 45% and drivers on the same rating split it. The Driver of the Day story, its graphic ("46.4% of the vote", next in the vote) and the Fan Voice list show each driver's share of the vote; a tie says so. The ratings themselves, and who wins, are unchanged.

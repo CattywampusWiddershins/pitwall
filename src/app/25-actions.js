@@ -55,7 +55,8 @@ const actions = {
   'nd-add'(el) {
     const { scope, key } = el.dataset; const drafts = ndDrafts(scope); const nd = drafts[key] || {};
     const name = (nd.name || '').trim(); if (!name) { toast('Enter the new driver’s name'); return; }
-    const d = { id: 'C' + uid().slice(0, 6), name, abbr: ((nd.abbr || '').trim() || name.split(' ').slice(-1)[0].slice(0, 3)).toUpperCase(), number: +nd.number || 0, born: nd.born || null, nat: (nd.nat || '').trim() || null, photo: nd.photo || null, custom: true };
+    const d = { id: nd.legend || 'C' + uid().slice(0, 6), name, abbr: ((nd.abbr || '').trim() || name.split(' ').slice(-1)[0].slice(0, 3)).toUpperCase(), number: +nd.number || 0, born: nd.born || null, nat: (nd.nat || '').trim() || null, photo: nd.photo || null, custom: true, ...(nd.legend ? { legend: true } : {}) };
+    addLegend(d); // (a legend's record comes with them)
     delete drafts[key];
     if (scope === 'setup') {
       ui.setup.newDrivers.push(d);
@@ -81,9 +82,13 @@ const actions = {
   'tr-confirm'() { confirmTransfer(); },
   'tr-undo'() { confirmBox('Undo transfer', 'Put the drivers back where they were before the latest transfer? Its story is removed too.', 'Undo', undoTransfer); },
   'nd-cancel'(el) { const { scope, key } = el.dataset; delete ndDrafts(scope)[key]; scope === 'setup' ? render() : scope === 'pool' ? closeModal() : drawTransferModal(); },
-  'pool-add'() { ui.modal = { kind: 'pool', nd: { 0: {} } }; modal(`<div class="modal-h"><h2>Add a driver to the pool</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b">${newDriverForm('pool', 0, ui.modal.nd[0])}<p class="muted" style="font-size:12px">They wait in the pool until a team signs them in Transfers.</p></div>`); },
+  'pool-add'(el, keep) { ui.modal = { kind: 'pool', nd: { 0: keep || {} } }; modal(`<div class="modal-h"><h2>Add a driver to the pool</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b">${newDriverForm('pool', 0, ui.modal.nd[0])}<p class="muted" style="font-size:12px">They wait in the pool until a team signs them in Transfers.</p></div>`); },
   'setup-single'(el) { const u = ui.setup; u.single = el.dataset.v === 'single'; if (u.single && (u.year > 2026 || u.year < HIST_FROM)) u.year = 2026; render(); },
   'setup-single-track'(el) { ui.setup.singleTrack = el.dataset.v; ui.setup.singleSprint = null; render(); }, // (the sprint follows the track's own calendar until you change it)
+  'ns-gridmode'(el) { const c = career(); const s = latestSeason(); (c.gridMode ||= {})[s.year + 1] = el.dataset.v; store.save(); render(); },
+  'team-remove'(el) { teamRemove(el.dataset.scope, el.dataset.id); },
+  'team-add-save'() { teamAddSave(); },
+  'team-logo-clear'() { if (ui.modal?.kind === 'team-add') { delete ui.modal.t.logo; drawTeamAddModal(); } },
   'track-add-open'(el) { ui.modal = null; trackAddModal(el.dataset.v); },
   'track-add-save'() {
     const ctx = ui.modal?.ctx; const r = swAddTrack(ui.modal?.t); if (r.error) { toast(r.error); return; } closeModal();
@@ -394,6 +399,9 @@ const changes = {
   },
   'drv-sort-sel'(el) { ui.drv.sort = el.value; render(); },
   'setup-single-sprint'(el) { ui.setup.singleSprint = el.checked; },
+  'team-add'(el) { const v = el.value; el.value = ''; if (!v) return; if (v === '__new') teamAddModal(el.dataset.scope); else teamAdd(el.dataset.scope, v); },
+  'team-field'(el) { if (ui.modal?.kind !== 'team-add') return; ui.modal.t[el.dataset.k] = el.value; if (el.type === 'color') drawTeamAddModal(); },
+  'team-logo'(el) { const file = el.files?.[0]; if (!file || ui.modal?.kind !== 'team-add') return; if (file.size > 1.5e6) { toast('That logo is too big: keep it under 1.5 MB'); return; } const fr = new FileReader(); fr.onload = () => { ui.modal.t.logo = fr.result; drawTeamAddModal(); }; fr.readAsDataURL(file); },
   'track-add'(el) { if (ui.modal?.kind === 'track-add') ui.modal.t[el.dataset.k] = el.value; },
   'track-add-wm'(el) { if (ui.modal?.kind !== 'track-add') return; ui.modal.t = el.value ? wmPreset(el.value) || {} : {}; drawTrackAddModal(); },
   'db-season'(el) { const c = career(); const s = c.seasons[+el.value]; const r = s && [...activeRounds(s)].reverse().find(x => s.weekends[x.id]?.sessions?.R?.done || s.weekends[x.id]?.sessions?.SPR?.done); if (r) ui.dbPick = `${s.index}:${r.id}:${s.weekends[r.id].sessions.R?.done ? 'R' : 'SPR'}`; render(); },
@@ -432,6 +440,13 @@ const changes = {
   },
   'fv-round'(el) { ui.fvRound = +el.value; render(); },
   'num-one'(el) { const c = career(); (c.numberOne ||= {})[el.dataset.year] = el.checked; syncNumbers(c); store.save(); render(); toast(el.checked ? 'Number 1 it is' : 'Back to their own number'); },
+  'nd-legend'(el) {
+    const { scope, key } = el.dataset; const drafts = ndDrafts(scope); const L = el.value ? legendChoices().find(x => x.id === el.value) : null;
+    const nd = drafts[key] = { ...(drafts[key] || {}) };
+    if (L) { const last = L.name.split(' ').slice(-1)[0].normalize('NFD').replace(/[̀-ͯ]/g, ''); Object.assign(nd, { legend: L.id, name: L.name, abbr: (/^[A-Z]{3}$/.test(L.id) ? L.id : last.slice(0, 3)).toUpperCase(), nat: L.nat || '' }); }
+    else { delete nd.legend; }
+    scope === 'setup' ? render() : scope === 'pool' ? actions['pool-add'].call(null, null, nd) : drawTransferModal();
+  },
   'nd-field'(el) { const { scope, key, k } = el.dataset; (ndDrafts(scope)[key] ||= {})[k] = el.value; },
   'goal-type'(el) { const g = goalList(el).find(x => x.id === el.dataset.id); g.scope = goalScope(g); g.type = el.value; const gt = D.GOAL_TYPES.find(x => x.id === g.type); if (gt?.needsTarget && g.target == null) g.target = 1; if (gt?.needsTeam && !g.team) g.team = goalCtx(el.dataset.scope).teams[0]?.[0]; el.dataset.scope === 'setup' ? render() : redrawModal(); },
   'goal-driver'(el) { goalList(el).find(x => x.id === el.dataset.id).driver = el.value; },
@@ -486,7 +501,7 @@ const changes = {
   'media-round'(el) { ui.modal.roundId = el.value; },
   roster(el) {
     const s = latestSeason(); const t = s.teams.find(x => x.id === el.dataset.team); const seat = +el.dataset.seat;
-    const id = el.value;
+    const id = el.value || null; if (!id) { t.drivers[seat] = null; store.save(); render(); return; } // (an empty seat, for a team still signing its drivers)
     // if the driver already has a seat elsewhere, swap them
     for (const o of s.teams) { const k = o.drivers.indexOf(id); if (k >= 0 && !(o === t && k === seat)) o.drivers[k] = t.drivers[seat]; }
     t.drivers[seat] = id;

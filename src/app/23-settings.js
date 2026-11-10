@@ -130,10 +130,11 @@ function renderSettings() {
 
     <div class="panel"><div class="panel-h"><h2>${s.year} roster</h2><span class="muted" style="font-size:12px">Mirror driver market moves from your save. Changes apply to the ${s.year} season.</span></div>
       <div class="panel-b stack">
-        <div class="table-wrap"><table><thead><tr><th>Team</th><th>Seat 1</th><th>Seat 2</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th>Team</th><th>Seat 1</th><th>Seat 2</th><th></th></tr></thead><tbody>
           ${s.teams.map(t => `<tr class="${t.id === s.playerTeamId ? 'me' : ''}"><td><div class="drv"><span class="chip" style="--c:${t.color}"></span><b>${esc(t.name)}</b></div></td>
-          ${[0, 1].map(i => t.drivers[i] === PLAYER_ID ? `<td><b>${esc(c.profile.first)} ${esc(c.profile.last)}</b> <span class="muted">(you)</span></td>` : `<td><select data-ch="roster" data-team="${t.id}" data-seat="${i}">${allIds.map(id => `<option value="${id}" ${t.drivers[i] === id ? 'selected' : ''}>${esc(known[id].name)}</option>`).join('')}</select></td>`).join('')}</tr>`).join('')}
+          ${[0, 1].map(i => t.drivers[i] === PLAYER_ID ? `<td><b>${esc(c.profile.first)} ${esc(c.profile.last)}</b> <span class="muted">(you)</span></td>` : `<td><select data-ch="roster" data-team="${t.id}" data-seat="${i}"><option value="" ${t.drivers[i] ? '' : 'selected'}>Empty seat</option>${allIds.map(id => `<option value="${id}" ${t.drivers[i] === id ? 'selected' : ''}>${esc(known[id].name)}</option>`).join('')}</select></td>`).join('')}<td style="text-align:right">${t.id === s.playerTeamId || t.id === MYTEAM ? '' : `<button class="icon-btn sm" data-act="team-remove" data-scope="cur" data-id="${t.id}" ${teamRaced(s, t.id) ? 'disabled title="It has raced this season: its results would go with it"' : `title="Take ${esc(t.name)} off the ${s.year} grid"`}>${ICON.x}</button>`}</td></tr>`).join('')}
         </tbody></table></div>
+        <div class="row" style="gap:8px">${teamAddSelect(c, new Set(s.teams.map(t => t.id)), 'cur')}<span class="muted" style="font-size:12px">A team added joins from the next race. One that has raced this season can’t be taken off.</span></div>
         <div class="row"><span class="label">Add a driver</span><input type="text" id="nd-name" placeholder="Full name" style="width:200px"><input type="text" id="nd-abbr" placeholder="ABC" maxlength="3" style="width:70px"><input type="number" id="nd-num" placeholder="No." style="width:80px"><label class="row muted" style="gap:6px">Born <input type="date" id="nd-born" style="width:auto"></label><button class="btn sm" data-act="add-driver">Add to pool</button></div>
         ${c.customDrivers?.length ? `<div class="row" style="gap:8px"><span class="label">Your drivers</span>${c.customDrivers.map(d => `<button class="btn sm ghost" data-act="driver-photo" data-id="${d.id}" title="${d.photo ? 'Change' : 'Add'} photo">${avatar(c, s, d.id, 22)} ${esc(d.name)}${d.photo ? '' : ' · add photo'}</button>`).join('')}</div>` : ''}
       </div></div>
@@ -265,9 +266,12 @@ function defaultSetup() {
 /** Inline form for a brand-new driver (used when signing drivers at setup and in transfers). */
 function newDriverForm(scope, key, nd) {
   const f = (k, label, type = 'text', extra = '') => `<label class="field"><span>${label}</span><input type="${type}" data-ch="nd-field" data-scope="${scope}" data-key="${key}" data-k="${k}" value="${esc(nd[k] || '')}" ${extra}></label>`;
+  const L = nd.legend ? legendChoices().find(x => x.id === nd.legend) : null; const sp = (x) => x.first === x.last ? x.first : `${x.first}–${x.last}`;
   return `<div class="nd-form">
     <span class="label">New driver</span>
+    <label class="field"><span>Start from a driver on the all-time leaderboard (optional)</span><select data-ch="nd-legend" data-scope="${scope}" data-key="${key}"><option value="">None: a new driver</option>${legendChoices().filter(x => x.id === nd.legend || !career()?.customDrivers?.some(d => d.id === x.id)).map(x => `<option value="${esc(x.id)}" ${x.id === nd.legend ? 'selected' : ''}>${esc(x.name)} · ${esc(x.nat || '')} · ${sp(x)} · ${plural(x.wins, 'win')}${x.titles.length ? `, ${plural(x.titles.length, 'title')}` : ''}</option>`).join('')}</select></label>
     <div class="form-grid">${f('name', 'Full name', 'text', 'placeholder="Full name"')}${f('abbr', 'Abbreviation', 'text', 'maxlength="3" placeholder="ABC"')}${f('number', 'Number', 'number', 'min="1" max="99"')}${f('born', 'Date of birth', 'date')}${f('nat', 'Nationality', 'text', 'list="dl-nat" autocomplete="off" placeholder="Start typing…"')}</div>${natDatalist()}
+    ${L ? `<div class="callout" style="font-size:13px">${esc(L.name)} comes back with a full record: <b>${plural(L.starts, 'start')}, ${plural(L.wins, 'win')}, ${plural(L.poles, 'pole')}${L.titles.length ? `, ${plural(L.titles.length, 'world title')}` : ''}</b>. Their first race back is a comeback (the last was in ${L.last}), not a debut, and Pitwall won't retire them for their age.${nd.born ? '' : ' Add a date of birth if you know it.'}</div>` : ''}
     <div class="row" style="gap:12px">${nd.photo ? `<img class="avatar" src="${esc(nd.photo)}" alt="" style="width:48px;height:48px">` : ''}${pictureControls('newdriver', `${scope}:${key}`, !!nd.photo)}
       <button class="btn sm primary" data-act="nd-add" data-scope="${scope}" data-key="${key}">Add driver</button><button class="btn sm ghost" data-act="nd-cancel" data-scope="${scope}" data-key="${key}">Cancel</button></div>
   </div>`;
@@ -526,8 +530,9 @@ function drawNextSeasonModal() {
   const remaining = activeRounds(s).length - roundsDone(s);
   const year = s.year + 1;
   const extraAsk = year === 2025 && c.type !== 'myteam' && c.startYear < 2025 ? `<div><h3 style="margin-bottom:6px">11th team in 2025</h3><p class="muted" style="margin:0 0 10px">Did your F1 25 career add APXGP or Konnersport? They race in 2025 only.</p>${extraPicker(m.extra ?? c.extraTeam2025, 'next-extra')}</div>` : '';
-  const apxNote = year === 2026 ? '<div class="callout">The grid moves to the 2026 regulations: Audi replaces Kick Sauber and Cadillac joins as the 11th team. Madrid replaces Imola on the calendar.</div>'
-    : templateFor(year) ? `<div class="callout">The ${year} grid and calendar follow real life, with the moves made in your career on top.</div>`
+  const apxNote = year === 2026 && followsReal(c, year) ? '<div class="callout">The grid moves to the 2026 regulations: Audi replaces Kick Sauber and Cadillac joins as the 11th team. Madrid replaces Imola on the calendar.</div>'
+    : followsReal(c, year) ? `<div class="callout">The ${year} grid and calendar follow real life, with the moves made in your career on top.</div>`
+    : templateFor(year) ? `<div class="callout">The ${year} season keeps this season’s teams (as set on the Next Season tab), with the real ${year} calendar.</div>`
     : '<div class="callout">Past the real data: the season starts with the grid and calendar on the Next Season tab, this season’s grid with only the transfers you confirmed. Nothing is added for you.</div>';
   modal(`<div class="modal-h"><h2>Start the ${year} season</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b">

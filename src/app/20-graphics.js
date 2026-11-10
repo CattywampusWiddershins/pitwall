@@ -161,7 +161,7 @@ async function drawGraphic(spec) {
   const cv = document.createElement('canvas'); cv.width = gfxWidth(spec); cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
   if (spec.type === 'title') { const ok = await gfxTitle(g, k, c, s, spec); return ok === false ? null : cv; }
-  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, team: gfxTeamNews, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -929,6 +929,35 @@ async function gfxTrack(g, k, c, s, { tid, kick = 'Breaking', line = '' }) {
   // the circuit's name in the triangle, the Grand Prix and the news below
   if (T.circuit) k.wrap(T.circuit.toUpperCase(), GFX_W - 40, py + ph - 92, { size: 34, weight: 800, color: ink, align: 'right', max: 400, lines: 2, lh: 1.1, fam: k.disp, middle: true });
   k.text(`${trackGp(tid).name} Grand Prix`.toUpperCase(), 50, GFX_H - 160, { size: 96, weight: 900, color: ink, max: GFX_W - 100 });
+  k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });
+}
+
+/** A team joining or returning to the grid, laid out like a driver's breaking news: framed in its main colour, its
+ *  logo large on its second colour (its short name, in its main colour, where it has no logo). */
+async function gfxTeamNews(g, k, c, s, { id, line = '' }) {
+  const m = teamMeta(c, id); if (!m) return false;
+  const col = gfxDeep(m.color || GFX_RED); const ink = gfxLum(col) > 150 ? '#15151E' : '#FFFFFF';
+  const bg2 = teamColor2(c, id) || mixHex(m.color || GFX_RED, '#000000', 0.6);
+  g.fillStyle = col; g.fillRect(0, 0, GFX_W, GFX_H);
+  gfxDiag(g, 0, 0, GFX_W, GFX_H, { gap: 70, width: 22, alpha: 0.12 });
+  const py = 180, ph = GFX_H - 180 - 230;
+  g.save(); g.beginPath(); g.rect(0, py, GFX_W, ph); g.clip();
+  g.fillStyle = bg2; g.fillRect(0, py, GFX_W, ph); gfxDiag(g, 0, py, GFX_W, ph, { gap: 70, width: 22, alpha: 0.08, color: '#000000' });
+  gfxGlow(g, GFX_W / 2, py + ph * 0.47, 460, mixHex(bg2, '#FFFFFF', 0.35), 0.3);
+  const url = teamLogoUrl(c, id); const lw = GFX_W * 0.66, lh = ph * 0.62;
+  g.save(); g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
+  const drawn = url && await k.img(url, (GFX_W - lw) / 2, py + ph * 0.47 - lh / 2, lw, lh); g.restore();
+  if (!drawn) { const short = (c.customTeams?.[id]?.short || D.TEAM_BIO[id]?.short || H.oldTeams?.[id]?.short || m.name.slice(0, 3)).toUpperCase(); const lc = Math.abs(gfxLum(m.color || GFX_RED) - gfxLum(bg2)) < 35 ? contrastInk(bg2) : m.color; // (its own colour, unless that would vanish into the background)
+    g.save(); g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 30; g.shadowOffsetY = 10; k.text(short, GFX_W / 2, py + ph * 0.47, { size: 260, weight: 900, color: lc, align: 'center', max: GFX_W * 0.8 }); g.restore(); }
+  g.restore();
+  for (const pts of [[[GFX_W * 0.45, py + ph], [GFX_W, py + ph - 260], [GFX_W, py + ph]], [[GFX_W * 0.7, py], [GFX_W, py], [GFX_W, py + 130]]]) {
+    g.save(); g.beginPath(); pts.forEach(([x, y], j) => j ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fillStyle = col; g.fill(); g.clip(); gfxDiag(g, 0, 0, GFX_W, GFX_H, { gap: 70, width: 22, alpha: 0.12 }); g.restore();
+  }
+  await k.logo(50, 46, 150, 90, ink, 'left');
+  k.text('BREAKING', 230, 96, { size: 132, weight: 900, color: ink, max: GFX_W - 280 });
+  const sub = D.TEAM_BIO[id]?.full || H.oldTeams?.[id]?.full || c.customTeams?.[id]?.base || '';
+  if (sub) k.wrap(sub.toUpperCase(), GFX_W - 40, py + ph - 92, { size: 34, weight: 800, color: ink, align: 'right', max: 400, lines: 2, lh: 1.1, fam: k.disp, middle: true });
+  k.text(m.name.toUpperCase(), 50, GFX_H - 160, { size: 96, weight: 900, color: ink, max: GFX_W - 100 });
   k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });
 }
 

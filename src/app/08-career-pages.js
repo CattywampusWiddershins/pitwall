@@ -574,8 +574,14 @@ function renderDriver() {
 /** A team's name and colours: from the newest season it raced in, else the templates. */
 function teamMeta(c, id) {
   for (let i = c.seasons.length - 1; i >= 0; i--) { const t = c.seasons[i].teams.find(x => x.id === id); if (t) return t; }
+  const ct = c?.customTeams?.[id]; if (ct) return { ...ct, drivers: [] };
   const t = [...D.GRID_2026, ...D.GRID_2025, ...Object.values(D.EXTRA_2025)].find(x => x.id === id);
-  return t ? { ...t, drivers: [] } : { id, name: D.TEAM_BIO[id]?.full || id, color: '#5E6A82', drivers: [] };
+  if (t) return { ...t, drivers: [] };
+  const ck = classicTeam(id); if (ck) return { ...ck, drivers: [], lastYear: ck.last };
+  // a team from F1's history: as it last raced
+  const y = Object.keys(H.seasons || {}).map(Number).sort((a, b) => b - a).find(y => H.seasons[y].teams.some(x => x.id === id));
+  const h = y && H.seasons[y].teams.find(x => x.id === id);
+  return h ? { id, name: h.name, color: h.color, drivers: [], lastYear: y } : { id, name: D.TEAM_BIO[id]?.full || id, color: '#5E6A82', drivers: [] };
 }
 /** Real record up to the end of 2024 plus every race logged in this career (a renamed team includes its earlier entry). */
 function teamRecord(c, id, ctx = careerCtx(c)) {

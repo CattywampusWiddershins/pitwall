@@ -261,6 +261,8 @@ function transferStory(c, s, tr) {
   const leftTxt = left === 1 ? 'a full season still to run' : `${numWord(left)} more seasons still to run`;
   const career = tot.starts ? `${L} has ${plural(tot.starts, 'Grand Prix start')}, ${plural(tot.wins, 'win')} and ${plural(tot.podiums, 'podium')}${titles ? `, plus ${plural(titles, 'world title')} (${tot.titles.join(', ')})` : ''}.` : '';
   const debut = !tot.starts && !m0.from;
+  // a legend brought back, not yet raced in this career: a comeback
+  const legendBack = isLegend(c, m0.driver) && !c.seasons.some(se => !isHist(se) && se.index <= s.index && seasonStatsCache(se)[m0.driver]?.starts);
   let headline, standfirst, body = [], kicker = 'BREAKING', massive = false;
   // signing after announcing a retirement this season, the first deal since: the retirement is off
   const k0 = (s.transfers || []).indexOf(tr);
@@ -295,14 +297,16 @@ function transferStory(c, s, tr) {
       : `${nm} is a free agent ${when}${from ? ` after leaving ${from}` : ''}.`;
     body = [left ? `That is a surprise: ${L} had ${leftTxt} on the contract with ${from}.` : '', career];
   } else {
-    if (champ) { kicker = 'BREAKING · World champion'; headline = `BREAKING: ${Champ} ${L} signs for ${to}`; }
+    if (legendBack) { if (champ) kicker = 'BREAKING · World champion'; headline = choose(rnd, [`BREAKING: ${nm} makes a sensational F1 comeback with ${to}`, `BREAKING: ${nm} is back! ${to} sign the legend`]); }
+    else if (champ) { kicker = 'BREAKING · World champion'; headline = `BREAKING: ${Champ} ${L} signs for ${to}`; }
     else if (debut) headline = choose(rnd, [`BREAKING: ${to} hand ${nm} an F1 debut`, `BREAKING: ${nm} gets an F1 chance with ${to}`]);
     else if (left) headline = choose(rnd, [`BREAKING: Shock as ${L} walks out on ${from} for ${to}`, `BREAKING: ${L} breaks ${from} contract to join ${to}`]);
     else headline = choose(rnd, [`BREAKING: ${L} joins ${to}`, `BREAKING: ${to} sign ${L}`]);
     standfirst = `${nm} will race for ${to} ${when}${from ? `, leaving ${from}` : ''}${m0.until ? `, on a deal that runs ${length(m0.until)}` : ''}.`;
     body = [left ? `Nobody saw this coming. ${L} was under contract with ${from} until the end of ${m0.prevUntil}, with ${leftTxt}, and walking away from a deal like that is rare in Formula 1.` : '',
-      champ ? `World champions hardly ever change teams these days, which makes this one of the biggest moves the sport has seen in years.` : '',
+      champ && !legendBack ? `World champions hardly ever change teams these days, which makes this one of the biggest moves the sport has seen in years.` : '',
       debut ? `${nm} makes the step up to Formula 1 for the first time.` : career,
+      legendBack && D.DRIVER_BIO[m0.driver]?.last ? `It is a return nobody saw coming: ${L}’s last Formula 1 race was in ${D.DRIVER_BIO[m0.driver].last}, ${plural(start - D.DRIVER_BIO[m0.driver].last, 'year')} ago.` : '',
       m0.replaces ? `${L} takes the seat of ${trName(c, s, m0.replaces)}.` : ''];
   }
   if (massive) kicker = 'BREAKING · Massive news';

@@ -348,7 +348,7 @@ function bodyControls(c, id, { thumb = true } = {}) {
     ${b ? `<select data-ch="body-look" data-id="${esc(id)}" title="Which way the driver faces in the picture, as you look at it">${BODY_LOOKS.map(([v, l]) => `<option value="${v}" ${b.look === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="btn sm ghost danger" data-act="body-clear" data-id="${esc(id)}">Remove</button>` : ''}</div>`;
 }
-const teamLogoUrl = (c, id) => id === MYTEAM ? c?.myTeam?.logo || null : picOf('teams', id);
+const teamLogoUrl = (c, id) => id === MYTEAM ? c?.myTeam?.logo || null : c?.customTeams?.[id] ? c.customTeams[id].logo || null : picOf('teams', id);
 function initials(name) {
   const w = String(name || '?').replace(/[^\p{L}\s-]/gu, '').split(/[\s-]+/).filter(Boolean);
   return ((w[0]?.[0] || '?') + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase();
