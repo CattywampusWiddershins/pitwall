@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.3.2
+
+- **Your fastest lap is the one compared.** The fastest lap head to head could leave out your quickest lap for a slower one, for two reasons. After the flying-lap option (or leaving the garage), F1 25 can flick its pit flags on for a moment out on track at full speed, and a lap with one of those was dropped as if it had been through the pits (it kept those laps out of the ERS profile too): the pit flags now only count below 90 km/h, the speed of a pit lane. And a flying lap the session ended on as it crossed the line, or one followed straight away by Return to Garage, never saw the next lap start, so it was never kept: it now is, when it was recorded from line to line and the game has it as a finished, valid lap.
+
 ## 5.3.1
 
 - **More pictures come with Pitwall.** Full-body pictures of 22 drivers, each team's default driver (10 teams), the default driver, both championship trophies and F1's logo for the graphics now come with the app, with the latest driver photos, team logos and cars (APXGP's logo and car among them). Pictures you've uploaded or removed are kept as they are.

@@ -201,11 +201,16 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     }
     list.push({ a, b, t, lap: s.curLap[a] || 0 });
   }
+  // In the pit lane, for measuring laps: the game's pit flags, but only below 90 km/h (every pit lane's limit is 80 or
+  // less). The flags can flicker on for a moment out on track, at full speed, on the laps after leaving the garage (seen
+  // in practice and qualifying), and a lap with one of those was being thrown away as if it had been through the pits.
+  const inPits = (c, spd) => !!c?.pit && !(spd > 90);
   // Your car only: every lap data packet adds a sample (throttle, brake, speed, ERS store, mode, deployed
   // and harvested so far this lap, MGU-K power, position) to the 20 m slice of the lap you're in.
   function logErs(s, c) {
-    if (c?.pit && c.lap) ((s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false }).pit = true; // a stop: not a lap to measure the race on
-    if (!c || !s.tel || !s.stat || c.dist < 0 || c.pit || !c.lap) return;
+    const pit = inPits(c, s.tel?.spd);
+    if (pit && c.lap) ((s.ers ||= {})[c.lap] ||= { bins: {}, invalid: false }).pit = true; // a stop: not a lap to measure the race on
+    if (!c || !s.tel || !s.stat || c.dist < 0 || pit || !c.lap) return;
     const kb = Math.floor(c.dist / ERS_BIN); const E = s.ersPos;
     // a flashback: what was driven after the point it went back to never happened; the lap is rebuilt from there
     if (E && (c.lap < E.lap || (c.lap === E.lap && kb < E.k))) {
@@ -270,6 +275,8 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
   // line too: the lap before carries on, and a lap kept from it is taken back). Validity is the game's own flag, which
   // a flashback to before the moment that cost the lap clears. The quickest lap per car goes out with the result,
   // timed by the game's own last-lap time.
+  // a lap recorded from the line to the line: every 50 m slice but the last, nearly all of them, from the start
+  const wholeLap = (L1, n) => n > 1 && L1.bins.length >= n - 1 && L1.bins.slice(0, n - 1).filter(Boolean).length >= (n - 1) * 0.92 && L1.d0 < 250;
   function logTraces(s, lap) {
     if (!s.telAll) return; const T = s.traces ||= {}; const n = Math.ceil((s.info?.trackLength || 0) / TRACE_BIN);
     lap.forEach((c, i) => {
@@ -280,11 +287,11 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
         if (R.done?.lap === c.lap) { if (R.best?.from === R.done) R.best = R.bestWas; R.cur = R.done; R.done = null; } else R.cur = null;
       }
       if (R.cur && R.cur.lap !== c.lap) {
-        const L1 = R.cur; const ms = c.last; const full = n > 1 && L1.bins.length >= n - 1 && L1.bins.slice(0, n - 1).filter(Boolean).length >= (n - 1) * 0.92 && L1.d0 < 250;
+        const L1 = R.cur; const ms = c.last; const full = wholeLap(L1, n);
         if (c.lap === L1.lap + 1 && !L1.bad && !L1.inv && ms > 0 && full && (!R.best || ms < R.best.ms)) { R.bestWas = R.best; R.best = { lap: L1.lap, ms, bins: L1.bins.slice(0, n), from: L1 }; }
         R.done = c.lap === L1.lap + 1 ? L1 : null; R.cur = null;
       }
-      if (c.status !== 2 || c.pit) { R.cur = null; return; } // in the garage, stopped or in the pit lane: that lap is gone
+      if (c.status !== 2 || inPits(c, t.spd)) { R.cur = null; return; } // in the garage, stopped or in the pit lane: that lap is gone
       if (c.dist < 0) return;
       const k = Math.floor(c.dist / TRACE_BIN);
       if (!R.cur) R.cur = { lap: c.lap, bins: [], bad: false, d0: c.dist, k };
@@ -298,7 +305,13 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     });
   }
   function packTrace(s, i) {
-    const B = s.traces?.[i]?.best; if (!B) return null;
+    const R = s.traces?.[i]; let B = R?.best;
+    // the lap that was still going when the result came: a flying lap the session ended on as it crossed the line, or
+    // one followed straight away by Return to Garage, never sees the next lap begin. It counts if it was recorded from
+    // line to line and the game's own lap history has it as a finished, valid lap, timed there
+    const C = R?.cur; const h = C && s.laps?.[i]?.[C.lap - 1]; const n = Math.ceil((s.info?.trackLength || 0) / TRACE_BIN);
+    if (C && h && h[0] > 0 && (h[1] & 1) && !C.bad && !C.inv && wholeLap(C, n) && (!B || h[0] < B.ms)) B = { lap: C.lap, ms: h[0], bins: C.bins.slice(0, n) };
+    if (!B) return null;
     const r = (v) => Math.round(v); const bins = Array.from(B.bins, x => x || null);
     return { lap: B.lap, ms: B.ms, bin: TRACE_BIN, spd: bins.map(x => x ? r(x[1] / x[0]) : null), thr: bins.map(x => x ? r(x[2] / x[0] * 100) : null), brk: bins.map(x => x ? r(x[3] / x[0] * 100) : null),
       x: bins.map(x => x ? r(x[4] / x[0]) : null), z: bins.map(x => x ? r(x[5] / x[0]) : null) };
