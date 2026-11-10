@@ -16,7 +16,8 @@ const actions = {
   'rp-tab'(el) { ui.rpTab = el.dataset.v; ui.flOpen = null; render(); },
   'fl-open'(el) { ui.flOpen = { si: +el.dataset.si, rid: el.dataset.rid }; ui.flA = ui.flB = null; render(); },
   'fl-close'() { ui.flOpen = null; render(); },
-  'trophy-clear'(el) { if (state.gfxTrophy) delete state.gfxTrophy[el.dataset.kind]; store.save(); render(); },
+  'trophy-clear'(el) { const k = el.dataset.kind; const T = (state.gfxTrophy ||= {}); if (BUILT_IN.trophy?.[k]) T[k] = null; else delete T[k]; store.save(); render(); },
+  'trophy-default'(el) { if (state.gfxTrophy) delete state.gfxTrophy[el.dataset.kind]; store.save(); render(); },
   'lb-export'() { lbExportModal(); },
   async 'lb-export-go'() {
     const lk = ui.lb.sort; const cols = LB_COLS.filter(([k]) => k === lk || ui.modal.pick[k]).map(([k]) => k);
@@ -24,7 +25,12 @@ const actions = {
     closeModal(); gfxModal(gfxKey(spec));
   },
   'story-round'(el) { ui.storyRound = el.dataset.v; render(); },
-  'fallback-clear'(el) { const im = state.images || {}; if (el.dataset.scope === 'team') delete im.teamBodies?.[el.dataset.id]; else delete im.defaultBody; store.save(); renderGen++; render(); },
+  'fallback-clear'(el) { const im = imgStore(); const id = el.dataset.id;
+    if (el.dataset.scope === 'team') { if (BUILT_IN.teamBodies?.[id]) (im.teamBodies ||= {})[id] = null; else delete im.teamBodies?.[id]; }
+    else if (BUILT_IN.defaultBody) im.defaultBody = null; else delete im.defaultBody;
+    store.save(); renderGen++; render(); },
+  'fallback-default'(el) { const im = imgStore(); if (el.dataset.scope === 'team') delete im.teamBodies?.[el.dataset.id]; else delete im.defaultBody; store.save(); renderGen++; render(); },
+  'body-default'(el) { const all = imgStore().bodies; if (all) delete all[bodyKey(career(), el.dataset.id)]; store.save(); renderGen++; render(); },
   'conflict-pick'(el) { ui.conflicts[+el.dataset.i].pick = el.dataset.v; conflictModal(ui.conflicts); },
   'conflict-all'(el) { ui.conflicts.forEach(x => { x.pick = el.dataset.v; }); conflictModal(ui.conflicts); },
   'conflict-done'() {
@@ -742,7 +748,8 @@ Object.assign(actions, {
   'weekend-card'(el) { weekendCardModal(el.dataset.round); },
   'gfx-open'(el) { gfxModal(el.dataset.gfx); },
   'ui-style'(el) { state.uiStyle = el.dataset.v; store.save(); applyTheme(); render(); },
-  'gfx-logo-clear'() { delete state.gfxLogo; store.save(); applyTheme(); render(); },
+  'gfx-logo-clear'() { if (BUILT_IN.logo) state.gfxLogo = null; else delete state.gfxLogo; store.save(); applyTheme(); render(); },
+  'gfx-logo-default'() { delete state.gfxLogo; store.save(); applyTheme(); render(); },
   'award-card'(el) { awardCardModal(el.dataset.kind, el.dataset.ri != null ? +el.dataset.ri : null); },
   async 'card-save'() {
     const m = ui.modal; if (!m?.url) return;

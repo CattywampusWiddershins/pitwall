@@ -80,7 +80,7 @@ function applyTheme() {
   st.setProperty('--team-ink', contrastInk(th.accent));
   st.setProperty('--team-2', th.accent2);
   st.setProperty('--team-2-ink', contrastInk(th.accent2));
-  st.setProperty('--fv-logo', state.gfxLogo ? `url("${state.gfxLogo}")` : 'none');
+  st.setProperty('--fv-logo', gfxLogoUrl() ? `url("${gfxLogoUrl()}")` : 'none');
   const look = uiStyle(); document.documentElement.dataset.style = look;
   if (LOOK_PALETTES[look]) { THEME_VARS.forEach((v, i) => st.setProperty(v, LOOK_PALETTES[look][i])); return; }
   if (look === 'livery') { // a dark shade of the team's colour throughout
@@ -186,7 +186,7 @@ function renderTopbar() {
   const here = NAV.find(n => n[0] === navActive());
   const title = ui.view === 'weekend' && ui.round ? (curSeason()?.calendar.find(r => r.id === ui.round)?.name || 'Weekend') : here ? here[1] : 'Pitwall';
   return `${c ? `<button class="icon-btn menu-btn" data-act="nav-toggle" aria-label="Menu">${ICON.menu}</button>` : ''}
-    ${state.gfxLogo ? '<span class="brand-logo sm" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div>`}
+    ${gfxLogoUrl() ? '<span class="brand-logo sm" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div>`}
     <div class="topbar-title">${esc(c ? title : 'Pitwall')}</div>`;
 }
 
@@ -195,7 +195,7 @@ function renderRail() {
   const s = curSeason();
   const nav = NAV.filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
   return `
-    <div class="brand">${state.gfxLogo ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}</div>
+    <div class="brand">${gfxLogoUrl() ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}</div>
     ${c ? `<div class="career-pill">
       ${c.myTeam ? `<div class="row" style="gap:8px;flex-wrap:nowrap">${teamBadge(c.myTeam, 28)}<span class="label">My Team · ${esc(c.myTeam.name)}</span></div>` : `<span class="label">${c.realSeason ? 'Real season' : c.single ? 'Single weekend' : 'Driver Career'}</span>`}
       ${c.realSeason ? `<span class="who">${esc(String(s?.year || ''))} Formula 1 season</span><span class="muted" style="font-size:12px">${c.real?.checked ? `Results checked ${new Date(c.real.checked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Looking for results…'}</span>` : isPrincipal(c) ? `<span class="who"><span class="n" style="font-size:12px">TP</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`
@@ -273,6 +273,17 @@ function setPic(kind, id, url) {
 }
 /** Back to the picture that came with Pitwall. */
 const restorePic = (kind, id) => { delete imgStore()[kind]?.[id]; };
+// The other pictures that come with Pitwall work the same way: full-body pictures (bodies), each team's default driver
+// (teamBodies), the default driver, the trophies and the graphics' logo. Yours take their place; one you remove stays
+// removed (null) until you go back to the default.
+const hasOwn = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+const sameImg = (a, b) => (a?.url ?? a ?? null) === (b?.url ?? b ?? null);
+/** Whether a picture you set (own) can go back to a different one that comes with Pitwall (built). */
+const canDefault = (own, k, built) => !!built && hasOwn(own, k) && !sameImg(own[k], built);
+function teamBodyOf(root) { const all = state.images?.teamBodies; const b = hasOwn(all, root) ? all[root] : BUILT_IN.teamBodies?.[root]; return b?.url ? b : null; }
+function defaultBodyOf() { const im = state.images; const b = hasOwn(im, 'defaultBody') ? im.defaultBody : BUILT_IN.defaultBody; return b?.url ? b : null; }
+/** The logo at the top of the graphics (F1's). */
+const gfxLogoUrl = () => hasOwn(state, 'gfxLogo') ? state.gfxLogo || null : BUILT_IN.logo || null;
 const canRestore = (kind, id) => !!BUILT_IN[kind]?.[id] && state.images?.[kind]?.[id] !== undefined && state.images[kind][id] !== BUILT_IN[kind][id];
 function driverPhoto(c, id) {
   if (id === PLAYER_ID) return c?.profile.photo || null;
@@ -321,7 +332,7 @@ function setDriverPhoto(c, id, url) {
 */
 const bodyKey = (c, id) => id === PLAYER_ID || c?.customDrivers?.some(x => x.id === id) ? `${c?.id}:${id}` : id;
 /** { url, look } or null. */
-function bodyOf(c, id) { const b = state.images?.bodies?.[bodyKey(c, id)]; return b?.url ? b : null; }
+function bodyOf(c, id) { const k = bodyKey(c, id); const all = state.images?.bodies; const b = hasOwn(all, k) ? all[k] : k.includes(':') ? null : BUILT_IN.bodies?.[k]; return b?.url ? b : null; }
 /**
  * The picture a driver is shown with: their own full body, else their team's default driver (Team page), else the
  * default driver (Settings → Pictures). s: the season that says which team they drive for.
@@ -329,16 +340,16 @@ function bodyOf(c, id) { const b = state.images?.bodies?.[bodyKey(c, id)]; retur
 function bodyFor(c, id, s = null) {
   const own = bodyOf(c, id); if (own) return own;
   const tm = s && teamOf(s, id); const root = tm && (D.TEAM_BIO[tm.id]?.lineage?.[0] || tm.id);
-  const tb = root && state.images?.teamBodies?.[root]; if (tb?.url) return { look: 'center', ...tb, fallback: 'team' };
-  const df = state.images?.defaultBody; return df?.url ? { look: 'center', ...df, fallback: 'default' } : null;
+  const tb = root && teamBodyOf(root); if (tb) return { look: 'center', ...tb, fallback: 'team' };
+  const df = defaultBodyOf(); return df ? { look: 'center', ...df, fallback: 'default' } : null;
 }
 function setBody(c, id, patch) {
-  const all = (imgStore().bodies ||= {}); const k = bodyKey(c, id);
-  if (patch === null) delete all[k]; else all[k] = { look: 'center', ...all[k], ...patch };
+  const all = (imgStore().bodies ||= {}); const k = bodyKey(c, id); const built = k.includes(':') ? null : BUILT_IN.bodies?.[k];
+  if (patch === null) { if (built) all[k] = null; else delete all[k]; } else all[k] = { look: 'center', ...(hasOwn(all, k) ? all[k] : built), ...patch };
 }
 const readBody = (file) => readImage(file, { max: 1400, type: 'image/webp' });
 /** A championship trophy for the title graphics: kind driver or team. */
-const trophyOf = (kind) => state.gfxTrophy?.[kind] || null;
+const trophyOf = (kind) => hasOwn(state.gfxTrophy, kind) ? state.gfxTrophy[kind] || null : BUILT_IN.trophy?.[kind] || null;
 const BODY_LOOKS = [['left', 'Looking left'], ['center', 'Straight ahead'], ['right', 'Looking right']];
 /** Upload, facing and remove controls for a driver's full-body picture. */
 function bodyControls(c, id, { thumb = true } = {}) {
@@ -346,7 +357,7 @@ function bodyControls(c, id, { thumb = true } = {}) {
   return `<div class="body-ctl">${thumb && b ? `<img class="body-thumb" src="${esc(b.url)}" alt="">` : ''}
     <label class="btn sm file-btn">${ICON.camera} ${b ? 'Replace' : 'Upload'} full-body picture<input type="file" accept="image/png,image/webp" data-ch="body-upload" data-id="${esc(id)}" hidden></label>
     ${b ? `<select data-ch="body-look" data-id="${esc(id)}" title="Which way the driver faces in the picture, as you look at it">${BODY_LOOKS.map(([v, l]) => `<option value="${v}" ${b.look === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <button class="btn sm ghost danger" data-act="body-clear" data-id="${esc(id)}">Remove</button>` : ''}</div>`;
+      <button class="btn sm ghost danger" data-act="body-clear" data-id="${esc(id)}">Remove</button>` : ''}${canDefault(state.images?.bodies, bodyKey(c, id), bodyKey(c, id).includes(':') ? null : BUILT_IN.bodies?.[bodyKey(c, id)]) ? `<button class="btn sm ghost" data-act="body-default" data-id="${esc(id)}" title="The picture that comes with Pitwall">Default</button>` : ''}</div>`;
 }
 const teamLogoUrl = (c, id) => id === MYTEAM ? c?.myTeam?.logo || null : c?.customTeams?.[id] ? c.customTeams[id].logo || null : picOf('teams', id);
 function initials(name) {
@@ -403,8 +414,9 @@ const carPhoto = (c, id) => !id ? null : id === MYTEAM ? c?.myTeam?.car || null 
 /** Upload / remove controls for a driver photo or team logo. kind: driver | team | setup */
 /** Upload and remove for a fallback driver picture: scope 'team' (id: the team) or 'default'. */
 function fallbackControls(scope, id = '') {
-  const has = scope === 'team' ? !!state.images?.teamBodies?.[id]?.url : !!state.images?.defaultBody?.url;
-  return `<label class="btn sm file-btn">${ICON.camera} ${has ? 'Replace' : 'Upload'} default driver<input type="file" accept="image/png,image/webp" data-ch="fallback-upload" data-scope="${scope}" data-id="${esc(id)}" hidden></label>${has ? `<button class="btn sm ghost danger" data-act="fallback-clear" data-scope="${scope}" data-id="${esc(id)}">Remove</button>` : ''}`;
+  const has = scope === 'team' ? !!teamBodyOf(id) : !!defaultBodyOf();
+  const dflt = scope === 'team' ? canDefault(state.images?.teamBodies, id, BUILT_IN.teamBodies?.[id]) : canDefault(state.images, 'defaultBody', BUILT_IN.defaultBody);
+  return `<label class="btn sm file-btn">${ICON.camera} ${has ? 'Replace' : 'Upload'} default driver<input type="file" accept="image/png,image/webp" data-ch="fallback-upload" data-scope="${scope}" data-id="${esc(id)}" hidden></label>${has ? `<button class="btn sm ghost danger" data-act="fallback-clear" data-scope="${scope}" data-id="${esc(id)}">Remove</button>` : ''}${dflt ? `<button class="btn sm ghost" data-act="fallback-default" data-scope="${scope}" data-id="${esc(id)}" title="The default driver that comes with Pitwall">Default</button>` : ''}`;
 }
 function pictureControls(kind, id, has, label = kind === 'team' ? 'logo' : 'photo') {
   const pk = { driver: 'drivers', team: 'teams', car: 'cars' }[kind];

@@ -895,7 +895,7 @@ function seasonRatingsTo(s, ri) {
 }
 /* F1 Fan Voice: the ratings, presented as the fans' verdict after every Grand Prix. */
 const FAN_VOICE = 'F1 Fan Voice';
-const fvMark = (small = false) => `<span class="fv-mark ${small ? 'sm' : ''}">${state.gfxLogo ? '<span class="fv-f1 logo" role="img" aria-label="F1"></span>' : '<span class="fv-f1">F1</span>'}<span class="fv-name">FAN VOICE</span></span>`;
+const fvMark = (small = false) => `<span class="fv-mark ${small ? 'sm' : ''}">${gfxLogoUrl() ? '<span class="fv-f1 logo" role="img" aria-label="F1"></span>' : '<span class="fv-f1">F1</span>'}<span class="fv-name">FAN VOICE</span></span>`;
 /** A ranked list of drivers with photo, team and rating pill. rows: [{ id, rating, sub? }] */
 function fvList(c, s, rows, { start = 1 } = {}) {
   return `<ol class="fv-list">${rows.map((x, k) => `<li class="${x.id === PLAYER ? 'me' : ''}" data-act="open-driver" data-id="${x.id}">

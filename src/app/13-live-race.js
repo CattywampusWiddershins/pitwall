@@ -711,7 +711,7 @@ function liveStandings(c, s, r, L, idOf, kind = 'driver') {
 const CB_ROW = 30; // px per row
 function lapBox(L, n) {
   const lead = L.field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos)[0]; const lap = Math.max(1, Math.min(n, lead?.lap || 1));
-  return `<div class="lapbox"><div class="lb-top">${state.gfxLogo ? '<span class="lb-mark" role="img" aria-label="F1"></span>' : '<span class="lb-f1">F1</span>'}<small>FIA FORMULA 1 WORLD CHAMPIONSHIP</small></div>
+  return `<div class="lapbox"><div class="lb-top">${gfxLogoUrl() ? '<span class="lb-mark" role="img" aria-label="F1"></span>' : '<span class="lb-f1">F1</span>'}<small>FIA FORMULA 1 WORLD CHAMPIONSHIP</small></div>
     <div class="lb-lap">LAP <b>${lap}</b> / ${n}</div>${L.red ? '<div class="lb-sc red"><span class="lb-fia">FIA</span>RED FLAG</div>' : L.sc ? `<div class="lb-sc"><span class="lb-fia">FIA</span>${L.sc === 1 ? 'SAFETY CAR' : 'VIRTUAL SAFETY CAR'}</div>` : ''}</div>`;
 }
 /** The driver in a verdict box: a full body pinned at the head, so it shows head and torso; else the headshot. */

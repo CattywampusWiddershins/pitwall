@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.3.1
+
+- **More pictures come with Pitwall.** Full-body pictures of 22 drivers, each team's default driver (10 teams), the default driver, both championship trophies and F1's logo for the graphics now come with the app, with the latest driver photos, team logos and cars (APXGP's logo and car among them). Pictures you've uploaded or removed are kept as they are.
+- **Default buttons.** Every picture that comes with Pitwall can be put back with Default once you've changed it: a driver's photo or full-body picture, a team's logo, car or default driver, the default driver, the trophies and the logo. Removing one of them keeps it removed until you do.
+
 ## 5.3.0
 
 - **Keep your teams, or follow the real grid.** F1 25 never moves on to 2026's grid, so from 2026 a new season keeps the teams the last one ended with (and their drivers, with the moves you've signed) unless you choose the real grid on the Next Season tab ("Follow the real 2026 grid": Audi and Cadillac in, APXGP out). There's no real grid to follow from 2028. The real calendar is still used where there is one. Careers that start in a past year follow the real grid up to 2025, and a Real Season or a real driver's career always does.

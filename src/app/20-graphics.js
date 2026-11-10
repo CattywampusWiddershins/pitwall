@@ -23,7 +23,7 @@ const gfxWidth = (spec) => spec.type === 'graph' ? 1920 : spec.type === 'leaderb
 function gfxKey(spec) { const key = JSON.stringify(spec); _gfxSpecs.set(key, spec); return key; }
 /** Ratings for every driver run taller than the portrait 1080×1350. */
 const gfxHeight = (spec) => spec.type === 'graph' ? 1080 : spec.type === 'ratings' && spec.rows?.length > 10 ? 300 + spec.rows.length * 84 : GFX_H;
-const gfxSig = (spec) => JSON.stringify(spec) + ':' + (state.gfxLogo ? state.gfxLogo.length : 0) + ':' + renderGen;
+const gfxSig = (spec) => JSON.stringify(spec) + ':' + (gfxLogoUrl() ? gfxLogoUrl().length : 0) + ':' + renderGen;
 /** After a page is drawn: draw the graphics in view (and the rest as they scroll in). */
 let _gfxObs = null;
 function fillGraphics() {
@@ -77,7 +77,7 @@ function gfxKit(g) {
   };
   // the story logo (Settings → Story graphics) recoloured to one colour, so one upload suits every background
   const logo = async (x, y, w, h, color = GFX_RED, align = 'center') => {
-    const im = state.gfxLogo && await loadImg(state.gfxLogo);
+    const im = gfxLogoUrl() && await loadImg(gfxLogoUrl());
     if (!im) { text('PITWALL', align === 'center' ? x + w / 2 : align === 'right' ? x + w : x, y + h / 2, { size: Math.round(h * 0.7), weight: 800, color, align, max: w }); return; }
     const k = Math.min(w / im.width, h / im.height); const dw = im.width * k, dh = im.height * k;
     const oc = document.createElement('canvas'); oc.width = Math.ceil(dw); oc.height = Math.ceil(dh); const o = oc.getContext('2d');
