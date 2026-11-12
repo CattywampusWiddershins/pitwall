@@ -69,7 +69,9 @@ function gfxKit(g) {
     g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.drawImage(im, x + (w - dw) / 2, y + (cover ? 0 : (h - dh) / 2), dw, dh); g.restore(); return true;
   };
   // up to `lines` lines of text inside `max`, shrinking only the last line's overflow
-  const wrap = (t, x, y, { size = 26, weight = 500, color = '#FFFFFF', align = 'left', fam = body, max = 600, lines = 2, lh = 1.3, middle = false } = {}) => {
+  // fit: the text gets smaller (down to minSize) until every word fits in the lines, rather than squeezing the last one
+  const wrap = (t, x, y, { size = 26, weight = 500, color = '#FFFFFF', align = 'left', fam = body, max = 600, lines = 2, lh = 1.3, middle = false, fit = false, minSize = 20 } = {}) => {
+    if (fit) for (; size > minSize; size -= 2) { g.font = font(size, weight, fam); let n = 1, cur = ''; for (const w of String(t).split(' ')) { const nx = cur ? cur + ' ' + w : w; if (cur && g.measureText(nx).width > max) { n++; cur = w; } else cur = nx; } if (n <= lines) break; }
     g.font = font(size, weight, fam); const out = []; let cur = '';
     for (const w of String(t).split(' ')) { const nx = cur ? cur + ' ' + w : w; if (cur && g.measureText(nx).width > max && out.length < lines - 1) { out.push(cur); cur = w; } else cur = nx; }
     out.push(cur); const y0 = middle ? y - (out.length - 1) * size * lh / 2 : y; // middle: centred on y
@@ -990,18 +992,18 @@ async function gfxQuote(g, k, c, s, { ri, kicker, headline, quotes, solo = false
     gfxGlow(g, GFX_W - 280, 820, 460, col, 0.45);
     await gfxStand(g, c, s, q.id, { cx: GFX_W - 260, top: 330, bottom: GFX_H, frac: 0.58 });
     k.text('“', 50, 420, { size: 240, weight: 900, color: col, fam: 'Georgia, serif' });
-    k.wrap(`${q.text}`.toUpperCase(), 56, 560, { size: 66, weight: 900, max: GFX_W * 0.56, lines: 7, lh: 1.08, fam: k.disp });
+    k.wrap(`${q.text}`.toUpperCase(), 56, 560, { size: 66, weight: 900, max: GFX_W * 0.56, lines: 9, lh: 1.08, fam: k.disp, fit: true, minSize: 34 });
     k.text(`${trName(c, s, q.id).toUpperCase()}  ·  ${(tm?.name || '').toUpperCase()}`, 56, GFX_H - 80, { size: 30, weight: 700, color: '#D0D6E2', max: GFX_W * 0.6 });
     return;
   }
-  k.wrap(String(headline).toUpperCase(), 54, 200, { size: 62, weight: 900, max: GFX_W - 108, lines: 2, lh: 1.02, fam: k.disp });
+  k.wrap(String(headline).toUpperCase(), 54, 200, { size: 62, weight: 900, max: GFX_W - 108, lines: 2, lh: 1.02, fam: k.disp, fit: true, minSize: 36 });
   for (let j = 0; j < n; j++) {
     const q = qs[j]; const tm = teamAt(s, q.id, ri) || teamOf(s, q.id); const col = gfxTeamCol(tm); const x0 = j * GFX_W / n, w = GFX_W / n;
     const gr = g.createLinearGradient(0, 420, 0, GFX_H); gr.addColorStop(0, hexA(col, 0)); gr.addColorStop(1, hexA(col, 0.4)); g.fillStyle = gr; g.fillRect(x0, 420, w, GFX_H - 420);
     g.save(); g.beginPath(); g.rect(x0, 0, w, GFX_H); g.clip(); await gfxStand(g, c, s, q.id, { cx: x0 + w / 2, top: 400, bottom: GFX_H, frac: 0.55 }); g.restore();
     const pad = n > 2 ? 16 : 30, bh = n > 2 ? 360 : 280, by = GFX_H - bh - 50; g.fillStyle = 'rgba(0,0,0,0.66)'; g.fillRect(x0 + pad, by, w - pad * 2, bh); g.fillStyle = col; g.fillRect(x0 + pad, by, 10, bh);
     k.text(lastName(trName(c, s, q.id)).toUpperCase(), x0 + pad + 26, by + 44, { size: n > 2 ? 32 : 38, weight: 900, max: w - pad * 2 - 40 });
-    k.wrap(`“${q.text}”`, x0 + pad + 26, by + 96, { size: n > 2 ? 23 : 27, weight: 600, max: w - pad * 2 - 44, lines: n > 2 ? 9 : 6, lh: 1.3 });
+    k.wrap(`“${q.text}”`, x0 + pad + 26, by + 96, { size: n > 2 ? 23 : 27, weight: 600, max: w - pad * 2 - 44, lines: n > 2 ? 9 : 6, lh: 1.3, fit: true, minSize: 16 });
   }
 }
 

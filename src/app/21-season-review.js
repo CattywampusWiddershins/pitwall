@@ -559,7 +559,7 @@ function buildStories(c, s) {
   for (const m of c.media) {
     if (!m.article || m.seasonIdx !== s.index) continue;
     const ri = m.roundId ? rounds.findIndex(x => x.id === m.roundId) : m.kind === 'preseason' ? -1 : m.kind === 'endseason' ? rounds.length : Math.max(0, Math.floor(rounds.length / 2) - 1);
-    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: m.article.headline, standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
+    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
   }
   // milestones and records from the career timeline
   const tl = careerTimeline(c);
@@ -845,12 +845,19 @@ function storyGfx(s, x) {
   return out;
 }
 /** The quote graphic for a story with drivers' words: both drivers on one for contact, battles and rivals; your interview's headline quote alone. */
+/** An interview's headline. One saved before 5.3.3 could have its quote cut off mid-word at 80 characters: it's
+ *  clipped again from the answer it came from (at a sentence or clause, or a whole word). */
+function mediaHeadline(m) {
+  const h = m.article?.headline || ''; const q = /“([^”]+)”/.exec(h); if (!q || q[1].length !== 80) return h;
+  const a = (m.questions || []).map(x => String(x.answer || '').trim()).find(x => x.length > 80 && x.startsWith(q[1]));
+  return a ? h.replace(q[0], `“${quoteClip(a)}”`) : h;
+}
 function quoteGfx(s, x) {
   if (x.media && !isPrincipal(career())) {
     const h = /“([^”]+)”/.exec(x.headline || ''); const best = h ? h[1] : (x.media.questions || []).map(q => q.answer || '').filter(a => a && !/^no comment/i.test(a)).sort((a, b) => b.length - a.length)[0];
     return best ? { type: 'quote', kicker: `Your interview · ${x.r.name}`, headline: x.headline, quotes: [{ id: PLAYER, text: best }], solo: true } : null;
   }
-  if (x.kind === 'pen' && x.subject && x.qa?.length) return { type: 'quote', kicker: `In the pen · ${x.r.name}`, headline: x.headline, quotes: [{ id: x.subject, text: x.qa[0][1].split(/(?<=[.!?])s/)[0] }], solo: true };
+  if (x.kind === 'pen' && x.subject && x.qa?.length) return { type: 'quote', kicker: `In the pen · ${x.r.name}`, headline: x.headline, quotes: [{ id: x.subject, text: x.qa[0][1].split(/(?<=[.!?])\s/)[0] }], solo: true };
   if (!['incident', 'battle'].includes(x.kind) && !x.pair) return null;
   const q = (x.quotes || []).filter(o => o && o.id && !o.team && s.drivers[o.id]).slice(0, 2);
   if (!q.length) return null;

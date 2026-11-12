@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.3.3
+
+- **Your quotes are never cut off mid-word.** An interview's headline takes the first sentence of your longest answer; when that's too long, it now stops at the first comma, semicolon, colon or dash, and failing that at the last whole word, with an ellipsis (it used to stop at 80 characters, wherever that fell). Headlines saved before are put right too. On the quote graphics, a long quote gets smaller text until it fits whole, and so does a long headline.
+- The "In the pen" quote is cut at the end of the first sentence, as meant (it was cutting at the first "s" after a full stop).
+
 ## 5.3.2
 
 - **Your fastest lap is the one compared.** The fastest lap head to head could leave out your quickest lap for a slower one, for two reasons. After the flying-lap option (or leaving the garage), F1 25 can flick its pit flags on for a moment out on track at full speed, and a lap with one of those was dropped as if it had been through the pits (it kept those laps out of the ERS profile too): the pit flags now only count below 90 km/h, the speed of a pit lane. And a flying lap the session ended on as it crossed the line, or one followed straight away by Return to Garage, never saw the next lap start, so it was never kept: it now is, when it was recorded from line to line and the game has it as a finished, valid lap.

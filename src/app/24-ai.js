@@ -423,7 +423,7 @@ function templateArticle(c, m) {
   const answered = m.questions.filter(q => q.answer && q.answer.trim() && !/^no comment/i.test(q.answer.trim()));
   const best = answered.sort((a, b) => b.answer.length - a.answer.length)[0];
   const r = s.calendar.find(x => x.id === m.roundId);
-  const head = best ? `${c.profile.last}: “${best.answer.split(/[.!?]/)[0].slice(0, 80)}”` : `${c.profile.last} keeps cards close to chest${r ? ' in ' + r.name : ''}`;
+  const head = best ? `${c.profile.last}: “${quoteClip(best.answer)}”` : `${c.profile.last} keeps cards close to chest${r ? ' in ' + r.name : ''}`;
   const body = [
     `${name} spoke to the media ${r ? 'after the ' + r.name + ' Grand Prix weekend' : 'during ' + s.year} and ${answered.length >= 3 ? 'was in a talkative mood' : answered.length ? 'gave a few measured answers' : 'had little to say'}.`,
     ...answered.slice(0, 2).map(q => `Asked “${q.question}”, the ${s.teams.find(t => t.id === s.playerTeamId)?.name} driver replied: “${q.answer.trim()}”`),

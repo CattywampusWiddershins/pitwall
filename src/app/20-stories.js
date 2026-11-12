@@ -9,6 +9,19 @@ function seeded(str) {
   return () => { h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
 }
 const choose = (rnd, arr) => arr[Math.floor(rnd() * arr.length)];
+/**
+ * Your own words, short enough for a headline: the first sentence; if that runs past max characters, up to its first
+ * comma, semicolon, colon or dash (a spaced hyphen counts), when that still says something; failing both, the whole
+ * words that fit, with an ellipsis. Never cut in the middle of a word.
+ */
+function quoteClip(t, max = 80) {
+  const txt = String(t || '').trim().replace(/\s+/g, ' ');
+  const sent = txt.split(/(?<=[.!?])\s/)[0].replace(/[.!?]+$/, '');
+  if (sent.length <= max) return sent;
+  const m = /^(.{12,}?)\s*(?:[,;:—–]|\s-)\s/.exec(sent); if (m && m[1].length <= max) return m[1];
+  const cut = sent.slice(0, max + 1); const sp = cut.lastIndexOf(' ');
+  return (sp > 20 ? cut.slice(0, sp) : cut.slice(0, max)).replace(/[\s,;:—–-]+$/, '') + '…';
+}
 // family name: "de Vries", "van Hoepen"; Zhou Guanyu is written family name first
 const lastName = (n) => {
   const w = String(n || '').trim().split(' ');
