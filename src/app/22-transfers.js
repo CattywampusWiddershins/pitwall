@@ -341,7 +341,7 @@ function renderMedia() {
 function mediaTitle(c, m) {
   const s = c.seasons[m.seasonIdx];
   const r = s?.calendar.find(x => x.id === m.roundId);
-  const kind = { preseason: 'Pre-season media day', quali: 'Post-qualifying press conference', sprint: 'Post-sprint interview', race: 'Post-race press conference', midseason: 'Mid-season interview', endseason: 'End-of-season interview' }[m.kind] || 'Media session';
+  const kind = { preseason: 'Pre-season media day', preweekend: 'Pre-weekend press conference', quali: 'Post-qualifying press conference', sprint: 'Post-sprint interview', race: 'Post-race press conference', midseason: 'Mid-season interview', endseason: 'End-of-season interview' }[m.kind] || 'Media session';
   return `${kind}${r ? ' · ' + r.name : ''} · ${s?.year || ''}`;
 }
 function renderMediaSession(c, m) {

@@ -65,9 +65,14 @@ function mediaContext(c, seasonIdx, roundId, kind) {
   races, this race a year ago, streaks and firsts). Each angle has a weight, so the strongest stories get asked about
   first, and carries a fact line for the AI and questions for the built-in set. A team principal is asked about the
   team and both drivers, never about their own driving.
+  The interviews after qualifying, the sprint and the race keep to that session: what happened in it and what it
+  changed (the championship, a title, a decider to come). Everything else (the last race, your history at this track,
+  form, streaks, the season, rivals, milestones, rumours) belongs to the pre-weekend press conference, before anything
+  has run at the round.
 */
 const qPick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 function mediaAngles(c, seasonIdx, roundId, kind) {
+  const SESSION = ['quali', 'sprint', 'race'].includes(kind), pre = kind === 'preweekend';
   const s = c.seasons[seasonIdx]; const rounds = activeRounds(s);
   const r = rounds.find(x => x.id === roundId); const ri = r ? rounds.indexOf(r) : roundsDone(s) - 1;
   const tp = isPrincipal(c); const team = s.teams.find(t => t.id === s.playerTeamId);
@@ -109,6 +114,23 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
       }
       const pens = (ses.R.game?.penalties || []).filter(p => p.d === d && PENALTY_NAMES[p.type] && !COLLISION_INFR.includes(p.infr));
       if (pens.length) add('pen-' + d, 6, `${dName(s, d)} was penalised: ${listJoin(pens.map(p => `${p.type === 4 ? `${p.time} s` : PENALTY_NAMES[p.type]}${INFRINGEMENTS[p.infr] ? ` for ${INFRINGEMENTS[p.infr]}` : ''}`))}.`, [`A penalty for ${INFRINGEMENTS[pens[0].infr] || 'an infringement'}. Avoidable?`]);
+      if (!x.out) {
+        // the opening lap, laps led, the fastest lap, overtakes made, and a wet race
+        const LP = lapPositions(ses.R); const lp = LP?.pos?.[d];
+        if (lp && lp[0] && lp[1]) { const l1 = lp[0] - lp[1];
+          if (l1 >= 3) add('lap1-' + d, 6, `${dName(s, d)} gained ${l1} places on the opening lap, P${lp[0]} to P${lp[1]}.`, [`${l1} places on the opening lap. Was that start planned, or did it open up for ${nm === 'you' ? 'you' : nm}?`, `P${lp[0]} to P${lp[1]} by the end of lap one. Talk us through the start.`]);
+          else if (l1 <= -3) add('lap1-' + d, 6, `${dName(s, d)} lost ${-l1} places on the opening lap, P${lp[0]} to P${lp[1]}.`, [`${nm === 'you' ? 'You' : nm} lost ${-l1} places on the first lap. What happened at the start?`]); }
+        const led = lp ? lp.slice(1, LP.N).filter(p => p === 1).length : 0;
+        if (led >= 3 && x.pos !== 1) add('led-' + d, 7, `${dName(s, d)} led ${plural(led, 'lap')} but finished P${x.pos}.`, [`${nm === 'you' ? 'You' : nm} led ${plural(led, 'lap')} today but didn't win. What slipped away?`]);
+        else if (x.pos === 1 && LP && led >= LP.N - 2) add('led-' + d, 6, `${dName(s, d)} led every lap.`, [`Lights to flag, leading every lap. Was it as comfortable as it looked?`]);
+        if (fastestOf(ses.R) === d) add('fl-' + d, 3, `${dName(s, d)} set the fastest lap.`, [`The fastest lap as well. Were ${nm === 'you' ? 'you' : nm} still pushing at the end?`]);
+        const ov = (ses.R.game?.overtakes || []).filter(o => o[0] === d).length;
+        if (ov >= 5) add('ovt-' + d, 5 + Math.min(3, (ov - 5) / 2), `${dName(s, d)} made ${ov} overtakes.`, [`${ov} overtakes today. Which one are ${nm === 'you' ? 'you' : 'they'} proudest of?`, `${ov} passes. Is that the most fun ${nm === 'you' ? "you've" : 'the team has'} had in a race this year?`]);
+        if (stintsOf(ses.R, d).some(o => o.c === 7 || o.c === 8)) add('wet-' + d, 6, `${dName(s, d)} ran intermediates or wets.`, [`The weather changed things. Talk us through the call on the tyres.`, `How tricky was the grip when it was wet out there?`]);
+        // a safety car: a stop made under it, or how it changed the race
+        const scl = dbScLaps(ses.R.game || {}); if (scl.size) { const under = stintsOf(ses.R, d).slice(0, -1).find(o => scl.has(o.to) || scl.has(o.to + 1)); // (a stop counts on the lap in or the lap out) const first = Math.min(...scl);
+          add('sc-' + d, under ? 6 : 4, under ? `${dName(s, d)} pitted under the safety car on lap ${scl.has(under.to) ? under.to : under.to + 1}.` : `There was a safety car from lap ${first}.`, under ? [`${nm === 'you' ? 'You' : nm} pitted under the safety car on lap ${scl.has(under.to) ? under.to : under.to + 1}. How much did that win?`] : [`The safety car came out on lap ${first}. Did it help or hurt ${nm === 'you' ? 'you' : nm}?`]); }
+      }
       const g2 = ses.R.game; if (g2?.pits?.[d] != null && !x.out) add('strat-' + d, 3 + (g2.pits[d] >= 3 ? 2 : 0), `${dName(s, d)} made ${plural(g2.pits[d], 'stop')}: ${stintsOf(ses.R, d).map(o => (COMPOUNDS[o.c] || [])[1] || '?').join(', ')}.`, [`${plural(g2.pits[d], 'stop')} today. Did the strategy work?`, `Talk us through the tyre calls.`]);
     }
     for (const d of ours) for (const b of raceBattles(ses.R) || []) {
@@ -137,8 +159,12 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
       const exit = x.pos > 15 ? 'Q1' : x.pos > 10 ? 'Q2' : null;
       add('grid-' + d, 5 + (x.pos === 1 ? 5 : x.pos <= 3 ? 2 : 0), `${dName(s, d)} qualified P${x.pos}${ses.Q.results[x.pos - 1]?.gap ? ` (${ses.Q.results[x.pos - 1].gap} off pole)` : ''}.`, [x.pos === 1 ? (tp ? `Pole for ${L(d)}! How did the team pull that off?` : `Pole position! Talk us through the lap.`) : `P${x.pos} on the grid for ${nm === 'you' ? 'you' : nm}. Is that where the car belongs?`]);
       if (exit) add('exit-' + d, 6, `${dName(s, d)} went out in ${exit}.`, [tp ? `${L(d)} went out in ${exit}. What went wrong?` : `Out in ${exit}. What went wrong?`, `${nm === 'you' ? 'You' : nm} didn't make it past ${exit}. How much harder does that make tomorrow?`]);
+      const pole = parseLap(ses.Q.results[0]?.lap), mine = parseLap(ses.Q.results[x.pos - 1]?.lap);
+      if (x.pos > 1 && pole && mine && mine - pole <= 120) add('qgap-' + d, 6, `${dName(s, d)} was ${((mine - pole) / 1000).toFixed(3)} s off pole.`, [`Just ${((mine - pole) / 1000).toFixed(3)} seconds off pole. Where was that last bit of time?`]);
+      if (x.pos === 1 && careerCount(d, 'poles') <= 1) add('firstpole-' + d, 11, `It was ${dName(s, d)}'s first pole position.`, [tp ? `A first pole for ${L(d)}. What does it mean for the team?` : `Your first Formula 1 pole! What was going through your mind on that lap?`]);
       if (expect && x.pos <= expect - 4) add('qbeat-' + d, 7, `${dName(s, d)} qualified P${x.pos}, well above the car's usual ${ordWord(paceRank)} place on one-lap pace.`, [`P${x.pos} in a car that usually qualifies around ${ordWord(Math.round(expect))}. Where did that come from?`]);
     }
+    if (!tp && mate) { const a = at(ses.Q, PLAYER), b = at(ses.Q, mate); if (a && b && a.pos <= 2 && b.pos <= 2) add('lockout', 8, `${team?.name} locked out the front row.`, [`A front-row lockout for ${team?.name}. Who gets to turn one first tomorrow?`]); }
     if (!tp && mate) { const a = at(ses.Q, PLAYER), b = at(ses.Q, mate); if (a && b) add('qmate', 4, `${dName(s, mate)} qualified P${b.pos}.`, [b.pos < a.pos ? `${L(mate)} out-qualified you. What did ${L(mate)} find?` : `Ahead of ${L(mate)} again. Is the qualifying battle won?`]); }
   }
   if (kind === 'sprint' && ses.SPR?.done) {
@@ -150,6 +176,12 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
         if (g && g - x.pos >= 3) add('sclimb-' + d, 6, `${dName(s, d)} gained ${g - x.pos} places in the sprint.`, [`${g - x.pos} places made up in the sprint. Can you do that again tomorrow?`]);
         if (g && x.pos - g >= 3) add('sdrop-' + d, 6, `${dName(s, d)} lost ${x.pos - g} places in the sprint.`, [`Down from P${g} to P${x.pos} in the sprint. What went wrong?`]);
       }
+    }
+    for (const d of ours) {
+      for (const inc of (ses.SPR.game?.incidents || []).filter(o => o.a === d || o.b === d)) { const other = inc.a === d ? inc.b : inc.a;
+        add('sinc-' + d + other, inc.major ? 8 : 4, `Sprint, lap ${inc.lap || '?'}: ${incidentLine(inc, L)}`, [`Contact with ${L(other)} in the sprint. What happened?`, `Does the contact with ${L(other)} today change how you race tomorrow?`]); }
+      for (const b of raceBattles(ses.SPR) || []) { if (b.a !== d && b.b !== d) continue; const o = b.a === d ? b.b : b.a;
+        add('sbattle-' + d + o, 5 + (b.forLead ? 3 : 0), `${dName(s, d)} and ${dName(s, o)} battled in the sprint; ${dName(s, b.ahead)} came out ahead.`, [b.ahead === d ? `You came out on top against ${L(o)} in the sprint. A preview of tomorrow?` : `${L(o)} had the better of you in the sprint. What do you change for the Grand Prix?`]); }
     }
     if (!tp && mate) { const a = at(ses.SPR, PLAYER), b = at(ses.SPR, mate); if (a && b) add('smate', 4, `${dName(s, mate)} finished the sprint P${b.pos}.`, [b.pos < a.pos ? `${L(mate)} beat you in the sprint. Is the teammate fight getting tighter?` : `Ahead of ${L(mate)} in the sprint. A sign of things to come tomorrow?`]); }
   }
@@ -210,7 +242,7 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
         ? [`Your two drivers are now fighting each other for the title, ${plural(e.gap, 'point')} apart. Will you let them race?`, `${L(e.a)} and ${L(e.b)} are title rivals now. Is there a number one at this team?`]
         : [`It's ${side(e)} against ${nmK(e.kind, other)} for the title now, ${plural(e.gap, 'point')} apart. Ready for that fight?`, `People are calling it a two-way fight between ${side(e) === 'you' ? 'you' : side(e)} and ${nmK(e.kind, other)}. Fair?`]);
     }
-    for (const x of rv.active.filter(x => me(x.a, x.kind) || me(x.b, x.kind))) {
+    for (const x of SESSION ? [] : rv.active.filter(x => me(x.a, x.kind) || me(x.b, x.kind))) {
       const other = me(x.a, x.kind) ? x.b : x.a; const leading = me(x.a, x.kind); const who = side(x);
       add('rivalry', 5 + (x.heat || 0) * 4, `Title rivalry: ${nmK(x.kind, x.a)} leads ${nmK(x.kind, x.b)} by ${plural(x.gap, 'point')}.`, both(x)
         ? [`${L(x.a)} leads ${L(x.b)} by ${plural(x.gap, 'point')}. How do you manage two drivers fighting for the title?`, `Do team orders come into it if ${L(x.b)} falls further behind ${L(x.a)}?`]
@@ -221,20 +253,23 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
     if (arch) {
       const name = tp ? arch.name : dName(s, arch.id);
       let line = '', qs = [`${name} is ${tp ? 'your team\'s' : 'your'} archrival now. Does beating them matter more than anything?`];
-      if (kind === 'race' && ses.R?.done) {
-        const best = (ids) => Math.min(...ids.map(d => at(ses.R, d)).filter(x => x && !x.out).map(x => x.pos), 99);
+      const today = kind === 'race' ? ses.R : kind === 'quali' ? ses.Q : kind === 'sprint' ? ses.SPR : null;
+      if (today?.done) {
+        const best = (ids) => Math.min(...ids.map(d => at(today, d)).filter(x => x && !x.out).map(x => x.pos), 99);
         const mine = best(ours), theirs = tp ? best(arch.drivers.filter(Boolean)) : best([arch.id]);
         if (mine < 99 && theirs < 99) { line = ` Today: ${mine < theirs ? 'ahead' : 'behind'}, P${mine} to P${theirs}.`; qs = [mine < theirs ? `One up on ${name} today. How good does that feel?` : `${name} came out ahead today. Does that hurt more than the result itself?`]; }
       }
-      add('arch', 6, `Archrival: ${name}.${line}`, qs);
+      if (!SESSION || line) add('arch', 6, `Archrival: ${name}.${line}`, qs);
     }
-    for (const fd of feudsAt(c, s, ri + 1).filter(fd => ours.includes(fd.a) || ours.includes(fd.b))) {
+    for (const fd of SESSION ? [] : feudsAt(c, s, pre ? ri : ri + 1).filter(fd => ours.includes(fd.a) || ours.includes(fd.b))) {
       const other = ours.includes(fd.a) ? fd.b : fd.a;
       add('feud', 6, `Running feud with ${dName(s, other)} (${fd.reason}).`, [`Things are still tense with ${L(other)}. Have you cleared the air?`]);
     }
   }
+  // a session's own streaks: a run extended, a run ended, a pole after a pole
+  if (SESSION && !tp) { const mq = memoryQuestion(c, s, ri, kind); if (mq) add('memory', 6, '', [mq]); }
   // memory: last time out, recent form, a year ago, streaks
-  if (kind !== 'preseason') {
+  if (!SESSION && kind !== 'preseason') {
     const focus = tp ? ours[0] : PLAYER;
     const prevR = ri - (kind === 'race' ? 1 : 1) >= 0 ? rounds[kind === 'race' ? ri - 1 : ri - 1] : null;
     const prevRes = prevR && at(s.weekends[prevR.id]?.sessions?.R, focus);
@@ -244,7 +279,7 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
     const all = rounds.slice(0, ri + (kind === 'race' ? 1 : 0)).map(x => at(s.weekends[x.id]?.sessions?.R, focus)).filter(x => x && !x.out).map(x => x.pos);
     if (lastN.length >= 3 && all.length >= 6) { const a = avg(lastN), b = avg(all); if (b - a >= 2.5) add('form', 5, `Form: an average of P${a.toFixed(1)} over the last ${lastN.length} races against P${b.toFixed(1)} for the season.`, [`Your last ${lastN.length} races have been your best of the year. What clicked?`]); else if (a - b >= 2.5) add('form', 5, `Form: an average of P${a.toFixed(1)} over the last ${lastN.length} races, down on P${b.toFixed(1)} for the season.`, [`The results have dipped over the last few races. What's going on?`]); }
     // this race a year ago
-    if (r) {
+    if (r && !pre) { // (before a weekend, the last visit here is asked about instead)
       const py = c.seasons[s.index - 1]; const pr = py && activeRounds(py).find(x => trackOf(x) === trackOf(r));
       const px = pr && at(py.weekends[pr.id]?.sessions?.R, focus);
       if (px) add('yearago', 4 + (px.pos === 1 ? 3 : 0), `A year ago here, ${dName(s, focus)} finished ${px.out ? px.st : 'P' + px.pos}.`, tp ? [px.pos === 1 ? `${L(focus)} won here last year. Can the team repeat it?` : `${L(focus)} was ${px.out ? "out of the race" : "P" + px.pos} here a year ago. How much further on is the team now?`] : [px.pos === 1 ? `You won here last year. Does coming back feel different?` : px.out ? `Last year here ended in a ${px.st}. Any demons to put to rest?` : `P${px.pos} here a year ago. How much further on are you now?`]);
@@ -253,8 +288,8 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
     if (mq) add('memory', 6, '', [mq]);
   }
   // the season: where it stands, goals, the teammate
-  if (kind !== 'preseason') {
-    const st = seasonStats(s, kind === 'race' || kind === 'quali' ? ri + 1 : Infinity);
+  if (!SESSION && kind !== 'preseason') {
+    const st = seasonStats(s, pre ? Math.max(0, ri) : Infinity);
     if (tp) {
       const cs = constructorStandings(s, st); const pos = cs.find(x => x.team.id === s.playerTeamId)?.pos;
       add('wcc', 3, `${team?.name} are P${pos} in the constructors' championship.`, [`P${pos} in the constructors' championship. Where should this team be by the end of the year?`]);
@@ -266,6 +301,71 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
     const goals = s.goals.filter(g => !g.driver || ours.includes(g.driver));
     const off = goals.filter(g => !evalGoal(g, s).ok);
     if (goals.length) add('goals', kind === 'midseason' || kind === 'endseason' ? 6 : 2, `Season goals: ${goals.map(g => `${goalTitle(g)} (${evalGoal(g, s).ok ? 'on target' : 'not yet'})`).join('; ')}.`, [off.length ? `One of the goals was “${goalTitle(off[0])}”. Is that still realistic?` : `Every target is on track. Time to aim higher?`]);
+  }
+  if (pre && r) {
+    const tid = trackOf(r); const T = D.TRACKS[tid] || {}; const focus = tp ? ours[0] : PLAYER; const yo = (d) => you(d) === 'you' ? 'you' : you(d);
+    // this track in the career: the last visit, wins here, a first visit, a brand-new venue
+    const visits = [];
+    for (const se of c.seasons) { if (isHist(se) || se.index > s.index) continue; activeRounds(se).forEach((rr, k) => { if ((se.index === s.index && k >= ri) || trackOf(rr) !== tid) return; const sd = se.weekends[rr.id]?.sessions || {}; const res = at(sd.R, focus); if (res) visits.push({ year: se.year, res, q: at(sd.Q, focus) }); }); }
+    const last = visits[visits.length - 1]; const wins = visits.filter(v => v.res.pos === 1 && !v.res.out).length;
+    if (last) { const v = last.res;
+      add('here-last', 6 + (v.pos === 1 && !v.out ? 3 : 0), `Last time here (${last.year}), ${dName(s, focus)} finished ${v.out ? v.st : 'P' + v.pos}${last.q ? ` from P${last.q.pos} on the grid` : ''}.`,
+        v.pos === 1 && !v.out ? [tp ? `${L(focus)} won here in ${last.year}. Does the team arrive as favourite?` : `You won here in ${last.year}. Do you arrive as the favourite?`, `What is it about this place that suits ${tp ? 'the team' : 'you'}?`]
+        : v.out ? [tp ? `Last time here ended in a ${v.st} for ${L(focus)}. Lessons learned?` : `Your last visit here ended in a ${v.st}. Any demons to put to rest?`]
+        : [`P${v.pos} here in ${last.year}. What's realistic this time?`, `What did ${yo(focus)} learn last time here that helps this weekend?`]); }
+    if (wins >= 2) add('herewins', 8, `${dName(s, focus)} has won here ${wins} times.`, [`${cap1(numWord(wins))} wins here already. Is this ${tp ? "the team's" : 'your'} favourite track?`]);
+    if (T.custom) add('here-new', 9, `${r.name} is a new venue for Formula 1.`, [`Formula 1 has never raced here before. What do you know about the track so far?`, `How do you prepare for a circuit nobody has raced on?`]);
+    else if (!last) add('here-first', 4, `${dName(s, focus)} has not raced here before in this career.`, [`It's ${tp ? "the team's" : 'your'} first visit here in this era. How have you prepared?`]);
+    const prevS = c.seasons[s.index - 1];
+    if (prevS && !isHist(prevS) && !T.custom && !activeRounds(prevS).some(x => trackOf(x) === tid)) add('here-back', 5, `${r.name} is back on the calendar this year.`, [`${r.name} is back on the calendar. Good to be here?`]);
+    const deal = (c.trackDeals || []).filter(x => x.tid === tid && x.si === s.index).pop();
+    if (deal && (deal.from == null || deal.to > deal.from)) add('deal', 3, `The race here has a deal to ${deal.to}.`, [`The race here is on the calendar until ${deal.to} now. What makes it special?`]);
+    const ovh = overtakeOf(c, tid).hard;
+    if (ovh >= 75) add('overtake', 4, `Overtaking is hard here (${ovh}% hard).`, [`Overtaking is notoriously hard here. How much of the weekend comes down to Saturday?`]);
+    else if (ovh <= 40) add('overtake', 3, `Overtaking is easy here (${ovh}% hard).`, [`There's plenty of overtaking here. Does that take the pressure off qualifying?`]);
+    const cc = natCode(c.profile.nationality);
+    if (!tp && cc && cc === window.F1ASSETS.country[T.country] /* (A is the angles here) */) add('home', 9, 'It is the player\'s home race.', [`It's your home race. How much does it mean?`, `The home crowd will be behind you. Does that add pressure?`]);
+    if (r.sprint) add('sprintfmt', 2, 'A sprint weekend.', [`It's a sprint weekend: one practice session, then straight into it. Does that suit ${tp ? 'the team' : 'you'}?`]);
+    // the last race: the result, contact since, the teammate
+    const pr = ri > 0 ? rounds[ri - 1] : null; const psd = pr && s.weekends[pr.id]?.sessions?.R;
+    const px = psd && at(psd, focus);
+    if (px) add('lastrace', px.out ? 7 : px.pos === 1 ? 6 : px.pos <= 3 ? 5 : 3, `Last race (${pr.name}): ${dName(s, focus)} ${px.out ? px.st : 'P' + px.pos}.`,
+      px.out ? [`After the ${px.st} in ${pr.name}, how do ${yo(focus)} bounce back?`] : px.pos === 1 ? [`${tp ? L(focus) + ' arrives' : 'You arrive'} off the back of a win in ${pr.name}. How much momentum is there?`] : px.pos <= 3 ? [`A podium in ${pr.name}. Can ${yo(focus)} go one better here?`] : [`P${px.pos} in ${pr.name}. What did ${yo(focus)} take from that weekend?`]);
+    for (const inc of (psd?.game?.incidents || []).filter(o => o.major && (o.a === focus || o.b === focus))) { const other = inc.a === focus ? inc.b : inc.a;
+      add('lastinc', 7, `In ${pr.name}, ${incidentLine(inc, L)}`, [`Have ${yo(focus)} spoken to ${L(other)} since the contact in ${pr.name}?`, `Is everything settled with ${L(other)} after ${pr.name}?`]); }
+    const mt = !tp && mate && psd && at(psd, mate);
+    if (mt && px && !px.out && !mt.out && mt.pos < px.pos) add('lastmate', 4, `${dName(s, mate)} beat the player in ${pr.name}.`, [`${L(mate)} beat you in ${pr.name}. Time to hit back?`]);
+    // the title as it stands going in
+    if (!tp && ri >= 0) {
+      const m = titleMath(s, 'driver', ri); const meT = m.rows.find(x => x.id === PLAYER); const td = titleDecision(s, 'driver');
+      if (td && td.i < ri - 1 && td.m.rows[0].id === PLAYER) add('champfirst', 6, 'The player is already world champion this year.', [`You're world champion already. What is left to race for this season?`, `Does it feel different racing with the title already won?`]);
+      else if (td && td.i === ri - 1 && td.m.rows[0].id === PLAYER) add('champfirst', 12, 'The player won the title at the last round.', [`Your first race as world champion. Does the pressure come off now?`, `How have the days since winning the title been?`]);
+      else if (meT && !m.decided) {
+        const can = (roundPerms(m)?.clinch || []).map(t => t.x.id);
+        if (can.includes(PLAYER)) add('pdecider', 13, 'The player can clinch the title this weekend.', [`You can be world champion this weekend. How do you approach it?`, `The title could be yours on Sunday. Are you thinking about it?`]);
+        else if (can.length && meT.alive) add('pdecider', 10, `${listJoin(can.map(id => dName(s, id)))} can clinch the title this weekend.`, [`${listJoin(can.map(L))} could wrap up the title here. Can you stop it?`]);
+        const lead = m.rows[0], second = m.rows[1];
+        if (meT.pos === 1 && second) add('plead', 7, `The player leads the championship by ${meT.pts - second.pts} points from ${dName(s, second.id)}.`, [`You arrive ${plural(meT.pts - second.pts, 'point')} clear at the top. Do you manage it from here, or keep attacking?`]);
+        else if (meT.alive && lead && lead.pts - meT.pts <= 30) add('pchase', 7, `The player is ${lead.pts - meT.pts} points behind leader ${dName(s, lead.id)}.`, [`${plural(lead.pts - meT.pts, 'point')} behind ${L(lead.id)}. Is this the weekend to close it?`]);
+        else if (!meT.alive && meT.pos <= 4 && ri > 0) add('pout', 5, 'The player can no longer win the title.', [`The title is out of reach now. What are you racing for in the rounds left?`]);
+      }
+    }
+    // streaks going in, and milestones this weekend could bring
+    if (!tp) {
+      const run = raceMemory(c, s, Math.max(0, ri)).run(PLAYER);
+      if (run.wins >= 2) add('streak', 8, `The player has won the last ${run.wins} races.`, [`${cap1(numWord(run.wins))} wins in a row. Can you make it ${numWord(run.wins + 1)}?`]);
+      else if (run.podiums >= 3) add('streak', 6, `${run.podiums} podiums in a row.`, [`${cap1(numWord(run.podiums))} podiums in a row. What's behind the consistency?`]);
+      else if (run.points >= 5) add('streak', 4, `${run.points} points finishes in a row.`, [`${run.points} points finishes in a row. How do you keep the run going?`]);
+      const starts = careerCount(PLAYER, 'starts'), w = careerCount(PLAYER, 'wins'), pods = careerCount(PLAYER, 'podiums');
+      if ((starts + 1) % 50 === 0) add('milestone', 6, `This weekend is the player's ${starts + 1}th Grand Prix start.`, [`This weekend is your ${ordWord(starts + 1)} Grand Prix. What do you remember of your first?`]);
+      else if ([9, 19, 24, 49, 99].includes(w)) add('milestone', 6, `One win from ${w + 1}.`, [`One more win makes it ${w + 1}. Is that number on your mind?`]);
+      else if ([9, 24, 49, 99].includes(pods)) add('milestone', 4, `One podium from ${pods + 1}.`, [`One more podium makes it ${pods + 1}. Do you keep count?`]);
+      // the driver market: a rumour about you still open
+      const rm = (c.rumours || []).filter(x => x.seasonIdx === s.index && x.driver === PLAYER && x.status === 'open').pop();
+      if (rm) { const tn = (s.teams.find(t => t.id === rm.team) || teamMeta(c, rm.team))?.name;
+        add('rumour', 7, rm.kind === 'retire' ? 'There is talk the player could retire.' : rm.kind === 'stay' ? `The player is said to be close to a new deal with ${tn}.` : `The player has been linked with ${tn}.`,
+          rm.kind === 'retire' ? [`There's talk this could be your last season. Is it?`] : rm.kind === 'stay' ? [`Are you close to signing a new deal with ${tn}?`] : [`There are reports linking you with ${tn}. Anything to say?`, `Have you spoken to ${tn}?`]); }
+    }
   }
   if (kind === 'preseason') {
     const prev = c.seasons[s.index - 1];
@@ -329,11 +429,12 @@ function memoryQuestion(c, s, ri, kind) {
   if (kind === 'race' && dd?.id === PLAYER) opts.push(`You've been voted Driver of the Day. Was that your best drive of the season?`);
   if (kind === 'race' && dd && dd.id !== PLAYER) opts.push(`${dName(s, dd.id)} was Driver of the Day. Did you see that drive?`);
   if (kind === 'race' && run.podiums >= 3) opts.push(`${streakWord(run.podiums)} podiums in a row now. What is behind the consistency?`);
-  if (kind === 'quali' && run.poles >= 1) opts.push(`Another pole after last time out. What makes you so strong over one lap at the moment?`);
-  if (kind !== 'preseason' && mem.defending === PLAYER) opts.push(`As defending champion, does it feel like everyone is chasing you?`);
+  const myQ = ses.Q?.done ? ses.Q.results.findIndex(x => x.d === PLAYER) : -1;
+  if (kind === 'quali' && myQ === 0 && before.run(PLAYER).poles >= 1) opts.push(`Another pole after last time out. What makes you so strong over one lap at the moment?`);
+  if (['preweekend', 'midseason'].includes(kind) && mem.defending === PLAYER) opts.push(`As defending champion, does it feel like everyone is chasing you?`);
   if (kind === 'preseason' && mem.defending && mem.defending !== PLAYER) opts.push(`${dName(s, mem.defending) || mem.defending} starts the year as defending champion. Who is the favourite?`);
-  if (kind !== 'race' && before.lastWinner && before.lastWinner !== PLAYER) opts.push(`${dName(s, before.lastWinner)} won last time out. Can you turn the tables this weekend?`);
-  const others = gridIds(s).find(d => d !== PLAYER && mem.run(d).wins >= 3);
+  if (kind === 'preweekend' && before.lastWinner && before.lastWinner !== PLAYER) opts.push(`${dName(s, before.lastWinner)} won last time out. Can you turn the tables this weekend?`);
+  const others = kind === 'preweekend' && gridIds(s).find(d => d !== PLAYER && mem.run(d).wins >= 3);
   if (others) opts.push(`${dName(s, others)} has won ${streakWord(mem.run(others).wins)} in a row. How do you stop that?`);
   const asked = askedThisSeason(c, s.index); const fresh = opts.filter(q => !asked.has(q));
   return fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : null;
@@ -355,6 +456,7 @@ async function aiCall(prompt, maxTokens) {
 
 const KIND_BRIEF = {
   preseason: 'a pre-season media day before the first race',
+  preweekend: 'the pre-weekend press conference on the Thursday, before any running at this round',
   quali: 'the post-qualifying press conference',
   race: 'the post-race press conference',
   sprint: 'the post-sprint interviews, with the Grand Prix still to come',
@@ -365,7 +467,7 @@ const KIND_BRIEF = {
 async function generateQuestions(c, seasonIdx, roundId, kind) {
   const asked = [...askedThisSeason(c, seasonIdx)];
   const ctx = mediaContext(c, seasonIdx, roundId, kind) + (asked.length ? `\nALREADY ASKED THIS SEASON:\n${asked.slice(-30).map(q => `- ${q}`).join('\n')}` : '');
-  const res = await aiCall(`CONTEXT\n${ctx}\n\nTASK\nWrite 4 questions for ${KIND_BRIEF[kind]}.${isPrincipal(c) ? ' The interviewee is the team principal, not a driver: ask about the team, its two drivers, strategy, the car and the business, never about their own driving.' : ''} Build each question on a different item from ANGLES, strongest first (places made up or lost, beating or trailing the car's real pace, incidents and who was to blame, rivalries starting or heating up, the archrival, last race, a year ago, form and streaks). Never repeat a question, or the angle of a question, already asked this season (listed under ALREADY ASKED). Use 3 or 4 different outlets and reporters. Mix tones: one warm, one analytical about the data, at least one pointed or awkward. Keep each question to 1–3 sentences.\n\nReturn {"questions":[{"outlet":"","reporter":"","question":""}]}`, 1200);
+  const res = await aiCall(`CONTEXT\n${ctx}\n\nTASK\nWrite 4 questions for ${KIND_BRIEF[kind]}.${isPrincipal(c) ? ' The interviewee is the team principal, not a driver: ask about the team, its two drivers, strategy, the car and the business, never about their own driving.' : ''} Build each question on a different item from ANGLES, strongest first (places made up or lost, beating or trailing the car's real pace, incidents and who was to blame, rivalries starting or heating up, the archrival, last race, a year ago, form and streaks).${['quali', 'sprint', 'race'].includes(kind) ? ' Ask only about this session and what it changed (the championship, a title, the rest of the weekend): the last race, past visits, form, goals and the season belong to the pre-weekend press conference, not here.' : kind === 'preweekend' ? ' Nothing has run at this round yet: ask about the last race, this track in the past, the championship as it stands, form and streaks, rivals, milestones, the driver market and the weekend ahead.' : ''} Never repeat a question, or the angle of a question, already asked this season (listed under ALREADY ASKED). Use 3 or 4 different outlets and reporters. Mix tones: one warm, one analytical about the data, at least one pointed or awkward. Keep each question to 1–3 sentences.\n\nReturn {"questions":[{"outlet":"","reporter":"","question":""}]}`, 1200);
   if (res.ok) {
     try {
       const j = extractJson(res.text);
@@ -403,10 +505,11 @@ function templateQuestions(c, seasonIdx, roundId, kind) {
   const team = s.teams.find(t => t.id === s.playerTeamId)?.name;
   // fillers for when the data has little to say
   const filler = {
-    preseason: [`What does success look like for ${team} in ${s.year}?`, tp ? 'Where has the team improved most over the winter?' : 'What has the team told you about the car’s strengths and weaknesses?'],
-    quali: ['Talk us through the final runs. Was there anything left out there?', 'What is the plan for the start tomorrow?', 'How confident are you in the long-run pace?'],
-    race: ['How did the strategy play out?', 'Which moment of the race will you remember most?'],
-    sprint: ['What did the sprint teach you about tomorrow?', 'How do the tyres look after the sprint?'],
+    preseason: [`What does success look like for ${team} in ${s.year}?`, tp ? 'Where has the team improved most over the winter?' : 'What has the team told you about the car’s strengths and weaknesses?', 'Who do you see as the team to beat this year?', 'What did you work on most over the winter?'],
+    preweekend: ['What are you expecting from the car at this track?', 'What does a good weekend look like here?', 'Any changes to the car for this weekend?', 'How do you rate your chances this weekend?', 'Which part of this track do you enjoy most?', 'Is there anything from the last race you want to put right here?'],
+    quali: ['Talk us through the final runs. Was there anything left out there?', 'What is the plan for the start tomorrow?', 'How confident are you in the long-run pace?', 'Which sector did you find the most time in?', 'Were the tyres where you wanted them on your final lap?', 'How much did the track change through the session?', 'Who are you worried about behind you on the grid?'],
+    race: ['How did the strategy play out?', 'Which moment of the race will you remember most?', 'How were the tyres holding up in the final stint?', 'Was there a point where you thought the result could be better?', 'How was the car to drive in traffic today?', 'What did the team say to you on the radio at the end?'],
+    sprint: ['What did the sprint teach you about tomorrow?', 'How do the tyres look after the sprint?', 'Do you change anything on the car for the Grand Prix?', 'How hard was it to pass in the sprint?', 'Was the start the key moment today?'],
     midseason: [tp ? 'What does the car need for the second half?' : 'What does the team need to bring in upgrades for the second half?'],
     endseason: ['If you could rerun one weekend, which would it be?', 'What changes for next season?'],
   }[kind];
@@ -425,7 +528,7 @@ function templateArticle(c, m) {
   const r = s.calendar.find(x => x.id === m.roundId);
   const head = best ? `${c.profile.last}: “${quoteClip(best.answer)}”` : `${c.profile.last} keeps cards close to chest${r ? ' in ' + r.name : ''}`;
   const body = [
-    `${name} spoke to the media ${r ? 'after the ' + r.name + ' Grand Prix weekend' : 'during ' + s.year} and ${answered.length >= 3 ? 'was in a talkative mood' : answered.length ? 'gave a few measured answers' : 'had little to say'}.`,
+    `${name} spoke to the media ${r ? (m.kind === 'preweekend' ? 'ahead of the ' : 'after the ') + r.name + (m.kind === 'preweekend' ? ' Grand Prix' : ' Grand Prix weekend') : 'during ' + s.year} and ${answered.length >= 3 ? 'was in a talkative mood' : answered.length ? 'gave a few measured answers' : 'had little to say'}.`,
     ...answered.slice(0, 2).map(q => `Asked “${q.question}”, the ${s.teams.find(t => t.id === s.playerTeamId)?.name} driver replied: “${q.answer.trim()}”`),
   ];
   return { article: { outlet: m.questions[0]?.outlet || 'Paddock Pass', headline: head, summary: body[0], body }, reactions: [], rep: answered.length ? 0 : -1 };

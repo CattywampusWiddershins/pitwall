@@ -2,6 +2,13 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.4.0
+
+- **Pre-weekend press conferences.** A new kind of interview, before anything has run at a round. Its questions come from everything Pitwall knows going in: your last visit to this track in the career (and how many times you've won there), a brand-new venue or one back on the calendar, the track's new deal, how hard it is to overtake there, your home race, the last race (the result, contact you had, your teammate beating you), the title as it stands (a lead to manage, a gap to close, a title you can win this weekend, your first race as champion, a title already won or out of reach), streaks going in, milestones this weekend could bring (a 50th or 100th start, a 10th win), rumours about you, the teammate battle, rivals, the archrival, feuds, form and goals.
+- **Session interviews keep to the session.** After qualifying, the sprint or the race, the questions are about what happened in it and what it changed (the championship, a title won, a decider to come); the last race, past visits, form and the season move to the pre-weekend press conference.
+- **More to ask about after a session.** The race: places gained or lost on the opening lap, laps led (and a win led from lights to flag), the fastest lap, overtakes made, a stop under the safety car or how the safety car changed things, and a wet race. Qualifying: the gap to pole when it was close, a first pole, a front-row lockout, beating your archrival. The sprint: contact and battles in it. And many more general questions for every kind of interview, so the same ones come round less.
+- **Many more things for drivers to say.** Every situation drivers are quoted on now has up to 12 lines (8 for each level of the rivalry and contact ones), up from two to five: race results, retirements, comebacks, titles won and lost, leading and chasing the championship, battles (clean or heated), rivalries, running duels and contact (owning it, denying it, forgiving it or not).
+
 ## 5.3.3
 
 - **Your quotes are never cut off mid-word.** An interview's headline takes the first sentence of your longest answer; when that's too long, it now stops at the first comma, semicolon, colon or dash, and failing that at the last whole word, with an ellipsis (it used to stop at 80 characters, wherever that fell). Headlines saved before are put right too. On the quote graphics, a long quote gets smaller text until it fits whole, and so does a long headline.

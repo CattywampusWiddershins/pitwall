@@ -233,6 +233,11 @@ const BATTLE_QUOTES = {
   wonNeedle: ['It got a bit physical at times. I’m glad it’s over.', 'Some of those moves were on the limit. But I came out ahead.'],
   lostNeedle: ['There was contact, and I don’t think it was all on me.', 'They made it very hard. Maybe too hard.'],
 };
+// more lines, so the same words don't come round too soon (up to 12 for each, 8 for each level of the tiered ones)
+BATTLE_QUOTES.won.push("That was a real fight, and I loved every lap of it.", "They didn’t make it easy, but I made the move stick.", "I had to be patient and wait for the right moment.", "Good, clean racing. That’s what it should be.", "I’m proud of that one. It took a lot.", "Every corner was a battle, and I came out on top.", "I think the fans will have enjoyed that.", "It was close, but I held on.");
+BATTLE_QUOTES.lost.push("They were just a bit stronger in the end.", "I tried every line I could think of.", "It was a great fight, even if I lost it.", "My tyres went off at the wrong time. That decided it.", "Fair play to them. They raced really well.", "I’ll get them next time, no doubt.", "That one was close. I’m a bit gutted.", "Good racing. That’s what we’re all here for.");
+BATTLE_QUOTES.wonNeedle.push("It was hard racing, maybe a bit too hard at times.", "There were a couple of moments I didn’t enjoy.", "I stayed on track and came out ahead. That’s what matters.", "I gave room. I’m not sure I always got it back.", "It was right on the edge, but I won’t complain.", "Some of those moves would get a look from the stewards.", "Tough fight. I’m glad I came out on top.", "It got heated, but that’s racing.", "I don’t think they enjoyed losing that one.", "I’ll take it, but it wasn’t pretty.");
+BATTLE_QUOTES.lostNeedle.push("I was pushed off at one point. I’ll have a look at the replay.", "That wasn’t the cleanest fight I’ve had.", "I don’t think all of their moves were fair.", "We need to talk about some of that.", "They raced me harder than they race anyone else.", "There’s a line, and they were on it today.", "I’ll let the stewards decide, but I know what I think.", "It got too physical for my liking.", "They won the fight, but not how I’d want to.", "Frustrating. I felt squeezed every time.");
 /** Whether a driver led every lap of a race, from its lap times (unknown without them: taken as yes, so pole-to-win reads as before). */
 function ledEveryLap(sd, d) {
   const L = sd?.game?.laps; if (!L?.[d]) return true;
@@ -559,7 +564,7 @@ function buildStories(c, s) {
   for (const m of c.media) {
     if (!m.article || m.seasonIdx !== s.index) continue;
     const ri = m.roundId ? rounds.findIndex(x => x.id === m.roundId) : m.kind === 'preseason' ? -1 : m.kind === 'endseason' ? rounds.length : Math.max(0, Math.floor(rounds.length / 2) - 1);
-    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
+    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'preweekend' ? 1 : m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
   }
   // milestones and records from the career timeline
   const tl = careerTimeline(c);

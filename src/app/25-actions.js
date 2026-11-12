@@ -262,10 +262,10 @@ const actions = {
     toast(`${s.year} season started with ${s.teams.find(t => t.id === s.playerTeamId).name}`);
   },
   'new-media'(el) { newMediaModal(el.dataset.round || null); },
-  'media-kind'(el) { ui.modal.mkind = el.dataset.v; drawMediaModal(); },
+  'media-kind'(el) { const m = ui.modal; m.mkind = el.dataset.v; if (m.mkind === 'preweekend') { const s = career().seasons[m.seasonIdx]; const nr = s && nextRound(s); if (nr) m.roundId = nr.id; } drawMediaModal(); }, // (before a weekend: the next round)
   async 'media-start'() {
     const c = career(); const m = ui.modal;
-    const needsRound = ['quali', 'sprint', 'race'].includes(m.mkind);
+    const needsRound = ['preweekend', 'quali', 'sprint', 'race'].includes(m.mkind);
     ui.busy = true; drawMediaModal();
     const { questions } = await generateQuestions(c, m.seasonIdx, needsRound ? m.roundId : null, m.mkind);
     ui.busy = false;

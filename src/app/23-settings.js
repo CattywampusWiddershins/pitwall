@@ -567,10 +567,10 @@ function newMediaModal(roundId) {
 }
 function drawMediaModal() {
   const c = career(); const m = ui.modal; const s = c.seasons[m.seasonIdx];
-  const needsRound = ['quali', 'sprint', 'race'].includes(m.mkind);
+  const needsRound = ['preweekend', 'quali', 'sprint', 'race'].includes(m.mkind);
   modal(`<div class="modal-h"><h2>New media session</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b">
-      <div class="choices">${[['preseason', 'Pre-season media day', 'Expectations, targets and your new team.'], ['quali', 'Post-qualifying', 'Your grid slot and Sunday’s plan.'], ['sprint', 'Post-sprint', 'The sprint result and what it means for Sunday.'], ['race', 'Post-race', 'The result, the battles, the fallout.'], ['midseason', 'Mid-season interview', 'Form, standings and the teammate battle.'], ['endseason', 'End-of-season interview', 'Verdict on the year and what comes next.']].map(([id, n, b]) => `<button class="choice ${m.mkind === id ? 'on' : ''}" data-act="media-kind" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
+      <div class="choices">${[['preseason', 'Pre-season media day', 'Expectations, targets and your new team.'], ['preweekend', 'Pre-weekend', 'Before a round: last time here, the title fight, your form.'], ['quali', 'Post-qualifying', 'Your grid slot and Sunday’s plan.'], ['sprint', 'Post-sprint', 'The sprint result and what it means for Sunday.'], ['race', 'Post-race', 'The result, the battles, the fallout.'], ['midseason', 'Mid-season interview', 'Form, standings and the teammate battle.'], ['endseason', 'End-of-season interview', 'Verdict on the year and what comes next.']].map(([id, n, b]) => `<button class="choice ${m.mkind === id ? 'on' : ''}" data-act="media-kind" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
       <div class="form-grid">
         <label class="field"><span>Season</span><select data-ch="media-season">${playedSeasons(c).map(x => `<option value="${x.index}" ${x.index === m.seasonIdx ? 'selected' : ''}>${x.year}</option>`).join('')}</select></label>
         ${needsRound ? `<label class="field"><span>Round</span><select data-ch="media-round">${activeRounds(s).map((r, i) => `<option value="${r.id}" ${r.id === m.roundId ? 'selected' : ''}>R${i + 1} · ${esc(r.name)}</option>`).join('')}</select></label>` : ''}
