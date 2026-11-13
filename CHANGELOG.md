@@ -2,6 +2,17 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.4.1
+
+- **A career starting in 2026 starts on the 2026 grid.** Since 5.3.0, a career that began in 2026 or later started on the real 2025 grid (kept as history) instead: no Audi, no Cadillac, and for My Team no team of your own, so they were missing from the standings and everything built on them, and driver goals had no drivers to pick. Saves caught by it are put right the first time they're opened, as long as nothing has been logged in that season yet.
+- **My Team from 2026 is the 12th team**, alongside Cadillac, and the setup says so.
+- **Any teammate for an owner-driver.** Your teammate in a My Team career can be anyone in the driver pool (the grid, F2, F3), a legend or a driver you create, as a team principal's drivers already could.
+- **The My Team dashboard looks like the Driver Career one**: both championships as bars side by side, goals and the title fights, the latest from the paddock and the latest graphics.
+- **Your team is breaking news.** A My Team career opens with the story of your team joining the grid, with its graphic: your colours, your logo, your base.
+- **Choose your first season's calendar.** A new career shows that year's real calendar, to cut, reorder, add rounds to and set sprints on, for any first season (it already could past the real data).
+- **Remove a round in Settings.** A round with nothing logged can be taken off the season's calendar outright (✕), besides being left out with Included.
+- A driver goal with no driver picked says "Pick a driver" instead of looking set.
+
 ## 5.4.0
 
 - **Pre-weekend press conferences.** A new kind of interview, before anything has run at a round. Its questions come from everything Pitwall knows going in: your last visit to this track in the career (and how many times you've won there), a brand-new venue or one back on the calendar, the track's new deal, how hard it is to overtake there, your home race, the last race (the result, contact you had, your teammate beating you), the title as it stands (a lead to manage, a gap to close, a title you can win this weekend, your first race as champion, a title already won or out of reach), streaks going in, milestones this weekend could bring (a 50th or 100th start, a 10th win), rumours about you, the teammate battle, rivals, the archrival, feuds, form and goals.

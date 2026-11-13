@@ -58,6 +58,7 @@ const actions = {
   'fg-fill-all'() { const u = ui.setup; u.futureGrid.forEach((t, ti) => t.drivers.forEach((d, si) => { if (retiredBy(u, d)) setupFill(u, ti, si); })); render(); toast('Retired drivers replaced'); },
   'fc-move'(el) { const L = ui.setup.futureCal; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; render(); },
   'fc-remove'(el) { ui.setup.futureCal.splice(+el.dataset.i, 1); render(); },
+  'cal-remove'(el) { const s = latestSeason(); const r = s.calendar[+el.dataset.i]; if (!r || Object.values(s.weekends[r.id]?.sessions || {}).some(sd => sd?.done)) return; s.calendar.splice(+el.dataset.i, 1); store.save(); render(); toast(`${r.name} is off the ${s.year} calendar`); },
   'nd-add'(el) {
     const { scope, key } = el.dataset; const drafts = ndDrafts(scope); const nd = drafts[key] || {};
     const name = (nd.name || '').trim(); if (!name) { toast('Enter the new driver’s name'); return; }
@@ -66,7 +67,7 @@ const actions = {
     delete drafts[key];
     if (scope === 'setup') {
       ui.setup.newDrivers.push(d);
-      if (/^g/.test(key)) { const [ti, si] = key.slice(1).split('-').map(Number); ui.setup.futureGrid[ti].drivers[si] = d.id; } else ui.setup.team.seats[+key] = d.id;
+      if (/^g/.test(key)) { const [ti, si] = key.slice(1).split('-').map(Number); ui.setup.futureGrid[ti].drivers[si] = d.id; } else if (key === 'mate') ui.setup.team.mate = d.id; else ui.setup.team.seats[+key] = d.id;
       render();
     }
     else if (scope === 'pool') { (career().customDrivers ||= []).push(d); closeModal(); store.save(); render(); toast(`${d.name} added to the driver pool`); }
@@ -125,7 +126,7 @@ const actions = {
     const c = {
       id: uid(), createdAt: new Date().toISOString(), type: u.type,
       profile: { first: u.first.trim(), last: u.last.trim(), abbr, number: +u.number || 27, nationality: u.nationality.trim(), bio: u.bio.trim(), rival: '', rivalTeam: null, photo: u.photo || null, born: u.born || null },
-      customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
+      customDrivers: u.newDrivers.filter(d => !d.generated && ((principal && u.team.seats.includes(d.id)) || (u.type === 'myteam' && !principal && d.id === u.team.mate) || (u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))))), media: [], seasons: [], rumours: [],
       generated: Object.fromEntries(u.newDrivers.filter(d => d.generated && u.year > 2026 && u.futureGrid.some(t => t.drivers.includes(d.id))).map(d => [d.id, d])),
       startYear: u.year, ...(real ? { realDriver: real } : {}),
       // the 2025 11th team: asked now for a 2025 start, when 2025 comes for an earlier one, never after
@@ -145,6 +146,7 @@ const actions = {
       c.startCal = u.futureCal.map(r => [r.id, r.name, r.venue, !!r.sprint, r.track || null]);
       if (u.year - 1 > HIST_TO) simulateGap(c, u.year, c.startGrid, u.futureCal);
     }
+    if (u.year <= 2026 && u.futureCal && JSON.stringify(u.futureCal) !== JSON.stringify(setupTplCal(u))) (c.nextCal ||= {})[u.year] = u.futureCal.map(r => ({ id: r.id, name: r.name, venue: r.venue, sprint: !!r.sprint, off: false, ...(r.track ? { track: r.track } : {}), ...(r.date ? { date: r.date } : {}) }));
     c.seasons.push(newSeason(c, c.seasons.length, u.type === 'myteam' ? { teamId: MYTEAM, seatDriverId: null, goals: u.goals, practice: u.practice } : { teamId: u.teamId, seatDriverId: u.seat, goals: u.goals, practice: u.practice }));
     // a single weekend keeps only its round (the others are off the calendar)
     if (u.single) swRound(c, u);
@@ -427,6 +429,7 @@ const changes = {
   'season-sel'(el) { actions[el.dataset.to]({ dataset: { idx: el.value } }); },
   'switch-career'(el) { state.activeCareerId = el.value; ui.seasonIdx = null; ui.view = 'dashboard'; store.save(); render(); },
   setup(el) { ui.setup[el.dataset.k] = el.value; if (el.dataset.k === 'realDriver') render(); },
+  'mt-mate'(el) { const u = ui.setup; if (el.value === '__new') u.nd.mate ||= {}; else { u.team.mate = el.value; delete u.nd.mate; } render(); },
   'mt-seat'(el) {
     const u = ui.setup; const i = +el.dataset.i;
     if (el.value === '__new') { u.nd[i] ||= {}; } else { u.team.seats[i] = el.value; delete u.nd[i]; }

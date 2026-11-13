@@ -138,6 +138,7 @@ function shiftSeasonRefs(c, n) {
 /** Fill in the real seasons of a loaded career (and give an older save its 2016 onwards). */
 function hydrateCareer(c) {
   for (const d of c.customDrivers || []) addLegend(d);
+  repairFirstGrid(c);
   if (!c?.seasons?.length) return;
   if (!c.seasons.some(isHist) && c.seasons[0].year > HIST_FROM) {
     const n = Math.min(c.seasons[0].year, HIST_TO + 1) - HIST_FROM;
@@ -172,6 +173,24 @@ let _legends = null;
 function legendChoices() {
   return _legends ||= Object.entries(H.allTime || {}).filter(([id]) => !H.bios[id] && !D.DRIVERS[id] && !(D.DRIVER_BIO[id] && !D.DRIVER_BIO[id].legend)).map(([id]) => ({ id, ...legendBio(id) }))
     .sort((a, b) => b.titles.length - a.titles.length || b.wins - a.wins || b.starts - a.starts);
+}
+
+/** A career started in 2026 or later with Pitwall 5.3.0 to 5.4.0 began on the real 2025 grid kept as history (no
+ *  Audi, no Cadillac, no My Team). While nothing has been logged in that first season, it's rebuilt on the right grid. */
+function repairFirstGrid(c) {
+  if (c.realSeason || c.single) return;
+  const s = c.seasons.find(x => !isHist(x)); const prev = s && c.seasons[s.index - 1];
+  if (!s || !prev || !isHist(prev) || s.repaired) return;
+  if (activeRounds(s).some(r => Object.values(s.weekends[r.id]?.sessions || {}).some(sd => sd?.done))) return;
+  const tpl = templateFor(s.year, c); if (!tpl) return;
+  const want = new Set([...tpl.grid.map(t => t.id), ...(c.type === 'myteam' ? [MYTEAM] : [])]); const have = new Set(s.teams.map(t => t.id));
+  if (want.size === have.size && [...want].every(id => have.has(id))) return;
+  const team = s.playerTeamId, replaced = s.benched;
+  const base = baseRoster(c, s.index, prev); s.teams = base.teams; s.drivers = { ...base.drivers, ...(s.drivers[PLAYER_ID] ? { [PLAYER_ID]: s.drivers[PLAYER_ID] } : {}) };
+  if (isPrincipal(c)) s.playerTeamId = MYTEAM;
+  else if (c.type === 'myteam') placePlayer(s, c, MYTEAM, null);
+  else if (s.teams.some(t => t.id === team)) placePlayer(s, c, team, replaced);
+  s.repaired = true;
 }
 
 /** Tracks added for a single weekend: part of the circuits for every save. */

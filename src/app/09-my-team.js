@@ -91,7 +91,7 @@ function renderMyTeam() {
   if (c.type !== 'myteam' || !c.myTeam) {
     const t = latestSeason().teams.find(x => x.id === latestSeason().playerTeamId);
     return `<div class="page"><div class="page-head"><div><h1>My Team</h1><div class="sub">Found and run your own team: identity and logo, car development, finances and sponsors.</div></div></div>
-      <div class="panel"><div class="empty" style="padding:40px 16px">This save is a Driver Career with ${esc(t?.name || 'a works team')}. My Team runs as its own career, where you start the 11th team and drive for it.<button class="btn primary" data-act="new-career-myteam">Start a My Team career</button></div></div></div>`;
+      <div class="panel"><div class="empty" style="padding:40px 16px">This save is a Driver Career with ${esc(t?.name || 'a works team')}. My Team runs as its own career, where you start your own team (the 11th, or the 12th from 2026) and drive for it or run it.<button class="btn primary" data-act="new-career-myteam">Start a My Team career</button></div></div></div>`;
   }
   const m = c.myTeam; const s = latestSeason();
   const cur = myTeamSeason(c, s);
@@ -123,21 +123,24 @@ function renderMyTeam() {
   </div>`;
 }
 
-/** The season at a glance for a My Team dashboard: goals, the title fights and both championships. */
+/** The season at a glance for a My Team dashboard, as the Driver Career dashboard has it: both championships as bars
+ *  side by side (your drivers always on), goals and the title fights, the latest from the paddock and the graphics. */
 function mtSeasonPanels(c, m, s) {
-  const st = seasonStatsCache(s); const ds = driverStandings(s, st); const cs = constructorStandings(s, st);
+  const st = seasonStatsCache(s); const ds = driverStandings(s, st); const cs = constructorStandings(s, st); const done = roundsDone(s);
   const mine = new Set(s.teams.find(t => t.id === MYTEAM)?.drivers.filter(Boolean) || []);
-  const top = ds.slice(0, 6); for (const id of mine) { const r = ds.find(x => x.id === id); if (r && !top.includes(r)) top.push(r); }
+  const top = ds.slice(0, 10); for (const id of mine) { const r = ds.find(x => x.id === id); if (r && !top.includes(r)) top.push(r); }
+  const prevD = done > 1 ? driverStandings(s, seasonStats(s, done - 1)) : null;
   const lastArticle = [...c.media].reverse().find(x => x.article && x.seasonIdx === s.index);
-  return `<div class="grid-main">
-      <div class="stack">${goalsPanel(c, s)}${rivalryPanel(c, s)}</div>
-      <div class="stack">
-        <div class="panel"><div class="panel-h"><h2>Constructors</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div>
-          <div class="panel-b tight"><table><tbody>${cs.slice(0, 6).concat(cs.slice(6).filter(x => x.team.id === MYTEAM)).map(x => `<tr class="${x.team.id === MYTEAM ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td><div class="drv">${teamLogo(c, x.team, 20)}<b>${esc(x.team.name)}</b></div></td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div></div>
-        <div class="panel"><div class="panel-h"><h2>Drivers</h2></div>
-          <div class="panel-b tight"><table><tbody>${top.map(x => `<tr class="${mine.has(x.id) ? 'me' : ''}"><td class="pos ${x.pos <= 3 ? 'p' + x.pos : ''}">${x.pos}</td><td>${drvCell(s, x.id)}</td><td class="num"><b>${x.pts}</b></td></tr>`).join('')}</tbody></table></div></div>
-        ${lastArticle ? `<div class="panel"><div class="panel-h"><h2>Latest from the paddock</h2><button class="btn sm ghost" data-act="nav" data-view="media">Media</button></div><div class="article"><span class="outlet">${esc(lastArticle.article.outlet)}</span><div class="headline" style="font-size:18px">${esc(lastArticle.article.headline)}</div></div></div>` : ''}
-      </div></div>`;
+  const G = latestGraphics(c, s, 5);
+  return `<div class="dash-row two">
+      <div class="panel"><div class="panel-h"><h2>Drivers' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div><div class="panel-b">${standingsBars(c, s, top, false, prevD)}</div></div>
+      <div class="panel"><div class="panel-h"><h2>Constructors' standings</h2><button class="btn sm ghost" data-act="nav" data-view="standings">All</button></div><div class="panel-b">${standingsBars(c, s, cs, true, null)}</div></div>
+    </div>
+    <div class="dash-row two">${goalsPanel(c, s)}${rivalryPanel(c, s)}</div>
+    <div class="dash-row two">
+      ${lastArticle ? `<div class="panel"><div class="panel-h"><h2>Latest from the paddock</h2><button class="btn sm ghost" data-act="nav" data-view="media">Media</button></div><div class="article"><span class="outlet">${esc(lastArticle.article.outlet)}</span><div class="headline">${esc(lastArticle.article.headline)}</div>${lastArticle.article.summary ? `<p>${esc(lastArticle.article.summary)}</p>` : ''}</div></div>` : ''}
+      <div class="panel"><div class="panel-h"><h2>Latest graphics</h2><button class="btn sm ghost" data-act="nav" data-view="stories">Stories</button></div>${G.length ? `<div class="panel-b dash-gfx">${G.map(gfxSlot).join('')}</div>` : '<div class="empty">The graphics made in Stories show up here as your season goes.</div>'}</div>
+    </div>`;
 }
 function renderMtOverview(c, m, s, cur, balance) {
   const hist = playedSeasons(c).map(x => myTeamSeason(c, x));

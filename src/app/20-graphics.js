@@ -949,7 +949,7 @@ async function gfxTeamNews(g, k, c, s, { id, line = '' }) {
   const url = teamLogoUrl(c, id); const lw = GFX_W * 0.66, lh = ph * 0.62;
   g.save(); g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
   const drawn = url && await k.img(url, (GFX_W - lw) / 2, py + ph * 0.47 - lh / 2, lw, lh); g.restore();
-  if (!drawn) { const short = (c.customTeams?.[id]?.short || D.TEAM_BIO[id]?.short || H.oldTeams?.[id]?.short || m.name.slice(0, 3)).toUpperCase(); const lc = Math.abs(gfxLum(m.color || GFX_RED) - gfxLum(bg2)) < 35 ? contrastInk(bg2) : m.color; // (its own colour, unless that would vanish into the background)
+  if (!drawn) { const short = ((id === MYTEAM ? c.myTeam?.short : null) || c.customTeams?.[id]?.short || D.TEAM_BIO[id]?.short || H.oldTeams?.[id]?.short || m.name.slice(0, 3)).toUpperCase(); const lc = Math.abs(gfxLum(m.color || GFX_RED) - gfxLum(bg2)) < 35 ? contrastInk(bg2) : m.color; // (its own colour, unless that would vanish into the background)
     g.save(); g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 30; g.shadowOffsetY = 10; k.text(short, GFX_W / 2, py + ph * 0.47, { size: 260, weight: 900, color: lc, align: 'center', max: GFX_W * 0.8 }); g.restore(); }
   g.restore();
   for (const pts of [[[GFX_W * 0.45, py + ph], [GFX_W, py + ph - 260], [GFX_W, py + ph]], [[GFX_W * 0.7, py], [GFX_W, py], [GFX_W, py + 130]]]) {
@@ -957,7 +957,7 @@ async function gfxTeamNews(g, k, c, s, { id, line = '' }) {
   }
   await k.logo(50, 46, 150, 90, ink, 'left');
   k.text('BREAKING', 230, 96, { size: 132, weight: 900, color: ink, max: GFX_W - 280 });
-  const sub = D.TEAM_BIO[id]?.full || H.oldTeams?.[id]?.full || c.customTeams?.[id]?.base || '';
+  const sub = D.TEAM_BIO[id]?.full || H.oldTeams?.[id]?.full || c.customTeams?.[id]?.base || (id === MYTEAM ? c.myTeam?.base : '') || '';
   if (sub) k.wrap(sub.toUpperCase(), GFX_W - 40, py + ph - 92, { size: 34, weight: 800, color: ink, align: 'right', max: 400, lines: 2, lh: 1.1, fam: k.disp, middle: true });
   k.text(m.name.toUpperCase(), 50, GFX_H - 160, { size: 96, weight: 900, color: ink, max: GFX_W - 100 });
   k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });

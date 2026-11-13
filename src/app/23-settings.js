@@ -141,10 +141,10 @@ function renderSettings() {
 
     <div class="panel"><div class="panel-h"><h2>${s.year} calendar & format</h2>
       <label class="row muted">Practice sessions <select data-ch="practice" style="width:auto">${[['full', 'Full (FP1, FP2, FP3)'], ['short', 'Short (one session)'], ['none', 'None']].map(([v, l]) => `<option value="${v}" ${s.format.practice === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-      <div class="panel-b tight table-wrap"><table><thead><tr><th>Rnd</th><th>Grand Prix</th><th>Venue</th><th>Sprint</th><th>Included</th><th></th></tr></thead><tbody>
+      <div class="panel-b tight table-wrap"><table><thead><tr><th>Rnd</th><th>Grand Prix</th><th>Venue</th><th>Sprint</th><th title="Untick to leave a round out without removing it">Included</th><th></th></tr></thead><tbody>
         ${s.calendar.map((r, i) => `<tr style="${r.off ? 'opacity:.45' : ''}"><td class="num muted">${i + 1}</td><td>${esc(r.name)}</td><td class="muted">${esc(r.venue)}</td>
         <td><input type="checkbox" data-ch="cal-sprint" data-i="${i}" ${r.sprint ? 'checked' : ''}></td><td><input type="checkbox" data-ch="cal-on" data-i="${i}" ${r.off ? '' : 'checked'}></td>
-        <td><div class="row" style="gap:2px"><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="-1" title="Move earlier">${ICON.up}</button><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="1" title="Move later">${ICON.down}</button>${r.added && !s.weekends[r.id] ? `<button class="icon-btn" data-act="cal-del" data-i="${i}" title="Remove">${ICON.x}</button>` : ''}</div></td></tr>`).join('')}
+        <td><div class="row" style="gap:2px"><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="-1" title="Move earlier">${ICON.up}</button><button class="icon-btn" data-act="cal-move" data-i="${i}" data-dir="1" title="Move later">${ICON.down}</button><button class="icon-btn" data-act="cal-remove" data-i="${i}" ${Object.values(s.weekends[r.id]?.sessions || {}).some(sd => sd?.done) ? 'disabled title="A session here has been logged"' : `title="Remove ${esc(r.name)} from the ${s.year} calendar"`}>${ICON.x}</button>${r.added && !s.weekends[r.id] ? `<button class="icon-btn" data-act="cal-del" data-i="${i}" title="Remove">${ICON.x}</button>` : ''}</div></td></tr>`).join('')}
       </tbody></table></div>
       <div class="panel-b"><select data-ch="cal-add" style="width:auto"><option value="">+ Add a circuit…</option><option value="__new">+ A new track…</option>${Object.keys(D.TRACKS).filter(id => !s.calendar.some(r => trackOf(r) === id)).map(id => `<option value="${id}">${esc(trackGp(id).name)} · ${esc(D.TRACKS[id].circuit)}${D.TRACKS[id].former ? ' (former)' : ''}</option>`).join('')}</select></div></div>
 
@@ -279,6 +279,14 @@ function newDriverForm(scope, key, nd) {
 const ndDrafts = (scope) => scope === 'setup' ? (ui.setup.nd ||= {}) : (ui.modal.nd ||= {});
 /** Any driver's name, wherever Pitwall knows them from. */
 const anyName = (id) => id === PLAYER_ID ? 'You' : D.DRIVERS[id]?.name || H.bios[id]?.name || FEEDER[id]?.name || career()?.generated?.[id]?.name || career()?.customDrivers?.find(d => d.id === id)?.name || ui.setup?.newDrivers?.find(d => d.id === id)?.name || id;
+/** A first season's real calendar, as the setup edits it. */
+const setupTplCal = (u) => (templateFor(u.year, u.year === 2025 ? { startYear: 2025, type: u.type, extraTeam2025: u.extra || null } : null)?.cal || D.CAL_2026).map(([id, name, venue, sprint, track, date]) => ({ id, name, venue, sprint: !!sprint, ...(track ? { track } : {}), ...(date ? { date } : {}) }));
+/** The setup's calendar follows the year picked: that year's real one, or 2026's past the real data (kept while you stay past it). */
+function setupCal(u) {
+  if (u.calYear === u.year && u.futureCal) return;
+  if (u.year <= 2026 || !(u.calYear > 2026) || !u.futureCal) u.futureCal = setupTplCal(u);
+  u.calYear = u.year;
+}
 /** The grid a new career's first season starts from. */
 function setupGrid(u) {
   if (u.year > 2026) return u.futureGrid;
@@ -340,7 +348,6 @@ function futureGridEditor(u) {
     <option value="__new">+ A new driver…</option>`;
   const used = u.futureGrid.flatMap(t => t.drivers);
   const dupes = used.filter((d, i) => d && used.indexOf(d) !== i);
-  const onCal = new Set(u.futureCal.map(r => r.track || r.id));
   return `<div class="panel"><div class="panel-h"><h2>The ${u.year} grid</h2><span class="muted" style="font-size:12px">Who drives where in your first season. The simulated years move everyone here.</span></div><div class="panel-b stack">
       ${dupes.length ? `<div class="callout">${esc(listJoin([...new Set(dupes)].map(anyName)))} ${dupes.length > 1 ? 'are' : 'is'} in two seats.</div>` : ''}
       ${(() => { const n = used.filter(d => retiredBy(u, d)).length; return n ? `<div class="callout row" style="justify-content:space-between"><span>${n === 1 ? 'One driver' : numWord(n)[0].toUpperCase() + numWord(n).slice(1) + ' drivers'} will have retired by ${u.year}: nobody races past ${RETIRE_AGE - 1}.</span><button class="btn sm primary" data-act="fg-fill-all">Auto-fill ${n === 1 ? 'the seat' : `all ${n} seats`}</button></div>` : ''; })()}
@@ -349,8 +356,13 @@ function futureGridEditor(u) {
         ${[0, 1].map(si => `<select data-ch="fg-seat" data-i="${ti}" data-j="${si}">${options(t.drivers[si])}</select>
           ${retiredBy(u, t.drivers[si]) ? `<div class="fg-retired"><span>Retired by ${u.year}</span><button class="btn sm" data-act="fg-fill" data-i="${ti}" data-j="${si}">Auto-fill</button></div>` : ''}
           ${u.nd['g' + ti + '-' + si] ? newDriverForm('setup', 'g' + ti + '-' + si, u.nd['g' + ti + '-' + si]) : ''}`).join('')}</div>`).join('')}</div>
-    </div></div>
-    <div class="panel"><div class="panel-h"><h2>The ${u.year} calendar</h2><span class="muted" style="font-size:12px">${u.futureCal.length} rounds · also used for the simulated years</span></div>
+    </div></div>${setupCalPanel(u)}`;
+}
+/** A first season's calendar: that year's real one (F1 25's 2026 one past the real data), to cut, reorder and add to. */
+function setupCalPanel(u) {
+  const onCal = new Set(u.futureCal.map(r => r.track || r.id)); const future = u.year > 2026;
+  return `
+    <div class="panel"><div class="panel-h"><h2>The ${u.year} calendar</h2><span class="muted" style="font-size:12px">${u.futureCal.length} rounds · ${future ? 'also used for the simulated years' : `${u.year}'s real calendar unless you change it`}</span></div>
       <div class="panel-b tight table-wrap"><table><tbody>${u.futureCal.map((r, i) => `<tr><td class="muted num">${i + 1}</td><td>${countryFlag(D.TRACKS[r.track || r.id]?.country, 12)} <b>${esc(r.name)}</b> <span class="muted">${esc(r.venue)}</span></td>
         <td><label class="check"><input type="checkbox" data-ch="fc-sprint" data-i="${i}" ${r.sprint ? 'checked' : ''}> Sprint</label></td>
         <td><div class="row" style="gap:2px;flex-wrap:nowrap;justify-content:flex-end"><button class="icon-btn" title="Earlier" data-act="fc-move" data-i="${i}" data-dir="-1">${ICON.up}</button><button class="icon-btn" title="Later" data-act="fc-move" data-i="${i}" data-dir="1">${ICON.down}</button><button class="icon-btn" title="Remove" data-act="fc-remove" data-i="${i}">${ICON.x}</button></div></td></tr>`).join('')}</tbody></table></div>
@@ -370,7 +382,8 @@ function renderSetup() {
   const principal = u.type === 'myteam' && u.role === 'principal';
   const future = u.year > 2026;
   const realAs = u.type === 'driver' && u.as === 'real' && !future;
-  if (future) { u.futureGrid ||= D.GRID_2026.map(t => ({ ...t, drivers: [...t.drivers] })); u.futureCal ||= D.CAL_2026.map(([id, name, venue, sprint]) => ({ id, name, venue, sprint })); }
+  if (future) u.futureGrid ||= D.GRID_2026.map(t => ({ ...t, drivers: [...t.drivers] }));
+  setupCal(u);
   const grid = setupGrid(u);
   if (!grid.some(t => t.id === u.teamId)) { u.teamId = grid[grid.length - 1].id; u.seat = grid[grid.length - 1].drivers[1]; }
   const gridDrivers = grid.flatMap(t => t.drivers).filter(Boolean);
@@ -393,7 +406,7 @@ function renderSetup() {
     ${future ? futureGridEditor(u) : ''}
 
     <div class="panel"><div class="panel-h"><h2>Career mode</h2></div><div class="panel-b">
-      <div class="choices">${[['driver', 'Driver Career', 'Take a seat at an existing team and work your way up.'], ['myteam', 'My Team', 'Found the 11th team: you own it, run it and drive for it.']].map(([id, n, b]) => `<button class="choice ${u.type === id ? 'on' : ''}" data-act="setup-pick" data-k="type" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
+      <div class="choices">${[['driver', 'Driver Career', 'Take a seat at an existing team and work your way up.'], ['myteam', 'My Team', `Found the ${u.year >= 2026 ? '12th' : '11th'} team: you own it, run it and drive for it.`]].map(([id, n, b]) => `<button class="choice ${u.type === id ? 'on' : ''}" data-act="setup-pick" data-k="type" data-v="${id}"><b>${n}</b><small>${b}</small></button>`).join('')}</div>
     </div></div>
 
     ${u.type === 'driver' && !future ? `<div class="panel"><div class="panel-h"><h2>Who you race as</h2><span class="muted" style="font-size:12px">F1 25 mods let a career start as any real driver</span></div><div class="panel-b stack">
@@ -421,21 +434,23 @@ function renderSetup() {
     </div></div>
 
     ${u.year === 2025 && u.type !== 'myteam' ? `<div class="panel"><div class="panel-h"><h2>11th team</h2><span class="muted" style="font-size:12px">Did you add APXGP or Konnersport to your F1 25 career? They race 2025 only.</span></div><div class="panel-b">${extraPicker(u.extra, 'setup-pick')}</div></div>` : ''}
-    ${u.type === 'myteam' ? `<div class="panel"><div class="panel-h"><h2>Your team</h2><span class="muted" style="font-size:12px">${u.year <= 2025 ? 'Your team is the 11th team' : 'Joins the grid as an extra team'}. Everything can be changed later in My Team.</span></div><div class="panel-b stack">
+    ${u.type === 'myteam' ? `<div class="panel"><div class="panel-h"><h2>Your team</h2><span class="muted" style="font-size:12px">${u.year <= 2025 ? 'Your team is the 11th team' : u.year === 2026 ? 'Your team is the 12th team, alongside Cadillac' : 'Joins the grid as an extra team'}. Everything can be changed later in My Team.</span></div><div class="panel-b stack">
       ${teamIdentityForm(u.team, 'setup')}
       ${principal ? `<div class="form-grid">${[0, 1].map(i => `<label class="field"><span>${i ? 'Second driver' : 'Lead driver'}</span><select data-ch="mt-seat" data-i="${i}">
           ${pool.map(d => `<option value="${d.id}" ${u.team.seats[i] === d.id ? 'selected' : ''}>${esc(d.name)}${d.custom ? ' (new)' : ''}</option>`).join('')}<option value="__new" ${u.nd[i] ? 'selected' : ''}>+ Create a new driver…</option></select></label>`).join('')}</div>
         ${[0, 1].filter(i => u.nd[i]).map(i => newDriverForm('setup', i, u.nd[i])).join('')}
         <p class="muted" style="font-size:13px">The lead driver is the one Pitwall follows on the dashboard, teammate battle and career stats. Signing a driver from another team frees up their seat for a reserve driver.</p>`
       : `<div class="form-grid">
-        <label class="field"><span>Teammate</span><select data-ch="mt-field" data-scope="setup" data-k="mate">${[...new Set([...gridDrivers, 'PER', 'BOT'])].map(id => `<option value="${id}" ${u.team.mate === id ? 'selected' : ''}>${esc(anyName(id))}</option>`).join('')}</select></label>
+        <label class="field"><span>Teammate</span><select data-ch="mt-mate">${[...pool, ...['PER', 'BOT'].filter(id => !pool.some(d => d.id === id)).map(id => ({ id, name: anyName(id) }))].map(d => `<option value="${d.id}" ${u.team.mate === d.id ? 'selected' : ''}>${esc(d.name)}${d.custom ? ' (new)' : ''}</option>`).join('')}<option value="__new" ${u.nd.mate ? 'selected' : ''}>+ Create a new driver…</option></select></label>
       </div>
-      <p class="muted" style="font-size:13px">Signing a driver from another team frees up their seat for a reserve driver.</p>`}
+      ${u.nd.mate ? newDriverForm('setup', 'mate', u.nd.mate) : ''}
+      <p class="muted" style="font-size:13px">Anyone can be your teammate: a driver on the grid, from F2 or F3, or one you create. Signing a driver from another team frees up their seat for a reserve driver.</p>`}
     </div></div>`
     : `<div class="panel" ${realAs ? 'hidden' : ''}><div class="panel-h"><h2>${u.year} team</h2><span class="muted" style="font-size:12px">Pick the seat you took over in-game</span></div><div class="panel-b">
       <div class="choices">${teamCards}</div>
     </div></div>`}
 
+    ${future ? '' : setupCalPanel(u)}
     <div class="panel"><div class="panel-h"><h2>Goals & story</h2></div><div class="panel-b stack">
       ${goalEditor(u.goals, 'setup')}
       <div class="form-grid">
@@ -470,7 +485,7 @@ function goalEditor(goals, scope) {
         const gt = D.GOAL_TYPES.find(x => x.id === g.type);
         return `<tr><td><select data-ch="goal-type" data-scope="${scope}" data-id="${g.id}">${types.map(x => `<option value="${x.id}" ${x.id === g.type ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
           ${g.type === 'custom' ? `<input type="text" style="margin-top:6px" placeholder="Describe the goal" value="${esc(g.text || '')}" data-ch="goal-text" data-scope="${scope}" data-id="${g.id}">` : ''}</td>
-          ${kind === 'driver' && ctx.drivers ? `<td style="width:170px"><select data-ch="goal-driver" data-scope="${scope}" data-id="${g.id}">${ctx.drivers.map(([id, n]) => `<option value="${id}" ${g.driver === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>` : ''}
+          ${kind === 'driver' && ctx.drivers ? `<td style="width:170px"><select data-ch="goal-driver" data-scope="${scope}" data-id="${g.id}">${ctx.drivers.some(([id]) => id === g.driver) ? '' : '<option value="" selected>Pick a driver</option>'}${ctx.drivers.map(([id, n]) => `<option value="${id}" ${g.driver === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>` : ''}
           <td style="width:170px">${gt?.needsTeam ? `<select data-ch="goal-team" data-scope="${scope}" data-id="${g.id}">${ctx.teams.map(([id, n]) => `<option value="${id}" ${g.team === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`
             : gt?.needsTarget ? `<input type="number" min="0" value="${esc(g.target ?? '')}" data-ch="goal-target" data-scope="${scope}" data-id="${g.id}">` : '<span class="muted">—</span>'}</td>
           <td style="width:40px"><button class="icon-btn" title="Remove goal" data-act="goal-remove" data-scope="${scope}" data-id="${g.id}">${ICON.x}</button></td></tr>`;

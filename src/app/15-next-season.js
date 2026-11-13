@@ -159,11 +159,21 @@ function teamAddSave() {
   const scope = ui.modal.scope; closeModal(); teamAdd(scope, id);
 }
 /** A team's second colour (the background of its graphic). */
-const teamColor2 = (c, id) => c?.customTeams?.[id]?.color2 || D.TEAM_BIO[id]?.color2 || H.oldTeams?.[id]?.color2 || classicTeam(id)?.color2 || null;
+const teamColor2 = (c, id) => (id === MYTEAM ? c?.myTeam?.color2 : null) || c?.customTeams?.[id]?.color2 || D.TEAM_BIO[id]?.color2 || H.oldTeams?.[id]?.color2 || classicTeam(id)?.color2 || null;
 
 /** A team added to next season's grid on the Next Season tab: breaking news the weekend it was added. */
 function teamStories(c, s) {
   const out = []; const rounds = activeRounds(s);
+  // My Team: the team itself, the first season it races
+  if (c.type === 'myteam' && c.myTeam && s === c.seasons.find(x => !isHist(x))) {
+    const m = c.myTeam; const rnd = seeded(`myteam-${s.year}`); const t = s.teams.find(x => x.id === MYTEAM); const ids = (t?.drivers || []).filter(Boolean);
+    const who = (id) => id === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : dName(s, id);
+    out.push({ id: `team-myteam-${s.year}`, seq: -0.4, kind: 'transfer', i: -1, r: null, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
+      teamGfx: { id: MYTEAM, line: `Joins the grid in ${s.year}` },
+      headline: choose(rnd, [`BREAKING: ${m.name} to join the Formula 1 grid in ${s.year}`, `${m.name} confirmed as F1’s newest team for ${s.year}`]),
+      standfirst: `${m.name} makes its Formula 1 debut in ${s.year}${m.base ? `, based in ${m.base}` : ''}, with ${m.engine} power, one of ${s.teams.length} teams on the grid.`,
+      body: [`The team is run by ${m.principal || `${c.profile.first} ${c.profile.last}`}${isPrincipal(c) ? '' : ', who will also drive for it'}.`, ids.length ? `Its line-up: ${listJoin(ids.map(who))}.` : ''].filter(Boolean), quotes: [] });
+  }
   for (const n of (c.teamNews || []).filter(x => x.si === s.index)) {
     if (!(c.teamEdits?.[n.year]?.add || []).includes(n.id)) continue; // taken off again since
     const m = teamMeta(c, n.id); const rnd = seeded(`team-${n.id}-${n.year}`);

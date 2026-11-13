@@ -296,7 +296,7 @@ function playerDriver(c) {
 function driverEntry(c, id) {
   const cd = c.customDrivers?.find(x => x.id === id);
   if (cd) return { ...cd };
-  for (let i = c.seasons.length - 1; i >= 0; i--) if (c.seasons[i].drivers[id]) return { ...c.seasons[i].drivers[id] };
+  for (let i = c.seasons.length - 1; i >= 0; i--) if (c.seasons[i].drivers?.[id]) return { ...c.seasons[i].drivers[id] }; // (a real season kept as history has no roster)
   if (D.DRIVERS[id]) return { ...D.DRIVERS[id] };
   const g = c.generated?.[id] || FEEDER[id];
   if (g) return { id: g.id, name: g.name, abbr: g.abbr, number: g.number ?? null };
@@ -326,7 +326,7 @@ function applyTeamEdits(c, year, teams) {
 function baseRoster(c, index, prev) {
   let out;
   const year = prev ? prev.year + 1 : c.startYear;
-  const tpl0 = templateFor(year, c); const real = !prev || followsReal(c, year);
+  const tpl0 = templateFor(year, c); const real = !prev || isHist(prev) || followsReal(c, year); // (the first season you play starts from the real grid, with real seasons kept as history before it)
   const tpl = real ? tpl0 : null; // (kept teams: the real grid is left out, the real calendar isn't)
   if (!tpl && prev) {
     const teams = clone(prev.teams);
@@ -388,6 +388,7 @@ const FREE_AGENTS = ['PER', 'BOT', 'LIN', 'DOO', 'HAY', 'PEA'];
 const isPrincipal = (c) => c?.type === 'myteam' && c.myTeam?.role === 'principal';
 function myTeamRow(c) { const m = c.myTeam; return { id: MYTEAM, name: m.name, color: m.color, color2: m.color2, custom: true }; }
 function addMyTeam(c, teams, prev) {
+  if (prev && isHist(prev)) prev = null; // (a real season kept as history has no line-ups of its own)
   for (const x of ['apxgp', 'konnersport']) { const ax = teams.findIndex(t => t.id === x); if (ax >= 0) teams.splice(ax, 1); }
   const last = prev?.teams.find(t => t.id === MYTEAM)?.drivers.filter(d => d && d !== PLAYER_ID) || [];
   // keep last year's line-up, otherwise the drivers signed at setup

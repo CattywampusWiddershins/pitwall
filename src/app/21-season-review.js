@@ -820,7 +820,7 @@ function contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, seq) 
 function storyGfx(s, x) {
   if (x.seasonGfx) return seasonGfxSet(career(), s).map(v => ({ type: 'season', ...v, si: s.index, ri: 0 }));
   if (x.preQuoteGfx?.quotes?.length) return [{ type: 'quote', ...x.preQuoteGfx, solo: x.preQuoteGfx.quotes.length === 1, si: s.index, ri: 0 }];
-  if (!x.r) return x.calGfx ? [{ type: 'calendar', ...x.calGfx, si: s.index, ri: 0 }] : [];
+  if (!x.r) return x.calGfx ? [{ type: 'calendar', ...x.calGfx, si: s.index, ri: 0 }] : x.teamGfx ? [{ type: 'team', ...x.teamGfx, si: s.index, ri: 0 }] : [];
   const base = { si: s.index, ri: x.i }; const out = [];
   if (x.titleGfx?.ids?.length) {
     out.push({ type: 'title', ...x.titleGfx, ...base });
