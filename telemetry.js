@@ -121,6 +121,13 @@ function parseBodyDamage(b, L) {
   for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 34 > b.length) break; out.push(b[o + 28] + b[o + 29] + b[o + 30] + b[o + 31] + b[o + 32] + b[o + 33]); }
   return out;
 }
+/** Car damage: each car's power unit and gearbox, in percent worn (gearbox and engine damage, then the MGU-H, energy
+ *  store, control electronics, engine, MGU-K and turbocharger wear), for My Team's car development. */
+function parsePuWear(b, L) {
+  const out = []; const w = stride(b, L, 46);
+  for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 44 > b.length) break; out.push({ gb: b[o + 36], eng: b[o + 37], mguh: b[o + 38], es: b[o + 39], ce: b[o + 40], ice: b[o + 41], mguk: b[o + 42], tc: b[o + 43] }); }
+  return out;
+}
 /** Car damage: the most worn of each car's four tyres, in percent. */
 function parseWear(b, L) {
   const out = []; const w = stride(b, L, 46);
@@ -351,7 +358,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       const stints = (s.stints[x.idx]?.length ? s.stints[x.idx] : x.stints).map(t => ({ ...t, end: Math.min(t.end, x.laps || t.end) }));
       if (s.grid0?.[x.idx]) x = { ...x, grid: s.grid0[x.idx] }; // the grid as the race started, not where a save resumed it
       return { ...x, name: p.name || '', number: p.number || 0, team: p.team ?? null, myTeam: !!p.myTeam, ai: p.ai !== false, driver: p.driver ?? null,
-        lapTimes: s.laps[x.idx] || [], trace: packTrace(s, x.idx), stints, wear: s.wear[x.idx] || [], fuel: s.fuel[x.idx] || [], ersDep: s.dep[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null };
+        lapTimes: s.laps[x.idx] || [], trace: packTrace(s, x.idx), stints, wear: s.wear[x.idx] || [], fuel: s.fuel[x.idx] || [], ersDep: s.dep[x.idx] || [], leadGap: s.leadFin[x.idx] ?? null, pu: s.pu?.[x.idx] || null };
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars, resumed: !!(s.resumedFrom || s.resumed), gridKnown: !!s.grid0,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
@@ -399,7 +406,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.DAMAGE) {
-      s.wearNow = parseWear(b, L);
+      s.wearNow = parseWear(b, L); s.pu = parsePuWear(b, L);
       const body = parseBodyDamage(b, L);
       if (s.body) body.forEach((v, i) => { if (v - (s.body[i] || 0) >= 2) s.damage.push({ car: i, t: h.time }); });
       s.body = body;

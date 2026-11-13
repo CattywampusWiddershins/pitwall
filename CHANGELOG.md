@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.5.0
+
+My Team's Car development, Finances and Sponsors, rebuilt around how F1 25's My Team works.
+
+- **Car development.** The four areas as the game rates them, each with its change since the season began; update them whenever you like and every update is kept, so the season becomes a line (with the parts fitted marked on it). Parts go through research (research points, the round it's due before, delayed or not), then are built for both cars or one driver's (the cost goes into Finances by itself, a rating gain onto the area) and fitted. The three facilities: level, staff and Engineering's research points a week. And **power unit and gearbox wear, read from the game** during sessions for both your cars: engine, turbo, MGU-H, MGU-K, energy store, control electronics and gearbox, in percent worn. Upgrades logged before show among the fitted parts.
+- **Finances.** Your balance, the cost cap used (with where you'll end up at this rate), income a week, the season's income and spending and the engine. The balance through the season with each round's income and spending, and where the money comes from and goes. Most entries go in by themselves: each active sponsor's weekly income every race week, signing bonuses when a sponsor signs, part builds, and the engine contract each season (set its cost, and the cost cap, at the top of Add an entry).
+- **Sponsors.** Each with its signing bonus, weekly income, contract, core value, seasonal goal and loyalty (five steps, set with a tap). A goal Pitwall can measure (constructors' points, podiums, wins, position, finishing ahead of a team) is tracked from your results; any other you count up yourself. The title sponsor gets its own card. Fan rating and sentiment, from the Corporate screen. And offers to compare, with what each is worth over its contract, signed with one tap.
+
 ## 5.4.1
 
 - **A career starting in 2026 starts on the 2026 grid.** Since 5.3.0, a career that began in 2026 or later started on the real 2025 grid (kept as history) instead: no Audi, no Cadillac, and for My Team no team of your own, so they were missing from the standings and everything built on them, and driver goals had no drivers to pick. Saves caught by it are put right the first time they're opened, as long as nothing has been logged in that season yet.

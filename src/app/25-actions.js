@@ -226,7 +226,52 @@ const actions = {
     c.myTeam.ledger.push({ id: uid(), seasonIdx: s.index, roundId: nextRound(s)?.id || '', cat: 'Sponsorship', amount: +sp.value, note: `${sp.name} (${sp.tier.toLowerCase()} sponsor)` });
     store.save(); render(); toast(`${fmtM(+sp.value)} from ${sp.name} added to finances`);
   },
-  'mt-del'(el) { const m = career().myTeam; m[el.dataset.list] = m[el.dataset.list].filter(x => x.id !== el.dataset.id); store.save(); render(); },
+  'mt-rate-toggle'() { ui.mtRate = !ui.mtRate; render(); },
+  'mt-ratings-save'() {
+    const c = career(); const m = c.myTeam; const s = latestSeason(); const ri = roundsDone(s) - 1; const e = { si: s.index, ri };
+    for (const d of D.DEPARTMENTS) { const v = $('#rt-' + d.id)?.value; if (v !== '' && v != null) e[d.id] = Math.max(0, Math.min(100, Math.round(+v))); }
+    if (!D.DEPARTMENTS.some(d => e[d.id] != null)) { toast('Enter at least one rating'); return; }
+    m.ratingLog = (m.ratingLog || []).filter(x => !(x.si === e.si && x.ri === e.ri)); m.ratingLog.push(e);
+    m.ratings[s.index] = { ...(m.ratings[s.index] || {}), ...Object.fromEntries(D.DEPARTMENTS.filter(d => e[d.id] != null).map(d => [d.id, e[d.id]])) };
+    ui.mtRate = false; store.save(); render(); toast('Ratings saved');
+  },
+  'mt-proj-toggle'() { ui.mtNewProj = !ui.mtNewProj; render(); },
+  'mt-proj-add'() {
+    const m = career().myTeam; const s = latestSeason(); const name = $('#pj-name').value.trim(); if (!name) { toast('Name the part'); return; }
+    const due = $('#pj-due').value; (m.projects ||= []).push({ id: uid(), name, area: $('#pj-area').value, rp: Math.max(0, +$('#pj-rp').value || 0) || null, si: s.index, startRi: roundsDone(s) - 1, dueRi: due === '' ? null : +due, status: 'research' });
+    ui.mtNewProj = false; store.save(); render();
+  },
+  'mt-proj-done'(el) { const s = latestSeason(); const p = career().myTeam.projects.find(x => x.id === el.dataset.id); p.status = 'ready'; p.readyRi = roundsDone(s) - 1; p.si = s.index; store.save(); render(); },
+  'mt-proj-delay'(el) { const p = career().myTeam.projects.find(x => x.id === el.dataset.id); p.delayed = !p.delayed; store.save(); render(); },
+  'mt-proj-build'(el) {
+    const c = career(); const m = c.myTeam; const s = latestSeason(); const p = m.projects.find(x => x.id === el.dataset.id); const id = p.id;
+    const cars = $('#pb-cars-' + id).value; const ours = (s.teams.find(t => t.id === MYTEAM)?.drivers || []).filter(Boolean);
+    const cost = Math.max(0, +$('#pb-cost-' + id).value || 0); const gain = Math.round(+$('#pb-gain-' + id).value || 0) || null;
+    Object.assign(p, { status: 'fitted', drivers: cars === '2' ? ours : [cars], cost, gain, fsi: s.index, fri: roundsDone(s) - 1 });
+    const r0 = activeRounds(s)[Math.max(0, roundsDone(s) - 1)];
+    if (cost) m.ledger.push({ id: uid(), seasonIdx: s.index, roundId: roundsDone(s) ? r0?.id || '' : '', cat: 'Parts', amount: -cost, note: `${p.name} · ${cars === '2' ? 'both cars' : 'one car'}`, auto: true, removable: true, project: id });
+    if (gain && p.area && m.ratings[s.index]?.[p.area] != null) { m.ratings[s.index][p.area] = Math.max(0, Math.min(100, m.ratings[s.index][p.area] + gain)); const ri = roundsDone(s) - 1; m.ratingLog = (m.ratingLog || []).filter(x => !(x.si === s.index && x.ri === ri)); m.ratingLog.push({ si: s.index, ri, ...m.ratings[s.index] }); }
+    store.save(); render(); toast(`${p.name} fitted${cost ? `: ${fmtM(cost)} in Finances` : ''}`);
+  },
+  'mt-fac-toggle'() { ui.mtFac = !ui.mtFac; render(); },
+  'mt-sp-toggle'(el) { ui.mtSp = ui.mtSp === el.dataset.kind ? null : el.dataset.kind; render(); },
+  'mt-sp-add'(el) {
+    const c = career(); const m = c.myTeam; const s = latestSeason(); const name = $('#sp-name').value.trim(); if (!name) { toast('Enter the sponsor name'); return; }
+    const gtype = $('#sp-gtype').value; const target = Math.max(0, +$('#sp-gtarget').value || 0);
+    const goal = gtype === 'custom' ? ($('#sp-gtext').value.trim() ? { type: 'custom', text: $('#sp-gtext').value.trim(), target, count: 0 } : null) : { type: gtype, target: target || (gtype === 'constructor_pos' ? 10 : 1), team: gtype === 'beat_team' ? $('#sp-gteam').value : undefined };
+    const r0 = activeRounds(s)[Math.max(0, roundsDone(s) - 1)];
+    const x = { id: uid(), seasonIdx: s.index, roundId: roundsDone(s) ? r0?.id || '' : '', name, tier: $('#sp-tier').value, bonus: Math.max(0, +$('#sp-bonus').value || 0), weekly: Math.max(0, +$('#sp-weekly').value || 0), until: +$('#sp-until').value || null, core: $('#sp-core').value.trim() || null, goal, loyalty: 0, status: 'Active' };
+    if (el.dataset.kind === 'offer') { delete x.status; (m.offers ||= []).push(x); } else { (m.sponsors ||= []).push(x); toast(`${name} signed`); }
+    ui.mtSp = null; store.save(); render();
+  },
+  'mt-sp-sign'(el) {
+    const m = career().myTeam; const s = latestSeason(); const k = (m.offers || []).findIndex(x => x.id === el.dataset.id); if (k < 0) return;
+    const r0 = activeRounds(s)[Math.max(0, roundsDone(s) - 1)]; const x = { ...m.offers[k], seasonIdx: s.index, roundId: roundsDone(s) ? r0?.id || '' : '', status: 'Active', loyalty: 0 };
+    m.offers.splice(k, 1); (m.sponsors ||= []).push(x); store.save(); render(); toast(`${x.name} signed`);
+  },
+  'mt-sp-loyal'(el) { const x = career().myTeam.sponsors.find(o => o.id === el.dataset.id); if (x) { x.loyalty = +el.dataset.v; store.save(); render(); } },
+  'mt-sp-count'(el) { const x = career().myTeam.sponsors.find(o => o.id === el.dataset.id); if (x?.goal) { x.goal.count = Math.max(0, (+x.goal.count || 0) + (+el.dataset.v)); store.save(); render(); } },
+  'mt-del'(el) { const m = career().myTeam; m[el.dataset.list] = (m[el.dataset.list] || []).filter(x => x.id !== el.dataset.id); if (el.dataset.list === 'projects') m.ledger = m.ledger.filter(e => e.project !== el.dataset.id); store.save(); render(); }, // (a part taken out takes its build cost with it)
   'set-theme'(el) { state.prefs = { ...(state.prefs || {}), theme: el.dataset.v }; store.save(); render(); },
   'edit-goals'() { goalsModal(); },
   'goal-add'(el) {
@@ -541,8 +586,11 @@ Object.assign(changes, {
     if (el.value === '') delete r[el.dataset.k]; else r[el.dataset.k] = Math.max(0, Math.min(100, Math.round(+el.value)));
     store.save(); render();
   },
+  'mt-fac'(el) { const m = career().myTeam; const f = ((m.facilities ||= {})[el.dataset.f] ||= {}); const k = el.dataset.k; if (k === 'note') f.note = el.value.trim() || null; else f[k] = el.value === '' ? null : Math.max(0, +el.value); store.save(); },
+  'mt-fin'(el) { const m = career().myTeam; m[el.dataset.k] = el.value === '' ? null : Math.max(0, +el.value); store.save(); render(); },
+  'mt-fans'(el) { const m = career().myTeam; const s = latestSeason(); const f = ((m.fans ||= {})[s.index] ||= {}); if (el.dataset.k === 'rating') f.rating = el.value === '' ? null : Math.max(0, Math.min(100, +el.value)); else f.sentiment = el.value.trim() || null; store.save(); render(); },
   'mt-budget'(el) { career().myTeam.budget = +el.value || 0; store.save(); render(); },
-  'mt-sponsor-status'(el) { career().myTeam.sponsors.find(x => x.id === el.dataset.id).status = el.value; store.save(); render(); },
+  'mt-sponsor-status'(el) { const s = latestSeason(); const x = career().myTeam.sponsors.find(o => o.id === el.dataset.id); x.status = el.value; if (el.value === 'Ended') { x.endSi = s.index; x.endRi = roundsDone(s) - 1; } else { delete x.endSi; delete x.endRi; } store.save(); render(); },
   async 'gfx-logo'(el) {
     const file = el.files?.[0]; if (!file) return;
     try { state.gfxLogo = await readImage(file, { max: 700 }); store.save(); applyTheme(); render(); toast('Logo saved'); } catch (e) { toast(e.message); }

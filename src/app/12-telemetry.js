@@ -357,6 +357,9 @@ function applyGameResult(c, r, place) {
   const { s, round, key } = place;
   const { map, unmatched } = mapGameDrivers(c, s, r);
   const w = weekend(s, round.id, true);
+  // My Team: the latest power unit and gearbox wear of the team's cars, as the game reports it
+  if (c.type === 'myteam' && c.myTeam) { const ours = s.teams.find(t => t.id === MYTEAM)?.drivers || []; const ri = activeRounds(s).indexOf(round);
+    for (const x of r.cars || []) { const id = map[x.idx]; if (id && ours.includes(id) && x.pu) (c.myTeam.pu ||= {})[id] = { ...x.pu, si: s.index, ri, key }; } }
   const prev = w.sessions[key] ? JSON.stringify(w.sessions[key]) : null; const prevLen = w.raceLength;
   const byId = (pick) => Object.fromEntries(r.cars.filter(x => map[x.idx]).map(x => [map[x.idx], pick(x)]));
   const game = { key: r.key, at: r.at, sessionType: r.sessionType, totalLaps: r.totalLaps,

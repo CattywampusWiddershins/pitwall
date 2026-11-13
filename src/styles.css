@@ -1389,3 +1389,34 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 
 .sw-noimg { width: 46px; height: 46px; display: grid; place-items: center; color: var(--dim); border: 1px dashed var(--line); border-radius: 50%; flex: none; }
 .sw-add { border: 1px solid var(--line); border-radius: var(--r); padding: 12px; background: var(--panel-2); }
+
+/* My Team: car development, finances and sponsors */
+.mt-g4 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.mt-g3 { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.mt-area { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 14px 14px 18px; display: grid; gap: 8px; position: relative; overflow: hidden; }
+.mt-area::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.mt-area .k { font: 700 12px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mt-area .v { font: 700 42px/1 var(--font-display); }
+.mt-area .d { font-size: 12px; }
+.mt-auto, .mt-entered { display: inline-block; font: 700 10px var(--font-display); letter-spacing: .06em; text-transform: uppercase; border-radius: 3px; padding: 0 5px; margin-left: 6px; vertical-align: 2px; }
+.mt-auto { color: #7FE3A6; border: 1px solid #2F6B47; }
+.mt-entered { color: var(--muted); border: 1px solid var(--line); }
+.mt-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.mt-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.mt-wear { display: grid; grid-template-columns: minmax(80px, 120px) 1fr 54px; gap: 8px; align-items: center; font-size: 12.5px; }
+.mt-wear .bar-track { grid-column: auto; height: 10px; }
+.mt-pu { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.mt-kan { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.mt-kcol { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+.mt-kcol h3 { font: 700 13px var(--font-display); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 2px; display: flex; justify-content: space-between; }
+.mt-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 6px; padding: 9px 10px; display: grid; gap: 6px; font-size: 13px; }
+.mt-card .meta { color: var(--muted); font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+.mt-chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel-3); color: var(--fg); }
+.mt-chip.c1 { background: var(--team); color: var(--team-ink); } .mt-chip.c2 { background: #44415A; }
+.mt-goal { display: grid; gap: 4px; font-size: 13px; }
+.mt-loyal { display: inline-flex; gap: 4px; }
+.mt-loyal button, .mt-loyal i { width: 22px; height: 7px; border-radius: 3px; background: rgba(255,255,255,.18); border: 0; padding: 0; cursor: pointer; }
+.mt-loyal .on { background: #F5C518; }
+.mt-title { background: linear-gradient(120deg, var(--team), rgba(0,0,0,.35) 75%), var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 14px; grid-template-columns: 120px 1fr auto; align-items: center; }
+.mt-logo { width: 120px; height: 70px; border-radius: 8px; background: rgba(255,255,255,.08); display: grid; place-items: center; font: 900 20px var(--font-display); letter-spacing: .04em; overflow: hidden; }
+@media (max-width: 640px) { .mt-title { grid-template-columns: 1fr; } .mt-logo { width: 100%; } }

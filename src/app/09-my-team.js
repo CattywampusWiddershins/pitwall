@@ -71,11 +71,6 @@ function myTeamSeason(c, s, st = seasonStats(s)) {
   const ids = (team?.drivers || []).filter(Boolean);
   return { s, row, team, ids, teams: cs.length, poles: ids.reduce((a, id) => a + (st[id]?.poles || 0), 0), st };
 }
-function ledgerTotals(m, seasonIdx = null) {
-  let income = 0, expense = 0;
-  for (const e of m.ledger) { if (seasonIdx != null && e.seasonIdx !== seasonIdx) continue; if (e.amount >= 0) income += e.amount; else expense -= e.amount; }
-  return { income, expense, net: income - expense };
-}
 function roundLabel(c, seasonIdx, roundId) {
   const s = c.seasons[seasonIdx]; if (!s) return '';
   const rs = activeRounds(s); const i = rs.findIndex(r => r.id === roundId);
@@ -191,93 +186,257 @@ function renderMtIdentity(c, m) {
   </div></div>`;
 }
 
+/* ---------------------------------------------------------- car development */
+/*
+  Car development, as F1 25's My Team runs it: the four areas the game rates (copied across whenever you like, each
+  update kept so the season becomes a line), parts researched with research points and then built for one car or
+  both, the three facilities, and the power unit and gearbox wear the game reports during sessions.
+*/
+const MT_AREA_COL = { aero: '#4FA3FF', chassis: '#F5C518', powertrain: '#E10600', durability: '#2FD07A' };
+const mtRounds = (s) => activeRounds(s);
+/** "After R4", or "Pre-season" before any round has run. */
+const mtWhen = (s, ri) => ri == null || ri < 0 ? 'Pre-season' : `After R${ri + 1} ${mtRounds(s)[ri]?.name || ''}`.trim();
+/** The rating updates of a season, in order: [{ ri, aero, chassis, powertrain, durability }] (the season's set if none were logged). */
+function mtRatingLog(m, s) {
+  const log = (m.ratingLog || []).filter(x => x.si === s.index).sort((a, b) => (a.ri ?? -1) - (b.ri ?? -1));
+  if (log.length) return log;
+  const r = m.ratings?.[s.index]; return r && Object.keys(r).length ? [{ ri: -1, ...r }] : [];
+}
+function mtWearCol(v) { return v >= 70 ? 'var(--red)' : v >= 50 ? 'var(--yellow)' : 'var(--green)'; }
 function renderMtDev(c, m, s) {
-  const r = m.ratings[s.index] || {};
-  const prev = m.ratings[s.index - 1] || null;
-  const vals = D.DEPARTMENTS.map(d => r[d.id]).filter(v => v != null);
-  const overall = vals.length ? Math.round(avg(vals)) : null;
-  const ups = m.upgrades.slice().reverse();
-  return `<div class="grid-2">
-    <div class="panel"><div class="panel-h"><h2>${s.year} department ratings</h2><span class="muted" style="font-size:12px">Overall ${overall ?? '–'}${prev ? ' · vs last season' : ''}</span></div><div class="panel-b stack">
-      ${D.DEPARTMENTS.map(d => {
-        const v = r[d.id]; const p = prev?.[d.id]; const delta = v != null && p != null ? v - p : null;
-        return `<div style="display:grid;gap:6px"><div class="row" style="justify-content:space-between"><span>${d.name}</span>
-          <span class="row" style="gap:8px">${delta ? `<span class="${delta > 0 ? 'pos-money' : 'neg'}" style="font-size:12px">${delta > 0 ? '+' : ''}${delta}</span>` : ''}<input type="number" min="0" max="100" style="width:80px" value="${v ?? ''}" placeholder="0–100" data-ch="mt-rating" data-k="${d.id}"></span></div>
-          <div class="bar-track"><div class="bar-fill" style="width:${v || 0}%"></div></div></div>`;
-      }).join('')}
-      <p class="muted" style="font-size:13px">Copy the ratings from the car performance screen in-game. Each season keeps its own set, so you can see the gains year on year.</p>
+  const r = m.ratings[s.index] || {}; const log = mtRatingLog(m, s); const first = log[0] || {};
+  const prevSeason = m.ratings[s.index - 1] || null;
+  const P = (() => { try { return paceTable(s, 'race').rows.findIndex(o => o.team.id === MYTEAM) + 1; } catch { return 0; } })();
+  const cards = D.DEPARTMENTS.map(d => {
+    const v = r[d.id]; const base = log.length > 1 ? first[d.id] : prevSeason?.[d.id]; const delta = v != null && base != null ? v - base : null;
+    const sub = d.id === 'powertrain' ? `${esc(m.engine)} engine` : delta ? `<span class="${delta > 0 ? 'pos-money' : 'neg'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)}</span> ${log.length > 1 ? (first.ri < 0 ? 'since the season began' : `since ${esc(mtWhen(s, first.ri).replace('After ', ''))}`) : 'on last season'}` : '<span class="muted">No change logged yet</span>';
+    return `<div class="mt-area" style="--c:${MT_AREA_COL[d.id]}"><span class="k">${d.name}</span><span class="v">${v ?? '–'}</span><span class="d">${sub}</span><div class="bar-track"><div class="bar-fill" style="width:${v || 0}%;background:${MT_AREA_COL[d.id]}"></div></div></div>`;
+  }).join('');
+  // the ratings as a line through the season, with the parts fitted marked on it
+  const chart = (() => {
+    if (log.length < 2) return `<div class="empty">Update the ratings now and then (after a part is fitted, say) and they make a line here.</div>`;
+    const W = 520, H = 210, L = 36, R = 14, T = 14, B = 26; const vals = log.flatMap(x => D.DEPARTMENTS.map(d => x[d.id]).filter(v => v != null));
+    const lo = Math.max(0, Math.floor((Math.min(...vals) - 3) / 10) * 10), hi = Math.min(100, Math.ceil((Math.max(...vals) + 3) / 10) * 10);
+    const n = mtRounds(s).length; const X = (ri) => L + ((ri ?? -1) + 1) / Math.max(1, n) * (W - L - R); const Y = (v) => T + (hi - v) / Math.max(1, hi - lo) * (H - T - B);
+    let o = ''; for (let v = lo; v <= hi; v += 10) o += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#263149"/><text x="${L - 6}" y="${Y(v) + 4}" font-size="11" fill="#8B97AF" text-anchor="end">${v}</text>`;
+    for (let ri = 0; ri < n; ri += Math.max(1, Math.round(n / 6))) o += `<text x="${X(ri)}" y="${H - 8}" font-size="11" fill="#8B97AF" text-anchor="middle">R${ri + 1}</text>`;
+    for (const p of (m.projects || []).filter(p => p.status === 'fitted' && p.fsi === s.index && p.fri != null)) o += `<line x1="${X(p.fri)}" x2="${X(p.fri)}" y1="${T}" y2="${H - B}" stroke="${MT_AREA_COL[p.area] || '#8B97AF'}" stroke-dasharray="3 3" opacity=".7"><title>${esc(p.name)}</title></line>`;
+    for (const d of D.DEPARTMENTS) { const pts = log.filter(x => x[d.id] != null).map(x => `${X(x.ri).toFixed(1)},${Y(x[d.id]).toFixed(1)}`); if (pts.length) o += `<polyline fill="none" stroke="${MT_AREA_COL[d.id]}" stroke-width="3" stroke-linejoin="round" points="${pts.join(' ')}"/>`; }
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%">${o}</svg><div class="mt-legend">${D.DEPARTMENTS.map(d => `<span><i style="background:${MT_AREA_COL[d.id]}"></i>${d.name}</span>`).join('')}<span>┆ a part fitted</span></div>`;
+  })();
+  const ratingsForm = ui.mtRate ? `<div class="panel-b stack" style="border-top:1px solid var(--line)"><div class="form-grid">${D.DEPARTMENTS.map(d => `<label class="field"><span>${d.name}</span><input type="number" min="0" max="100" id="rt-${d.id}" value="${r[d.id] ?? ''}" placeholder="0–100"></label>`).join('')}</div>
+      <div class="row" style="gap:8px"><button class="btn primary" data-act="mt-ratings-save">Save · ${esc(mtWhen(s, roundsDone(s) - 1))}</button><button class="btn ghost" data-act="mt-rate-toggle">Cancel</button><span class="muted" style="font-size:12px">From the car performance screen in the game.</span></div></div>` : '';
+  // power unit and gearbox wear, as the game reported it at the last session
+  const ids = (s.teams.find(t => t.id === MYTEAM)?.drivers || []).filter(Boolean);
+  const PU = [['ice', 'Engine (ICE)'], ['tc', 'Turbocharger'], ['mguh', 'MGU-H'], ['mguk', 'MGU-K'], ['es', 'Energy store'], ['ce', 'Control electronics'], ['gb', 'Gearbox']];
+  const withPu = ids.filter(id => m.pu?.[id]);
+  const puPanel = `<div class="panel"><div class="panel-h"><h2>Power unit &amp; gearbox <span class="mt-auto">auto</span></h2><span class="muted" style="font-size:12px">${withPu.length ? `As the game reported it, ${esc(mtWhen(c.seasons[m.pu[withPu[0]].si] || s, m.pu[withPu[0]].ri))}` : 'Read from the game during sessions'}</span></div><div class="panel-b">
+      ${withPu.length ? `<div class="mt-pu">${withPu.map(id => `<div class="stack" style="gap:6px"><b>${esc(dName(s, id))}</b>${PU.map(([k, l]) => { const v = m.pu[id][k] ?? 0; return `<div class="mt-wear"><span>${l}</span><div class="bar-track"><div class="bar-fill" style="width:${v}%;background:${mtWearCol(v)}"></div></div><span class="num">${v}%</span></div>`; }).join('')}</div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">From 70% a part is close to the end of its life. Each can only be fitted so many times before replacements cost extra.</p>`
+      : '<div class="empty">Drive a session with telemetry on and the wear of both cars’ engine parts and gearboxes shows up here.</div>'}
+    </div></div>`;
+  // research and build
+  const P2 = m.projects || []; const legacy = (m.upgrades || []).map(u => ({ id: u.id, legacy: true, name: u.part, area: u.dept, status: 'fitted', fsi: u.seasonIdx, fri: mtRounds(c.seasons[u.seasonIdx] || s).findIndex(x => x.id === u.roundId), cost: u.cost, notes: u.notes }));
+  const col = (st) => [...P2, ...legacy].filter(p => p.status === st);
+  const areaName = (a) => D.DEPARTMENTS.find(d => d.id === a)?.name || a;
+  const chips = (p) => (p.drivers || []).map((id, k) => `<span class="mt-chip ${k ? 'c2' : 'c1'}">${esc(lastName(dName(s, id) || anyName(id)))}</span>`).join('');
+  const card = (p) => {
+    const c0 = MT_AREA_COL[p.area] || '#8B97AF'; const ps = c.seasons[p.si ?? p.fsi] || s;
+    if (p.status === 'research') return `<div class="mt-card" style="--c:${c0}"><div class="row" style="justify-content:space-between"><b>${esc(p.name)}</b><button class="icon-btn sm" data-act="mt-del" data-list="projects" data-id="${p.id}" title="Remove">${ICON.x}</button></div>
+      <span class="meta"><span>${areaName(p.area)}</span>${p.rp ? `<span>${Number(p.rp).toLocaleString()} RP</span>` : ''}${p.dueRi != null ? `<span class="${p.delayed ? 'neg' : ''}">${p.delayed ? 'Delayed: was due' : 'Due'} before ${esc(mtRounds(ps)[p.dueRi]?.name || 'the next round')}</span>` : ''}</span>
+      <div class="row" style="gap:6px"><button class="btn sm" data-act="mt-proj-done" data-id="${p.id}">Research done</button><button class="btn sm ghost" data-act="mt-proj-delay" data-id="${p.id}">${p.delayed ? 'Back on time' : 'Delayed'}</button></div></div>`;
+    if (p.status === 'ready') return `<div class="mt-card" style="--c:${c0}"><div class="row" style="justify-content:space-between"><b>${esc(p.name)}</b><button class="icon-btn sm" data-act="mt-del" data-list="projects" data-id="${p.id}" title="Remove">${ICON.x}</button></div>
+      <span class="meta"><span>${areaName(p.area)}</span><span>Researched ${esc(mtWhen(ps, p.readyRi).replace('After ', 'after ').replace('Pre-season', 'before the season'))}</span></span>
+      <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))"><label class="field"><span>Build</span><select id="pb-cars-${p.id}"><option value="2">Both cars</option>${ids.map(id => `<option value="${id}">${esc(lastName(dName(s, id)))}'s car</option>`).join('')}</select></label><label class="field"><span>Cost ($M)</span><input type="number" min="0" step="0.1" id="pb-cost-${p.id}" placeholder="1.0"></label><label class="field"><span>Rating gain</span><input type="number" step="1" id="pb-gain-${p.id}" placeholder="+3"></label></div>
+      <button class="btn sm primary" data-act="mt-proj-build" data-id="${p.id}">Build and fit</button></div>`;
+    return `<div class="mt-card" style="--c:${c0}"><div class="row" style="justify-content:space-between"><b>${esc(p.name)}</b><button class="icon-btn sm" data-act="mt-del" data-list="${p.legacy ? 'upgrades' : 'projects'}" data-id="${p.id}" title="Remove">${ICON.x}</button></div>
+      <span class="meta"><span>${areaName(p.area)}${p.gain ? ` · ${p.gain > 0 ? '+' : ''}${p.gain}` : ''}</span><span>${p.fri == null || p.fri < 0 ? 'Fitted before the season' : `Fitted after R${p.fri + 1}`}</span>${p.notes ? `<span>${esc(p.notes)}</span>` : ''}</span>
+      <div class="row" style="gap:6px">${chips(p)}${p.cost ? `<span class="muted" style="font-size:12px">${p.drivers?.length === 1 ? 'one car · ' : ''}${fmtM(p.cost)}</span>` : ''}</div></div>`;
+  };
+  const researchForm = ui.mtNewProj ? `<div class="panel-b stack" style="border-top:1px solid var(--line)"><div class="form-grid">
+      <label class="field"><span>Part</span><input type="text" id="pj-name" placeholder="Floor, spec C"></label>
+      <label class="field"><span>Area</span><select id="pj-area">${D.DEPARTMENTS.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}</select></label>
+      <label class="field"><span>Research points</span><input type="number" min="0" id="pj-rp" placeholder="1450"></label>
+      <label class="field"><span>Due before</span><select id="pj-due"><option value="">Not known</option>${mtRounds(s).map((x, i) => i >= roundsDone(s) ? `<option value="${i}">R${i + 1} · ${esc(x.name)}</option>` : '').join('')}</select></label></div>
+      <div class="row" style="gap:8px"><button class="btn primary" data-act="mt-proj-add">Start research</button><button class="btn ghost" data-act="mt-proj-toggle">Cancel</button></div></div>` : '';
+  // the facilities
+  const F = m.facilities || {}; const fac = [['engineering', 'Engineering', 'Earns the research points: more staff, more points, higher running costs'], ['personnel', 'Personnel', 'Staff, training and morale'], ['corporate', 'Corporate', 'Sponsors, the budget and the livery']];
+  const facPanel = `<div class="panel"><div class="panel-h"><h2>Facilities <span class="mt-entered">entered</span></h2><button class="btn sm ghost" data-act="mt-fac-toggle">${ui.mtFac ? 'Done' : 'Edit'}</button></div><div class="panel-b"><div class="mt-g3">${fac.map(([k, n, about]) => { const f = F[k] || {}; const pct = f.max ? Math.min(100, (f.staff || 0) / f.max * 100) : 0;
+      return ui.mtFac ? `<div class="stack" style="gap:6px"><b>${n}</b><div class="form-grid" style="grid-template-columns:repeat(2,1fr)"><label class="field"><span>Level</span><input type="number" min="0" max="10" value="${f.level ?? ''}" data-ch="mt-fac" data-f="${k}" data-k="level"></label><label class="field"><span>Staff</span><input type="number" min="0" value="${f.staff ?? ''}" data-ch="mt-fac" data-f="${k}" data-k="staff"></label><label class="field"><span>Most staff</span><input type="number" min="0" value="${f.max ?? ''}" data-ch="mt-fac" data-f="${k}" data-k="max"></label>${k === 'engineering' ? `<label class="field"><span>RP a week</span><input type="number" min="0" value="${f.rp ?? ''}" data-ch="mt-fac" data-f="${k}" data-k="rp"></label>` : `<label class="field"><span>Note</span><input type="text" value="${esc(f.note || '')}" data-ch="mt-fac" data-f="${k}" data-k="note" placeholder="Upgrade done after Imola"></label>`}</div></div>`
+        : `<div class="stack" style="gap:6px"><div class="row" style="justify-content:space-between"><b>${n}</b><span class="muted">${f.level != null ? `Level ${f.level}` : '–'}</span></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><span class="muted" style="font-size:12px">${f.staff != null ? `${f.staff}${f.max ? ` of ${f.max}` : ''} staff` : about}${k === 'engineering' && f.rp ? ` · ${f.rp} research points a week` : ''}${f.note ? ` · ${esc(f.note)}` : ''}</span></div>`; }).join('')}</div></div></div>`;
+  return `<div class="mt-g4">${cards}</div>
+    ${P ? `<p class="muted" style="font-size:12px;margin:-4px 0 0">On race pace so far, ${esc(m.name)} is the ${ordWord(P)}-quickest team (from your results).</p>` : ''}
+    <div class="grid-2">
+      <div class="panel"><div class="panel-h"><h2>Ratings through the season <span class="mt-entered">entered</span></h2><button class="btn sm primary" data-act="mt-rate-toggle">Update ratings</button></div><div class="panel-b">${chart}</div>${ratingsForm}</div>
+      ${puPanel}
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Research &amp; build <span class="mt-entered">entered</span></h2><button class="btn sm primary" data-act="mt-proj-toggle">+ Start research</button></div>${researchForm}<div class="panel-b">
+      <div class="mt-kan">${[['research', 'Researching'], ['ready', 'Ready to build'], ['fitted', 'Fitted']].map(([st, l]) => { const L0 = col(st); return `<div class="mt-kcol"><h3>${l} <span class="muted">${L0.length}</span></h3>${L0.length ? L0.slice().reverse().map(card).join('') : '<span class="muted" style="font-size:12px">Nothing here yet.</span>'}</div>`; }).join('')}</div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Building a part goes into Finances by itself, under parts. A part fitted to one car shows which driver has it, as in the game.</p>
     </div></div>
-    <div class="panel"><div class="panel-h"><h2>Log an upgrade</h2></div><div class="panel-b stack">
-      <div class="form-grid">
-        <label class="field"><span>When</span>${roundSelect(s, 'up-round')}</label>
-        <label class="field"><span>Department</span><select id="up-dept">${D.DEPARTMENTS.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}</select></label>
-        <label class="field"><span>Part</span><input type="text" id="up-part" placeholder="Front wing, spec B"></label>
-        <label class="field"><span>Cost ($M)</span><input type="number" id="up-cost" min="0" step="0.1" placeholder="Optional"></label>
-      </div>
-      <label class="field"><span>Notes</span><input type="text" id="up-notes" placeholder="+0.15s per lap in high-speed corners"></label>
-      <div class="row"><button class="btn primary" data-act="mt-add-upgrade">Add upgrade</button><label class="check"><input type="checkbox" id="up-ledger" checked> Add the cost to finances</label></div>
-    </div></div>
-  </div>
-  <div class="panel"><div class="panel-h"><h2>Upgrade history</h2><span class="muted">${m.upgrades.length} upgrade${m.upgrades.length === 1 ? '' : 's'}</span></div><div class="panel-b tight table-wrap"><table>
-    <thead><tr><th>When</th><th>Department</th><th>Part</th><th>Notes</th><th class="num">Cost</th><th></th></tr></thead>
-    <tbody>${ups.length ? ups.map(u => `<tr><td class="muted">${esc(roundLabel(c, u.seasonIdx, u.roundId))}</td><td>${esc(D.DEPARTMENTS.find(d => d.id === u.dept)?.name || u.dept)}</td><td><b>${esc(u.part)}</b></td><td class="muted">${esc(u.notes)}</td><td class="num">${u.cost ? fmtM(u.cost) : '–'}</td><td><button class="icon-btn" title="Remove" data-act="mt-del" data-list="upgrades" data-id="${u.id}">${ICON.x}</button></td></tr>`).join('')
-      : '<tr><td colspan="6"><div class="empty">No upgrades logged yet.</div></td></tr>'}</tbody>
-  </table></div></div>`;
+    ${facPanel}`;
 }
 
+/* ---------------------------------------------------------------- finances */
+/*
+  The money: every entry you log, plus the ones Pitwall works out (each active sponsor's weekly income for every race
+  week, its signing bonus when it signed, and the engine contract at the start of each season), the balance through
+  the season, where it comes from and goes, and the cost cap (driver salaries don't count towards it, as in F1).
+*/
+const MT_CAP = 135;
+/** Every money movement of the team, oldest first: [{ seasonIdx, roundId, cat, note, amount, auto, id? }]. */
+function mtLedger(c, m) {
+  const out = []; const played = playedSeasons(c);
+  for (const se of played) {
+    const rs = activeRounds(se); const done = roundsDone(se);
+    if (m.engineCost) out.push({ seasonIdx: se.index, roundId: '', cat: 'Engine', note: `${m.engine} engine contract`, amount: -m.engineCost, auto: true, k: -1 });
+    for (const x of m.sponsors || []) {
+      if (!x.weekly && !x.bonus) continue; if (se.index < x.seasonIdx) continue; if (x.until && se.year > x.until) continue;
+      const from = se.index === x.seasonIdx ? Math.max(0, rs.findIndex(r => r.id === x.roundId) + 1) : 0;
+      const to = x.status === 'Ended' && x.endSi === se.index ? Math.min(done, (x.endRi ?? done - 1) + 1) : x.status === 'Ended' && x.endSi != null && x.endSi < se.index ? 0 : done;
+      if (x.bonus && se.index === x.seasonIdx) out.push({ seasonIdx: se.index, roundId: x.roundId || '', cat: 'Sponsorship', note: `${x.name}, signing bonus`, amount: +x.bonus, auto: true, k: from - 1 });
+      if (x.weekly) for (let ri = from; ri < to; ri++) out.push({ seasonIdx: se.index, roundId: rs[ri].id, cat: 'Sponsorship', note: `${x.name}, weekly`, amount: +x.weekly, auto: true, k: ri });
+    }
+  }
+  for (const e of m.ledger || []) { const se = c.seasons[e.seasonIdx]; out.push({ ...e, k: se ? activeRounds(se).findIndex(r => r.id === e.roundId) : -1 }); }
+  return out.sort((a, b) => a.seasonIdx - b.seasonIdx || a.k - b.k);
+}
+function ledgerTotals(m, seasonIdx = null) {
+  let income = 0, expense = 0; const c = career();
+  for (const e of c ? mtLedger(c, m) : m.ledger) { if (seasonIdx != null && e.seasonIdx !== seasonIdx) continue; if (e.amount >= 0) income += e.amount; else expense -= e.amount; }
+  return { income, expense, net: income - expense };
+}
 function renderMtFinance(c, m, s, balance) {
-  const season = ledgerTotals(m, s.index);
-  let run = m.budget;
-  const rows = m.ledger.map(e => ({ ...e, after: (run += e.amount) })).reverse();
+  const all = mtLedger(c, m); const season = all.filter(e => e.seasonIdx === s.index);
+  const tot = ledgerTotals(m, s.index); const rs = activeRounds(s); const done = roundsDone(s);
+  const weekly = (m.sponsors || []).filter(x => x.status === 'Active' && (!x.until || x.until >= s.year)).reduce((a, x) => a + (+x.weekly || 0), 0);
+  const cap = m.cap ?? MT_CAP; const capUsed = season.filter(e => e.amount < 0 && e.cat !== 'Driver salary').reduce((a, e) => a - e.amount, 0);
+  const proj = done ? capUsed / done * rs.length : capUsed;
+  // the balance through the season: where it stood going in, then after each round
+  const before = m.budget + all.filter(e => e.seasonIdx < s.index).reduce((a, e) => a + e.amount, 0);
+  const per = rs.map((r, i) => ({ inc: season.filter(e => e.k === i && e.amount > 0).reduce((a, e) => a + e.amount, 0), out: season.filter(e => e.k === i && e.amount < 0).reduce((a, e) => a - e.amount, 0) }));
+  const start = before + season.filter(e => e.k < 0).reduce((a, e) => a + e.amount, 0);
+  let run = start; const bal = per.map(p => (run += p.inc - p.out));
+  const chart = (() => {
+    const W = 520, H = 220, L = 52, R = 12, T = 14, B = 28; const n = Math.max(1, done);
+    const vals = [start, ...bal.slice(0, done)]; const maxBar = Math.max(1, ...per.slice(0, done).flatMap(p => [p.inc, p.out]));
+    const pad = Math.max(1, (Math.max(...vals) - Math.min(...vals)) * 0.4); const lo = Math.min(...vals) - pad, hi = Math.max(...vals) + pad; const Y = (v) => T + (hi - v) / (hi - lo || 1) * (H - T - B); const X = (i) => L + (i + 0.5) / Math.max(n, 1) * (W - L - R);
+    let o = ''; for (const v of [lo, (lo + hi) / 2, hi]) o += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#263149"/><text x="${L - 6}" y="${Y(v) + 4}" font-size="11" fill="#8B97AF" text-anchor="end">${fmtM(Math.round(v * 10) / 10)}</text>`;
+    const bh = (v) => v / maxBar * (H - T - B) * 0.35; const bw = Math.max(3, Math.min(10, (W - L - R) / n / 3));
+    for (let i = 0; i < done; i++) { o += `<rect x="${X(i) - bw - 1}" y="${H - B - bh(per[i].inc)}" width="${bw}" height="${bh(per[i].inc)}" fill="#2FD07A" opacity=".8"/><rect x="${X(i) + 1}" y="${H - B - bh(per[i].out)}" width="${bw}" height="${bh(per[i].out)}" fill="#F0535A" opacity=".8"/>`; if (n <= 12 || i % 2 === 0) o += `<text x="${X(i)}" y="${H - 9}" font-size="11" fill="#8B97AF" text-anchor="middle">R${i + 1}</text>`; }
+    o += `<polyline fill="none" stroke="#E7ECF5" stroke-width="3" stroke-linejoin="round" points="${[`${L},${Y(start)}`, ...bal.slice(0, done).map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`)].join(' ')}"/>`;
+    return done ? `<svg viewBox="0 0 ${W} ${H}" style="width:100%">${o}</svg><div class="mt-legend"><span><i style="background:#E7ECF5"></i>Balance</span><span><i style="background:#2FD07A"></i>Income</span><span><i style="background:#F0535A"></i>Spending</span></div>` : '<div class="empty">The balance shows here round by round as the season goes.</div>';
+  })();
+  const cats = (sign) => { const by = {}; for (const e of season) if (Math.sign(e.amount) === sign) by[e.cat] = (by[e.cat] || 0) + Math.abs(e.amount); return Object.entries(by).sort((a, b) => b[1] - a[1]); };
+  const inc = cats(1), out = cats(-1); const big = Math.max(1, ...inc.map(x => x[1]), ...out.map(x => x[1]));
+  const bars = (L0, col) => L0.length ? L0.map(([k, v]) => `<div class="mt-wear"><span>${esc(k)}</span><div class="bar-track"><div class="bar-fill" style="width:${v / big * 100}%;background:${col}"></div></div><span class="num">${fmtM(Math.round(v * 100) / 100)}</span></div>`).join('') : '<span class="muted" style="font-size:12px">Nothing yet.</span>';
+  const rows = (() => { let r0 = m.budget; return all.map(e => ({ ...e, after: (r0 += e.amount) })).reverse(); })();
   return `<div class="tiles">
-      <div class="tile"><span class="label">Balance</span><span class="v" style="font-size:26px;color:${balance < 0 ? 'var(--red)' : 'inherit'}">${fmtM(balance)}</span></div>
-      <div class="tile"><span class="label">Starting budget</span><span class="v" style="font-size:26px">${fmtM(m.budget)}</span></div>
-      <div class="tile"><span class="label">${s.year} income</span><span class="v pos-money" style="font-size:26px">${fmtM(season.income)}</span></div>
-      <div class="tile"><span class="label">${s.year} spending</span><span class="v neg" style="font-size:26px">${fmtM(season.expense)}</span></div>
-      <div class="tile"><span class="label">${s.year} net</span><span class="v" style="font-size:26px">${fmtM(season.net)}</span></div>
-      <div class="tile"><span class="label">Entries</span><span class="v" style="font-size:26px">${m.ledger.length}</span></div>
+      <div class="tile"><span class="label">Balance</span><span class="v" style="font-size:26px;color:${balance < 0 ? 'var(--red)' : 'inherit'}">${fmtM(Math.round(balance * 100) / 100)}</span></div>
+      <div class="tile"><span class="label">Cost cap used</span><span class="v" style="font-size:26px;color:${capUsed > cap ? 'var(--red)' : 'inherit'}">${fmtM(Math.round(capUsed * 10) / 10)}<small> / ${fmtM(cap)}</small></span></div>
+      <div class="tile"><span class="label">Income a week</span><span class="v pos-money" style="font-size:26px">+${fmtM(weekly)}</span></div>
+      <div class="tile"><span class="label">${s.year} income</span><span class="v pos-money" style="font-size:26px">${fmtM(Math.round(tot.income * 100) / 100)}</span></div>
+      <div class="tile"><span class="label">${s.year} spending</span><span class="v neg" style="font-size:26px">${fmtM(Math.round(tot.expense * 100) / 100)}</span></div>
+      <div class="tile"><span class="label">Engine</span><span class="v" style="font-size:20px">${esc(m.engine)}${m.engineCost ? ` · ${fmtM(m.engineCost)}` : ''}</span></div>
     </div>
-    <div class="panel"><div class="panel-h"><h2>Add an entry</h2>
-      <label class="row muted">Starting budget ($M) <input type="number" step="0.1" style="width:110px" value="${m.budget}" data-ch="mt-budget"></label></div><div class="panel-b stack">
+    <div class="grid-2">
+      <div class="panel"><div class="panel-h"><h2>Balance through the season</h2><span class="muted" style="font-size:12px">bars: income and spending each round</span></div><div class="panel-b">${chart}</div></div>
+      <div class="panel"><div class="panel-h"><h2>Where it comes from, where it goes</h2><span class="muted" style="font-size:12px">${s.year}</span></div><div class="panel-b stack"><span class="label">Income</span>${bars(inc, '#2FD07A')}<span class="label" style="margin-top:6px">Spending</span>${bars(out, '#F0535A')}</div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Cost cap</h2><span class="muted" style="font-size:12px">What counts towards it this season (driver salaries don't, as in F1)</span></div><div class="panel-b stack">
+      <div class="bar-track" style="height:16px"><div class="bar-fill" style="width:${Math.min(100, capUsed / cap * 100)}%;background:${proj > cap ? 'var(--red)' : 'var(--yellow)'}"></div></div>
+      <div class="row" style="justify-content:space-between;font-size:13px;flex-wrap:wrap;gap:6px"><span>${fmtM(Math.round(capUsed * 10) / 10)} spent of ${fmtM(cap)}${done ? ` after ${done} of ${rs.length} rounds` : ''}</span>${done ? `<span class="muted">At this rate: ${fmtM(Math.round(proj))} by ${esc(rs[rs.length - 1]?.name || 'the end')}, <span class="${proj > cap ? 'neg' : 'pos-money'}">${fmtM(Math.abs(Math.round(cap - proj)))} ${proj > cap ? 'over' : 'under'}</span></span>` : ''}</div>
+    </div></div>
+    <div class="panel"><div class="panel-h"><h2>Add an entry</h2><div class="row muted" style="gap:10px;flex-wrap:wrap;font-size:12px"><label class="row" style="gap:6px">Starting budget ($M) <input type="number" step="0.1" style="width:90px" value="${m.budget}" data-ch="mt-budget"></label><label class="row" style="gap:6px">Engine a season ($M) <input type="number" step="0.1" style="width:80px" value="${m.engineCost ?? ''}" data-ch="mt-fin" data-k="engineCost" placeholder="2.8"></label><label class="row" style="gap:6px">Cost cap ($M) <input type="number" step="1" style="width:80px" value="${m.cap ?? ''}" data-ch="mt-fin" data-k="cap" placeholder="${MT_CAP}"></label></div></div><div class="panel-b stack">
       <div class="form-grid">
         <label class="field"><span>When</span>${roundSelect(s, 'lg-round')}</label>
         <label class="field"><span>Type</span><select id="lg-type"><option value="in">Income</option><option value="out">Expense</option></select></label>
         <label class="field"><span>Category</span><select id="lg-cat">${D.LEDGER_CATS.map(x => `<option>${x}</option>`).join('')}</select></label>
         <label class="field"><span>Amount ($M)</span><input type="number" id="lg-amt" min="0" step="0.01" placeholder="2.5"></label>
       </div>
-      <label class="field"><span>Note</span><input type="text" id="lg-note" placeholder="Prize money for P6 in the 2025 constructors"></label>
+      <label class="field"><span>Note</span><input type="text" id="lg-note" placeholder="Prize money for P6 in the constructors"></label>
       <div><button class="btn primary" data-act="mt-add-ledger">Add entry</button></div>
+      <p class="muted" style="font-size:12px;margin:0">Sponsors' weekly income and signing bonuses, part builds and the engine contract go in by themselves.</p>
     </div></div>
     <div class="panel"><div class="panel-h"><h2>Ledger</h2></div><div class="panel-b tight table-wrap"><table>
       <thead><tr><th>When</th><th>Category</th><th>Note</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr></thead>
-      <tbody>${rows.length ? rows.map(e => `<tr><td class="muted">${esc(roundLabel(c, e.seasonIdx, e.roundId))}</td><td>${esc(e.cat)}</td><td class="muted">${esc(e.note)}</td><td class="num ${e.amount < 0 ? 'neg' : 'pos-money'}"><b>${e.amount > 0 ? '+' : ''}${fmtM(e.amount)}</b></td><td class="num">${fmtM(e.after)}</td><td><button class="icon-btn" title="Remove" data-act="mt-del" data-list="ledger" data-id="${e.id}">${ICON.x}</button></td></tr>`).join('')
-        : '<tr><td colspan="6"><div class="empty">No entries yet. Log sponsor payments, prize money and spending as the season goes.</div></td></tr>'}</tbody>
+      <tbody>${rows.length ? rows.slice(0, 120).map(e => `<tr><td class="muted">${esc(roundLabel(c, e.seasonIdx, e.roundId))}</td><td>${esc(e.cat)}${e.auto ? ' <span class="mt-auto">auto</span>' : ''}</td><td class="muted">${esc(e.note || '')}</td><td class="num ${e.amount < 0 ? 'neg' : 'pos-money'}"><b>${e.amount > 0 ? '+' : ''}${fmtM(Math.round(e.amount * 100) / 100)}</b></td><td class="num">${fmtM(Math.round(e.after * 100) / 100)}</td><td>${e.id && !(e.auto && !e.removable) ? `<button class="icon-btn" title="Remove" data-act="mt-del" data-list="ledger" data-id="${e.id}">${ICON.x}</button>` : ''}</td></tr>`).join('')
+        : '<tr><td colspan="6"><div class="empty">No entries yet. Sign a sponsor, build a part, or log prize money and spending as the season goes.</div></td></tr>'}</tbody>
     </table></div></div>`;
 }
 
+/* ---------------------------------------------------------------- sponsors */
+/*
+  Sponsors as F1 25 offers them: a signing bonus, weekly income, a contract to a season, a core value and a seasonal
+  goal, and loyalty that grows as goals are met. A goal Pitwall can measure (points, podiums, wins, the constructors'
+  position, finishing ahead of a team) is tracked from your results; any other is ticked off by hand.
+*/
+const MT_TRACKABLE = ['team_points', 'team_podiums', 'team_wins', 'constructor_pos', 'beat_team'];
+const MT_CORE = ['Performance', 'Fan engagement', 'Rivalry', 'Innovation', 'Consistency', 'Sustainability'];
+/** A sponsor's seasonal goal, now: { text, pct, ok, tracked }. */
+function mtGoal(s, x) {
+  const g = x.goal; if (!g) return null;
+  if (g.type && g.type !== 'custom') { const gt = D.GOAL_TYPES.find(t => t.id === g.type); const e = evalGoal({ type: g.type, target: g.target, team: g.team }, s);
+    const label = g.type === 'beat_team' ? `Finish ahead of ${(s.teams.find(t => t.id === g.team) || {}).name || 'them'}` : `${gt?.label || g.type}${gt?.needsTarget ? ` ${g.target}` : ''}`; return { label, text: e.text, pct: e.pct, ok: e.ok, tracked: true }; }
+  const n = +g.count || 0, t = +g.target || 0; return { label: g.text || 'Seasonal goal', text: t ? `${n} / ${t}` : (g.done ? 'Done' : 'Not yet'), pct: t ? n / t * 100 : g.done ? 100 : 0, ok: t ? n >= t : !!g.done, tracked: false };
+}
+function mtLoyal(x, click = true) { const n = +x.loyalty || 0; return `<span class="mt-loyal">${[1, 2, 3, 4, 5].map(k => click ? `<button class="${k <= n ? 'on' : ''}" data-act="mt-sp-loyal" data-id="${x.id}" data-v="${k === n ? k - 1 : k}" title="Loyalty ${k}"></button>` : `<i class="${k <= n ? 'on' : ''}"></i>`).join('')}</span>`; }
+function mtSponsorTerms(x) { return [x.weekly ? `${fmtM(+x.weekly)} a week` : x.value ? `${fmtM(+x.value)} a season` : '', x.bonus ? `signed for ${fmtM(+x.bonus)}` : '', x.until ? `to the end of ${x.until}` : ''].filter(Boolean).join(' · '); }
+function mtGoalHtml(s, x) {
+  const G = mtGoal(s, x); if (!G) return x.goalText ? `<span class="muted" style="font-size:12px">${esc(x.goalText)}</span>` : '';
+  return `<div class="mt-goal"><div class="row" style="justify-content:space-between"><span>${esc(G.label)}${G.tracked ? ' <span class="mt-auto">tracked</span>' : ''}</span><span>${esc(G.text)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${G.pct}%;background:${G.ok ? 'var(--green)' : 'var(--yellow)'}"></div></div>
+    ${!G.tracked && x.goal?.target ? `<div class="row" style="gap:6px"><button class="btn sm ghost" data-act="mt-sp-count" data-id="${x.id}" data-v="1">+1</button><button class="btn sm ghost" data-act="mt-sp-count" data-id="${x.id}" data-v="-1">−1</button></div>` : ''}</div>`;
+}
+function mtSponsorForm(s, kind) {
+  const teams = s.teams.filter(t => t.id !== MYTEAM);
+  return `<div class="panel-b stack" style="border-top:1px solid var(--line)"><div class="form-grid">
+      <label class="field"><span>Sponsor</span><input type="text" id="sp-name" placeholder="Apex Energy"></label>
+      <label class="field"><span>Slot</span><select id="sp-tier">${D.SPONSOR_TIERS.map(x => `<option ${x === 'Secondary' ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label class="field"><span>Signing bonus ($M)</span><input type="number" id="sp-bonus" min="0" step="0.1" placeholder="1.0"></label>
+      <label class="field"><span>A week ($M)</span><input type="number" id="sp-weekly" min="0" step="0.01" placeholder="0.08"></label>
+      <label class="field"><span>Until the end of</span><input type="number" id="sp-until" min="${s.year}" max="${s.year + 10}" value="${s.year + 1}"></label>
+      <label class="field"><span>Core value</span><input type="text" id="sp-core" list="dl-core" placeholder="Performance"><datalist id="dl-core">${MT_CORE.map(x => `<option value="${x}">`).join('')}</datalist></label>
+      <label class="field"><span>Seasonal goal</span><select id="sp-gtype">${MT_TRACKABLE.map(id => `<option value="${id}">${esc(D.GOAL_TYPES.find(t => t.id === id)?.label || id)} (tracked)</option>`).join('')}<option value="custom">Something else: I'll tick it off</option></select></label>
+      <label class="field"><span>Goal target</span><input type="number" id="sp-gtarget" min="0" placeholder="8"></label>
+      <label class="field"><span>Team (finish ahead of)</span><select id="sp-gteam">${teams.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>
+      <label class="field"><span>Goal, in words (for one you tick off)</span><input type="text" id="sp-gtext" placeholder="Hold 3 fan events"></label>
+    </div><div class="row" style="gap:8px"><button class="btn primary" data-act="mt-sp-add" data-kind="${kind}">${kind === 'offer' ? 'Add the offer' : 'Sign the sponsor'}</button><button class="btn ghost" data-act="mt-sp-toggle" data-kind="${kind}">Cancel</button></div></div>`;
+}
 function renderMtSponsors(c, m, s) {
-  const active = m.sponsors.filter(x => x.status === 'Active');
+  const active = (m.sponsors || []).filter(x => x.status === 'Active');
+  const title = active.find(x => x.tier === 'Title'); const others = (m.sponsors || []).filter(x => x !== title);
+  const fans = m.fans?.[s.index] || {};
+  const worth = (x) => (+x.bonus || 0) + (+x.weekly || 0) * activeRounds(s).length * Math.max(1, (+x.until || s.year) - s.year + 1);
+  const card = (x) => `<div class="panel"><div class="panel-b stack">
+      <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="row" style="gap:6px"><span class="mt-chip">${esc(x.tier)}</span><button class="icon-btn sm" data-act="mt-del" data-list="sponsors" data-id="${x.id}" title="Remove">${ICON.x}</button></span></div>
+      <span class="muted" style="font-size:12px">${esc(mtSponsorTerms(x)) || 'No terms logged'}</span>
+      ${x.core ? `<span style="font-size:13px">Core value: <b>${esc(x.core)}</b></span>` : ''}
+      ${mtGoalHtml(s, x)}
+      <div class="row" style="gap:8px;justify-content:space-between;flex-wrap:wrap">${mtLoyal(x)}<span class="row" style="gap:6px">${x.value && !x.weekly ? `<button class="btn sm ghost" data-act="mt-sponsor-pay" data-id="${x.id}" title="Add this season's payment to finances">Log payment</button>` : ''}<select data-ch="mt-sponsor-status" data-id="${x.id}" style="width:auto">${['Active', 'Objective met', 'Objective missed', 'Ended'].map(o => `<option ${x.status === o ? 'selected' : ''}>${o}</option>`).join('')}</select></span></div>
+    </div></div>`;
   return `<div class="tiles">
       <div class="tile"><span class="label">Active sponsors</span><span class="v">${active.length}</span></div>
-      <div class="tile"><span class="label">Value per season</span><span class="v" style="font-size:26px">${fmtM(active.reduce((a, x) => a + (+x.value || 0), 0))}</span></div>
-      <div class="tile"><span class="label">Title sponsor</span><span class="v" style="font-size:20px">${esc(active.find(x => x.tier === 'Title')?.name || '–')}</span></div>
+      <div class="tile"><span class="label">Income a week</span><span class="v pos-money" style="font-size:26px">+${fmtM(active.reduce((a, x) => a + (+x.weekly || 0), 0))}</span></div>
+      <div class="tile"><span class="label">Goals met</span><span class="v">${active.filter(x => mtGoal(s, x)?.ok).length}<small> / ${active.filter(x => x.goal).length}</small></span></div>
     </div>
-    <div class="panel"><div class="panel-h"><h2>Sign a sponsor</h2></div><div class="panel-b stack">
-      <div class="form-grid">
-        <label class="field"><span>Sponsor</span><input type="text" id="sp-name" placeholder="Apex Energy"></label>
-        <label class="field"><span>Tier</span><select id="sp-tier">${D.SPONSOR_TIERS.map(x => `<option>${x}</option>`).join('')}</select></label>
-        <label class="field"><span>Value ($M per season)</span><input type="number" id="sp-value" min="0" step="0.1"></label>
-        <label class="field"><span>Objective</span><input type="text" id="sp-goal" placeholder="Score points in 5 races"></label>
-      </div>
-      <div><button class="btn primary" data-act="mt-add-sponsor">Add sponsor</button></div>
-    </div></div>
-    <div class="panel"><div class="panel-h"><h2>Sponsor portfolio</h2></div><div class="panel-b tight table-wrap"><table>
-      <thead><tr><th>Sponsor</th><th>Tier</th><th class="num">Value</th><th>Objective</th><th>Since</th><th>Status</th><th></th></tr></thead>
-      <tbody>${m.sponsors.length ? m.sponsors.map(x => `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.tier)}</td><td class="num">${fmtM(+x.value || 0)}</td><td class="muted">${esc(x.goal)}</td><td class="muted">${c.seasons[x.seasonIdx]?.year || ''}</td>
-        <td><select data-ch="mt-sponsor-status" data-id="${x.id}" style="width:auto">${['Active', 'Objective met', 'Objective missed', 'Ended'].map(o => `<option ${x.status === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>
-        <td><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm ghost" data-act="mt-sponsor-pay" data-id="${x.id}" title="Add this season's payment to finances">Log payment</button><button class="icon-btn" title="Remove" data-act="mt-del" data-list="sponsors" data-id="${x.id}">${ICON.x}</button></div></td></tr>`).join('')
-        : '<tr><td colspan="7"><div class="empty">No sponsors signed yet.</div></td></tr>'}</tbody>
-    </table></div></div>`;
+    ${title ? `<div class="mt-title"><div class="mt-logo">${esc(title.name.split(' ')[0].toUpperCase().slice(0, 8))}</div>
+      <div class="stack" style="gap:6px;min-width:0"><span class="label" style="color:#F5C518">Title sponsor${title.until ? ` · to the end of ${title.until}` : ''}</span><b style="font:700 26px var(--font-display)">${esc(title.name)}</b>
+        <div class="row" style="gap:14px;flex-wrap:wrap;font-size:13px">${title.weekly ? `<span>${fmtM(+title.weekly)} a week</span>` : title.value ? `<span>${fmtM(+title.value)} a season</span>` : ''}${title.bonus ? `<span>Signed for ${fmtM(+title.bonus)}</span>` : ''}${title.core ? `<span>Core value: <b>${esc(title.core)}</b></span>` : ''}</div>
+        ${mtGoalHtml(s, title)}</div>
+      <div class="stack" style="gap:6px;justify-items:end"><span class="label">Loyalty</span>${mtLoyal(title)}<button class="icon-btn sm" data-act="mt-del" data-list="sponsors" data-id="${title.id}" title="Remove">${ICON.x}</button></div></div>` : ''}
+    <div class="panel"><div class="panel-h"><h2>${title ? 'More sponsors' : 'Sponsors'}</h2><button class="btn sm primary" data-act="mt-sp-toggle" data-kind="sponsor">+ Sign a sponsor</button></div>${ui.mtSp === 'sponsor' ? mtSponsorForm(s, 'sponsor') : ''}
+      ${others.length ? `<div class="panel-b"><div class="mt-g3">${others.map(card).join('')}</div></div>` : `<div class="empty">${title ? 'No other sponsors yet.' : 'No sponsors signed yet. A title sponsor shows at the top.'}</div>`}</div>
+    <div class="grid-2">
+      <div class="panel"><div class="panel-h"><h2>Fans &amp; reputation <span class="mt-entered">entered</span></h2><span class="muted" style="font-size:12px">${s.year}</span></div><div class="panel-b stack">
+        <div class="form-grid"><label class="field"><span>Fan rating</span><input type="number" min="0" max="100" value="${fans.rating ?? ''}" data-ch="mt-fans" data-k="rating" placeholder="0–100"></label><label class="field"><span>Sentiment</span><input type="text" list="dl-sent" value="${esc(fans.sentiment || '')}" data-ch="mt-fans" data-k="sentiment" placeholder="Positive"><datalist id="dl-sent">${['Very negative', 'Negative', 'Neutral', 'Positive', 'Very positive'].map(x => `<option value="${x}">`).join('')}</datalist></label></div>
+        ${fans.rating != null ? `<div class="bar-track"><div class="bar-fill" style="width:${fans.rating}%"></div></div>` : ''}
+        <span class="muted" style="font-size:12px">From the Corporate screen in the game. Sentiment shapes what drivers ask for in contract talks.</span></div></div>
+      <div class="panel"><div class="panel-h"><h2>Offers to compare</h2><button class="btn sm primary" data-act="mt-sp-toggle" data-kind="offer">+ Offer</button></div>${ui.mtSp === 'offer' ? mtSponsorForm(s, 'offer') : ''}
+        <div class="panel-b tight table-wrap"><table><thead><tr><th>Sponsor</th><th class="num">Signing</th><th class="num">A week</th><th>Goal</th><th class="num">Worth</th><th></th></tr></thead><tbody>
+        ${(m.offers || []).length ? m.offers.map(x => { const G = mtGoal(s, x); return `<tr><td><b>${esc(x.name)}</b><div class="muted" style="font-size:12px">${esc(x.tier)}${x.core ? ` · ${esc(x.core)}` : ''}${x.until ? ` · to ${x.until}` : ''}</div></td><td class="num">${fmtM(+x.bonus || 0)}</td><td class="num">${fmtM(+x.weekly || 0)}</td><td class="muted" style="font-size:12px">${G ? esc(G.label) + (G.tracked ? ' <span class="mt-auto">tracked</span>' : '') : '–'}</td><td class="num"><b>${fmtM(Math.round(worth(x) * 10) / 10)}</b></td><td><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm" data-act="mt-sp-sign" data-id="${x.id}">Sign</button><button class="icon-btn sm" data-act="mt-del" data-list="offers" data-id="${x.id}" title="Remove">${ICON.x}</button></div></td></tr>`; }).join('')
+          : '<tr><td colspan="6"><div class="empty">Add the offers you\'re weighing to compare them.</div></td></tr>'}</tbody></table></div>
+        <div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Worth = signing bonus plus the weekly income for every race of the seasons it runs. Signing one puts its bonus and weekly income into Finances.</div></div>
+    </div>`;
 }
 
 /* ------------------------------------------------------------ hall of fame */
