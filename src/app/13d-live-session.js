@@ -57,7 +57,7 @@ function renderLiveTiming(c, s, r, L, tabs) {
   const title = GAME_SESSION_NAMES[L.sessionType] || SESSION_LABEL[L.key] || 'Session';
   let wx = ''; try { wx = liveWeather(c, s, r, L, me); } catch { wx = ''; }
   const head = `<div class="live-head"><div class="lapbox"><div class="lb-top">${gfxLogoUrl() ? '<span class="lb-mark" role="img" aria-label="F1"></span>' : '<span class="lb-f1">F1</span>'}<small>${esc(title.toUpperCase())}</small></div>
-      <div class="lb-lap">${L.timeLeft != null ? `<b>${lsClock(L.timeLeft)}</b> ${LS_SHORT[L.sessionType] || ''}` : `LAP <b>${me?.lap || '–'}</b> ${LS_SHORT[L.sessionType] || ''}`}</div>${L.red ? '<div class="lb-sc red"><span class="lb-fia">FIA</span>RED FLAG</div>' : ''}</div>
+      <div class="lb-lap"><b>${LS_SHORT[L.sessionType] || ''}</b> ${L.timeLeft != null ? lsClock(L.timeLeft) : `LAP ${me?.lap || '–'}`}</div>${L.red ? '<div class="lb-sc red"><span class="lb-fia">FIA</span>RED FLAG</div>' : ''}</div>
     <div class="lh-info"><div class="row" style="gap:8px"><span class="tag live">Live</span><b>${esc(title)} · ${esc(r.name)}</b></div>${wx}</div></div>`;
   if (!me) return `<div class="page live-page">${tabs}${head}<div class="panel"><div class="panel-b muted">Waiting for your car in the session.</div></div></div>`;
   // you

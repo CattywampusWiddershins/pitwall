@@ -4,7 +4,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 5.9.0
 
-- **Live Session.** Live Race is now Live Session, and follows practice and qualifying as well as the race. Practice and qualifying get their own timing dashboard. It shows your place on the timing sheet with the gap to P1 and to the car ahead, and the lap you are on sector by sector: purple for the quickest of anyone, green for your best. In qualifying it shows the cut-off, and how far you are either side of it. It also shows the cars nearest you on track and what they are doing (flying lap, out lap, in lap), your tyre, fuel and battery, your recent laps, and the whole field's timing tower. The clock shows the time left and the session (FP1, Q2, SQ1...).
+- **Live Session.** Live Race is now Live Session, and follows practice and qualifying as well as the race. Practice and qualifying get their own timing dashboard. It shows your place on the timing sheet with the gap to P1 and to the car ahead, and the lap you are on sector by sector: purple for the quickest of anyone, green for your best. In qualifying it shows the cut-off, and how far you are either side of it. It also shows the cars nearest you on track and what they are doing (flying lap, out lap, in lap), your tyre, fuel and battery, your recent laps, and the whole field's timing tower. The clock shows the session in bold (FP1, Q2, SQ1...), then the time left.
 - Work on features still being tested, switched off in this release.
 
 ## 5.8.1
