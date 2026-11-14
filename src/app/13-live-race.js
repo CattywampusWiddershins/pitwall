@@ -240,7 +240,7 @@ function liveStrategy(c, s, r, L, me, id, w, idOf = null) {
   }
   // a second dry compound already run (the tyres of earlier stints), or a sprint, where no stop is needed
   const usedOther = (L.used?.[me.i] || []).some(x => DRY.includes(x) && x !== cur) || L.key === 'SPR';
-  const follow = mineId && w.liveStrategy && L.key === 'R' ? w.liveStrategy.seq.slice((me.stops || 0) + 1) : null;
+  const follow = null; // (from 6.0 no strategy is picked before the race: the plan is built from the tyre you start on, and kept up to date)
   const args = { runs, sets, cur, age, curLife, left, loss: PL.green, usedOther, three: true };
   const free = planRest(args); const mine = follow?.length ? planRest({ ...args, follow }) : null;
   let plan = mine || free; let changed = false;
@@ -936,24 +936,21 @@ function renderLiveRace() {
 /** Compact (everything on one screen) or Full, for Live Race and Race Replay. */
 const liveLayoutSeg = () => `<div class="seg">${[[1, 'Compact'], [0, 'Full']].map(([v, l]) => `<button data-act="live-layout" data-v="${v}" class="${!!ui.liveCompact === !!v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Session'], ['debriefs', 'Debriefs']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
-/** Between races: the debrief of the last one (until this weekend's first session), then the strategy to follow. */
+/**
+ * Between sessions: the debrief of whichever session finished last, until the next one starts. Before the weekend's
+ * first session, the last race's; after practice, the post-practice screen; after qualifying (or the sprint
+ * shootout), the post-qualifying screen with the strategies and fuel; after the sprint, its debrief.
+ */
 function liveIdle(c, s, r, w) {
   const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
-  const any = sessionsFor(s, r).some(k => w.sessions?.[k]?.done);
-  // a sprint weekend: the sprint's debrief until qualifying is logged
-  if (r.sprint && w.sessions?.SPR?.done && !w.sessions?.Q?.done) return debrief(c, s, r, 'SPR');
-  if (!any && ri > 0) return debrief(c, s, rounds[ri - 1], 'R');
+  const last = [...sessionsFor(s, r)].reverse().find(k => w.sessions?.[k]?.done);
+  if (last === 'SPR') return debrief(c, s, r, 'SPR');
+  if (last === 'Q' || last === 'SQ') return qualiDebrief(c, s, r, last);
+  if (last && PRACTICE_KEYS.includes(last)) return practiceDebrief(c, s, r, last);
+  if (!last && ri > 0) return debrief(c, s, rounds[ri - 1], 'R');
+  // the season's first weekend, before anything is logged
   const fuelIds = c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
-  if (r.sprint && !w.sessions?.SPR?.done) return fuelPanel(c, s, r, fuelIds) + `<div class="panel"><div class="panel-h"><h2>Sprint</h2></div><div class="panel-b muted" style="font-size:13px">Live Race follows the sprint as soon as it starts: no stop to plan, so just the race, the battles and the ERS.</div></div>`;
-  const fp3 = r.sprint ? w.sessions?.Q?.done : (w.sessions?.FP3?.done || sessionsFor(s, r).filter(k => PRACTICE_KEYS.includes(k)).every(k => w.sessions?.[k]?.done));
-  const { mine } = strategyRuns(s, r); const n = raceLaps(s, r.id); const PL = pitLoss(c, trackOf(r));
-  const plans = Object.keys(mine).length >= 2 ? optimalStrategies(mine, n, { loss: PL.green, sets: setsLeft(c, s, r).sets }) : [];
-  const sel = w.liveStrategy;
-  return `<div class="panel"><div class="panel-h"><h2>Your race strategy</h2><span class="muted" style="font-size:12px">${fp3 ? 'Pick the one you’ll follow' : 'Practice isn’t finished yet: the list can still change'}</span></div>
-    ${plans.length ? `<div class="panel-b stack">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); const on = sel && sel.seq.join() === p.seq.join(); return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${['', 'One', 'Two', 'Three'][p.stops]}-stopper${i === 0 ? ' · quickest' : ` · +${((p.t - plans[0].t) / 1000).toFixed(1)} s`}</span><button class="btn sm ${on ? 'primary' : ''}" data-act="live-pick" data-round="${r.id}" data-i="${i}">${on ? 'Following' : 'Follow this'}</button></div></div>`; }).join('')}
-      <p class="muted" style="font-size:12px;margin:0">${sel ? 'In the race, Live Race tracks your stint and moves the stops as your tyres go, and switches plan if another is now quicker.' : 'Pick none and Live Race builds the strategy from the tyre you start on.'}</p></div>`
-      : '<div class="panel-b muted" style="font-size:13px">No strategy yet: it needs long runs on two dry compounds in practice. Without one, Live Race builds it in the race from the tyre you start on.</div>'}</div>
-    ${fuelPanel(c, s, r, fuelIds)}`;
+  return `<div class="panel"><div class="panel-h"><h2>${esc(r.name)}</h2></div><div class="panel-b muted" style="font-size:13px">Nothing logged yet this weekend. Live Session follows every session as you drive it, and the debrief of each shows here until the next one starts.</div></div>${fuelPanel(c, s, r, fuelIds)}`;
 }
 /**
  * After a race: everything to look back on. The result and what it did to the championship; per driver of yours, the
@@ -1216,4 +1213,5 @@ function onLiveMsg(m) {
   else if ((m.pack || onLive) && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render();
   else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
   if (!follower) { try { engineerTick(); } catch (e) { console.warn('engineer', e); } }
+  if (!follower && typeof setupTick === 'function') { try { setupTick(); } catch (e) { console.warn('setup', e); } } // the setup advisor (13e-setup.js), if it's there
 }

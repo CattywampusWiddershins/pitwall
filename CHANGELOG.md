@@ -2,9 +2,20 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
-## 5.9.0
+## 6.0.0
 
-- **Live Session.** Live Race is now Live Session, and follows practice and qualifying as well as the race. Practice and qualifying get their own timing dashboard. It shows your place on the timing sheet with the gap to P1 and to the car ahead, and the lap you are on sector by sector: purple for the quickest of anyone, green for your best. In qualifying it shows the cut-off, and how far you are either side of it. It also shows the cars nearest you on track and what they are doing (flying lap, out lap, in lap), your tyre, fuel and battery, your recent laps, and the whole field's timing tower. The clock shows the session in bold (FP1, Q2, SQ1...), then the time left.
+- **Live Session.** Live Race is now Live Session, and follows practice and qualifying as well as the race. Practice and qualifying get their own timing dashboard:
+  - your place on the timing sheet, with the gap to P1 and to the car ahead
+  - the lap you're on, sector by sector: purple for the quickest of anyone, green for your best
+  - in qualifying, the cut-off, and how far you are either side of it
+  - the cars nearest you on track, and what they're doing (flying lap, out lap, in lap)
+  - your tyre, fuel and battery, and your recent laps
+  - the whole field's timing tower
+  - the clock: the session in bold (FP1, Q2, SQ1...), then the time left
+- **A debrief after every session, not just the race.** Between sessions, Live Session shows the debrief of the one just finished, until the next one starts:
+  - **After practice:** your place and best lap, each run you did (short or long, its pace and how much it fell off a lap), and the timing sheet.
+  - **After qualifying:** your grid place, the result, and for the race the strategies your practice suggests and the fuel to carry.
+- **No strategy to pick before the race.** Live Session builds the race strategy from the tyre you start on, and keeps it up to date as your tyres go, as it already did when nothing was picked.
 - Work on features still being tested, switched off in this release.
 
 ## 5.8.1

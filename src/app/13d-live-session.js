@@ -100,7 +100,7 @@ function renderLiveTiming(c, s, r, L, tabs) {
     run.map(x => { const id = idOf(x.i); const tm = id ? teamOf(s, id) : null; const cutRow = K && x.pos === K.cut;
       return { me: x.i === me.i, cls: `${cutRow ? 'ls-cutrow' : ''} ${K && x.pos > K.cut ? 'ls-drop' : ''}`, cells: [x.pos, tvLogo(c, tm), `<b>${nm(x).toUpperCase()}</b>`, x.best ? `<span class="${x.best === top ? 'purple' : ''}">${fmtLap(x.best)}</span>` : '<small>no time</small>', x.best && top && x.best !== top ? lsGap(x.best - top) : '', x.last ? fmtLap(x.last) : '', x.c ? tyreChip(x.c) : '', x.lap ? Math.max(0, x.lap - 1) : '', `<small class="muted">${x.pit ? 'Pit' : esc(LS_STATUS[x.ds] || '')}</small>`] }; }));
   return `<div class="page live-page">${tabs}${head}
-    <div id="live-root"><div class="live-grid ls-grid"><div class="live-col">${you}${lapCard}${cutCard}${trafficCard}${car}${lapsCard}</div><div class="live-col">${tower}</div></div></div></div>`;
+    <div id="live-root"><div class="live-grid ls-grid"><div class="live-col">${you}${lapCard}${cutCard}${L.kind === 'practice' && typeof setupNotesPanel === 'function' ? setupNotesPanel(c, s, r) : ''}${trafficCard}${car}${lapsCard}</div><div class="live-col">${tower}</div></div></div></div>`;
 }
 
 /*
@@ -146,4 +146,54 @@ function lsLosingSay(R, name) {
   const two = big.slice(0, 2).map(x => `${x.label}, ${x.v.toFixed(2)}`);
   if (R.total < 0) return `${tot} ${name} only has you in ${two.join(', and ')}.`;
   return `${tot} You're losing most in ${two.join(', and ')}.${R.straights > 0.05 ? ` Another ${R.straights.toFixed(2)} on the straights.` : ''}`;
+}
+
+/*
+  After a session, until the next one starts: what it showed, like the race debrief.
+  - Practice: your place and best lap, each run you did (short or long, its pace and fall-off), the timing sheet, and
+    the setup notes still to make.
+  - Qualifying: where you start, the grid, and for the race the strategies Practice suggests and the fuel. There's
+    nothing to pick: Live Session builds the race strategy from the tyre you start on and keeps it up to date.
+  - The sprint shootout: the same, with the sprint's fuel.
+*/
+function lsResultsBoard(c, s, sd, title) {
+  return tvBoard(title, [{ h: '', w: '30px' }, { h: '', w: '26px' }, { h: 'Driver', w: 'minmax(120px, 1.4fr)' }, { h: 'Best', w: '92px', num: true }, { h: 'Gap', w: '78px', num: true }, { h: 'Laps', w: '48px', num: true }],
+    (sd.results || []).map((x, k) => ({ me: x.d === PLAYER, act: 'open-driver', id: x.d, cells: [k + 1, tvLogo(c, teamOf(s, x.d)), `<b>${esc(lastName(dName(s, x.d)).toUpperCase())}</b>`, esc(x.lap || '–'), esc(x.gap || ''), sd.game?.laps?.[x.d]?.length || esc(x.laps || '')] })));
+}
+function lsHead(s, r, key, sd, extra = '') {
+  const res = sd.results || []; const k = res.findIndex(x => x.d === PLAYER); const mine = res[k];
+  return `<div class="panel"><div class="panel-h"><h2>Debrief · ${esc(SESSION_LABEL[key] || key)} · ${esc(r.name)}</h2><span class="muted" style="font-size:12px">until the next session starts</span></div>
+    <div class="panel-b"><div class="ers-facts">${mine ? `<div><b>P${k + 1}</b><span>${key === 'Q' || key === 'SQ' ? (key === 'SQ' ? 'on the sprint grid' : 'on the grid') : 'on the timing sheet'}</span></div><div><b>${esc(mine.lap || '–')}</b><span>your best lap${mine.gap ? `, ${esc(mine.gap)} to ${esc(lastName(dName(s, res[0].d)))}` : k === 0 ? ', quickest of all' : ''}</span></div>` : '<div><b>–</b><span>no time from you</span></div>'}${extra}</div></div></div>`;
+}
+function practiceDebrief(c, s, r, key) {
+  const sd = s.weekends[r.id]?.sessions?.[key]; if (!sd?.done) return '';
+  const laps = sd.game?.laps?.[PLAYER] || [];
+  // each run: the laps between leaving and coming back to the pits, its pace from the clean laps (no out- or in-lap,
+  // nothing more than 3% off its median) and how much it fell off a lap
+  const runs = stintsOf(sd, PLAYER).map(st => {
+    const L = []; for (let n = st.from; n <= st.to; n++) { const l = laps[n - 1]; if (l?.[0]) L.push({ n, ms: l[0], ok: !!(l[1] & 1) }); }
+    const inner = L.filter((x, k) => k > 0 && k < L.length - 1 && x.ok); const med = median(inner.map(x => x.ms)); const clean = inner.filter(x => x.ms <= med * 1.03);
+    const fit = clean.length >= 4 ? fitLine(clean.map(x => [x.n - st.from, x.ms])) : null; const best = Math.min(...L.filter(x => x.ok).map(x => x.ms));
+    return { ...st, n: L.length, clean: clean.length, avg: clean.length ? avg(clean.map(x => x.ms)) : null, fall: fit ? fit.b : null, best: isFinite(best) ? best : null };
+  });
+  const runRows = runs.map(x => `<tr><td>${tyreChip(x.c)} ${esc(COMPOUNDS[x.c]?.[1] || 'Tyre')}</td><td>${x.clean >= 6 ? 'Long run' : 'Short run'}</td><td class="num">${x.from}–${x.to}</td><td class="num mono">${x.best ? fmtLap(x.best) : '–'}</td><td class="num mono">${x.avg ? fmtLap(x.avg) : '–'}</td><td class="num">${x.fall != null ? `${x.fall >= 0 ? '+' : ''}${(x.fall / 1000).toFixed(3)} s` : '–'}</td></tr>`).join('');
+  return `${lsHead(s, r, key, sd, laps.length ? `<div><b>${laps.length}</b><span>laps</span></div><div><b>${runs.filter(x => x.clean >= 6).length}</b><span>long runs</span></div>` : '')}
+    ${laps.length ? `<div class="panel"><div class="panel-h"><h2>Your runs</h2><span class="muted" style="font-size:12px">Pace from the clean laps: no out- or in-lap, nothing more than 3% off the run</span></div><div class="panel-b tight table-wrap"><table><thead><tr><th>Tyre</th><th>Run</th><th class="num">Laps</th><th class="num">Best</th><th class="num">Pace</th><th class="num">Fall-off / lap</th></tr></thead><tbody>${runRows}</tbody></table></div></div>` : '<div class="callout">This session wasn’t logged from F1 25, so there are no laps to break down: only the times.</div>'}
+    ${typeof setupNotesPanel === 'function' ? setupNotesPanel(c, s, r) : ''}
+    ${lsResultsBoard(c, s, sd, `${SESSION_LABEL[key] || key} · timing`)}`;
+}
+function qualiDebrief(c, s, r, key) {
+  const sd = s.weekends[r.id]?.sessions?.[key]; if (!sd?.done) return '';
+  const fuelIds = c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
+  let next = '';
+  if (key === 'SQ') next = `<div class="panel"><div class="panel-h"><h2>The sprint</h2></div><div class="panel-b muted" style="font-size:13px">No stop to plan in the sprint: Live Session follows the race, the battles and the ERS as soon as it starts.</div></div>${fuelPanel(c, s, r, fuelIds)}`;
+  else {
+    const { mine } = strategyRuns(s, r); const n = raceLaps(s, r.id); const PL = pitLoss(c, trackOf(r));
+    const plans = Object.keys(mine).length >= 2 ? optimalStrategies(mine, n, { loss: PL.green, sets: setsLeft(c, s, r).sets }) : [];
+    next = `<div class="panel"><div class="panel-h"><h2>Race strategies</h2><span class="muted" style="font-size:12px">From your practice long runs and the tyres you have left</span></div>
+      ${plans.length ? `<div class="panel-b stack">${plans.map((p, i) => { let lap = 0; const st = p.seq.map((cp, k) => { const from = lap + 1; lap += p.lens[k]; return { c: cp, from, to: lap }; }); return `<div class="strat-row">${stintBar(st, n, { windows: p.windows })}<div class="strat-name"><span>${['', 'One', 'Two', 'Three'][p.stops]}-stopper${i === 0 ? ' · quickest' : ` · +${((p.t - plans[0].t) / 1000).toFixed(1)} s`}</span></div></div>`; }).join('')}
+        <p class="muted" style="font-size:12px;margin:0">Nothing to pick: in the race, Live Session builds the strategy from the tyre you start on and keeps it up to date as your tyres go.</p></div>`
+        : '<div class="panel-b muted" style="font-size:13px">No strategies yet: they need long runs on two dry compounds in practice. Live Session builds one in the race from the tyre you start on.</div>'}</div>${fuelPanel(c, s, r, fuelIds)}`;
+  }
+  return `${lsHead(s, r, key, sd)}${next}${typeof setupNotesPanel === 'function' ? setupNotesPanel(c, s, r) : ''}${lsResultsBoard(c, s, sd, `${SESSION_LABEL[key] || key} · result`)}`;
 }

@@ -7,7 +7,7 @@
 // profile the ERS, and in a race it sends that profile on as you drive, so the plan can adapt lap by lap.
 const dgram = require('dgram');
 
-const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11, TYRE_SETS: 12 };
+const PACKET = { MOTION: 0, SESSION: 1, LAP: 2, EVENT: 3, PARTICIPANTS: 4, SETUPS: 5, TELEMETRY: 6, STATUS: 7, FINAL: 8, DAMAGE: 10, HISTORY: 11, TYRE_SETS: 12 };
 const ERS_BIN = 20; // metres: the ERS profile is kept in slices of the lap this long
 // the sessions your ERS is profiled in: the whole weekend (practice, qualifying, the sprint and the race), not time trial
 const ersSession = (info) => !!info && info.sessionType >= 1 && info.sessionType <= 17;
@@ -28,6 +28,17 @@ function bests(laps) {
   const ok = (laps || []).filter(l => l && l[0] > 0 && (l[1] & 1)); const min = (k) => { const v = ok.map(l => l[k]).filter(x => x > 0); return v.length ? Math.min(...v) : null; };
   return { best: min(0), bestS: [min(2), min(3), min(4)] };
 }
+// ---- setup advisor (src/app/13e-setup.js): your car's setup as the game sends it. Remove this block, the SETUPS
+// packet above, its line in onPacket and "setup:" in the live message to take the advisor out.
+function parseSetup(b, L, i) {
+  const w = stride(b, L, 50, 4); const o = HEADER + i * w; if (o + 50 > b.length) return null;
+  const f = (k) => Math.round(b.readFloatLE(o + k) * 100) / 100;
+  const S = { fw: b[o], rw: b[o + 1], on: b[o + 2], off: b[o + 3], fCam: f(4), rCam: f(8), fToe: f(12), rToe: f(16), fSus: b[o + 20], rSus: b[o + 21], fArb: b[o + 22], rArb: b[o + 23],
+    fRh: b[o + 24], rRh: b[o + 25], bp: b[o + 26], bb: b[o + 27], eb: b[o + 28], rP: Math.round((b.readFloatLE(o + 29) + b.readFloatLE(o + 33)) * 50) / 100, fP: Math.round((b.readFloatLE(o + 37) + b.readFloatLE(o + 41)) * 50) / 100, ballast: b[o + 45], fuel: f(46) };
+  // all zeros: the game hides it (another player's car online, or not sent yet)
+  return S.fw || S.rw || S.on || S.bb ? S : null;
+}
+// ---- end of setup advisor block
 function parseSession(b) {
   if (b.length < 753) return null;
   return {
@@ -276,7 +287,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
       c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length,
       stints: s.stints[i]?.length ? s.stints[i].map(t => [t.visual, t.end]) : null, ...bests(s.laps[i]), ds: x.ds, inv: !!x.invalid, pen: x.pen || 0, warn: x.warn || 0 }));
-    msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
+    msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null; msg.setup = s.setup || null; // (setup: the setup advisor)
     onLive(msg);
   }
   // Every car, every lap: speed, throttle, brake and place on the map in 50 m slices, for the fastest-lap head to head.
@@ -417,6 +428,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     else if (h.type === PACKET.STATUS) { s.stat = playerStatus(b, L, h.player) || s.stat; s.tyres = allTyres(b, L); s.tyres.forEach((x, i) => { if (isFinite(x.dep)) s.depMax[i] = Math.max(s.depMax[i] || 0, x.dep); }); }
     else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
+    else if (h.type === PACKET.SETUPS) { const x = parseSetup(b, L, h.player); if (x) s.setup = x; } // setup advisor
     else if (h.type === PACKET.DAMAGE) {
       s.wearNow = parseWear(b, L); s.pu = parsePuWear(b, L);
       const body = parseBodyDamage(b, L);

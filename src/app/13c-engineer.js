@@ -429,9 +429,10 @@ async function engAnswer(text) {
   if (!I && (E.cars.length || E.team)) I = ENG_INTENTS.find(i => i.id === 'gap'); // just a name: where they are
   if (!I) return { text, intent: null, reply: 'Say again?' };
   if (S && I.race && !S.race) return { text, intent: I, target: null, reply: 'That one is for the race.' };
+  if (S && I.practice && S.L.kind !== 'practice') return { text, intent: I, target: null, reply: 'Setup changes are for practice. The car is locked in now.' };
   if (!S && I.live !== false) return { text, intent: I, target: null, reply: `${engNoRace} You asked about ${I.title.toLowerCase()}${E.cars.length || E.rel || E.team ? `, for ${E.rel === 'ahead' ? 'the car ahead' : E.rel === 'behind' ? 'the car behind' : E.rel === 'mate' ? 'your teammate' : E.rel === 'leader' ? 'the leader' : 'the car you named'}` : ''}.` };
   let reply = '';
-  try { reply = await I.say(S, E, I.car || I.id === 'mate' || I.id === 'who' ? x : null); } catch (e) { console.warn('engineer answer', e); reply = 'Say again?'; }
+  try { reply = await I.say(S, E, I.car || I.id === 'mate' || I.id === 'who' ? x : null, t); } catch (e) { console.warn('engineer answer', e); reply = 'Say again?'; }
   return { text, intent: I, target: x && S ? S.name(x) : null, reply };
 }
 
