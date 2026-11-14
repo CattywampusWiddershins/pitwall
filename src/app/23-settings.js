@@ -92,6 +92,7 @@ function renderSettings() {
         <div class="body-grid">${s.teams.flatMap(t => t.drivers.filter(Boolean).map(id => `<div class="body-item">${avatar(c, s, id, 32)}<div style="min-width:0;display:grid;gap:4px"><b>${esc(dName(s, id))}</b><span class="muted" style="font-size:12px">${esc(t.name)}</span>${bodyControls(c, id)}</div></div>`)).join('')}</div>
       </details></div></div>
     ${soundsPanel()}
+    ${engineerPanel()}
 
     <div class="panel"><div class="panel-h"><h2>AI media engine</h2><span class="muted" style="font-size:12px">${settings.hasKey ? 'API key saved' : 'No API key: media sessions use built-in question templates'}</span></div>
       <div class="panel-b stack">

@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.8.0
+
+- **The championship moves in Race Replay.** Played at 2x or slower, the live standings in a replay slide into their new places as positions change, as they do in Live Race. Faster than that they're redrawn each second, so nothing blurs.
+- Groundwork for features still being tested, switched off in this release.
+
 ## 5.7.2
 
 - **A calendar announcement shows the calendar as it was announced.** Once the season it announced had started, its graphic was drawn from that season's calendar as it is now, so the 2027 calendar announced during 2026 showed Kyalami, brought in mid-2027, instead of Miami. It now shows the rounds that were announced, dated as the season runs them.

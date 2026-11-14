@@ -176,6 +176,7 @@ const NAV = [
   ['records', 'Records', 'medal'],
   ['media', 'Media', 'mic'],
   ['settings', 'Settings', 'gear'],
+  ['help', 'Help', 'help'], // (dev mode only for now: it lists the race engineer's instructions)
 ];
 const navActive = () => ({ forecast: 'standings', weekend: 'calendar', driver: 'drivers', track: 'tracks', team: 'teams', review: 'stats' }[ui.view] || ui.view);
 const setNavOpen = (on) => document.body.classList.toggle('nav-open', on);
@@ -193,7 +194,7 @@ function renderTopbar() {
 function renderRail() {
   const c = career();
   const s = curSeason();
-  const nav = NAV.filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
+  const nav = NAV.filter(([id]) => id !== 'help' || DEV_MODE).filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
   return `
     <div class="brand">${gfxLogoUrl() ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}</div>
     ${c ? `<div class="career-pill">
@@ -238,6 +239,7 @@ function renderView() {
     case 'review': return renderReview();
     case 'media': return renderMedia();
     case 'settings': return renderSettings();
+    case 'help': return DEV_MODE ? renderHelp() : renderDashboard();
     default: return renderDashboard();
   }
 }

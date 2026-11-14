@@ -269,6 +269,20 @@ function replayMarks() {
   const who = RP.momentsFor ?? RP.data.meta.player; const dur = RP.dur || 1;
   return replayMoments().filter(e => e.kind === 'sc' || e.ids[0] === who).map(e => `<button class="rp-mark" style="left:${(e.t / dur * 100).toFixed(2)}%;--c:${RP_MOMENT[e.kind][1]}" data-act="rp-moment" data-t="${e.t}" data-ids="${e.ids.join(',')}" title="L${e.lap} · ${esc(e.label)}"></button>`).join('');
 }
+/*
+  The team radio, as it was said in the race (kept with the recording while the race engineer was on), shown on the radio
+  graphic at its moment. Only while playing at 2x or slower: faster, the graphic and the animations would be a blur, so
+  they're left out.
+*/
+const RP_ANIM = 2;
+function replayRadio() {
+  const R = RP.data.radio; if (!R?.length) return;
+  if (!RP.playing || RP.speed > RP_ANIM) { engRadioHide(); RP.radioT = RP.T; return; }
+  if (RP.radioT == null || RP.T < RP.radioT) RP.radioT = RP.T - 0.01; // a seek back: from here
+  const due = R.filter(x => x.t > RP.radioT && x.t <= RP.T); RP.radioT = RP.T;
+  const x = due[due.length - 1]; if (!x || RP.T - x.t > 3) return;
+  engRadioShow({ me: x.me, eng: x.eng, dur: Math.max(1.5, (x.eng || '').length / 15) / RP.speed, season: RP.s });
+}
 /** Shows the replay at its time: the field every step, the dashboard once a second, the chart each new lap. */
 function replayShow(force = false) {
   if (!RP || ui.view !== 'replay' || !document.getElementById('rp-vis')) return;
@@ -281,7 +295,14 @@ function replayShow(force = false) {
   el('rp-clock').textContent = `${clk(RP.T)} / ${clk(RP.dur)}`; el('rp-lap').textContent = `Lap ${Math.min(lead, RP.data.meta.totalLaps || lead)} of ${RP.data.meta.totalLaps || '?'}${S.sc === 1 ? ' · SAFETY CAR' : S.sc === 2 ? ' · VSC' : ''}`;
   const seek = el('rp-seek'); if (document.activeElement !== seek) seek.value = Math.floor(RP.T);
   el('rp-play').textContent = RP.playing ? 'Pause' : 'Play';
-  const dash = () => { const d = el('rp-dash'); if (!d || !RP) return; d.innerHTML = replayDash(); d.querySelectorAll('.champ-bar').forEach(champBarView); };
+  // at 2x or slower, the dashboard's cards are swapped one by one like Live Race's, so the championship's rows slide;
+  // faster than that, it's drawn afresh each second (the rows jump)
+  const dash = () => {
+    const d = el('rp-dash'); if (!d || !RP) return; const html = replayDash(); const old = d.firstElementChild;
+    if (RP.speed <= RP_ANIM && old?.classList.contains('rp-dash-cols')) { const tpl = document.createElement('template'); tpl.innerHTML = html; const nw = tpl.content.firstElementChild; if (nw && nw.className === old.className) { patchCards(old, nw); return; } }
+    d.innerHTML = html; d.querySelectorAll('.champ-bar').forEach(champBarView);
+  };
+  replayRadio();
   // once a second, the dashboard (the strategy, the battles, the championship): built just after this frame is drawn
   if (force) { RP.dashAt = now; dash(); } else if (now - RP.dashAt > 1000 && !RP.dashQ) { RP.dashAt = now; RP.dashQ = true; setTimeout(() => { RP.dashQ = false; dash(); }, 0); }
   if (force || lead !== RP.chartLap) { RP.chartLap = lead; el('rp-chart').innerHTML = replayChart(); }

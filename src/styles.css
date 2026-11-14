@@ -1512,3 +1512,36 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 .lv-ev { position: relative; padding: 4px 0 14px 18px; font-size: 13px; display: grid; gap: 2px; }
 .lv-ev::before { content: ''; position: absolute; left: -7px; top: 8px; width: 12px; height: 12px; border-radius: 50%; background: var(--c, var(--team)); box-shadow: 0 0 0 3px var(--panel); }
 .lv-ev b { font-family: var(--font-display); font-size: 15px; } .lv-ev .muted { font-size: 12px; }
+
+/* ---- race engineer (dev mode, BETA): the radio graphic, in the TV style: driver and number in the team's colour, bars
+   that move while someone's talking, what the driver said in the team's colour and the engineer in white */
+.tag.beta { color: #F5A623; border-color: color-mix(in srgb, #F5A623 50%, transparent); vertical-align: middle; margin-left: 6px; font-size: 10px; }
+.eng-radio { --tc: #3A8DFF; position: fixed; right: 24px; bottom: 24px; width: 310px; z-index: 900; padding: 14px 18px 16px; border-radius: 6px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(14, 22, 52, 0.97), rgba(6, 10, 28, 0.97)); box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55); border-left: 4px solid var(--tc);
+  font-family: var(--font-display); text-transform: uppercase; opacity: 0; transform: translateX(30px); transition: opacity .25s ease, transform .25s ease; }
+.eng-radio.on { opacity: 1; transform: none; }
+.er-head { display: grid; justify-items: end; line-height: .95; }
+.er-name { color: var(--tc); font-size: 30px; font-weight: 800; font-style: italic; letter-spacing: .01em; filter: brightness(1.25); }
+.er-radio { color: #fff; font-size: 26px; font-weight: 800; font-style: italic; }
+.er-mid { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin: 8px 0 10px; }
+.er-num { color: var(--tc); font-size: 58px; font-weight: 800; font-style: italic; line-height: 1; filter: brightness(1.25); min-width: 30px; }
+.er-bars { display: flex; align-items: center; gap: 2px; height: 44px; }
+.er-bars i { flex: 1; height: 12%; border-radius: 1px; background: var(--tc); filter: brightness(1.3); opacity: .9; transition: height .3s ease; }
+.eng-radio.talking .er-bars i { animation: er-bar .5s ease-in-out infinite alternate; }
+@keyframes er-bar { 0% { height: 10%; } 35% { height: 85%; } 70% { height: 30%; } 100% { height: 60%; } }
+.er-logo { display: grid; place-items: center; min-width: 34px; }
+.er-me, .er-eng { font-size: 19px; font-weight: 800; font-style: italic; line-height: 1.12; min-height: 1em; overflow-wrap: anywhere; }
+.er-me { color: color-mix(in srgb, var(--tc) 55%, #fff); margin-bottom: 10px; }
+.er-eng { color: #fff; }
+@media (prefers-reduced-motion: reduce) { .eng-radio.talking .er-bars i { animation: none; height: 50%; } }
+.eng-voices { display: grid; gap: 6px; }
+.eng-voice { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.eng-voice > div:first-child { display: grid; }
+.eng-voice.sel { border-color: color-mix(in srgb, var(--team, #3A8DFF) 60%, var(--line)); background: color-mix(in srgb, var(--team, #3A8DFF) 8%, transparent); }
+.eng-test { display: grid; gap: 8px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 6px; }
+.eng-btn { font-size: 12px; padding: 2px 8px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
+.eng-btn.on { color: #fff; background: var(--green); border-color: var(--green); }
+.eng-level { display: inline-block; width: 120px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.eng-level i { display: block; height: 100%; width: 0; background: var(--green); transition: width .08s linear; }
+.eng-help td { vertical-align: top; }
+.eng-help code { display: inline-block; margin: 1px 2px; padding: 0 5px; border-radius: 3px; background: color-mix(in srgb, var(--line) 70%, transparent); font-size: 12px; }

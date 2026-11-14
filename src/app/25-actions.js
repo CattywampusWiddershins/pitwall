@@ -821,6 +821,9 @@ Object.assign(actions, {
   'rm-del'(el) { const c = career(); c.rumours = c.rumours.filter(x => x.id !== el.dataset.id); store.save(); render(); },
 });
 
+// the race engineer's buttons and fields (13c-engineer.js)
+Object.assign(actions, ENG_ACTIONS); Object.assign(changes, ENG_CHANGES);
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;

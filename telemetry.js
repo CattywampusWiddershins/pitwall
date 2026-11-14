@@ -174,7 +174,7 @@ function parseHistory(b) {
 */
 const CARRY = ['laps', 'stints', 'penalties', 'retirements', 'collisions', 'overtakes', 'swaps', 'damage', 'wear', 'fuel', 'dep', 'sc', 'leadFin', 'traces', 'grid0', 'gridSent', 'tyreSets'];
 const sameSession = (a, b) => !!a && !!b && a.track === b.track && a.sessionType === b.sessionType && a.sessionLink === b.sessionLink && a.sessionLink > 0;
-module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {}, stash = null }) {
+module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {}, onButtons = null, stash = null }) {
   let sock = null; let cfg = { enabled: false, port: 20778 };
   const st = { listening: false, error: null, packets: 0, lastAt: null, format: null, session: null };
   const sessions = new Map();
@@ -458,6 +458,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       }
       else if (code === 'OVTK' && b.length >= HEADER + 6) pass(s, s.overtakes, b[33], b[34], h.time);
       else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34], t: h.time, lap: s.curLap[b[33]] || 0 });
+      else if (code === 'BUTN' && b.length >= HEADER + 8) onButtons?.(b.readUInt32LE(HEADER + 4)); // buttons held (the race engineer's push to talk)
       else if (code === 'RDFL') s.red = true; // a red flag: cleared once the field is moving again
       else if (code === 'FLBK' && b.length >= HEADER + 12) {
         // a flashback: everything after the moment it went back to never happened (contact, penalties, passes, damage)

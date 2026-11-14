@@ -46,6 +46,19 @@ contextBridge.exposeInMainWorld('api', {
     load: (key) => ipcRenderer.invoke('replay:load', key),
     remove: (key) => ipcRenderer.invoke('replay:remove', key),
   },
+  // dev mode (features being tried out) and the race engineer in it
+  dev: () => ipcRenderer.invoke('app:dev'),
+  engineer: {
+    status: () => ipcRenderer.invoke('engineer:status'),
+    install: (kind, id) => ipcRenderer.invoke('engineer:install', kind, id),
+    remove: (kind, id) => ipcRenderer.invoke('engineer:remove', kind, id),
+    speak: (text, voice, opts) => ipcRenderer.invoke('engineer:speak', text, voice, opts),
+    hear: (bytes, prompt) => ipcRenderer.invoke('engineer:hear', bytes, prompt),
+    record: (x) => ipcRenderer.invoke('engineer:record', x),
+    setKey: (acc) => ipcRenderer.invoke('engineer:key', acc),
+    onButtons: (cb) => ipcRenderer.on('engineer:buttons', (_e, m) => cb(m)),
+    onKey: (cb) => ipcRenderer.on('engineer:key', () => cb()),
+  },
   companion: {
     status: () => ipcRenderer.invoke('companion:status'),
     enable: (on) => ipcRenderer.invoke('companion:enable', on),

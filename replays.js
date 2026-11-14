@@ -27,7 +27,7 @@ module.exports = function createReplays(dir) {
     const R = rec; if (!R) return;
     R.lastWrite = Date.now();
     if (final && R.samples.length < MIN_SAMPLES) return;
-    const body = { meta: R.meta, samples: R.samples, laps: R.laps, fuel: R.fuel };
+    const body = { meta: R.meta, samples: R.samples, laps: R.laps, fuel: R.fuel, radio: R.radio || [] };
     writing = writing.then(() => new Promise((res) => zlib.gzip(JSON.stringify(body), (err, buf) => {
       if (!err && !closed) try { store(R, buf, final); } catch { /* the next write tries again */ }
       res();
@@ -36,7 +36,7 @@ module.exports = function createReplays(dir) {
   /** As Pitwall closes: the race being recorded is written now, all at once, so a race saved and quit keeps its last minute. */
   function flush() {
     const R = rec; closed = true; if (!R?.samples.length) return;
-    try { store(R, zlib.gzipSync(JSON.stringify({ meta: R.meta, samples: R.samples, laps: R.laps, fuel: R.fuel })), false); } catch { /* kept as last written */ }
+    try { store(R, zlib.gzipSync(JSON.stringify({ meta: R.meta, samples: R.samples, laps: R.laps, fuel: R.fuel, radio: R.radio || [] })), false); } catch { /* kept as last written */ }
   }
 
   /** A live message from the telemetry. */
@@ -53,7 +53,7 @@ module.exports = function createReplays(dir) {
       if (!prev && lead > 1 && m.link) {
         const old = readIndex().filter(x => same(x) && Date.now() - Date.parse(x.at || 0) < 48 * 3600e3).pop();
         if (old) try { const body = JSON.parse(zlib.gunzipSync(fs.readFileSync(fileOf(old.key))).toString('utf8'));
-          prev = { uid: old.uid, start: Date.now(), lastWrite: Date.now(), samples: body.samples || [], laps: body.laps || {}, fuel: body.fuel || {}, last: {}, meta: { ...body.meta, key: old.key } };
+          prev = { uid: old.uid, start: Date.now(), lastWrite: Date.now(), samples: body.samples || [], laps: body.laps || {}, fuel: body.fuel || {}, radio: body.radio || [], last: {}, meta: { ...body.meta, key: old.key } };
           prev.shift = -((prev.samples[prev.samples.length - 1]?.t ?? -1) + 1); } catch { prev = null; }
       }
       if (prev) {
@@ -88,9 +88,16 @@ module.exports = function createReplays(dir) {
     if (Date.now() - R.lastWrite > SAVE_EVERY) write(false);
   }
 
+  /** The race engineer's radio (what was said, and what you said to him), at its moment in the race being recorded. */
+  function radio({ uid, me, eng } = {}) {
+    const R = rec; if (!R || R.uid !== uid) return;
+    const t = Math.round(((Date.now() - R.start) / 1000 - (R.shift || 0)) * 10) / 10;
+    (R.radio ||= []).push({ t, me: me ? String(me).slice(0, 300) : null, eng: eng ? String(eng).slice(0, 400) : null });
+  }
   return {
     onLive,
     flush,
+    radio,
     list: () => readIndex().filter(x => fs.existsSync(fileOf(x.key))),
     load: (key) => new Promise((res) => fs.readFile(fileOf(key), (err, buf) => { if (err) return res(null); zlib.gunzip(buf, (e2, out) => res(e2 ? null : JSON.parse(out.toString('utf8')))); })),
     remove: (key) => { try { fs.unlinkSync(fileOf(key)); } catch { /* already gone */ } writeIndex(readIndex().filter(x => x.key !== key)); return true; },

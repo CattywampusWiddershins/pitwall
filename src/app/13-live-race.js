@@ -779,12 +779,17 @@ function posNoteHtml(P, me) {
   return `${why}<div class="muted" style="font-size:12px">Projected finish: most likely <b>P${P.mode}</b> (${pct(P.pMode)}), ${range}. Overtaking here is ${P.hard}% hard: ${pct(P.pass)} chance a move comes off.${scTxt}</div>`;
 }
 /** One driver's column: position, tyres, the strategy and the call, rejoin, and the battle cards. */
-function liveDriverCol(c, s, r, L, w, me, id, idOf) {
+/**
+ * The strategy for one car now and whether to pit this lap: { ST, ahead, behind, plan, call }. Worked out once per live
+ * message and car (the page and the race engineer both ask for it).
+ */
+const _livePlan = new Map();
+function livePlan(c, s, r, L, w, me, id, idOf) {
+  const key = `${L.uid}:${L.at}:${L.simT ?? ''}:${me.i}:${id}:${L.replay ? 1 : 0}`; if (_livePlan.has(key)) return _livePlan.get(key);
   const ST = liveStrategy(c, s, r, L, me, id, w, idOf);
   const byPos = L.field.filter(x => x.pos > 0).sort((a, b) => a.pos - b.pos);
   const ahead = byPos.find(x => x.pos === me.pos - 1), behind = byPos.find(x => x.pos === me.pos + 1);
-  const pitLaps = (x) => (L.pitLaps?.[x.i] || []);
-  const plan = ST.scCall?.plan || ST.plan; const stopLeft = !!plan?.stints?.length;
+  const plan = ST.scCall?.plan || ST.plan;
   let call = null;
   if (plan && plan.stints.length) {
     let k = plan.k; let offset = null;
@@ -799,7 +804,14 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
     if (k === 1) call = { kind: ST.scCall ? 'sc' : 'pit', c: plan.stints[0].c, lap: me.lap };
     ST.offset = offset; ST.k = k;
   }
-  if (call && id === PLAYER && !L.replay) pitCall(L.uid, call.kind, call.lap, call.c);
+  const out = { ST, ahead, behind, plan, call }; _livePlan.set(key, out); if (_livePlan.size > 12) _livePlan.delete(_livePlan.keys().next().value);
+  return out;
+}
+function liveDriverCol(c, s, r, L, w, me, id, idOf) {
+  const { ST, ahead, behind, plan, call } = livePlan(c, s, r, L, w, me, id, idOf);
+  const pitLaps = (x) => (L.pitLaps?.[x.i] || []);
+  // the pit call's sound: the race engineer says it instead when it's on
+  if (call && id === PLAYER && !L.replay && !engVoiceReady()) pitCall(L.uid, call.kind, call.lap, call.c);
   const RJ = rejoin(L.field, me, ST.lossNow);
   const nm = (x) => x ? esc(lastName(dName(s, idOf(x.i)) || '?')) : '';
   const lapsDone = me.lap - 1; const N = ST.n;
@@ -1199,4 +1211,5 @@ function onLiveMsg(m) {
   if (onLive && document.getElementById('live-root') && !$('#modal-root').innerHTML) patchLive();
   else if ((m.pack || onLive) && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render();
   else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
+  if (!follower) { try { engineerTick(); } catch (e) { console.warn('engineer', e); } }
 }

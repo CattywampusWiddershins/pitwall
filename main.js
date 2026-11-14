@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const createCompanion = require('./companion');
 const createTelemetry = require('./telemetry');
 const createReplays = require('./replays');
+const createEngineer = require('./engineer');
 
 const dataDir = () => app.getPath('userData');
 const dataFile = () => path.join(dataDir(), 'career-data.json');
@@ -297,6 +298,29 @@ const applySettings = (payload = {}) => {
   });
 };
 
+/*
+  Dev mode: features still being tried out before they reach everyone. On when Pitwall runs from the source, or when a
+  file named "dev-mode" (any content) is in the user folder. The race engineer is the first.
+*/
+const devMode = () => !app.isPackaged || fs.existsSync(path.join(dataDir(), 'dev-mode'));
+ipcMain.handle('app:dev', () => devMode());
+const engineer = createEngineer({ dir: dataDir });
+const devOnly = (fn) => (...a) => devMode() ? fn(...a) : null;
+ipcMain.handle('engineer:status', devOnly(() => engineer.status()));
+ipcMain.handle('engineer:install', devOnly((_e, kind, id) => engineer.install(kind, id)));
+ipcMain.handle('engineer:remove', devOnly((_e, kind, id) => engineer.remove(kind, id)));
+ipcMain.handle('engineer:speak', devOnly((_e, text, voice, opts) => engineer.speak(text, voice, opts)));
+ipcMain.handle('engineer:hear', devOnly((_e, bytes, prompt) => engineer.hear(bytes, prompt)));
+ipcMain.handle('engineer:record', devOnly((_e, x) => { try { replays.radio(x); } catch { /* not kept */ } return true; }));
+// push to talk on a key: Windows hands it to Pitwall even while the game is in front (a press, not a hold)
+let pttKey = '';
+ipcMain.handle('engineer:key', devOnly((_e, acc) => {
+  if (pttKey) { try { globalShortcut.unregister(pttKey); } catch { } pttKey = ''; }
+  if (!acc) return true;
+  try { if (globalShortcut.register(acc, () => toWindow('engineer:key', 1))) { pttKey = acc; return true; } } catch { }
+  return false;
+}));
+
 // Phone/tablet companion: same interface over the local network, synced through the career file here.
 let companion = null;
 function setupCompanion() {
@@ -333,6 +357,7 @@ function setupTelemetry() {
     stash: { save: (o) => writeJsonAtomic(stashFile(), o), load: () => readJson(stashFile(), null), clear: () => { try { fs.unlinkSync(stashFile()); } catch { /* none */ } } },
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); savePending(); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
+    onButtons: (mask) => { if (devMode()) toWindow('engineer:buttons', mask); },
     onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); try { companion?.live(m); } catch { /* a phone that's gone never stops the window's feed */ } },
   });
   telemetry.configure(readJson(telemetryFile(), { enabled: false, port: 20778 }));
@@ -355,6 +380,6 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   // a race saved and quit just before is kept as it stands, so it carries on from that moment when it's resumed
   try { telemetry?.flush(); } catch { /* kept as last saved */ } try { replays.flush(); } catch { /* kept as last written */ }
-  companion && companion.stop(); telemetry && telemetry.stop();
+  companion && companion.stop(); telemetry && telemetry.stop(); try { engineer.stop(); globalShortcut.unregisterAll(); } catch { }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
