@@ -18,8 +18,8 @@
   #wrap .er-text { overflow: hidden; position: relative; transition: height 0.18s ease-out; }
   #wrap .er-spacer { display: block; }
   #wrap .er-caret { display: inline; }
-  /* no gap between what you said and the reply (their colours tell them apart), so every jump lands on whole lines */
-  #wrap .er-text .er-me { margin-bottom: 0; }
+  /* a small gap after what you said, and before what you say next when a message carries on */
+  #wrap .er-text .er-eng + .er-me { margin-top: 10px; }
   /* moving it: the whole window drags, its edges size it, and a frame shows where it is */
   body.edit { -webkit-app-region: drag; outline: 2px dashed #F5A623; outline-offset: -2px; background: rgba(10, 14, 30, 0.35) !important; }
   #edit { display: none; position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); -webkit-app-region: no-drag; gap: 8px; align-items: center; white-space: nowrap;
@@ -40,13 +40,14 @@ let hideT = null, writeT = null, editing = false, maxLines = 4;
 const scale = () => Math.max(0.35, window.innerWidth / 330);
 const textBox = () => radio.querySelector('.er-text');
 const lineH = () => { const el = radio.querySelector('.er-eng, .er-me'); if (!el) return 22; const cs = getComputedStyle(el); return parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.15 || 22; };
+const GAP = 10; // the gap between what you said and the reply (px)
 const V = { maxH: 88, h: 0, top: 0, anim: null }; // the box's limit and height, and where its scroll is headed
 function fit() {
   const sc = scale(); wrap.style.transform = `scale(${sc})`;
   const T = textBox(); if (!T) return;
   const room = (window.innerHeight - (editing ? 48 : 0)) / sc - 20; // the window's height in the graphic's own pixels, less #wrap's padding
   const kept = T.style.height; T.style.transition = 'none'; T.style.height = '0px'; const rest = radio.offsetHeight; T.style.height = kept; void T.offsetHeight; T.style.transition = '';
-  const L = lineH(); V.maxH = Math.max(1, Math.min(maxLines, Math.floor((room - rest) / L))) * L; // whole lines, never one cut in half
+  const L = lineH(); V.maxH = Math.max(1, Math.min(maxLines, Math.floor((room - rest - 2 * GAP) / L))) * L + 2 * GAP; // that many whole lines, with room for the gaps between messages
   T.querySelector('.er-spacer').style.height = V.maxH + 'px';
   if (editing) V.h = V.maxH; size();
 }
@@ -58,12 +59,15 @@ function glide(to) {
   const step = (now) => { const k = Math.min(1, (now - t0) / D); const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; T.scrollTop = from + (to - from) * e; if (k < 1) V.anim = requestAnimationFrame(step); };
   V.anim = requestAnimationFrame(step);
 }
-// as the words are written: the box grows to the line being written; once that runs past the limit, one scroll on by a
-// whole box of lines, or only as far as shows the rest of the message if that's less
+// every line's top in the words (each part's lines from its own top, so the gaps between parts are taken into account)
+const lineTops = (T, L) => [...T.querySelectorAll('[data-full]')].flatMap(el => Array.from({ length: Math.max(1, Math.round(el.offsetHeight / L)) }, (_, j) => el.offsetTop + j * L));
+// as the words are written: the box grows to the line being written; once that runs past the limit, one smooth scroll so
+// that line is at the top (a whole new box), or only as far as shows the rest of the message if that's less, always
+// stopping on a line's top so none is cut in half
 function follow() {
   const T = textBox(); const C = T?.querySelector('.er-caret'); if (!T || !C) return;
-  const L = lineH(); const bottom = (Math.round(C.offsetTop / L) + 1) * L; /* the bottom of the line being written, snapped to the line grid */ const page = Math.max(L, Math.floor(V.maxH / L) * L);
-  if (bottom - V.top > V.maxH + L / 2) { const last = [...T.querySelectorAll('[data-full]')].pop(); const end = last.offsetTop + last.offsetHeight - V.maxH; glide(Math.max(V.top + L, Math.min(end, V.top + page))); }
+  const L = lineH(); const el = C.parentElement; const top = el.offsetTop + Math.round((C.offsetTop - el.offsetTop) / L) * L; const bottom = top + L;
+  if (bottom - V.top > V.maxH + 2) { const last = [...T.querySelectorAll('[data-full]')].pop(); const end = last.offsetTop + last.offsetHeight - V.maxH; const fits = lineTops(T, L).find(t => t >= end - 1) ?? top; glide(Math.max(V.top + 1, Math.min(top, fits))); }
   const want = Math.min(V.maxH, bottom - V.top); if (want > V.h) { V.h = want; size(); }
 }
 window.addEventListener('resize', fit); fit();

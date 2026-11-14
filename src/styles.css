@@ -1531,7 +1531,7 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 @keyframes er-bar { 0% { height: 10%; } 35% { height: 85%; } 70% { height: 30%; } 100% { height: 60%; } }
 .er-logo { display: grid; place-items: center; min-width: 34px; }
 .er-me, .er-eng { font-size: 19px; font-weight: 800; font-style: italic; line-height: 1.12; min-height: 1em; overflow-wrap: anywhere; }
-.er-me { color: color-mix(in srgb, var(--tc) 55%, #fff); margin-bottom: 10px; }
+.er-me { color: color-mix(in srgb, var(--tc) 55%, #fff); margin-bottom: 10px; text-align: right; } /* you on the right, the engineer on the left */
 .er-eng { color: #fff; }
 @media (prefers-reduced-motion: reduce) { .eng-radio.talking .er-bars i { animation: none; height: 50%; } }
 .eng-voices { display: grid; gap: 6px; }
