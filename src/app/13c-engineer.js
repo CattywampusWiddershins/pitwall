@@ -11,7 +11,7 @@
   Turned off (or with no voice downloaded), Live Race plays your uploaded sounds as before.
 */
 let DEV_MODE = false; // set at start-up from the main process
-const ENG_DEF = { on: false, voice: null, fx: true, chat: 2, ptt: 'udp', udp: 1, key: 'F8', mic: '', vol: 0.9, ovl: false, ovlBg: 0.95, ovlText: 1 };
+const ENG_DEF = { on: false, voice: null, fx: true, chat: 2, ptt: 'udp', udp: 1, key: 'F8', mic: '', vol: 0.9, ovl: false, ovlBg: 0.95, ovlText: 1, ovlLines: 4 };
 const engCfg = () => ({ ...ENG_DEF, ...(state.engineer || {}) });
 const engSet = (patch) => { state.engineer = { ...engCfg(), ...patch }; store.save(); engSyncKey(); };
 let engStatus = null; // what's downloaded (from the main process)
@@ -83,7 +83,7 @@ function engRadioMarkup({ me = null, eng = '', who = null, season = null }) {
     ${me ? `<div class="er-me" data-full="${esc('“' + me.toUpperCase() + '”')}"></div>` : ''}${eng ? `<div class="er-eng" data-full="${esc('“' + eng.toUpperCase() + '”')}"></div>` : ''}` };
 }
 /** How the overlay looks: the background's and the text's opacity (Settings). */
-const engOvlStyle = () => { const E = engCfg(); return { bg: E.ovlBg, text: E.ovlText }; };
+const engOvlStyle = () => { const E = engCfg(); return { bg: E.ovlBg, text: E.ovlText, lines: E.ovlLines }; };
 /** The radio over the game too, when that's turned on (Settings). */
 function engOverlay(o) { const E = engCfg(); if (!E.ovl || !E.on || !engApi()?.overlay) return; try { engApi().overlay.show({ ...engRadioMarkup(o), dur: o.dur, style: engOvlStyle() }); } catch { /* the overlay's gone */ } }
 function engRadioShow({ me = null, eng = '', dur = 3, who = null, season = null }) {
@@ -595,9 +595,9 @@ document.addEventListener('pointerdown', (e) => { if (e.target.closest?.('[data-
 document.addEventListener('pointerup', () => { if (ENG_REC.on && ENG_REC.src === 'ui') engPttUp(); });
 // the overlay's opacity sliders: the overlay follows as you drag them
 document.addEventListener('input', (e) => {
-  const k = e.target?.dataset?.ch; if (k !== 'eng-ovl-bg' && k !== 'eng-ovl-text') return;
-  const v = +e.target.value; const lab = document.getElementById(k); if (lab) lab.textContent = Math.round(v * 100) + '%';
-  engApi()?.overlay?.style({ ...engOvlStyle(), [k === 'eng-ovl-bg' ? 'bg' : 'text']: v });
+  const k = e.target?.dataset?.ch; if (k !== 'eng-ovl-bg' && k !== 'eng-ovl-text' && k !== 'eng-ovl-lines') return;
+  const v = +e.target.value; const lab = document.getElementById(k); if (lab) lab.textContent = k === 'eng-ovl-lines' ? plural(v, 'line') : Math.round(v * 100) + '%';
+  engApi()?.overlay?.style({ ...engOvlStyle(), [{ 'eng-ovl-bg': 'bg', 'eng-ovl-text': 'text', 'eng-ovl-lines': 'lines' }[k]]: v });
 });
 // setting the key: the next one pressed
 let engKeyWait = false;
@@ -652,7 +652,8 @@ function engineerPanel() {
       <div class="row" style="gap:12px;flex-wrap:wrap"><label class="row" style="gap:8px"><input type="checkbox" data-ch="eng-ovl" ${E.ovl ? 'checked' : ''}> Show the radio on screen, over F1 25</label>
         ${E.ovl ? `<button class="btn sm ${engOvlEdit ? 'primary' : ''}" data-act="eng-ovl-edit">${engOvlEdit ? 'Done moving' : 'Move and resize'}</button><button class="btn sm ghost" data-act="eng-ovl-reset">Back to the corner</button><button class="btn sm ghost" data-act="eng-ovl-test">Show a test message</button>` : ''}</div>
       ${E.ovl ? `<div class="row" style="gap:16px;flex-wrap:wrap"><label class="row" style="gap:8px">Background <input type="range" min="0" max="1" step="0.05" value="${E.ovlBg}" data-ch="eng-ovl-bg" style="width:130px"> <span class="muted" id="eng-ovl-bg">${Math.round(E.ovlBg * 100)}%</span></label>
-        <label class="row" style="gap:8px">Text <input type="range" min="0.2" max="1" step="0.05" value="${E.ovlText}" data-ch="eng-ovl-text" style="width:130px"> <span class="muted" id="eng-ovl-text">${Math.round(E.ovlText * 100)}%</span></label></div>` : ''}
+        <label class="row" style="gap:8px">Text <input type="range" min="0.2" max="1" step="0.05" value="${E.ovlText}" data-ch="eng-ovl-text" style="width:130px"> <span class="muted" id="eng-ovl-text">${Math.round(E.ovlText * 100)}%</span></label>
+        <label class="row" style="gap:8px">Longest message <input type="range" min="1" max="12" step="1" value="${E.ovlLines}" data-ch="eng-ovl-lines" style="width:130px"> <span class="muted" id="eng-ovl-lines">${plural(E.ovlLines, 'line')}</span></label></div>` : ''}
       <p class="muted" style="font-size:12px;margin:0">The radio graphic in its own see-through window, always on top, with clicks going straight through to the game. It needs F1 25 in borderless or windowed mode: nothing can draw over exclusive fullscreen. It still shows in Live Session too.</p>
       <h3 style="margin-top:6px">Talking back</h3>
       ${engStatus.whisper ? `<p class="muted" style="font-size:12px;margin:0">Speech recognition is downloaded (on this PC, nothing is sent anywhere). What you can say is in Help, under Race engineer.</p>`
@@ -694,6 +695,7 @@ const ENG_CHANGES = {
   async 'eng-ovl'(el) { engSet({ ovl: el.checked }); engOvlEdit = false; await engApi()?.overlay?.set(el.checked && engCfg().on); if (el.checked) engApi()?.overlay?.style(engOvlStyle()); render(); },
   'eng-ovl-bg'(el) { engSet({ ovlBg: +el.value }); },
   'eng-ovl-text'(el) { engSet({ ovlText: +el.value }); },
+  'eng-ovl-lines'(el) { engSet({ ovlLines: +el.value }); },
 };
 
 // ---- Help: the instructions, from the same list the engineer reads
