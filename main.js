@@ -358,7 +358,7 @@ function setupTelemetry() {
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); savePending(); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
     onButtons: (mask) => { if (devMode()) toWindow('engineer:buttons', mask); },
-    onLive: (m) => { try { replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); try { companion?.live(m); } catch { /* a phone that's gone never stops the window's feed */ } },
+    onLive: (m) => { try { if (m.done || (m.sessionType >= 15 && m.sessionType <= 17)) replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); try { companion?.live(m); } catch { /* a phone that's gone never stops the window's feed */ } },
   });
   telemetry.configure(readJson(telemetryFile(), { enabled: false, port: 20778 }));
 }
@@ -369,6 +369,7 @@ ipcMain.handle('replay:remove', (_e, key) => replays.remove(key));
 ipcMain.handle('telemetry:configure', (_e, cfg) => { writeJsonAtomic(telemetryFile(), { enabled: !!cfg.enabled, port: +cfg.port || 20778 }); return telemetry.configure(cfg); });
 ipcMain.handle('telemetry:pending', () => pendingResults);
 ipcMain.handle('telemetry:live', () => liveRace);
+ipcMain.handle('telemetry:traces', (_e, uid, idxs) => telemetry.traces(uid, idxs));
 ipcMain.handle('telemetry:ack', (_e, key) => { pendingResults = pendingResults.filter(x => x.key !== key); savePending(); return true; });
 
 app.whenReady().then(() => {

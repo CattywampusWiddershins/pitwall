@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('api', {
     onStatus: (cb) => ipcRenderer.on('telemetry:status', (_e, st) => cb(st)),
     onResult: (cb) => ipcRenderer.on('telemetry:result', (_e, r) => cb(r)),
     live: () => ipcRenderer.invoke('telemetry:live'),
+    traces: (uid, idxs) => ipcRenderer.invoke('telemetry:traces', uid, idxs),
     onLive: (cb) => ipcRenderer.on('telemetry:live', (_e, m) => cb(m)),
   },
   // backups kept on this PC

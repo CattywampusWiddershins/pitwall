@@ -10,11 +10,14 @@
 */
 const LIVE_FRESH = 30e3; // ms without a message before the race counts as gone
 const isLive = () => !!liveErs && !liveErs.done && Date.now() - Date.parse(liveErs.at || 0) < LIVE_FRESH;
-/** The live race if it's this round's: { ...msg, key: 'R' | 'SPR' }. */
+/** The live session if it's this round's: { ...msg, kind: 'race' | 'quali' | 'practice', key: the weekend's session ('R', 'SPR', 'Q', 'FP2'…) }. */
 function liveFor(c, r) {
   const L = liveErs; if (!L || !isLive() || gameTrack(L.track) !== trackOf(r)) return null;
   if ((c.gameKeys || []).includes(`${L.uid}:${L.sessionType}`)) return null;
-  return { ...L, key: L.sessionType === 15 && (L.weekend || []).includes(16) ? 'SPR' : 'R' };
+  const kind = LIVE_KIND(L.sessionType);
+  if (kind === 'race') return { ...L, kind, key: L.sessionType === 15 && (L.weekend || []).includes(16) ? 'SPR' : 'R' };
+  let key = null; try { key = gameKey(L, sessionsFor(latestSeason(), r)); } catch { }
+  return { ...L, kind, key: key || (kind === 'quali' ? (L.sessionType >= 10 ? 'SQ' : 'Q') : 'FP') };
 }
 /** Game car index → driver id, from the live participants. */
 function liveMap(c, s, L) {
@@ -915,6 +918,7 @@ function renderLiveRace() {
   if (!r || isHist(s)) return `<div class="page">${tabs}<div class="muted">No weekend left to run this season.</div></div>`;
   const w = weekend(s, r.id, true); const L = liveFor(c, r);
   if (!L) return `<div class="page">${tabs}${liveIdle(c, s, r, w)}</div>`;
+  if (L.kind !== 'race') return renderLiveTiming(c, s, r, L, tabs); // practice and qualifying: the timing dashboard
   const map = liveMap(c, s, L); const idOf = (i) => map[i];
   // the pit stops each car made so far (lap numbers), and the tyre each stint was on, tracked as the race goes
   const mineIds = isPrincipal(c) || c.type === 'myteam' ? (s.teams.find(t => t.id === s.playerTeamId)?.drivers || []).filter(Boolean) : [PLAYER];
@@ -931,7 +935,7 @@ function renderLiveRace() {
 }
 /** Compact (everything on one screen) or Full, for Live Race and Race Replay. */
 const liveLayoutSeg = () => `<div class="seg">${[[1, 'Compact'], [0, 'Full']].map(([v, l]) => `<button data-act="live-layout" data-v="${v}" class="${!!ui.liveCompact === !!v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Race'], ['debriefs', 'Debriefs']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
+const nowTabs = () => `<div class="seg now-tabs">${[['weekend', 'Weekend'], ['live', 'Live Session'], ['debriefs', 'Debriefs']].map(([v, l]) => `<button data-act="now-tab" data-v="${v}" class="${(ui.nowTab || 'weekend') === v ? 'on' : ''}">${l}${v === 'live' && isLive() ? ' <i class="live-dot"></i>' : ''}</button>`).join('')}</div>`;
 /** Between races: the debrief of the last one (until this weekend's first session), then the strategy to follow. */
 function liveIdle(c, s, r, w) {
   const rounds = activeRounds(s); const ri = rounds.findIndex(x => x.id === r.id);
@@ -1199,12 +1203,12 @@ function savePitLoss(L) {
 function onLiveMsg(m) {
   const same = liveErs?.uid === m.uid;
   const follower = !!window.api?.companion; // a phone or tablet following the computer's race: the computer saves what it teaches
-  if (m.done) { replayRelist(); if (same) { if (!follower) savePitLoss(liveErs); liveErs = { ...liveErs, done: true }; render(); } return; }
+  if (m.done) { replayRelist(); if (same) { if (!follower && LIVE_KIND(liveErs.sessionType) === 'race') savePitLoss(liveErs); liveErs = { ...liveErs, done: true }; render(); } return; }
   const before = same ? liveErs.passTally?.f || 0 : 0;
   liveErs = mergeLive(same ? liveErs : {}, m, Date.now());
   // what the fights say about passing here, kept per race for the overtaking slider
   { const c = career(); const tid = gameTrack(m.track);
-    if (!follower && c && tid && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
+    if (!follower && c && tid && LIVE_KIND(m.sessionType) === 'race' && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
   // a race starting: open Live Race, once
   if (!liveOpened.has(m.uid) && m.lap <= 1) { liveOpened.add(m.uid); ui.view = 'now'; ui.nowTab = 'live'; }
   const a = document.activeElement; const onLive = ui.view === 'now' && ui.nowTab === 'live';

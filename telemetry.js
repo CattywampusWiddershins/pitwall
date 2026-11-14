@@ -23,10 +23,15 @@ function header(b) {
 }
 const cstr = (b, from, len) => { const end = b.indexOf(0, from); return b.toString('utf8', from, end < 0 || end > from + len ? from + len : end).trim(); };
 
+/** A car's best valid lap and its best sector times from its lap history ([ms, valid, s1, s2, s3, flags]). */
+function bests(laps) {
+  const ok = (laps || []).filter(l => l && l[0] > 0 && (l[1] & 1)); const min = (k) => { const v = ok.map(l => l[k]).filter(x => x > 0); return v.length ? Math.min(...v) : null; };
+  return { best: min(0), bestS: [min(2), min(3), min(4)] };
+}
 function parseSession(b) {
   if (b.length < 753) return null;
   return {
-    totalLaps: b.readUInt8(32), trackLength: b.readUInt16LE(33), sessionType: b.readUInt8(35), track: b.readInt8(36),
+    totalLaps: b.readUInt8(32), trackLength: b.readUInt16LE(33), sessionType: b.readUInt8(35), track: b.readInt8(36), timeLeft: b.readUInt16LE(38), duration: b.readUInt16LE(40),
     safetyCarNow: b.readUInt8(153), // 0 none, 1 safety car, 2 virtual safety car, 3 formation lap
     // weather: 0 clear, 1 light cloud, 2 overcast, 3 light rain, 4 heavy rain, 5 storm; the forecast in steps of minutes
     weather: { now: b[29], track: b.readInt8(30), air: b.readInt8(31), forecast: Array.from({ length: Math.min(64, b[155]) }, (_, k) => { const o = 156 + k * 8; return { session: b[o], at: b[o + 1], w: b[o + 2], track: b.readInt8(o + 3), air: b.readInt8(o + 5), rain: b[o + 7] }; }) },
@@ -111,7 +116,7 @@ function parseLapData(b, L) {
   for (let i = 0; i < L.cars; i++) {
     const o = HEADER + i * 57; if (o + 57 > b.length) break;
     out.push({ pos: b[o + 32], lap: b[o + 33], grid: b[o + 43], status: b[o + 45], pit: b[o + 34] > 0 || b[o + 46] > 0, dist: b.readFloatLE(o + 20), invalid: b[o + 37] > 0, lead: gap(b.readUInt16LE(o + 17), b[o + 19]), front: gap(b.readUInt16LE(o + 14), b[o + 16]),
-      last: b.readUInt32LE(o), cur: b.readUInt32LE(o + 4), s1: b.readUInt16LE(o + 8) + b[o + 10] * 60000, s2: b.readUInt16LE(o + 11) + b[o + 13] * 60000, sector: b[o + 36], stops: b[o + 35] });
+      last: b.readUInt32LE(o), cur: b.readUInt32LE(o + 4), s1: b.readUInt16LE(o + 8) + b[o + 10] * 60000, s2: b.readUInt16LE(o + 11) + b[o + 13] * 60000, sector: b[o + 36], stops: b[o + 35], ds: b[o + 44], pen: b[o + 38], warn: b[o + 39] });
   }
   return out;
 }
@@ -257,11 +262,11 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
   }
   /** In a race: your battery now (every second), and the whole profile when a new lap starts. */
   function live(s, c) {
-    if (!c || !s.info || !raceType(s.info.sessionType)) return;
+    if (!c || !ersSession(s.info)) return; // every session of the weekend: practice and qualifying get their own dashboard
     const now = Date.now(); const newLap = c.lap !== s.liveLap;
     if (!newLap && now - (s.liveAt || 0) < LIVE_MS) return;
     s.liveAt = now;
-    const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, link: s.info.sessionLink, totalLaps: s.info.totalLaps,
+    const msg = { uid: s.uid, format: s.format, sessionType: s.info.sessionType, track: s.info.track, weekend: s.info.weekend, link: s.info.sessionLink, totalLaps: s.info.totalLaps, timeLeft: s.info.timeLeft ?? null, duration: s.info.duration ?? null,
       lap: c.lap, dist: Math.round(c.dist), pit: !!c.pit, red: !!s.red, clock: Math.round((s.clock || 0) * 10) / 10, store: s.stat ? Math.round(s.stat.ers / 1000) : null, mode: s.stat?.mode ?? null,
       dep: s.stat ? Math.round(s.stat.dep / 1000) : null, limit: s.stat?.limit ? Math.round(s.stat.limit / 1000) : null, at: new Date().toISOString() };
     if (newLap) { s.liveLap = c.lap; msg.pack = packErs(s); }
@@ -270,7 +275,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     msg.parts = (s.parts || []).map(p => ({ idx: p.idx, name: p.name, number: p.number, team: p.team, driver: p.driver, myTeam: p.myTeam, ai: p.ai }));
     msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
       c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length,
-      stints: s.stints[i]?.length ? s.stints[i].map(t => [t.visual, t.end]) : null }));
+      stints: s.stints[i]?.length ? s.stints[i].map(t => [t.visual, t.end]) : null, ...bests(s.laps[i]), ds: x.ds, inv: !!x.invalid, pen: x.pen || 0, warn: x.warn || 0 }));
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null;
     onLive(msg);
   }
@@ -310,6 +315,13 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       const o = L1.bins[k] ||= [0, 0, 0, 0, 0, 0]; const m = s.motAll?.[i];
       o[0]++; o[1] += t.spd; o[2] += t.thr; o[3] += t.brk; if (m) { o[4] += m.x; o[5] += m.z; }
     });
+  }
+  /** The quickest lap traces so far of the session being driven (the one heard from last), for the cars asked for: the
+   *  race engineer's "where am I losing time". { uid, sessionType, cars: { [i]: trace } } */
+  function liveTraces(uid, idxs = []) {
+    const s = (uid && sessions.get(uid)) || [...sessions.values()].filter(x => x.info).sort((a, b) => b.seen - a.seen)[0]; if (!s) return null;
+    const cars = {}; for (const i of idxs) { try { const t = packTrace(s, +i); if (t) cars[i] = t; } catch { /* no lap */ } }
+    return { uid: s.uid, sessionType: s.info?.sessionType ?? null, cars };
   }
   function packTrace(s, i) {
     const R = s.traces?.[i]; let B = R?.best;
@@ -468,7 +480,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     } else if (h.type === PACKET.FINAL) {
       s.final = parseFinal(b, L);
       clearTimeout(s.timer); s.timer = setTimeout(() => emit(s), SETTLE_MS);
-      if (raceType(s.info?.sessionType)) onLive({ uid: s.uid, done: true });
+      if (ersSession(s.info)) onLive({ uid: s.uid, done: true });
     }
     pushStatus();
   }
@@ -490,6 +502,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     configure(next = {}) { cfg = { enabled: !!next.enabled, port: Math.max(1024, Math.min(65535, +next.port || 20778)) }; return start(); },
     status,
     stop,
+    traces: liveTraces,
     // as Pitwall closes: the session driven last is kept on disk as it stands, so a race saved and quit just before
     // carries on with everything up to the moment it was left
     flush() { const s = [...sessions.values()].filter(x => x.info && !x.sent).sort((a, b) => b.seen - a.seen)[0]; if (s) stashNow(s, true); },

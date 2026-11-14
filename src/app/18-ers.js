@@ -55,6 +55,7 @@ let liveErs = null;
 /** The live race, if it is this round's and still running: the session key it will be logged under joins it. */
 function liveRaceFor(c, r) {
   const L = liveErs; if (!L?.pack?.laps || gameTrack(L.track) !== trackOf(r)) return null;
+  if (!(L.sessionType >= 15 && L.sessionType <= 17)) return null; // practice and qualifying go live too: this plan is the race's
   if (Date.now() - Date.parse(L.at) > 10 * 60e3) return null; // gone quiet: the game was closed mid-race
   if ((c.gameKeys || []).includes(`${L.uid}:${L.sessionType}`)) return null; // already logged
   return { ...L, key: L.sessionType === 15 && (L.weekend || []).includes(16) ? 'SPR' : 'R' };
