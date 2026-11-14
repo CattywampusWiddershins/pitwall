@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, globalShortcut, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const createCompanion = require('./companion');
@@ -108,6 +108,7 @@ function createWindow() {
     win.webContents.setZoomFactor(Math.min(1.6, Math.max(1, Math.round(w / 1800 / 0.05) * 0.05)));
   };
   win.on('resize', fit); win.webContents.on('did-finish-load', fit);
+  win.on('closed', () => { if (overlay && !overlay.isDestroyed()) overlay.destroy(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
@@ -320,6 +321,46 @@ ipcMain.handle('engineer:key', devOnly((_e, acc) => {
   try { if (globalShortcut.register(acc, () => toWindow('engineer:key', 1))) { pttKey = acc; return true; } } catch { }
   return false;
 }));
+
+/*
+  The radio overlay (dev mode, with the race engineer): the radio graphic in its own see-through window, always on top,
+  so it shows over F1 25 (in borderless or windowed mode: nothing draws over exclusive fullscreen). Clicks go straight
+  through it to the game. "Move and resize" in Settings makes it a frame you can drag and size; where it sits is kept.
+*/
+let overlay = null;
+const overlayFile = () => path.join(dataDir(), 'overlay.json');
+function overlayDefault() { const wa = screen.getPrimaryDisplay().workArea; return { width: 360, height: 320, x: wa.x + wa.width - 380, y: wa.y + wa.height - 360 }; }
+function overlayBounds() {
+  const b = readJson(overlayFile(), null)?.bounds;
+  // still on a screen (a monitor unplugged since): or back to the default corner
+  const on = b && screen.getAllDisplays().some(d => { const a = d.workArea; return b.x < a.x + a.width - 40 && b.x + b.width > a.x + 40 && b.y < a.y + a.height - 40 && b.y + b.height > a.y + 40; });
+  return on ? b : overlayDefault();
+}
+function overlayOpen() {
+  if (overlay && !overlay.isDestroyed()) return overlay;
+  overlay = new BrowserWindow({ ...overlayBounds(), transparent: true, frame: false, resizable: true, movable: true, alwaysOnTop: true, skipTaskbar: true, focusable: false, hasShadow: false, show: false,
+    backgroundColor: '#00000000', minWidth: 200, minHeight: 150, title: 'Pitwall radio',
+    webPreferences: { preload: path.join(__dirname, 'overlay-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  overlay.setAlwaysOnTop(true, 'screen-saver'); overlay.setIgnoreMouseEvents(true);
+  overlay.loadFile(path.join(__dirname, 'src', 'overlay.html'));
+  const save = () => { if (overlay && !overlay.isDestroyed()) writeJsonAtomic(overlayFile(), { bounds: overlay.getBounds() }); };
+  overlay.on('moved', save); overlay.on('resized', save);
+  overlay.on('closed', () => { overlay = null; });
+  overlay.once('ready-to-show', () => overlay && overlay.showInactive());
+  return overlay;
+}
+function overlayEdit(on) {
+  if (!overlay || overlay.isDestroyed()) return false;
+  overlay.setIgnoreMouseEvents(!on); overlay.setFocusable(!!on); if (on) overlay.focus();
+  overlay.webContents.send('overlay:edit', !!on); return true;
+}
+ipcMain.handle('overlay:set', devOnly((_e, on) => { if (on) overlayOpen(); else if (overlay && !overlay.isDestroyed()) overlay.destroy(); return true; }));
+ipcMain.handle('overlay:edit', devOnly((_e, on) => overlayEdit(on)));
+ipcMain.handle('overlay:reset', devOnly(() => { if (overlay && !overlay.isDestroyed()) overlay.setBounds(overlayDefault()); try { fs.unlinkSync(overlayFile()); } catch { } return true; }));
+ipcMain.on('overlay:show', (_e, payload) => { if (devMode() && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:show', payload); });
+ipcMain.on('overlay:style', (_e, st) => { if (devMode() && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:style', st); });
+// "Done" on the overlay itself
+ipcMain.on('overlay:done', () => { overlayEdit(false); toWindow('overlay:edited', 1); });
 
 // Phone/tablet companion: same interface over the local network, synced through the career file here.
 let companion = null;

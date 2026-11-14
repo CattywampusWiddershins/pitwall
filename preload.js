@@ -59,6 +59,15 @@ contextBridge.exposeInMainWorld('api', {
     setKey: (acc) => ipcRenderer.invoke('engineer:key', acc),
     onButtons: (cb) => ipcRenderer.on('engineer:buttons', (_e, m) => cb(m)),
     onKey: (cb) => ipcRenderer.on('engineer:key', () => cb()),
+    // the radio overlay over the game
+    overlay: {
+      set: (on) => ipcRenderer.invoke('overlay:set', on),
+      edit: (on) => ipcRenderer.invoke('overlay:edit', on),
+      reset: () => ipcRenderer.invoke('overlay:reset'),
+      show: (payload) => ipcRenderer.send('overlay:show', payload),
+      style: (st) => ipcRenderer.send('overlay:style', st),
+      onEdited: (cb) => ipcRenderer.on('overlay:edited', () => cb()),
+    },
   },
   companion: {
     status: () => ipcRenderer.invoke('companion:status'),

@@ -11,7 +11,7 @@
   Turned off (or with no voice downloaded), Live Race plays your uploaded sounds as before.
 */
 let DEV_MODE = false; // set at start-up from the main process
-const ENG_DEF = { on: false, voice: null, fx: true, chat: 2, ptt: 'udp', udp: 1, key: 'F8', mic: '', vol: 0.9 };
+const ENG_DEF = { on: false, voice: null, fx: true, chat: 2, ptt: 'udp', udp: 1, key: 'F8', mic: '', vol: 0.9, ovl: false, ovlBg: 0.95, ovlText: 1 };
 const engCfg = () => ({ ...ENG_DEF, ...(state.engineer || {}) });
 const engSet = (patch) => { state.engineer = { ...engCfg(), ...patch }; store.save(); engSyncKey(); };
 let engStatus = null; // what's downloaded (from the main process)
@@ -52,9 +52,9 @@ async function engPump() {
       const ab = res.wav.buffer ? res.wav.buffer.slice(res.wav.byteOffset, res.wav.byteOffset + res.wav.byteLength) : res.wav;
       const buf = await ctx.decodeAudioData(ab); dur = buf.duration;
       const src = ctx.createBufferSource(); const g = ctx.createGain(); g.gain.value = E.vol; src.buffer = buf; src.connect(g).connect(ctx.destination);
-      engRadioShow({ me: item.me, eng: item.text, dur }); src.start();
+      engRadioShow({ me: item.me, eng: item.text, dur }); engOverlay({ me: item.me, eng: item.text, dur }); src.start();
       await new Promise(ok => { src.onended = ok; setTimeout(ok, dur * 1000 + 500); });
-    } else { engRadioShow({ me: item.me, eng: item.text, dur }); await new Promise(ok => setTimeout(ok, dur * 1000)); }
+    } else { engRadioShow({ me: item.me, eng: item.text, dur }); engOverlay({ me: item.me, eng: item.text, dur }); await new Promise(ok => setTimeout(ok, dur * 1000)); }
   } catch (e) { console.warn('engineer voice', e); }
   engBusy = false; setTimeout(engPump, 250);
 }
@@ -74,15 +74,22 @@ function engRadioEl() {
 }
 const engRadioHere = () => (ui.view === 'now' && ui.nowTab === 'live') || ui.view === 'replay';
 let engRadioT = null; let engWriteT = null;
+/** The radio graphic's markup and team colour: { html, tc }. */
+function engRadioMarkup({ me = null, eng = '', who = null, season = null }) {
+  const c = career(); const s = season || latestSeason(); const id = who || PLAYER;
+  const tm = c && s ? teamOf(s, id) : null;
+  return { tc: tm?.color || '#3A8DFF', html: `<div class="er-head"><span class="er-name">${esc(lastName(s ? dName(s, id) : 'Radio').toUpperCase())}</span><span class="er-radio">RADIO</span></div>
+    <div class="er-mid"><span class="er-num">${esc(String(s?.drivers?.[id]?.number ?? ''))}</span><span class="er-bars">${Array.from({ length: ENG_BARS }, (_, k) => `<i style="animation-delay:-${(k * 137 % 600) / 1000}s;animation-duration:${0.35 + (k * 53 % 40) / 100}s"></i>`).join('')}</span><span class="er-logo">${tm ? teamLogo(c, tm, 34) : ''}</span></div>
+    ${me ? `<div class="er-me" data-full="${esc('“' + me.toUpperCase() + '”')}"></div>` : ''}${eng ? `<div class="er-eng" data-full="${esc('“' + eng.toUpperCase() + '”')}"></div>` : ''}` };
+}
+/** How the overlay looks: the background's and the text's opacity (Settings). */
+const engOvlStyle = () => { const E = engCfg(); return { bg: E.ovlBg, text: E.ovlText }; };
+/** The radio over the game too, when that's turned on (Settings). */
+function engOverlay(o) { const E = engCfg(); if (!E.ovl || !E.on || !engApi()?.overlay) return; try { engApi().overlay.show({ ...engRadioMarkup(o), dur: o.dur, style: engOvlStyle() }); } catch { /* the overlay's gone */ } }
 function engRadioShow({ me = null, eng = '', dur = 3, who = null, season = null }) {
   if (!engRadioHere()) return;
-  const c = career(); const s = season || latestSeason(); const id = who || PLAYER;
-  const tm = c && s ? teamOf(s, id) : null; const col = tm?.color || '#3A8DFF';
-  const el = engRadioEl();
-  el.style.setProperty('--tc', col);
-  el.innerHTML = `<div class="er-head"><span class="er-name">${esc(lastName(s ? dName(s, id) : 'Radio').toUpperCase())}</span><span class="er-radio">RADIO</span></div>
-    <div class="er-mid"><span class="er-num">${esc(String(s?.drivers?.[id]?.number ?? ''))}</span><span class="er-bars">${Array.from({ length: ENG_BARS }, (_, k) => `<i style="animation-delay:-${(k * 137 % 600) / 1000}s;animation-duration:${0.35 + (k * 53 % 40) / 100}s"></i>`).join('')}</span><span class="er-logo">${tm ? teamLogo(c, tm, 34) : ''}</span></div>
-    ${me ? `<div class="er-me" data-full="${esc('“' + me.toUpperCase() + '”')}"></div>` : ''}${eng ? `<div class="er-eng" data-full="${esc('“' + eng.toUpperCase() + '”')}"></div>` : ''}`;
+  const M = engRadioMarkup({ me, eng, who, season }); const el = engRadioEl();
+  el.style.setProperty('--tc', M.tc); el.innerHTML = M.html;
   el.classList.add('on', 'talking');
   // written on: what you said first (quickly), then the engineer across the time the line takes to say
   const parts = [...el.querySelectorAll('[data-full]')]; clearInterval(engWriteT);
@@ -507,6 +514,12 @@ function engSyncKey() { const A = engApi(); if (!A) return; const E = engCfg(); 
 // the test button in Settings: held with the mouse
 document.addEventListener('pointerdown', (e) => { if (e.target.closest?.('[data-eng-hold]')) { e.preventDefault(); engPttDown('ui'); } });
 document.addEventListener('pointerup', () => { if (ENG_REC.on && ENG_REC.src === 'ui') engPttUp(); });
+// the overlay's opacity sliders: the overlay follows as you drag them
+document.addEventListener('input', (e) => {
+  const k = e.target?.dataset?.ch; if (k !== 'eng-ovl-bg' && k !== 'eng-ovl-text') return;
+  const v = +e.target.value; const lab = document.getElementById(k); if (lab) lab.textContent = Math.round(v * 100) + '%';
+  engApi()?.overlay?.style({ ...engOvlStyle(), [k === 'eng-ovl-bg' ? 'bg' : 'text']: v });
+});
 // setting the key: the next one pressed
 let engKeyWait = false;
 document.addEventListener('keydown', (e) => {
@@ -521,6 +534,8 @@ async function engineerBoot() {
   try { DEV_MODE = !!(await window.api.dev()); } catch { DEV_MODE = false; }
   if (!DEV_MODE || !window.api.engineer) return;
   await engRefresh(); engSyncKey();
+  if (engCfg().ovl && engCfg().on) { await window.api.engineer.overlay?.set(true); window.api.engineer.overlay?.style(engOvlStyle()); }
+  window.api.engineer.overlay?.onEdited(() => { engOvlEdit = false; if (ui.view === 'settings') render(); });
   window.api.engineer.onButtons((m) => engButtons(m));
   window.api.engineer.onKey(() => engPttDown('key'));
 }
@@ -554,6 +569,12 @@ function engineerPanel() {
         <label class="row" style="gap:8px">Volume <input type="range" min="0.2" max="1" step="0.05" value="${E.vol}" data-ch="eng-vol" style="width:120px"></label>
         <span class="row" style="gap:6px"><span class="muted" style="font-size:12px">How much he talks</span>${seg('chat', [[1, 'Just the calls'], [2, 'Normal'], [3, 'Chatty']])}</span>
         ${engVoiceReady() ? '<button class="btn sm ghost" data-act="eng-sample">Say something</button>' : ''}</div>
+      <h3 style="margin-top:6px">Radio over the game</h3>
+      <div class="row" style="gap:12px;flex-wrap:wrap"><label class="row" style="gap:8px"><input type="checkbox" data-ch="eng-ovl" ${E.ovl ? 'checked' : ''}> Show the radio on screen, over F1 25</label>
+        ${E.ovl ? `<button class="btn sm ${engOvlEdit ? 'primary' : ''}" data-act="eng-ovl-edit">${engOvlEdit ? 'Done moving' : 'Move and resize'}</button><button class="btn sm ghost" data-act="eng-ovl-reset">Back to the corner</button><button class="btn sm ghost" data-act="eng-ovl-test">Show a test message</button>` : ''}</div>
+      ${E.ovl ? `<div class="row" style="gap:16px;flex-wrap:wrap"><label class="row" style="gap:8px">Background <input type="range" min="0" max="1" step="0.05" value="${E.ovlBg}" data-ch="eng-ovl-bg" style="width:130px"> <span class="muted" id="eng-ovl-bg">${Math.round(E.ovlBg * 100)}%</span></label>
+        <label class="row" style="gap:8px">Text <input type="range" min="0.2" max="1" step="0.05" value="${E.ovlText}" data-ch="eng-ovl-text" style="width:130px"> <span class="muted" id="eng-ovl-text">${Math.round(E.ovlText * 100)}%</span></label></div>` : ''}
+      <p class="muted" style="font-size:12px;margin:0">The radio graphic in its own see-through window, always on top, with clicks going straight through to the game. It needs F1 25 in borderless or windowed mode: nothing can draw over exclusive fullscreen. It still shows in Live Session too.</p>
       <h3 style="margin-top:6px">Talking back</h3>
       ${engStatus.whisper ? `<p class="muted" style="font-size:12px;margin:0">Speech recognition is downloaded (on this PC, nothing is sent anywhere). What you can say is in Help, under Race engineer.</p>`
         : wj ? `<p class="muted" style="font-size:12px;margin:0">Downloading the speech recognition: ${pct(wj)}%</p>` : `<div class="row" style="gap:8px"><button class="btn sm" data-act="eng-get-whisper">Download speech recognition (${engStatus.whisperMB} MB)</button><span class="muted" style="font-size:12px">Needed to talk to the engineer.</span></div>`}
@@ -569,7 +590,7 @@ function engineerPanel() {
         <div id="eng-test" class="stack" style="gap:4px;font-size:13px">${engTestHtml()}</div></div>
     </div></div>`;
 }
-let engPrevAudio = null;
+let engPrevAudio = null; let engOvlEdit = false;
 const ENG_ACTIONS = {
   'eng-set'(el) { engSet({ [el.dataset.k]: isNaN(+el.dataset.v) ? el.dataset.v : +el.dataset.v }); render(); },
   'eng-preview'(el) { try { engPrevAudio?.pause(); engPrevAudio = new Audio(`voices/${el.dataset.v}.wav`); engPrevAudio.volume = engCfg().vol; engPrevAudio.play(); } catch { } },
@@ -580,14 +601,20 @@ const ENG_ACTIONS = {
   'eng-sample'() { const lines = ['Radio check. Loud and clear.', 'Box this lap, box box. Mediums.', 'Gap to the car ahead is 1.4. You are closing in, 0.3 a lap.', 'Safety car, safety car.']; engSay(lines[Math.floor(Math.random() * lines.length)], { prio: 1 }); },
   'eng-key'() { engKeyWait = true; render(); },
   'eng-mics'() { engLoadMics(true); },
+  async 'eng-ovl-edit'() { engOvlEdit = !engOvlEdit; await engApi()?.overlay?.edit(engOvlEdit); render(); },
+  async 'eng-ovl-reset'() { await engApi()?.overlay?.reset(); toast('The radio overlay is back in the bottom-right corner'); },
+  'eng-ovl-test'() { engOverlay({ me: 'Radio check', eng: 'Loud and clear. Box this lap, box box. Mediums.', dur: 3.5 }); },
 };
 const ENG_CHANGES = {
-  'eng-on'(el) { engSet({ on: el.checked }); render(); },
+  'eng-on'(el) { engSet({ on: el.checked }); engApi()?.overlay?.set(el.checked && engCfg().ovl); render(); },
   'eng-fx'(el) { engSet({ fx: el.checked }); },
   'eng-vol'(el) { engSet({ vol: +el.value }); },
   'eng-mic'(el) { engSet({ mic: el.value }); },
   'eng-ptt'(el) { engSet({ ptt: el.value }); render(); },
   'eng-udp'(el) { engSet({ udp: +el.value }); render(); },
+  async 'eng-ovl'(el) { engSet({ ovl: el.checked }); engOvlEdit = false; await engApi()?.overlay?.set(el.checked && engCfg().on); if (el.checked) engApi()?.overlay?.style(engOvlStyle()); render(); },
+  'eng-ovl-bg'(el) { engSet({ ovlBg: +el.value }); },
+  'eng-ovl-text'(el) { engSet({ ovlText: +el.value }); },
 };
 
 // ---- Help: the instructions, from the same list the engineer reads

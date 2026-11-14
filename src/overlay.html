@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:;">
+<title>Pitwall radio</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* the radio overlay: a see-through window over the game, the radio graphic scaled to the window's width */
+  html, body { background: transparent !important; margin: 0; overflow: hidden; height: 100%; }
+  body { user-select: none; }
+  #wrap { position: absolute; left: 0; top: 0; width: 330px; transform-origin: top left; padding: 10px; box-sizing: border-box; }
+  #wrap .eng-radio { position: static; width: auto; pointer-events: none; --bga: 0.95; --txa: 1;
+    background: linear-gradient(180deg, rgba(14, 22, 52, var(--bga)), rgba(6, 10, 28, var(--bga))); box-shadow: 0 10px 34px rgba(0, 0, 0, calc(var(--bga) * 0.55)); }
+  /* the text's opacity (the slider in Settings): names, number, bars, logo and the words */
+  #wrap .eng-radio > * { opacity: var(--txa); }
+  /* moving it: the whole window drags, its edges size it, and a frame shows where it is */
+  body.edit { -webkit-app-region: drag; outline: 2px dashed #F5A623; outline-offset: -2px; background: rgba(10, 14, 30, 0.35) !important; }
+  #edit { display: none; position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); -webkit-app-region: no-drag; gap: 8px; align-items: center; white-space: nowrap;
+    font: 600 12px "Segoe UI", system-ui, sans-serif; color: #fff; background: rgba(0, 0, 0, 0.7); padding: 6px 10px; border-radius: 6px; }
+  body.edit #edit { display: flex; }
+  #edit button { font: 700 12px "Segoe UI", system-ui, sans-serif; background: #F5A623; color: #15151E; border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="radio" class="eng-radio" aria-live="polite"></div></div>
+<div id="edit"><span>Drag to move · drag the edges to resize</span><button id="done">Done</button></div>
+<script>
+'use strict';
+const radio = document.getElementById('radio'), wrap = document.getElementById('wrap');
+let hideT = null, writeT = null, editing = false, natH = 220;
+// the graphic fits the window both ways: as wide as it is, unless the whole message (written out) would run off the bottom
+const fit = () => { const sc = Math.max(0.35, Math.min(window.innerWidth / 330, (window.innerHeight - (editing ? 48 : 0)) / natH)); wrap.style.transform = `scale(${sc})`; };
+window.addEventListener('resize', fit); fit();
+// the opacity of the background and the text, from Settings
+const style = (st) => { if (!st) return; if (st.bg != null) radio.style.setProperty('--bga', st.bg); if (st.text != null) radio.style.setProperty('--txa', st.text); };
+const SAMPLE = { html: '<div class="er-head"><span class="er-name">YOUR NAME</span><span class="er-radio">RADIO</span></div><div class="er-mid"><span class="er-num">1</span><span class="er-bars">' + Array.from({ length: 18 }, (_, k) => `<i style="animation-delay:-${(k * 137 % 600) / 1000}s;animation-duration:${0.35 + (k * 53 % 40) / 100}s"></i>`).join('') + '</span><span class="er-logo"></span></div><div class="er-me" data-full="“WHAT’S THE GAP TO THE CAR AHEAD?”"></div><div class="er-eng" data-full="“1.2 AHEAD. YOU ARE CLOSING IN, 0.3 A LAP.”"></div>', tc: '#3A8DFF', dur: 3 };
+// the same write-on as in the app: what you said first (quickly), then the engineer across the time the line takes to say
+function show(p, stay) {
+  radio.style.setProperty('--tc', p.tc || '#3A8DFF'); radio.innerHTML = p.html; radio.classList.add('on', 'talking');
+  const parts = [...radio.querySelectorAll('[data-full]')]; clearInterval(writeT);
+  parts.forEach(el => { el.textContent = el.dataset.full; }); natH = wrap.offsetHeight || natH; parts.forEach(el => { el.textContent = ''; }); fit();
+  const plan = parts.map(el => ({ el, full: el.dataset.full, n: 0, per: el.classList.contains('er-me') ? 40 : Math.max(18, el.dataset.full.length / Math.max(0.8, (p.dur || 3) * 0.95)) }));
+  let k = 0, last = performance.now();
+  writeT = setInterval(() => { const now = performance.now(), dt = (now - last) / 1000; last = now; const P = plan[k]; if (!P) { clearInterval(writeT); radio.classList.remove('talking'); return; }
+    P.n = Math.min(P.full.length, P.n + P.per * dt); P.el.textContent = P.full.slice(0, Math.floor(P.n)); if (P.n >= P.full.length) k++; }, 30);
+  clearTimeout(hideT); if (!stay) hideT = setTimeout(() => { if (!editing) radio.classList.remove('on', 'talking'); }, ((p.dur || 3) + 6) * 1000);
+}
+window.overlay?.onShow((p) => { style(p.style); show(p, editing); });
+window.overlay?.onStyle(style);
+window.overlay?.onEdit((on) => { editing = on; fit(); document.body.classList.toggle('edit', on); if (on) show(SAMPLE, true); else { radio.classList.remove('on', 'talking'); clearInterval(writeT); } });
+document.getElementById('done').addEventListener('click', () => window.overlay?.done());
+</script>
+</body>
+</html>
