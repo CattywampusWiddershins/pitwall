@@ -356,6 +356,48 @@ function engTickSession(S) {
 // the cars you've asked to be kept updated on, this race
 let engWatch = { uid: null, ids: new Set() };
 const engWatchSet = (S, x, on) => { if (engWatch.uid !== S.L.uid) engWatch = { uid: S.L.uid, ids: new Set() }; if (on) engWatch.ids.add(x.i); else engWatch.ids.delete(x.i); if (engMem.watch) delete engMem.watch[x.i]; if (engMem.wl) delete engMem.wl[x.i]; };
+/*
+  The pre-race briefing: once qualifying is logged and until the race starts. Our strategy (from practice long runs and
+  the tyres left, as on the post-qualifying screen), what the cars starting around us should do (the grid's runs), who
+  we should be fighting and where we should finish (the race forecast on Current Weekend). A question about one part
+  ("who are we fighting?", "where will we finish?") gets that part.
+*/
+function engBriefing(t = ' ') {
+  const c = career(); const s = c && latestSeason(); const r = s && nextRound(s); if (!r || isHist(s)) return null;
+  const w = s.weekends[r.id]; const Q = w?.sessions?.Q; if (!Q?.done || w.sessions.R?.done) return null;
+  const nm = (d) => lastName(dName(s, d)); const list = (xs) => listJoin(xs.map(nm));
+  const n = raceLaps(s, r.id); const PL = (() => { try { return pitLoss(c, trackOf(r)).green; } catch { return undefined; } })();
+  const grid = Q.results.map(x => x.d); const start = grid.indexOf(PLAYER) + 1;
+  const say = (p) => { let lap = 0; return p.seq.map((cp, k) => { lap += p.lens[k]; const W = p.windows?.[k]; const ty = (k && p.seq[k - 1] === cp ? 'fresh ' : '') + engTyres(cp); return k < p.seq.length - 1 ? `${ty} to lap ${lap}${W && W[1] > W[0] ? ` (laps ${W[0]} to ${W[1]})` : ''}` : `${ty} to the flag`; }).join(', then '); };
+  const stops = (p) => ['No stop', 'One stop', 'Two stops', 'Three stops'][p.stops] || `${p.stops} stops`;
+  // ours
+  let ours = null; try { const { mine } = strategyRuns(s, r); if (Object.keys(mine).length >= 2) ours = optimalStrategies(mine, n, { loss: PL, sets: setsLeft(c, s, r).sets })[0] || null; } catch { }
+  // the grid's, and the forecast
+  let F = null; try { F = raceForecast(s, r); } catch { }
+  let theirs = F?.plan || null; if (!theirs) try { const G = gridRuns(s, r); if (Object.keys(G).length >= 2) theirs = optimalStrategies(G, n, { loss: PL })[0] || null; } catch { }
+  const near = grid.filter((d, k) => d !== PLAYER && Math.abs(k + 1 - start) <= 2);
+  const ahead = near.filter(d => grid.indexOf(d) + 1 < start), behind = near.filter(d => grid.indexOf(d) + 1 > start);
+  const me = F?.order.find(x => x.d === PLAYER);
+  const parts = {};
+  parts.plan = ours ? `${stops(ours)}: ${say(ours)}.` : 'No race strategy yet: it needs long runs on two dry compounds in practice. We will build it from the tyre you start on.';
+  parts.start = `You start P${start}${ahead.length ? `, with ${list(ahead)} ahead` : ''}${behind.length ? `${ahead.length ? ' and' : ', with'} ${list(behind)} behind` : ''}.`;
+  parts.others = theirs ? (ours && theirs.seq.join() === ours.seq.join() ? `The cars around you should do the same, ${stops(theirs).toLowerCase()}.` : `The cars around you should go ${stops(theirs).toLowerCase()}: ${say(theirs)}.`) : '';
+  if (me) {
+    const U = Math.max(6000, n * 120), close = Math.max(4000, n * 70);
+    const rows = F.order; const pos = rows.indexOf(me) + 1;
+    const best = 1 + rows.filter(x => x.t < me.t - U).length, worst = rows.filter(x => x.t <= me.t + U).length;
+    const fight = rows.filter(x => x !== me && Math.abs(x.t - me.t) <= close).sort((a, b) => Math.abs(a.t - me.t) - Math.abs(b.t - me.t)).slice(0, 3).map(x => x.d);
+    parts.fight = fight.length ? `We expect to be fighting ${list(fight)}.` : `Nobody close on race pace: a lonely one, most likely.`;
+    parts.finish = best === worst ? `We expect P${pos}.` : `Most likely P${pos}, anywhere from P${best} to P${Math.max(worst, pos)}.`;
+  } else {
+    const L = gridIds(s).length; parts.fight = `No race pace from practice to go on. Starting around you: ${list(near) || 'nobody'}.`;
+    parts.finish = `No long runs to forecast from. From P${start}, somewhere around P${Math.max(1, start - 3)} to P${Math.min(L, start + 3)}.`;
+  }
+  if (/ (fight|fighting|battle|battling|racing against|up against|rivals?) /.test(t)) return parts.fight;
+  if (/ (finish|end up|range|result|where will) /.test(t)) return parts.finish;
+  if (/ (others|other cars|everyone else|the rest|around us|around me) /.test(t) && !/ plan /.test(t)) return [parts.start, parts.others].filter(Boolean).join(' ');
+  return [parts.plan, parts.start, parts.others, parts.fight, parts.finish].filter(Boolean).join(' ');
+}
 /** What the engineer says to an instruction: just an acknowledgement, never how it works. */
 const engAck = () => ['Copy.', 'Copy that.', 'Understood.', 'Will do.', 'Copy, will do.'][Math.floor(Math.random() * 5)];
 const engNoRace = 'No live race right now. Once you are on track, I will have the numbers.';
@@ -392,6 +434,8 @@ const ENG_INTENTS = [
     say: (S, E, x) => { if (!x) { engSet({ chat: 3 }); return engAck(); } engWatchSet(S, x, true); return engAck(); } },
   { id: 'unwatch', cat: 'The race', title: 'Stop following a car', k: [['stop updates on', 'no more updates on', 'stop watching', 'forget about', 'stop following', 'stop tracking', 'no updates on', 'dont need updates on', "don't need updates on"]], ex: ['Stop updates on Piastri', 'Forget about Norris'], car: true,
     say: (S, E, x) => { if (!x) { engWatch = { uid: null, ids: new Set() }; return engAck(); } engWatchSet(S, x, false); return engAck(); } },
+  { id: 'raceplan', cat: 'The race', title: 'The race plan (after qualifying)', live: false, k: [['plan for the race', 'race plan', 'plan for tomorrow', 'plan for today', 'race strategy', 'strategy for the race', 'what is the plan', 'what is our plan', 'whats the plan', 'game plan', 'brief me', 'briefing', 'pre race', 'prerace', 'who are we fighting', 'who will we fight', 'who are we racing', 'who will we be racing', 'who will we be fighting', 'who are our rivals', 'what do we expect', 'what are the others doing', 'what will the others do', 'what are the cars around', 'cars around us', 'cars around me', 'the others do', 'everyone else do', 'rest of the field']], ex: ['What’s our plan for the race?', 'Who are we fighting?', 'Where will we finish?', 'What will the cars around us do?'],
+    say: (S, E, x, t) => { if (S?.race) { const I = (id) => ENG_INTENTS.find(i => i.id === id); return `${I('stop').say(S, E, x, t)} ${I('finish').say(S)}`; } return engBriefing(t) || 'The race plan comes once qualifying is logged.'; } },
   // ---- tyres and stops
   { id: 'tyres', cat: 'Tyres and stops', title: 'Tyres', k: [['tyre', 'tyres', 'wear', 'grip', 'rubber', 'compound', 'degradation', 'deg', 'softs', 'mediums', 'hards', 'inters', 'what is he on', 'what is she on', 'what are they on', 'what are they on']], ex: ['How are my tyres?', 'What tyres is Hamilton on?', 'How much wear?', 'What is the car ahead on?'], car: true,
     say: (S, E, x) => x ? `${S.name(x)} is on ${engCarTyre(S, x)}${x.stops ? `, ${plural(x.stops, 'stop')} made` : ', no stops yet'}.` : `${cap1(engCarTyre(S, S.me))}.${S.ST?.curLife != null ? ` About ${plural(Math.max(0, S.ST.curLife), 'lap')} left in them.` : ''}` },
@@ -471,6 +515,7 @@ async function engAnswer(text) {
   let I = engMatch(t);
   if (!I && (E.cars.length || E.team)) I = ENG_INTENTS.find(i => i.id === 'gap'); // just a name: where they are
   if (!I) return { text, intent: null, reply: 'Say again?' };
+  if ((!S || !S.race) && ['raceplan', 'stop', 'finish'].includes(I.id) && !(I.id === 'stop' && S && / box /.test(t) && !/ (when|plan|strategy|window) /.test(t))) { const B = engBriefing(t); if (B) return { text, intent: ENG_INTENTS.find(i => i.id === 'raceplan'), target: null, reply: B }; }
   if (S && I.race && !S.race) return { text, intent: I, target: null, reply: 'That one is for the race.' };
   if (S && I.practice && S.L.kind !== 'practice') return { text, intent: I, target: null, reply: 'Setup changes are for practice. The car is locked in now.' };
   if (!S && I.live !== false) return { text, intent: I, target: null, reply: `${engNoRace} You asked about ${I.title.toLowerCase()}${E.cars.length || E.rel || E.team ? `, for ${E.rel === 'ahead' ? 'the car ahead' : E.rel === 'behind' ? 'the car behind' : E.rel === 'mate' ? 'your teammate' : E.rel === 'leader' ? 'the leader' : 'the car you named'}` : ''}.` };
