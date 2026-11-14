@@ -395,6 +395,8 @@ const actions = {
   'delete-career'() {
     const c = career();
     confirmBox('Delete career', `Permanently delete ${c.profile.first} ${c.profile.last}'s career and all its results? Export a backup first if you might want it back.`, 'Delete career', () => {
+      // its races stay done with, so no other save offers its recordings as unlogged races
+      state.goneKeys = [...(state.goneKeys || []), ...(c.gameKeys || []), ...(c.recKeys || [])].slice(-600);
       state.careers = state.careers.filter(x => x.id !== c.id);
       state.activeCareerId = state.careers[0]?.id || null;
       ui.view = state.careers.length ? 'dashboard' : 'setup'; ui.setup = state.careers.length ? null : defaultSetup();
@@ -715,6 +717,7 @@ Object.assign(actions, {
   'tyre-add'(el) { const c = career(); const { fmt, p, k } = el.dataset; const plan = planOf(c, fmt, p); plan[k].push(S_); ((c.tyrePlans ||= {})[fmt] ||= {})[p] = plan; store.save(); tyrePresetsModal(); render(); },
   'tyre-presets-reset'(el) { const c = career(); const { fmt, p } = el.dataset; if (c.tyrePlans?.[fmt]) delete c.tyrePlans[fmt][p]; if (c.tyreCounts) delete c.tyreCounts[fmt]; store.save(); tyrePresetsModal(); render(); },
   'tyre-hand'(el) { const s = latestSeason(); const w = weekend(s, el.dataset.round, true); (w.tyreHand ||= {})[el.dataset.id] = el.dataset.v === '1'; store.save(); render(); },
+  'rp-skip'(el) { const c = career(); c.recSkip = [...(c.recSkip || []), el.dataset.k].slice(-100); store.save(); render(); },
   async 'rp-log'(el) { el.disabled = true; await logFromRecording(el.dataset.k); replayList = null; render(); },
   async 'rp-open'(el) { const item = replaysHere(career()).find(x => x.x.key === el.dataset.k); if (item) await openReplay(item); },
   'rp-flt'(el) { if (RP) replayToggle(+el.dataset.i); },

@@ -1206,6 +1206,9 @@ function onLiveMsg(m) {
   // what the fights say about passing here, kept per race for the overtaking slider
   { const c = career(); const tid = gameTrack(m.track);
     if (!follower && c && tid && LIVE_KIND(m.sessionType) === 'race' && liveErs.passTally.f !== before && !(c.gameKeys || []).includes(`${m.uid}:${m.sessionType}`)) { ((c.passStats ||= {})[tid] ||= {})[m.uid] = { ...liveErs.passTally }; store.save(); } }
+  // the races recorded while this save was open, so another save never offers them as its own unlogged races
+  { const c = career(); const k = `${m.uid}:${m.sessionType}`;
+    if (!follower && c && LIVE_KIND(m.sessionType) === 'race' && !(c.recKeys || []).includes(k)) { c.recKeys = [...(c.recKeys || []), k].slice(-300); store.save(); } }
   // a race starting: open Live Race, once
   if (!liveOpened.has(m.uid) && m.lap <= 1) { liveOpened.add(m.uid); ui.view = 'now'; ui.nowTab = 'live'; }
   const a = document.activeElement; const onLive = ui.view === 'now' && ui.nowTab === 'live';

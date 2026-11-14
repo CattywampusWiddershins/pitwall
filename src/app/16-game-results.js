@@ -283,7 +283,10 @@ function unloggedRecordings(c) {
   const s = latestSeason(); if (!s || isHist(s)) return [];
   if (replayList == null) { if (!unloggedRecordings.asked) { unloggedRecordings.asked = true; replayApi().list().then(l => { replayList = l || []; render(); }).catch(() => { replayList = []; }); } return []; }
   // a recording logged in any save is done with, and one made before this save began isn't this save's
-  const keys = new Set(state.careers.flatMap(x => x.gameKeys || [])); const since = c.createdAt || '';
+  // ...and so is one logged or recorded in a save since deleted, one recorded while another save was open, and one set aside here
+  const keys = new Set([...state.careers.flatMap(x => x.gameKeys || []), ...(state.goneKeys || []), ...(c.recSkip || []),
+    ...state.careers.filter(x => x.id !== c.id).flatMap(x => x.recKeys || [])]);
+  const since = c.createdAt || '';
   return (replayList || []).filter(x => !keys.has(x.key) && (!x.at || x.at >= since) && [15, 16, 17].includes(x.sessionType) && !x.rebuilt && (x.laps ?? 2) >= 2
     && activeRounds(s).some(r => trackOf(r) === gameTrack(x.track) && !s.weekends[r.id]?.sessions?.R?.done));
 }
@@ -294,5 +297,5 @@ async function logFromRecording(key) {
 }
 function unloggedHtml(c) {
   const L = unloggedRecordings(c); if (!L.length) return '';
-  return `<div class="callout" style="border-left-color:var(--yellow)">${L.map(x => `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>${esc(D.TRACKS[gameTrack(x.track)]?.circuit || 'A race')}</b> was recorded${x.laps ? ` (${plural(x.laps, 'lap')})` : ''} but F1 25 never sent its result, which can happen after a retirement. Log it from the recording, then put the order right from the game’s results screen.</span><button class="btn sm primary" data-act="rp-log" data-k="${esc(x.key)}">Log from the recording</button></div>`).join('')}</div>`;
+  return `<div class="callout" style="border-left-color:var(--yellow)">${L.map(x => `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>${esc(D.TRACKS[gameTrack(x.track)]?.circuit || 'A race')}</b> was recorded${x.laps ? ` (${plural(x.laps, 'lap')})` : ''} but F1 25 never sent its result, which can happen after a retirement. Log it from the recording, then put the order right from the game’s results screen.</span><span class="row" style="gap:6px"><button class="btn sm ghost" data-act="rp-skip" data-k="${esc(x.key)}">Not this career’s</button><button class="btn sm primary" data-act="rp-log" data-k="${esc(x.key)}">Log from the recording</button></span></div>`).join('')}</div>`;
 }
