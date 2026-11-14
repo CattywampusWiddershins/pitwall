@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.8.1
+
+- Work on features still being tested, switched off in this release.
+
 ## 5.8.0
 
 - **The championship moves in Race Replay.** Played at 2x or slower, the live standings in a replay slide into their new places as positions change, as they do in Live Race. Faster than that they're redrawn each second, so nothing blurs.

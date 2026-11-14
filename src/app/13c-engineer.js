@@ -2,7 +2,7 @@
 'use strict';
 /*
   The race engineer: a voice on the radio in Live Race that calls the stops and the safety cars, follows the cars you ask
-  him to ("keep me updated on Piastri"), and answers when you talk back (push to talk on a button you've given "UDP Action" in F1 25, or a key). Speech is made
+  it to ("keep me updated on Piastri"), and answers when you talk back (push to talk on a button you've given "UDP Action" in F1 25, or a key). Speech is made
   and understood on this PC (engineer.js in the main process). What you say is read by keywords, not set sentences: a
   driver's name and "gap" in one sentence is the gap to that driver, however it's put. ENG_INTENTS is the whole list, and
   the Help tab shows it.
@@ -119,7 +119,7 @@ const engSec = (ms) => `${(Math.abs(ms) / 1000).toFixed(1)}`;
 /** Gap from you to another car (ms; positive: they're ahead), from the real gaps to the leader. */
 const engGap = (S, x) => (S.G[S.me.i]?.g ?? 0) - (S.G[x.i]?.g ?? 0);
 
-// ---- what the engineer says on his own, as the race goes (chat: 1 just the calls, 2 normal, 3 chatty)
+// ---- what the engineer says unprompted, as the race goes (chat: 1 just the calls, 2 normal, 3 chatty)
 let engMem = {};
 function engineerTick() {
   if (!engVoiceReady()) return;
@@ -142,7 +142,7 @@ function engineerTick() {
   } else M.pend = null;
   engTickRest(S, M, E, now, say);
 }
-/** The rest of what the engineer says on his own: safety cars, stops, places, laps and the flag. */
+/** The rest of what the engineer says unprompted: safety cars, stops, places, laps and the flag. */
 function engTickRest(S, M, E, now, say) {
   const { L, me } = S;
   // safety cars and red flags
@@ -153,21 +153,42 @@ function engTickRest(S, M, E, now, say) {
   if (M.pit && !me.pit) { M.pitOut = now; M.pitDone = me.lap; }
   M.pit = !!me.pit;
   if (M.pitOut && now - M.pitOut > 5000) { const a = S.ahead; M.pitOut = null; say(2, `Good stop. You're P${me.pos}${a ? `, ${S.name(a)} ${engSec(engGap(S, a))} ahead` : ', leading'}.`); }
-  // the cars you asked him to follow ("keep me updated on Piastri"): passing you or you passing them (settled for 8 s,
-  // at most every 20 s, so a wheel-to-wheel fight isn't called swap by swap), their places against the others (settled for 8 s, at most every 30 s a car; a swap undone in
-  // between says nothing), their stops, and the gap every three laps
-  const W = engWatch.uid === L.uid ? engWatch.ids : new Set();
+  // the cars you asked the engineer to follow ("keep me updated on Piastri"). Passes between you and them aren't called (you can
+  // see those). When one becomes the car right behind or ahead of you some other way (passing the car behind you, a
+  // stop, you passing the car between), the engineer says so, "Piastri behind you now"; then, while it stays there, the gap each
+  // lap while it's within 5 s (a car right behind 20 s back gets it every three laps, like one further away). Further
+  // away: its places against the others (settled for 8 s; one such call every 30 s for all the cars followed, and two
+  // of them swapping is one call), its stops.
+  const W = engWatch.uid === L.uid ? engWatch.ids : new Set(); const gapNow = new Set();
   for (const i of W) {
-    const x = L.field.find(y => y.i === i); if (!x || !x.pos) continue; const T = (M.watch ||= {})[i] ||= { pos: x.pos, posAt: now, posSaid: x.pos, pit: !!x.pit, at: 0, lap: me.lap, ahead: x.pos < me.pos, aheadAt: now };
+    const x = L.field.find(y => y.i === i); if (!x || !x.pos) continue;
+    const side = x === S.ahead ? 'ahead' : x === S.behind ? 'behind' : null;
+    const T = (M.watch ||= {})[i] ||= { pos: x.pos, posAt: now, posSaid: x.pos, pit: !!x.pit, at: 0, lap: me.lap, side, sideNow: side, sideAt: now, ahead: x.pos < me.pos };
     const busy = x.pit || me.pit; const ahead = x.pos < me.pos;
     if (x.pos !== T.pos) { T.pos = x.pos; T.posAt = now; }
-    if (ahead !== T.aheadNow) { T.aheadNow = ahead; T.aheadAt = now; }
-    if (busy) { T.ahead = ahead; T.posSaid = x.pos; }
-    else if (ahead !== T.ahead && now - T.aheadAt > 8000 && now - T.at > 20000) { say(1, ahead ? `${S.name(x)} is past you. P${me.pos}.` : `You're past ${S.name(x)}. P${me.pos}.`); T.ahead = ahead; T.posSaid = x.pos; T.at = now; }
-    else if (ahead === T.ahead && x.pos !== T.posSaid && now - T.posAt > 8000 && now - T.at > 30000) { say(1, `${S.name(x)} ${x.pos < T.posSaid ? 'up' : 'down'} to P${x.pos}.`); T.posSaid = x.pos; T.at = now; }
+    if (side !== T.sideNow) { T.sideNow = side; T.sideAt = now; }
+    // next to you now (settled for 5 s); swapping sides with you is a pass you made or lost: nothing said
+    if (!busy && side !== T.side && now - T.sideAt > 5000) {
+      const swapped = T.side && side && T.side !== side;
+      // (not again for the same side within 3 minutes: a car slipping between for a while and out again)
+      if (side && !swapped && !(T.saidSide === side && now - T.saidAt < 180000)) { say(1, `${S.name(x)} ${side === 'behind' ? 'behind you' : 'ahead of you'} now, ${engSec(engGap(S, x))}.`); T.lap = me.lap; T.saidSide = side; T.saidAt = now; }
+      T.side = side; T.posSaid = x.pos; T.ahead = ahead;
+    }
+    // further away: a change of place against the other cars (not one made by passing you)
+    if (busy || ahead !== T.ahead) { T.posSaid = x.pos; T.ahead = ahead; }
+    else if (!T.side && !side && x.pos !== T.posSaid && now - T.posAt > 8000 && now - (M.watchAt || 0) > 30000) {
+      // two followed cars that swapped with each other: one call
+      const y = [...W].map(j => j !== i && L.field.find(z => z.i === j)).find(z => z && M.watch[z.i] && z.pos === T.posSaid && M.watch[z.i].posSaid === x.pos);
+      if (y) { const [a, b] = x.pos < y.pos ? [x, y] : [y, x]; say(1, `${S.name(a)} past ${S.name(b)} for P${a.pos}.`); M.watch[y.i].posSaid = y.pos; }
+      else say(1, `${S.name(x)} ${x.pos < T.posSaid ? 'up' : 'down'} to P${x.pos}.`);
+      T.posSaid = x.pos; M.watchAt = now;
+    }
     if (x.pit && !T.pit) say(1, `${S.name(x)} is boxing.`);
     T.pit = !!x.pit;
-    if (me.lap >= T.lap + 3 && !x.pit && !me.pit) { T.lap = me.lap; if (me.lap > 2 && me.lap % (E.chat >= 3 ? 1 : 5) === 0 && (x === S.ahead || x === S.behind)) continue; /* the routine gap call says it this lap */ say(1, `${engRelGap(S, x)}.${engTrend(S, x)}`); }
+    // the gap: each lap while it's right behind or ahead of you, every three laps otherwise
+    const close = T.side && T.side === side && Math.abs(engGap(S, x)) < 5000;
+    if (close) gapNow.add(i);
+    if (!x.pit && !me.pit && me.lap > T.lap && (close || me.lap >= T.lap + 3)) { T.lap = me.lap; say(1, `${engRelGap(S, x)}.${engTrend(S, x)}`); }
   }
   // the cars either side stopping
   for (const [x, k] of [[S.ahead, 'a'], [S.behind, 'b']]) {
@@ -181,7 +202,7 @@ function engTickRest(S, M, E, now, say) {
     for (const x of L.field) if (x.last > 30000 && (!M.best[x.i] || x.last < M.best[x.i])) M.best[x.i] = x.last;
     const fast = Math.min(...Object.values(M.best)); if (me.last && me.last === M.best[me.i] && me.last === fast && me.lap > 3 && now - (M.said.fl || 0) > 60000) { say(3, `Fastest lap. ${fmtLap(me.last)}.`); M.said.fl = now; }
     const every = E.chat >= 3 ? 1 : 5;
-    if (me.lap > 2 && me.lap % every === 0 && !me.pit && S.left > 1) { const a = S.ahead, b = S.behind; const bits = []; if (a) bits.push(`gap to ${S.name(a)} ${engSec(engGap(S, a))}`); if (b) bits.push(`${S.name(b)} ${engSec(-engGap(S, b))} behind`); if (bits.length) { say(2, cap1(bits.join(', ')) + '.'); M.gapLap = me.lap; } }
+    if (me.lap > 2 && me.lap % every === 0 && !me.pit && S.left > 1) { const a = S.ahead, b = S.behind; const bits = []; if (a && !gapNow.has(a.i)) bits.push(`gap to ${S.name(a)} ${engSec(engGap(S, a))}`); if (b && !gapNow.has(b.i)) bits.push(`${S.name(b)} ${engSec(-engGap(S, b))} behind`); if (bits.length) { say(2, cap1(bits.join(', ')) + '.'); M.gapLap = me.lap; } }
     const wr = me.wear ?? 0; for (const th of [50, 65]) if (wr >= th && M.wear < th && S.ST?.curLife != null) say(2, `Tyres at ${Math.round(wr)}%. About ${plural(Math.max(0, S.ST.curLife), 'lap')} left in them.`);
     M.wear = wr;
     if (me.lap >= 4 && S.FP && S.FP.end < -0.3 && now - (M.said.fuel || 0) > 240000) { say(2, `We need to save fuel. ${S.FP.save.toFixed(2)} kg a lap.`); M.said.fuel = now; }
@@ -242,7 +263,7 @@ function engTarget(S, E) {
   return null;
 }
 const engRelGap = (S, x) => { const g = engGap(S, x); const down = (S.G[x.i]?.down ?? 0) - (S.G[S.me.i]?.down ?? 0); if (down >= 1) return `${S.name(x)} is ${plural(down, 'lap')} down`; if (down <= -1) return `${S.name(x)} is ${plural(-down, 'lap')} ahead of you`; return g >= 0 ? `${S.name(x)} is ${engSec(g)} ahead` : `${S.name(x)} is ${engSec(g)} behind`; };
-const engTrend = (S, x) => { let e = null; try { e = paceEdge(S.me, x, (y) => S.L.pitLaps?.[y.i] || []); } catch { } if (e == null) return ''; const ahead = engGap(S, x) > 0; const closing = ahead ? e > 0 : e < 0; return ` ${closing ? (ahead ? "You're catching him" : "He's catching you") : (ahead ? "He's pulling away" : "You're pulling away")}, ${(Math.abs(e) / 1000).toFixed(2)} a lap.`; };
+const engTrend = (S, x) => { let e = null; try { e = paceEdge(S.me, x, (y) => S.L.pitLaps?.[y.i] || []); } catch { } if (e == null) return ''; const ahead = engGap(S, x) > 0; const closing = ahead ? e > 0 : e < 0; return ` ${closing ? (ahead ? "You're closing in" : "They're closing in") : (ahead ? "They're pulling away" : "You're pulling away")}, ${(Math.abs(e) / 1000).toFixed(2)} a lap.`; };
 const engCarTyre = (S, x) => x.c ? `${engTyres(x.c)}, ${plural(x.age ?? 0, 'lap')} old${x.wear != null && x.i === S.me.i ? `, ${Math.round(x.wear)}% worn` : ''}` : 'no tyre data';
 const engYou = (S) => S.me.pos === 1 ? `You are leading.${S.behind ? ` ${S.name(S.behind)} is ${engSec(-engGap(S, S.behind))} behind.` : ''}` : `That is you, P${S.me.pos}.`;
 // the cars you've asked to be kept updated on, this race
@@ -279,11 +300,11 @@ const ENG_INTENTS = [
   { id: 'standings', cat: 'The race', title: 'The championship', k: [['championship', 'standings', 'title', 'table', 'points lead', 'championship lead']], ex: ['How’s the championship looking?', 'Where are we in the standings?'],
     say: (S) => { let R; try { R = liveStandings(S.c, S.s, S.r, S.L, S.idOf, 'driver').rows; } catch { return 'I can’t work out the standings right now.'; } const k = R.findIndex(x => x.id === PLAYER); if (k < 0) return 'You’re not in the standings yet.'; const lead = R[0]; return k === 0 ? `As it stands, you lead the championship by ${R[1] ? R[0].pts - R[1].pts : 0} points.` : `As it stands, you are P${k + 1} in the championship on ${R[k].pts}, ${lead.pts - R[k].pts} behind ${lastName(dName(S.s, lead.id))}.`; } },
   { id: 'watch', cat: 'The race', title: 'Follow a car', k: [['keep me updated on', 'keep me posted on', 'update me on', 'updates on', 'keep an eye on', 'watch', 'follow', 'track', 'tell me about', 'let me know about', 'let me know if', 'tell me if']], ex: ['Keep me updated on Piastri', 'Keep an eye on the car behind', 'Let me know if Norris pits'], car: true,
-    say: (S, E, x) => { if (!x) { engSet({ chat: 3 }); return 'Copy. I will give you the gaps every lap.'; } engWatchSet(S, x, true); return `Copy, I'll keep you updated on ${S.name(x)}: places, stops, and the gap every few laps.`; } },
+    say: (S, E, x) => { if (!x) { engSet({ chat: 3 }); return 'Copy. I will give you the gaps every lap.'; } engWatchSet(S, x, true); return `Copy, I'll keep you updated on ${S.name(x)}: the gap every lap when they're right behind or ahead, every few laps otherwise, and their stops.`; } },
   { id: 'unwatch', cat: 'The race', title: 'Stop following a car', k: [['stop updates on', 'no more updates on', 'stop watching', 'forget about', 'stop following', 'stop tracking', 'no updates on', 'dont need updates on', "don't need updates on"]], ex: ['Stop updates on Piastri', 'Forget about Norris'], car: true,
     say: (S, E, x) => { if (!x) { engWatch = { uid: null, ids: new Set() }; return 'Copy, no more updates on other cars.'; } engWatchSet(S, x, false); return `Copy, no more on ${S.name(x)}.`; } },
   // ---- tyres and stops
-  { id: 'tyres', cat: 'Tyres and stops', title: 'Tyres', k: [['tyre', 'tyres', 'wear', 'grip', 'rubber', 'compound', 'degradation', 'deg', 'softs', 'mediums', 'hards', 'inters', 'what is he on', 'what are they on']], ex: ['How are my tyres?', 'What tyres is Hamilton on?', 'How much wear?', 'What is the car ahead on?'], car: true,
+  { id: 'tyres', cat: 'Tyres and stops', title: 'Tyres', k: [['tyre', 'tyres', 'wear', 'grip', 'rubber', 'compound', 'degradation', 'deg', 'softs', 'mediums', 'hards', 'inters', 'what is he on', 'what is she on', 'what are they on', 'what are they on']], ex: ['How are my tyres?', 'What tyres is Hamilton on?', 'How much wear?', 'What is the car ahead on?'], car: true,
     say: (S, E, x) => x ? `${S.name(x)} is on ${engCarTyre(S, x)}${x.stops ? `, ${plural(x.stops, 'stop')} made` : ', no stops yet'}.` : `${cap1(engCarTyre(S, S.me))}.${S.ST?.curLife != null ? ` About ${plural(Math.max(0, S.ST.curLife), 'lap')} left in them.` : ''}` },
   { id: 'life', cat: 'Tyres and stops', title: 'Tyre life', k: [['how long', 'last', 'make it', 'go longer', 'extend', 'life', 'to the end', 'to the flag', 'hold on']], ex: ['How long will these tyres last?', 'Can I make it to the end?', 'Can we go longer?'],
     say: (S) => { const life = S.ST?.curLife; if (life == null) return 'Not enough laps on this set to tell yet.'; return life >= S.left ? `They should make the end. About ${plural(life, 'lap')} in them, ${plural(S.left, 'lap')} to go.` : `About ${plural(Math.max(0, life), 'lap')} left in them. They won’t make the end.`; } },
@@ -296,7 +317,7 @@ const ENG_INTENTS = [
   { id: 'rejoin', cat: 'Tyres and stops', title: 'Where you’d rejoin', k: [['rejoin', 'come out', 'where would i', 'exit', 'traffic', 'drop to']], ex: ['Where would I come out?', 'Would I rejoin in traffic?'],
     say: (S) => S.RJ ? `If you box now, you come out P${S.RJ.pos}${S.RJ.ahead ? `, ${engSec(S.RJ.gapA)} behind ${S.name(S.RJ.ahead)}` : ', in the lead'}${S.RJ.behind ? `, ${engSec(S.RJ.gapB)} ahead of ${S.name(S.RJ.behind)}` : ''}.` : 'I can’t work that out right now.' },
   { id: 'undercut', cat: 'Tyres and stops', title: 'Undercut and overcut', k: [['undercut', 'overcut', 'jump him', 'get past in the pits', 'pit stop to pass']], ex: ['Can we undercut Norris?', 'Is the overcut on?'], car: true,
-    say: (S, E, x) => { const y = x || S.ahead; if (!y || !S.RJ) return 'Nobody close enough to try it on.'; const after = engGap(S, y) - (S.ST?.lossNow ?? 20000); return `${S.name(y)} is ${engSec(engGap(S, y))} ${engGap(S, y) >= 0 ? 'ahead' : 'behind'} on ${engCarTyre(S, y)}. Box now and you come out ${engSec(after)} ${after >= 0 ? 'behind him' : 'ahead of him'}.${after >= 0 && after < 3000 ? ' The undercut is on if he stays out a couple of laps.' : ''}`; } },
+    say: (S, E, x) => { const y = x || S.ahead; if (!y || !S.RJ) return 'Nobody close enough to try it on.'; const after = engGap(S, y) - (S.ST?.lossNow ?? 20000); return `${S.name(y)} is ${engSec(engGap(S, y))} ${engGap(S, y) >= 0 ? 'ahead' : 'behind'} on ${engCarTyre(S, y)}. Box now and you come out ${engSec(after)} ${after >= 0 ? 'behind' : 'ahead'}.${after >= 0 && after < 3000 ? ' The undercut is on if they stay out a couple of laps.' : ''}`; } },
   { id: 'stops', cat: 'Tyres and stops', title: 'Others’ stops', k: [['pitted', 'boxed', 'stopped', 'stops', 'been in', 'has he', 'have they']], ex: ['Has Russell pitted?', 'How many stops has the car ahead made?'], car: true,
     say: (S, E, x) => x ? `${S.name(x)} has ${x.stops ? `stopped ${x.stops === 1 ? 'once' : x.stops === 2 ? 'twice' : x.stops + ' times'}` : 'not stopped yet'}. ${cap1(engCarTyre(S, x))}.` : `You have made ${plural(S.me.stops || 0, 'stop')}.` },
   // ---- the car
@@ -309,7 +330,7 @@ const ENG_INTENTS = [
   { id: 'push', cat: 'The car', title: 'Push or look after it', k: [['push', 'attack', 'go for it', 'flat out', 'full send', 'quali mode', 'qualifying mode', 'give it everything']], ex: ['Can I push?', 'Can I go flat out?'],
     say: (S) => { const life = S.ST?.curLife; const ok = life == null || life >= Math.min(S.left, (S.ST?.k ?? 99)) + 2; const fuel = S.FP && S.FP.end < 0; return ok && !fuel ? 'Yes, you can push. Tyres and fuel are fine.' : fuel ? 'Careful, we need to save fuel.' : 'Careful with the tyres, they need to last.'; } },
   { id: 'defend', cat: 'The car', title: 'Defending', k: [['defend', 'cover', 'block', 'protect', 'under pressure']], ex: ['Do I need to defend?', 'Is he close enough to attack?'],
-    say: (S) => { const b = S.behind; if (!b) return 'Nobody behind you.'; const g = -engGap(S, b); return `${S.name(b)} is ${engSec(g)} behind.${g < 1000 ? ' He has DRS, cover the inside.' : ''}${engTrend(S, b)}`; } },
+    say: (S) => { const b = S.behind; if (!b) return 'Nobody behind you.'; const g = -engGap(S, b); return `${S.name(b)} is ${engSec(g)} behind.${g < 1000 ? ' DRS range, cover the inside.' : ''}${engTrend(S, b)}`; } },
   { id: 'damage', cat: 'The car', title: 'Damage and problems', k: [['damage', 'wing', 'broken', 'puncture', 'floor', 'problem', 'issue', 'something wrong', 'undriveable', 'vibration', 'feels weird', 'strange']], ex: ['I’ve got damage', 'Something feels wrong with the car'],
     say: (S) => `Understood. We can’t see damage from here. Tyres are ${S.me.wear != null ? `${Math.round(S.me.wear)}% worn` : 'reading fine'}. Keep going and tell us if it gets worse.` },
   { id: 'sc', cat: 'The car', title: 'Safety car', k: [['safety car', 'vsc', 'virtual', 'yellow', 'neutralised', 'red flag']], ex: ['Is the safety car out?', 'Is it a VSC?'],
@@ -488,7 +509,7 @@ const ENG_ACTIONS = {
   'eng-voice'(el) { engSet({ voice: el.dataset.v }); render(); },
   async 'eng-remove'(el) { const id = el.dataset.v; engStatus = await engApi().remove('voice', id); if (engCfg().voice === id) engSet({ voice: null }); render(); },
   'eng-get-whisper'() { engApi().install('whisper').then((r) => { toast(r?.ok ? 'Speech recognition downloaded' : `The download failed: ${r?.error || 'unknown error'}`); engRefresh().then(() => ui.view === 'settings' && render()); }); engPoll(); },
-  'eng-sample'() { const lines = ['Radio check. Loud and clear.', 'Box this lap, box box. Mediums.', 'Gap to the car ahead is 1.4. You are catching him, 0.3 a lap.', 'Safety car, safety car.']; engSay(lines[Math.floor(Math.random() * lines.length)], { prio: 1 }); },
+  'eng-sample'() { const lines = ['Radio check. Loud and clear.', 'Box this lap, box box. Mediums.', 'Gap to the car ahead is 1.4. You are closing in, 0.3 a lap.', 'Safety car, safety car.']; engSay(lines[Math.floor(Math.random() * lines.length)], { prio: 1 }); },
   'eng-key'() { engKeyWait = true; render(); },
   'eng-mics'() { engLoadMics(true); },
 };
