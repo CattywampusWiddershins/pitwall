@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 6.1.1
+
+- **Setup notes under parc fermé.** You can now tell the engineer how the car feels in qualifying and the race too. He suggests only what you can still change: the front wing in the garage (in qualifying, and before the race starts), and the brake bias and on-throttle differential on the wheel. If none of those would fix it, he tells you so.
+- **Setup notes, in steps the game uses.** A suggested change starts from the nearest step the setting can take, so the differential moves in 5% steps even when it isn’t set to a multiple of 5.
+
 ## 6.1.0
 
 - **Race engineer (BETA).** A race engineer who talks to you on the team radio, and listens when you talk back. It's off until you turn it on in Settings → Race engineer, and it's still being tested: it can mishear you or get things wrong.

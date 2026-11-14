@@ -1,11 +1,15 @@
-/* Pitwall — Setup advisor (dev mode, BETA). Part of the renderer, split into files that load in order (see index.html). */
+/* Pitwall — Setup advisor (BETA). Part of the renderer, split into files that load in order (see index.html). */
 'use strict';
 /*
-  The setup advisor: in practice, tell the race engineer how the car feels ("I have a lot of understeer on entry", "my
+  The setup advisor: tell the race engineer how the car feels ("I have a lot of understeer on entry", "my
   front is too sharp", "a loose rear at turn 10", "rear locking") and get a setup change back, worked out from your
   setup as the game sends it. A change already at the end of its range is skipped ("front wing is already at 50, so a
   little more front toe-out instead"). Naming a turn looks up how fast it is on your own lap: fast corners get aero
   changes, slow ones mechanical.
+
+  Practice can change anything. Qualifying and the race are under parc fermé: only what you can still change is
+  suggested, the front wing in the garage (in qualifying, and in the race before the start) and the brake bias and
+  on-throttle differential on the wheel. A complaint none of those fixes says so.
 
   Every suggestion is kept as a setup note for the weekend: on the practice dashboard and the post-practice and
   post-qualifying screens, until that setting changes in the game (or you dismiss it). Pitwall can't change the setup:
@@ -99,8 +103,8 @@ const setupRange = (k, v) => { const K = SETUP_KEYS[k]; let lo = K[1], hi = K[2]
 function setupStep(S, [k, dir, n]) {
   const K = SETUP_KEYS[k]; const v = S ? S[k] : null; if (v == null) return { k, dir, n, from: null, to: null, say: SETUP_SAY[k][dir > 0 ? 1 : 0] };
   const [lo, hi] = setupRange(k, v); const step = K[3];
-  let to = Math.round((v + dir * n * step) / step) * step; if (lo != null) to = Math.max(lo, to); if (hi != null) to = Math.min(hi, to); to = Math.round(to * 100) / 100;
-  if (Math.abs(to - v) < step / 2) return { k, dir, at: dir > 0 ? hi : lo, limit: true };
+  let to = (dir > 0 ? Math.floor((v + 1e-6) / step) : Math.ceil((v - 1e-6) / step)) * step + dir * n * step; /* from the nearest click, on the setting's own steps */ if (lo != null) to = Math.max(lo, to); if (hi != null) to = Math.min(hi, to); to = Math.round(to * 100) / 100;
+  if (dir > 0 ? to <= v + 1e-6 : to >= v - 1e-6) return { k, dir, at: dir > 0 ? hi : lo, limit: true }; // no further that way
   return { k, dir, n, from: v, to, say: SETUP_SAY[k][dir > 0 ? 1 : 0] };
 }
 /** How fast a turn is on your own lap: 'slow', 'medium' or 'fast' (its slowest point), from your quickest whole lap this weekend. */
@@ -112,6 +116,10 @@ async function setupTurnSpeed(S, turn) {
   const sp = flSmooth(flFill(A.spd)); const turns = flTurns(flFill(A.x), flFill(A.z), target, A.bin || 25); const b = flBands(turns, sp, A.bin || 25)[turn - 1]; if (!b) return null;
   return { min: Math.round(b.min), kind: b.min < 120 ? 'slow' : b.min < 200 ? 'medium' : 'fast' };
 }
+// what can still be changed under parc fermé, and where
+const SETUP_PARC = { fw: 'in the garage', bb: 'on the wheel', on: 'on the wheel' };
+/** The settings you can change in this session: all in practice; under parc fermé the front wing (qualifying, and the race before the start), brake bias and on-throttle diff. */
+const setupAllowed = (S) => S.L.kind === 'practice' ? null : new Set(['bb', 'on', ...(S.L.kind === 'quali' || (S.me?.lap ?? 0) <= 1 ? ['fw'] : [])]);
 const setupNotes = (s, r) => ((s.weekends[r.id] ||= {}).setupNotes ||= []);
 /**
  * The engineer's answer to a complaint, and the notes it leaves: the first change that can be made (one at its limit is
@@ -124,17 +132,21 @@ async function setupAdvise(S, text) {
   const set = S.L.setup || null; const notes = setupNotes(S.s, S.r);
   let speed = R.speed, where = '';
   if (R.turn) { let T = null; try { T = await setupTurnSpeed(S, R.turn); } catch { } if (T) { speed = T.kind === 'medium' ? null : T.kind; where = ` Turn ${R.turn} is a ${T.kind} corner, about ${T.min} km/h.`; } else where = ` I can't see turn ${R.turn} on your laps yet, so this is general.`; }
-  const F = SETUP_FIX[R.issue]; const list = (F.any || (speed && F[speed]) || F[R.phase || 'mid'] || F.mid);
+  const F = SETUP_FIX[R.issue]; const best = (F.any || (speed && F[speed]) || F[R.phase || 'mid'] || F.mid);
+  // under parc fermé: the changes still allowed, the ones for this complaint and corner first, then this complaint's others
+  const allow = setupAllowed(S); const parc = !!allow;
+  const list = !parc ? best : [...best, ...Object.values(F).flat()].filter((c, j, a) => allow.has(c[0]) && a.findIndex(d => d[0] === c[0] && d[1] === c[1]) === j);
   const label = `${SETUP_ISSUE_NAME[R.issue]}${R.phase && !F.any ? ` on ${R.phase}` : ''}${R.turn ? ` at turn ${R.turn}` : speed ? ` in ${speed} corners` : ''}`;
   // a suggestion for this complaint still waiting to be made
   const open = notes.find(x => x.status === 'open' && x.label === label && !x.backup && x.from != null && set && Math.abs((set[x.key] ?? x.from) - x.from) < 1e-6);
   if (open) return `You haven't made the last change yet: ${SETUP_SAY[open.key][open.to > open.from ? 1 : 0]}, ${setupFmt(open.key, open.from)} to ${setupFmt(open.key, open.to)}. Try that first.`;
+  if (parc && !list.length) return `${where ? where.trim() + ' ' : ''}Nothing we can change for that under parc fermé. It needs ${SETUP_KEYS[best[0][0]][0]} changed (${SETUP_SAY[best[0][0]][best[0][1] > 0 ? 1 : 0]}), and that’s locked. Worth noting for next time.`;
   const tried = new Set(notes.filter(x => x.label === label).map(x => x.key));
   const steps = list.filter(c => !tried.has(c[0])).map(c => setupStep(set, c));
   const limits = steps.filter(x => x.limit); const go = steps.filter(x => !x.limit).slice(0, 2);
-  if (!go.length) return `${label}: I've run out of the usual changes${limits.length ? `, ${limits.map(x => `${SETUP_KEYS[x.k][0]} is at ${setupFmt(x.k, x.at)}`).join(', ')}` : ''}. Worth a bigger look at the balance after the session.`;
+  if (!go.length) return `${label}: I've run out of the ${parc ? 'changes parc fermé allows' : 'usual changes'}${limits.length ? `, ${limits.map(x => `${SETUP_KEYS[x.k][0]} is at ${setupFmt(x.k, x.at)}`).join(', ')}` : ''}. Worth a bigger look at the balance after the session.`;
   const firstLimit = limits.find(l => list.findIndex(c => c[0] === l.k) < list.findIndex(c => c[0] === go[0].k));
-  const say1 = (x) => `${x.say}${x.from != null ? `, ${setupFmt(x.k, x.from)} to ${setupFmt(x.k, x.to)}` : ''}`;
+  const say1 = (x) => `${x.say}${parc ? ` ${SETUP_PARC[x.k]}` : ''}${x.from != null ? `, ${setupFmt(x.k, x.from)} to ${setupFmt(x.k, x.to)}` : ''}`;
   const at = new Date().toISOString();
   // a newer suggestion for a setting replaces one still waiting on it (the car has told you something new)
   for (const x of go) for (let k = notes.length - 1; k >= 0; k--) if (notes[k].status === 'open' && notes[k].key === x.k) notes.splice(k, 1);
@@ -158,11 +170,11 @@ function setupNotesPanel(c, s, r) {
   const row = (x) => `<div class="su-note ${x.status}"><div><b>${esc(x.label)}</b><small class="muted">${esc(SESSION_SHORT[x.session] || x.session || '')}${x.backup ? ' · if it’s still there' : ''}</small></div>
     <div>${esc(cap1(x.say))}${x.from != null ? ` <span class="mono">${setupFmt(x.key, x.from)} → ${setupFmt(x.key, x.to)}</span>` : ''}${x.status === 'done' ? ` <span class="muted">· now ${setupFmt(x.key, x.now)}</span>` : ''}</div>
     ${x.status === 'open' ? `<button class="btn sm ghost" data-act="setup-dismiss" data-id="${esc(x.id)}" title="Remove this note">Dismiss</button>` : '<span class="tag done">Done</span>'}</div>`;
-  return `<div class="panel live-card" id="setup-notes"><div class="panel-h"><h2>Setup notes <span class="tag beta">BETA</span></h2><span class="muted" style="font-size:12px">${open.length ? 'Each stays until that setting changes in the game' : 'Tell the engineer how the car feels in practice'}</span></div>
+  return `<div class="panel live-card" id="setup-notes"><div class="panel-h"><h2>Setup notes <span class="tag beta">BETA</span></h2><span class="muted" style="font-size:12px">${open.length ? 'Each stays until that setting changes in the game' : 'Tell the engineer how the car feels'}</span></div>
     <div class="panel-b stack" style="gap:6px">${open.length ? open.map(row).join('') : '<div class="muted" style="font-size:13px">No changes waiting. Say something like “I’ve got understeer on entry” or “loose rear at turn 10”.</div>'}${done.length ? `<div class="label" style="margin-top:4px">Made</div>${done.map(row).join('')}` : ''}</div></div>`;
 }
-// the engineer's instruction (practice only), and the Dismiss button
-ENG_INTENTS.push({ id: 'setup', cat: 'Setup (practice)', title: 'Setup feedback', practice: true,
+// the engineer's instruction (any session: parc fermé limits what's suggested), and the Dismiss button
+ENG_INTENTS.push({ id: 'setup', cat: 'Setup', title: 'Setup feedback (in qualifying and the race: what parc fermé allows)',
   k: [['understeer', 'under steer', 'washing out', 'wont turn', "won't turn", 'doesnt turn', "doesn't turn", 'pushing', 'oversteer', 'over steer', 'loose', 'snappy', 'snap', 'sliding', 'stepping out', 'too sharp', 'twitchy', 'pointy', 'locking', 'lock up', 'locks up', 'wheelspin', 'wheel spin', 'traction', 'top speed', 'straight line', 'bottoming', 'bouncing', 'kerbs', 'curbs', 'overheating', 'too hot', 'unstable']],
   ex: ['I have a lot of understeer on entry', 'My front is too sharp', 'I have a lot of rear locking', 'Loose rear at turn 10', 'Too much wheelspin out of the hairpin'],
   say: async (S, E, x, text) => (await setupAdvise(S, text)) || 'Tell me more: understeer or oversteer, and where?' });
