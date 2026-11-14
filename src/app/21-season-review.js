@@ -302,11 +302,11 @@ function buildStories(c, s) {
       const alive = m.rows.filter(x => x.alive);
       const showdown = m.left.length === 1 && alive.length >= 2;
       const showHead = !showdown ? null : alive.length >= 3
-        ? `${numWord(alive.length)[0].toUpperCase() + numWord(alive.length).slice(1)} ${kind === 'team' ? 'teams' : 'drivers'}, one title: the ${gp} showdown`
+        ? `${numWord(alive.length)[0].toUpperCase() + numWord(alive.length).slice(1)} ${kind === 'team' ? 'teams' : 'drivers'}, one title: the ${gpAdj(r)} showdown`
         : `${who(alive[0])} v ${who(alive[1])}: the ${kind === 'team' ? 'constructors’ title' : 'title'} comes down to ${gp}`;
       const SD = showdown && kind === 'driver' ? showdownPreviewLines(c, s, i, last) : null;
       const inSprint = stage === 'sprint', afterSpr = stage === 'race';
-      const where = inSprint ? `the ${gp} sprint` : afterSpr ? `the ${gp} Grand Prix` : gp;
+      const where = inSprint ? `the ${gpAdj(r)} sprint` : afterSpr ? `the ${gpTitle(r)}` : gp;
       out.push({
         id: rid + kind + 'pre' + stage, seq: i * 10 + (afterSpr ? 3 : 0), kind: 'preview', i, r, subject: kind === 'driver' ? (solo || L).id : null, outlet: outletFor(rnd), massive: showdown && !inSprint,
         kicker: inSprint ? (kind === 'team' ? 'Constructors’ title · Sprint' : 'Title decider · Sprint') : showdown ? (kind === 'team' ? 'Constructors’ showdown · Final race' : 'Title showdown · Final race') : kind === 'team' ? 'Constructors’ title' : afterSpr ? 'Title decider · After the sprint' : 'Title decider',
@@ -347,7 +347,7 @@ function buildStories(c, s) {
         out.push({
           id: rid + 'sq', seq: i * 10 + 0.6, kind: 'quali', sess: 'SQ', i, r, subject: pole, outlet: outletFor(rnd), kicker: 'Sprint Qualifying',
           headline: pole === PLAYER ? `Sprint pole for ${last(pole)} in ${gp}` : choose(rnd, [`${last(pole)} takes sprint pole in ${gp}`, `${last(pole)} quickest in ${gp} sprint qualifying`, `${gp}: sprint pole for ${last(pole)}`]),
-          standfirst: `${name(pole)} (${tName(pole)}) will start the ${gp} sprint from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
+          standfirst: `${name(pole)} (${tName(pole)}) will start the ${gpAdj(r)} sprint from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
           body: [`The top ten: ${q.slice(0, 10).map((x, k) => `${k + 1}. ${last(x.d)}`).join(', ')}.`,
             q.findIndex(x => x.d === PLAYER) >= 10 ? `${name(PLAYER)} qualified ${ordWord(q.findIndex(x => x.d === PLAYER) + 1)}.` : ''].filter(Boolean),
         });
@@ -362,7 +362,7 @@ function buildStories(c, s) {
         out.push({
           id: rid + 'q', seq: i * 10 + (r.sprint ? 2.5 : 1), kind: 'quali', i, r, subject: pole, outlet: outletFor(rnd), kicker: 'Qualifying',
           headline: pole === PLAYER ? `Pole position for ${last(pole)} in ${gp}` : choose(rnd, [`${last(pole)} takes pole in ${gp}`, `${last(pole)} quickest in ${gp} qualifying`, `${gp}: pole for ${last(pole)}`]),
-          standfirst: `${name(pole)} (${tName(pole)}) will start the ${gp} Grand Prix from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
+          standfirst: `${name(pole)} (${tName(pole)}) will start the ${gpTitle(r)} from pole${lap ? ` after a ${lap}` : ''}${gap2 != null ? `, ${gap2.toFixed(3)}s clear of ${name(q[1]?.d)}` : q[1] ? `, ahead of ${name(q[1].d)}` : ''}.`,
           body: [`The top ten: ${q.slice(0, 10).map((x, k) => `${k + 1}. ${last(x.d)}`).join(', ')}.`,
             qualiMemory(mem, q, pole, last, rnd),
             ...rivalryQualiLines(c, s, i, q, last, rnd),
@@ -377,8 +377,8 @@ function buildStories(c, s) {
         const rnd = seeded(rid + 'spr');
         out.push({
           id: rid + 'spr', seq: i * 10 + 2, kind: 'sprint', i, r, subject: fin[0].d, outlet: outletFor(rnd), kicker: 'Sprint',
-          headline: choose(rnd, [`${last(fin[0].d)} wins the ${gp} sprint`, `Sprint victory for ${last(fin[0].d)} in ${gp}`]),
-          standfirst: `${name(fin[0].d)} took the eight points for winning the ${gp} sprint${fin[1] ? `, from ${name(fin[1].d)}${fin[2] ? ` and ${name(fin[2].d)}` : ''}` : ''}.`,
+          headline: choose(rnd, [`${last(fin[0].d)} wins the ${gpAdj(r)} sprint`, `Sprint victory for ${last(fin[0].d)} in ${gp}`]),
+          standfirst: `${name(fin[0].d)} took the eight points for winning the ${gpAdj(r)} sprint${fin[1] ? `, from ${name(fin[1].d)}${fin[2] ? ` and ${name(fin[2].d)}` : ''}` : ''}.`,
           body: [fin.length > 3 ? `Also in the points: ${fin.slice(3, 8).map((x, k) => `${last(x.d)} (${ordWord(k + 4)})`).join(', ')}.` : ''].filter(Boolean),
           results: ses.SPR.results.slice(0, 8).map((x, k) => ({ d: x.d, pos: k + 1, st: x.st, pts: pointsFor('SPR', k + 1, x.st, x.pts) })),
         });
@@ -401,14 +401,14 @@ function buildStories(c, s) {
     let headline; const LP = lateWinPass(ses.R, W);
     if (LP) headline = choose(rnd, LP.left === 0 ? [`Last-lap pass hands ${last(W)} victory in ${gp}`, `${last(W)} passes ${last(LP.prev)} on the final lap to win in ${gp}`, `${last(W)} snatches ${gp} on the last lap`]
       : [`${last(W)} snatches ${gp} win with a late pass on ${last(LP.prev)}`, `Lap ${LP.lap} of ${LP.N}: ${last(W)} passes ${last(LP.prev)} for victory in ${gp}`, `${last(W)} steals it late from ${last(LP.prev)} in ${gp}`]);
-    else if (W === PLAYER) headline = firstWin ? `${last(W)} takes a first Grand Prix win in ${gp}` : choose(rnd, [`${last(W)} wins the ${gp} Grand Prix`, `Victory for ${last(W)} in ${gp}`]);
+    else if (W === PLAYER) headline = firstWin ? `${last(W)} takes a first Grand Prix win in ${gp}` : choose(rnd, [`${last(W)} wins the ${gpTitle(r)}`, `Victory for ${last(W)} in ${gp}`]);
     else if (firstWin) headline = `${last(W)} takes a maiden Grand Prix win in ${gp}`;
     else if (sameTeam) headline = `${tName(W)} one-two in ${gp} as ${last(W)} leads ${last(fin[1].d)} home`;
     else if (gpos(W) >= 6) headline = `${last(W)} charges from ${ordWord(gpos(W))} on the grid to win in ${gp}`;
     else if (gap2 != null && gap2 < 1) headline = `${last(W)} holds off ${last(fin[1].d)} in a ${gp} thriller`;
     else if (gap2 != null && gap2 > 10) headline = `${last(W)} dominates in ${gp}`;
     else if (pole === W) headline = choose(rnd, ledEveryLap(ses.R, W) ? [`${last(W)} converts pole into ${gp} victory`, `Lights to flag for ${last(W)} in ${gp}`] : [`${last(W)} converts pole into ${gp} victory`, `${last(W)} turns pole into a win in ${gp}`]);
-    else headline = choose(rnd, [`${last(W)} wins in ${gp}`, `${last(W)} takes the ${gp} Grand Prix`, `${gp} glory for ${last(W)}`]);
+    else headline = choose(rnd, [`${last(W)} wins in ${gp}`, `${last(W)} takes the ${gpTitle(r)}`, `${gp} glory for ${last(W)}`]);
     const body = [];
     body.push(`${name(W)} (${tName(W)}) finished top in ${gp}${fin[1] ? ` from ${name(fin[1].d)}${gap2 != null ? `, ${gap2.toFixed(3)} seconds behind` : ''}` : ''}${fin[2] ? `, with ${name(fin[2].d)} (${tName(fin[2].d)}) completing the podium` : ''}.`
       + (fin.length > 3 ? ` Behind them, ${last(fin[3].d)} took fourth${fin.length > 4 ? ` ahead of ${listJoin(fin.slice(4, fin.length >= 10 ? 9 : 10).map(x => last(x.d)))}` : ''}${fin.length >= 10 ? `, with ${last(fin[9].d)} taking the final point` : ''}.` : ''));
@@ -502,7 +502,7 @@ function buildStories(c, s) {
       const mq = penMemoryQuestion(mem, subj, fpos, isOut, last, pr);
       if (mq) qa.push(mq);
       if (subj === rival) qa.push([`How do you rate your battle with ${name(PLAYER)}?`, choose(pr, [`${last(PLAYER)} is quick, no doubt about it. We race hard but fair.`, `It’s good racing. We will see who comes out on top over the season.`, `I don’t focus on one driver. I just try to beat everyone.`])]);
-      out.push({ id: rid + 'pen', seq: i * 10 + 6, kind: 'pen', i, r, outlet: outletFor(pr), kicker: 'In the pen', headline: `${name(subj)}: “${qa[0][1].split(/(?<=[.!?])\s/)[0]}”`, standfirst: `${name(subj)} (${tName(subj)}) spoke to the media after the ${gp} Grand Prix.`, body: [], qa, subject: subj });
+      out.push({ id: rid + 'pen', seq: i * 10 + 6, kind: 'pen', i, r, outlet: outletFor(pr), kicker: 'In the pen', headline: `${name(subj)}: “${qa[0][1].split(/(?<=[.!?])\s/)[0]}”`, standfirst: `${name(subj)} (${tName(subj)}) spoke to the media after the ${gpTitle(r)}.`, body: [], qa, subject: subj });
     }
 
     // championship stories when something changed
@@ -516,7 +516,7 @@ function buildStories(c, s) {
       out.push({ id: rid + 'wdc', seq: i * 10 + 7.9, kind: 'title', i, r, subject: A0.id, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'driver', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [A0.id] },
         kicker: atSprint ? 'World champion · Sprint' : atFinal ? 'World champion · Final-race decider' : 'World champion',
         headline: SDT?.twist ? SDT.twist.headline : atFinal ? (rivals.length >= 2 ? `${name(A0.id)} wins a ${numWord(rivals.length + 1)}-way title showdown in ${gp}` : `${name(A0.id)} beats ${last(rivals[0]?.id || A1.id)} to the title in a ${gp} decider`) : A0.id === PLAYER ? `${name(A0.id)} is world champion` : `${name(A0.id)} is the ${s.year} world champion`,
-        standfirst: `${last(A0.id)} sealed ${n > 1 ? `a ${ordWord(n)} title` : 'the title'} in ${atSprint ? `the ${gp} sprint` : gp}${atSprint ? ', with the Grand Prix still to come' : ''}${dA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(dA.left.length, 'round')} to spare` : atSprint ? '' : ' at the final round'}.`,
+        standfirst: `${last(A0.id)} sealed ${n > 1 ? `a ${ordWord(n)} title` : 'the title'} in ${atSprint ? `the ${gpAdj(r)} sprint` : gp}${atSprint ? ', with the Grand Prix still to come' : ''}${dA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(dA.left.length, 'round')} to spare` : atSprint ? '' : ' at the final round'}.`,
         lapGfx: !!SDT?.T,
         body: SDT ? [SDT.scene, SDT.needs.join(' '), SDT.race.join(' '), `${SDT.outcome} ${last(A0.id)} finished the year with ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} for ${tName(A0.id)}.`] : [atFinal ? `The title went down to the last race${rivals.length >= 2 ? `, with ${listJoin([A0.id, ...rivals.map(x => x.id)].map(id => name(id)))} all still able to win it` : ''}. ${last(A0.id)} arrived ${dB.rows[0].id === A0.id ? `leading by ${plural(dB.margin, 'point')}` : `${plural(dB.rows[0].pts - (dB.rows.find(x => x.id === A0.id)?.pts || 0), 'point')} behind ${name(dB.rows[0].id)}`} and left as champion.` : '',
           `${last(A0.id)} has ${plural(st.wins, 'win')}, ${plural(st.podiums, 'podium')} and ${plural(A0.pts, 'point')} this season for ${tName(A0.id)}, ${plural(dA.margin, 'point')} clear of ${name(A1.id)}.`].filter(Boolean),
@@ -539,7 +539,7 @@ function buildStories(c, s) {
       out.push({ id: rid + 'wcc', seq: i * 10 + 7.8, kind: 'title', i, r, outlet: outletFor(rnd), massive: atFinal, titleGfx: { kind: 'team', stage: atSprint ? 'sprint' : '', mode: 'won', ids: [cA0.id] },
         kicker: atSprint ? 'Constructors’ champions · Sprint' : atFinal ? 'Constructors’ champions · Final-race decider' : 'Constructors’ champions',
         headline: atFinal ? `${cA0.name} edge ${rivals.length >= 2 ? `a ${numWord(rivals.length + 1)}-team` : 'the'} constructors’ showdown in ${gp}` : `${cA0.name} win the ${s.year} constructors’ championship`,
-        standfirst: `${cA0.name} wrapped up the teams’ title in ${atSprint ? `the ${gp} sprint, with the Grand Prix still to come` : gp}${tA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(tA.left.length, 'round')} to go` : atSprint ? '' : ', at the very last race'}, ${plural(tA.margin, 'point')} ahead of ${tA.rows[1]?.name}.`, body: [], quotes: [] });
+        standfirst: `${cA0.name} wrapped up the teams’ title in ${atSprint ? `the ${gpAdj(r)} sprint, with the Grand Prix still to come` : gp}${tA.left.length ? `${atSprint ? ' and' : ' with'} ${plural(tA.left.length, 'round')} to go` : atSprint ? '' : ', at the very last race'}, ${plural(tA.margin, 'point')} ahead of ${tA.rows[1]?.name}.`, body: [], quotes: [] });
       const T = titleRetro(c, s, 'team'); if (T && T.dec.i === i) out.push(titleRetroStory(c, s, T));
     }
   }
@@ -564,7 +564,7 @@ function buildStories(c, s) {
   for (const m of c.media) {
     if (!m.article || m.seasonIdx !== s.index) continue;
     const ri = m.roundId ? rounds.findIndex(x => x.id === m.roundId) : m.kind === 'preseason' ? -1 : m.kind === 'endseason' ? rounds.length : Math.max(0, Math.floor(rounds.length / 2) - 1);
-    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'preweekend' ? 0.05 : m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
+    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'preweekend' ? 0.05 : m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: gpFix(m.article.summary, rounds[ri]) || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
   }
   // milestones and records from the career timeline
   const tl = careerTimeline(c);
@@ -593,7 +593,7 @@ function buildStories(c, s) {
       out.push({ id: `${s.index}-${e.r.id}-${e.rid}-${e.id}`, recGfx, seq: e.ri * 10 + 5, kind: 'record', i: e.ri, r: e.r, subject: e.team ? null : e.id, outlet: choose(rnd, D.OUTLETS), kicker: e.kind === 'broken' ? 'Record broken' : 'Record equalled',
         headline: e.rid === 'youngTitle8' ? `${short} becomes the first eight-time world champion` : `${short} ${verb}${e.co && e.kind === 'broken' ? '' : ' the'} record for the ${R.label}`,
         standfirst: e.kind === 'broken'
-          ? `${who} now ${e.co ? 'share' : e.team ? 'hold' : 'holds'} the record for the ${R.label}: ${disp}, set at the ${e.r.name} Grand Prix.${prevNames ? ` The previous record${prevDisp ? ` of ${prevDisp}` : ''} belonged to ${prevNames}${prevWhen ? ` (${prevWhen})` : ''}.` : ''}`
+          ? `${who} now ${e.co ? 'share' : e.team ? 'hold' : 'holds'} the record for the ${R.label}: ${disp}, set at the ${gpTitle(e.r)}.${prevNames ? ` The previous record${prevDisp ? ` of ${prevDisp}` : ''} belonged to ${prevNames}${prevWhen ? ` (${prevWhen})` : ''}.` : ''}`
           : `${who} ${e.team ? 'have' : 'has'} matched ${prevNames || 'the record'} for the ${R.label}, with ${disp}.`,
         body: [] });
     }
@@ -860,9 +860,10 @@ function mediaHeadline(m) {
 function quoteGfx(s, x) {
   if (x.media && !isPrincipal(career())) {
     const h = /“([^”]+)”/.exec(x.headline || ''); const best = h ? h[1] : (x.media.questions || []).map(q => q.answer || '').filter(a => a && !/^no comment/i.test(a)).sort((a, b) => b.length - a.length)[0];
-    return best ? { type: 'quote', kicker: `Your interview · ${x.r.name}`, headline: x.headline, quotes: [{ id: PLAYER, text: best }], solo: true } : null;
+    return best ? { type: 'quote', kicker: `Your interview · ${gpShort(x.r)}`, headline: x.headline, quotes: [{ id: PLAYER, text: best }], solo: true } : null;
   }
-  if (x.kind === 'pen' && x.subject && x.qa?.length) return { type: 'quote', kicker: `In the pen · ${x.r.name}`, headline: x.headline, quotes: [{ id: x.subject, text: x.qa[0][1].split(/(?<=[.!?])\s/)[0] }], solo: true };
+  if (x.kind === 'pen' && x.subject && x.qa?.length) return { type: 'quote', kicker: `In the pen · ${gpShort(x.r)}`, headline: x.headline, quotes: [{ id: x.subject, text: x.qa[0][1].split(/(?<=[.!?])\s/)[0] }], solo: true };
+  if (x.wkQuotes && x.quotes?.length) { const q = x.quotes.slice(0, 3); return { type: 'quote', kicker: `Before the ${gpTitle(x.r)}`, headline: x.headline, quotes: q.map(o => ({ id: o.id, text: o.text })), solo: q.length === 1 }; }
   if (!['incident', 'battle'].includes(x.kind) && !x.pair) return null;
   const q = (x.quotes || []).filter(o => o && o.id && !o.team && s.drivers[o.id]).slice(0, 2);
   if (!q.length) return null;
@@ -922,7 +923,7 @@ function renderStories() {
         ${list.some(x => x.quotes?.length || x.qa) ? '<div class="panel-b muted" style="font-size:12px;border-top:1px solid var(--line)">Quotes from other drivers are invented for your career and are not real statements.</div>' : ''}</div>
       <div class="stack">
         <div class="panel"><div class="panel-h"><h2>Up next</h2>${nr ? `<button class="btn sm ghost" data-act="nav" data-view="forecast">Forecast</button>` : ''}</div><div class="panel-b stack">
-          ${nr ? `<div><span class="label">Round ${rounds.indexOf(nr) + 1} of ${rounds.length}</span><div class="hof-name">${esc(nr.name)} Grand Prix ${nr.sprint ? '<span class="tag sprint">Sprint</span>' : ''}</div><span class="muted">${esc(nr.venue)}</span></div>
+          ${nr ? `<div><span class="label">Round ${rounds.indexOf(nr) + 1} of ${rounds.length}</span><div class="hof-name">${esc(gpTitle(nr))} ${nr.sprint ? '<span class="tag sprint">Sprint</span>' : ''}</div><span class="muted">${esc(nr.venue)}</span></div>
             ${P?.clinch.length ? permsHtml(dm, P, { compact: true }) : dm.decided ? `<p class="muted">The drivers’ title is decided: ${esc(dm.rows[0].name)} is champion.</p>` : `<p class="muted">The drivers’ title cannot be decided here.${P?.out.length ? ` ${listJoin(P.out.map(o => esc(o.j.name)))} could drop out of the fight.` : ''}</p>`}
             ${TP?.clinch.length ? permsHtml(tm, TP, { compact: true }) : ''}`
           : '<p class="muted">Season complete.</p>'}

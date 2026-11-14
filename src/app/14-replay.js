@@ -185,7 +185,7 @@ function renderLapReplays(c) {
   const open = ui.flOpen && c.seasons[ui.flOpen.si]?.calendar.find(r => r.id === ui.flOpen.rid);
   if (open) {
     const s = c.seasons[ui.flOpen.si]; const t = D.TRACKS[trackOf(open)];
-    return `<div class="page">${head(`${s.year} · Round ${activeRounds(s).indexOf(open) + 1} · ${esc(open.name)} Grand Prix${t?.circuit ? ` · ${esc(t.circuit)}` : ''}`, '<button class="btn" data-act="fl-close">All fastest laps</button>')}${flLapPanel(c, s, open)}</div>`;
+    return `<div class="page">${head(`${s.year} · Round ${activeRounds(s).indexOf(open) + 1} · ${esc(gpTitle(open))}${t?.circuit ? ` · ${esc(t.circuit)}` : ''}`, '<button class="btn" data-act="fl-close">All fastest laps</button>')}${flLapPanel(c, s, open)}</div>`;
   }
   const list = lapWeekends(c);
   const sub = 'Every weekend Pitwall recorded laps from the game is kept here: compare any two drivers’ quickest laps, corner by corner, whenever you want to find where the time went. A representative lap is one recorded in full, from line to line.';

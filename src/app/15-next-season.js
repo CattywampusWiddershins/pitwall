@@ -229,6 +229,7 @@ function teamStories(c, s) {
  *  Mexico City) or the only one ever held there (Spanish, Tuscan); for a round named after its country, the circuit's own race (British, South African), or else the one
  *  most often held in that country (Spanish, for Madrid); otherwise the round's name with Grand Prix after it (Eifel). */
 function gpTitle(r) {
+  if (!r) return '';
   const tid = roundTrackId(r); const T = D.TRACKS[tid]; const W = window.F1WORLD?.circuits || []; const x = W.find(o => (T?.wc && o.id === T.wc) || o.track === tid);
   const rs = x?.races || []; const low = (t) => t.toLowerCase().replace(/-/g, ' '); const nm = low(r.name || '');
   const own = rs.find(n => low(n).startsWith(nm)) || (rs.length === 1 ? rs[0] : null); if (own) return own; // (one race ever there: that one)
@@ -239,6 +240,11 @@ function gpTitle(r) {
   }
   return `${r.name} Grand Prix`;
 }
+/** The same, short (South African GP), and as a word before another (the South African sprint). */
+const gpShort = (r) => gpTitle(r).replace(/ Grand Prix$/, ' GP');
+const gpAdj = (r) => gpTitle(r).replace(/ Grand Prix$/, '');
+/** Words written before 5.6.0 ("the South Africa Grand Prix") with the race's proper name. */
+const gpFix = (t, r) => t && r ? t.split(`${r.name} Grand Prix`).join(gpTitle(r)) : t;
 
 /** The calendar announcement, new venues and track deals, as stories in the season they happened. */
 function calendarStories(c, s) {

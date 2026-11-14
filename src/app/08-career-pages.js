@@ -498,7 +498,7 @@ function renderDriver() {
   const recent = me ? activeRounds(s).map((r, i) => ({ r, i, br: me.byRound[r.id] })).filter(x => x.br && (x.br.r != null || x.br.q != null)) : [];
   const resCell = (v) => v == null ? '–' : typeof v === 'number' ? 'P' + v : `<span class="tag dnf">${v}</span>`;
   const firstWin = bio?.firstWin || (() => {
-    for (const { s: se, o } of seasons) { const r = activeRounds(se).find(x => o.byRound[x.id]?.r === 1); if (r) return `${se.year} ${r.name} GP${isHist(se) ? '' : ' (career)'}`; }
+    for (const { s: se, o } of seasons) { const r = activeRounds(se).find(x => o.byRound[x.id]?.r === 1); if (r) return `${se.year} ${gpShort(r)}${isHist(se) ? '' : ' (career)'}`; }
     return null;
   })();
 
@@ -551,7 +551,7 @@ function renderDriver() {
             : born ? `<dt>Born</dt><dd>${esc(fmtDay(parseDay(born), true))}</dd>` : ''}
           ${born ? `<dt>Age</dt><dd>${ageTxt(ageParts(born, careerNow(c)))} <span class="muted" style="font-size:12px">on ${fmtDay(careerNow(c), true)}</span></dd>` : ''}
           ${nat ? `<dt>Nationality</dt><dd>${esc(nat)}</dd>` : ''}
-          <dt>F1 debut</dt><dd>${esc(bio?.debut || (seasons[0] ? `${seasons[0].s.year} ${activeRounds(seasons[0].s)[0]?.name || ''} GP` : '–'))}</dd>
+          <dt>F1 debut</dt><dd>${esc(bio?.debut || (seasons[0] ? `${seasons[0].s.year} ${gpShort(activeRounds(seasons[0].s)[0])}` : '–'))}</dd>
           <dt>First win</dt><dd>${esc(firstWin || '–')}</dd>
           <dt>Best finish</dt><dd>${tot.bestFinish ? 'P' + tot.bestFinish : '–'}</dd>
           <dt>Best championship</dt><dd>${tot.bestChamp ? 'P' + tot.bestChamp : '–'}</dd>
@@ -714,7 +714,7 @@ function renderTeam() {
           <dt>Full name</dt><dd>${esc(isMine ? c.myTeam.name : bio.full || meta.name)}</dd>
           <dt>Base</dt><dd>${esc((isMine ? c.myTeam.base : bio.base) || '–')}</dd>
           <dt>First season</dt><dd>${isMine ? c.myTeam.founded || 2025 : bio.since || '–'}</dd>
-          <dt>First win</dt><dd>${esc(src?.firstWin || (() => { for (const x of seasons) for (const r of activeRounds(x.s)) { const w = x.s.weekends[r.id]?.sessions?.R; if (w?.done && x.drivers.includes(w.results.find(y => !OUT.includes(y.st))?.d)) return `${x.s.year} ${r.name} GP (career)`; } return '–'; })())}</dd>
+          <dt>First win</dt><dd>${esc(src?.firstWin || (() => { for (const x of seasons) for (const r of activeRounds(x.s)) { const w = x.s.weekends[r.id]?.sessions?.R; if (w?.done && x.drivers.includes(w.results.find(y => !OUT.includes(y.st))?.d)) return `${x.s.year} ${gpShort(r)} (career)`; } return '–'; })())}</dd>
           <dt>Best finish</dt><dd>${tot.bestFinish ? 'P' + tot.bestFinish : '–'}</dd>
           <dt>Win rate</dt><dd>${tot.starts ? (tot.wins / tot.starts * 100).toFixed(1) + '%' : '–'}</dd>
           ${tot.drvYears.length ? `<dt>Career drivers’ titles</dt><dd>${tot.drvYears.join(', ')}</dd>` : ''}
@@ -899,7 +899,7 @@ function renderTrack() {
     <div class="row"><button class="btn sm ghost" data-act="nav" data-view="tracks">${ICON.left} All circuits</button></div>
     <div class="page-head">
       <div><span class="label">${r ? `${s.year} · Round ${ri + 1} of ${rounds.length} · ${weekendTxt(s, r)}` : `Not on the ${s.year} calendar`}${r?.sprint ? ' · Sprint weekend' : ''}</span>
-        <h1>${countryFlag(t.country, 22)} ${esc(title)} Grand Prix</h1><div class="sub">${esc(t.circuit)} · ${esc(t.city)}, ${esc(t.country)}${t.former ? ' · Former circuit' : ''}</div></div>
+        <h1>${countryFlag(t.country, 22)} ${esc(gpTitle({ track: tid, name: title }))}</h1><div class="sub">${esc(t.circuit)} · ${esc(t.city)}, ${esc(t.country)}${t.former ? ' · Former circuit' : ''}</div></div>
       ${r ? `<button class="btn primary" data-act="open-round" data-round="${r.id}">Open weekend</button>` : ''}
     </div>
     ${t.provisional ? '<div class="callout">New circuit for 2026. Figures are provisional and there is no race history yet: your career will write it.</div>' : ''}

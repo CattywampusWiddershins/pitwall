@@ -156,7 +156,7 @@ function nextRaceHero(s, r, rounds) {
   const ri = rounds.indexOf(r); const code = A.country[D.TRACKS[trackOf(r)]?.country]; const flag = code && A.flags[code];
   const M = titleMath(s, 'driver'); const dec = !M.decided && !!roundPerms(M)?.clinch?.length && M.left[0]?.r.id === r.id;
   return `<button class="next-hero" data-act="open-round" data-round="${r.id}">${flag ? `<span class="nh-flag">${flag}</span>` : ''}<span class="nh-rn">R${ri + 1}</span>
-    <span class="nh-mid"><span class="tag next">Next race</span><b>${esc(r.name)} Grand Prix</b><span class="muted">${esc(r.venue)} · ${weekendTxt(s, r)}${r.sprint ? ' · sprint weekend' : ''}${dec ? ' · title decider' : ''}</span></span>
+    <span class="nh-mid"><span class="tag next">Next race</span><b>${esc(gpTitle(r))}</b><span class="muted">${esc(r.venue)} · ${weekendTxt(s, r)}${r.sprint ? ' · sprint weekend' : ''}${dec ? ' · title decider' : ''}</span></span>
     <span class="btn primary nh-go">Open weekend</span></button>`;
 }
 /* --------------------------------------------------------------- weekend */
@@ -183,7 +183,7 @@ function renderWeekend() {
     <div class="page-head">
       <div class="row" style="gap:14px">
         <button class="icon-btn" title="Previous round" data-act="open-round" data-round="${rounds[ri - 1]?.id || ''}" ${ri === 0 ? 'disabled style="opacity:.3"' : ''}>${ICON.left}</button>
-        <div><span class="label">${s.year} · Round ${ri + 1} of ${rounds.length}</span><h1>${esc(r.name)} Grand Prix ${r.sprint ? '<span class="tag sprint" style="vertical-align:middle">Sprint weekend</span>' : ''}</h1><div class="sub">${esc(r.venue)} · ${weekendTxt(s, r)}</div></div>
+        <div><span class="label">${s.year} · Round ${ri + 1} of ${rounds.length}</span><h1>${esc(gpTitle(r))} ${r.sprint ? '<span class="tag sprint" style="vertical-align:middle">Sprint weekend</span>' : ''}</h1><div class="sub">${esc(r.venue)} · ${weekendTxt(s, r)}</div></div>
         <button class="icon-btn" title="Next round" data-act="open-round" data-round="${rounds[ri + 1]?.id || ''}" ${ri === rounds.length - 1 ? 'disabled style="opacity:.3"' : ''}>${ICON.right}</button>
       </div>
       <div class="row">
@@ -263,7 +263,7 @@ function renderHistWeekend(s, rounds, ri, r) {
     <div class="page-head">
       <div class="row" style="gap:14px">
         <button class="icon-btn" title="Previous round" data-act="open-round" data-round="${rounds[ri - 1]?.id || ''}" ${ri === 0 ? 'disabled style="opacity:.3"' : ''}>${ICON.left}</button>
-        <div><span class="label">${s.year} · Round ${ri + 1} of ${rounds.length} · ${s.historic === 'sim' ? 'Simulated season' : 'Real result'}</span><h1>${t ? countryFlag(t.country, 22) + ' ' : ''}${esc(r.name)} Grand Prix ${r.sprint ? '<span class="tag sprint" style="vertical-align:middle">Sprint weekend</span>' : ''}</h1><div class="sub">${esc(r.venue)} · ${weekendTxt(s, r)}${r.laps ? ` · ${r.laps} laps` : ''}</div></div>
+        <div><span class="label">${s.year} · Round ${ri + 1} of ${rounds.length} · ${s.historic === 'sim' ? 'Simulated season' : 'Real result'}</span><h1>${t ? countryFlag(t.country, 22) + ' ' : ''}${esc(gpTitle(r))} ${r.sprint ? '<span class="tag sprint" style="vertical-align:middle">Sprint weekend</span>' : ''}</h1><div class="sub">${esc(r.venue)} · ${weekendTxt(s, r)}${r.laps ? ` · ${r.laps} laps` : ''}</div></div>
         <button class="icon-btn" title="Next round" data-act="open-round" data-round="${rounds[ri + 1]?.id || ''}" ${ri === rounds.length - 1 ? 'disabled style="opacity:.3"' : ''}>${ICON.right}</button>
       </div>
       <div class="row">
@@ -313,7 +313,7 @@ async function drawWeekendCard(c, s, r) {
   g.fillStyle = col; g.fillRect(0, 0, 14, H);
   // header
   text(`ROUND ${ri + 1} OF ${rounds.length}  ·  ${weekendTxt(s, r).toUpperCase()}`, 60, 70, { size: 20, weight: 600, color: '#8B97AF' });
-  text(`${r.name} Grand Prix`, 60, 130, { size: fit(`${r.name} Grand Prix`, 60, 1080), weight: 700 });
+  text(gpTitle(r), 60, 130, { size: fit(gpTitle(r), 60, 1080), weight: 700 });
   text(r.venue, 60, 168, { size: 24, color: '#8B97AF' });
   // you
   await circlePic(PLAYER, 150, 300, 86, 6);
@@ -374,7 +374,7 @@ async function weekendCardModal(roundId) {
   const cv = await drawWeekendCard(c, s, r);
   const url = cv.toDataURL('image/png');
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${activeRounds(s).indexOf(r) + 1}-${r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png` };
-  modal(`<div class="modal-h"><h2>${esc(r.name)} Grand Prix · weekend summary</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+  modal(`<div class="modal-h"><h2>${esc(gpTitle(r))} · weekend summary</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="Weekend summary card" style="width:100%;border-radius:6px;border:1px solid var(--line)"></div>
     <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">1200 × 675 PNG, sized for social posts.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`, 'wide');
 }
@@ -383,7 +383,7 @@ async function weekendCardModal(roundId) {
 /** Driver of the Day (round ri) or Driver of the Season, drawn in the story-graphics style (gfxAward), to save. */
 async function awardCardModal(kind, ri) {
   const c = career(); const s = curSeason();
-  const title = kind === 'dots' ? `${s.year} Driver of the Season` : `Driver of the Day · ${activeRounds(s)[ri]?.name} Grand Prix`;
+  const title = kind === 'dots' ? `${s.year} Driver of the Season` : `Driver of the Day · ${gpTitle(activeRounds(s)[ri])}`;
   modal(`<div class="modal-h"><h2>${esc(title)}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div><div class="modal-b"><div class="row"><span class="spinner"></span><span class="muted">Drawing the card…</span></div></div>`, 'wide');
   const cv = await gfxAward(c, s, kind, ri);
   if (!cv) { closeModal(); toast('Nothing to show yet'); return; }

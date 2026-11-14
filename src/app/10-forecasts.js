@@ -248,7 +248,7 @@ function permsHtml(m, P, { compact = false } = {}) {
     </div>`).join('');
   } else if (!compact) {
     const L = m.rows[0];
-    html += `<div class="callout">The title cannot be won at the ${gp} Grand Prix. Even with maximum points, ${nm(L)} would lead by at most ${L.pts + P.G - (m.rows[1]?.pts || 0)} points with ${P.Rp} still available afterwards.</div>`;
+    html += `<div class="callout">The title cannot be won at the ${esc(gpTitle(P.nx.r))}. Even with maximum points, ${nm(L)} would lead by at most ${L.pts + P.G - (m.rows[1]?.pts || 0)} points with ${P.Rp} still available afterwards.</div>`;
   }
   if (compact) return html;
   if (P.out.length) {
@@ -439,7 +439,7 @@ function renderForecast() {
         }))}</div>
       ${dead.length ? `<div class="panel-b muted" style="font-size:13px;border-top:1px solid var(--line)"><b style="color:var(--fg)">Out of contention:</b> ${dead.map(x => `${esc(x.name)}${hist.outAt[x.id] ? ` <span class="dim">(R${hist.outAt[x.id].i + 1})</span>` : ''}`).join(', ')}</div>` : ''}
     </div>
-    ${P ? `<div class="panel"><div class="panel-h"><div><span class="label">Permutations · Round ${P.nx.i + 1} of ${rounds.length}${P.nx.spr ? ' · sprint weekend' : ''}</span><h2>${esc(P.nx.r.name)} Grand Prix</h2></div>
+    ${P ? `<div class="panel"><div class="panel-h"><div><span class="label">Permutations · Round ${P.nx.i + 1} of ${rounds.length}${P.nx.spr ? ' · sprint weekend' : ''}</span><h2>${esc(gpTitle(P.nx.r))}</h2></div>
       <span class="muted" style="font-size:12px">${P.G} points available this weekend · ${P.Rp} after it</span></div>
       <div class="panel-b stack">${permsHtml(m, P)}
         ${!P.clinch.length && early ? `<p class="muted" style="font-size:13px">Earliest the title can be won: Round ${early.i + 1}, ${esc(early.r.name)}, if ${esc(L.name)} takes maximum points and nobody else scores.</p>` : ''}
@@ -914,7 +914,7 @@ function fanVoiceStory(c, s, ri) {
   const headline = top.rating >= 9.5 ? choose(rnd, [`Fan Voice: a ${top.rating.toFixed(1)} for ${lastName(dName(s, top.id))} in ${r.name}`, `${r.name} driver ratings: fans can’t look past ${lastName(dName(s, top.id))}`])
     : choose(rnd, [`${r.name} driver ratings: ${lastName(dName(s, top.id))} tops the fan vote`, `Fan Voice ratings: who impressed in ${r.name}?`]);
   return { id: `${s.index}-${r.id}-fv`, seq: ri * 10 + 7.5, kind: 'ratings', i: ri, r, outlet: FAN_VOICE, kicker: 'Driver Ratings', headline,
-    standfirst: `Fans rated every driver out of 10 after the ${r.name} Grand Prix. ${dName(s, top.id)} came out on top with ${top.rating.toFixed(1)}${lowest && lowest.id !== top.id ? `, while ${dName(s, lowest.id)} had the toughest afternoon on ${lowest.rating.toFixed(1)}` : ''}.`,
+    standfirst: `Fans rated every driver out of 10 after the ${gpTitle(r)}. ${dName(s, top.id)} came out on top with ${top.rating.toFixed(1)}${lowest && lowest.id !== top.id ? `, while ${dName(s, lowest.id)} had the toughest afternoon on ${lowest.rating.toFixed(1)}` : ''}.`,
     body: [], fanVoice: { race: race.map(x => ({ id: x.id, rating: x.rating, sub: `${teamOf(s, x.id)?.name || ''} · ${x.dnf ? 'DNF' : 'P' + x.finish}` })), season: season.map(x => ({ id: x.id, rating: x.avg, sub: `${teamOf(s, x.id)?.name || ''} · ${plural(x.n, 'race')}` })), round: ri } };
 }
 /** The F1 Fan Voice page: every driver for the chosen Grand Prix, the top ten over the last 5 races and the season. */
@@ -942,7 +942,7 @@ function renderFanVoice(c, s, head) {
       <label class="fv-pick"><span class="label">Grand Prix</span><select data-ch="fv-round">${ratedRounds.map(x => `<option value="${x.ri}" ${x.ri === fvRi ? 'selected' : ''}>R${x.ri + 1} · ${esc(x.r.name)}</option>`).join('')}</select></label>
     </section>
     <div class="grid-2">
-      <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${esc(fvRound.name)} Grand Prix</span><h2>Every driver</h2></div>${img({ type: 'ratings', si: s.index, ri: fvRi, all: true, rows: strip(race) })}</div>${fvBars(c, s, race, { ri: fvRi, dotd: fvDotd?.id })}</div>
+      <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${esc(gpTitle(fvRound))}</span><h2>Every driver</h2></div>${img({ type: 'ratings', si: s.index, ri: fvRi, all: true, rows: strip(race) })}</div>${fvBars(c, s, race, { ri: fvRi, dotd: fvDotd?.id })}</div>
       <div class="stack">
         <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${s.year} · average over each driver’s last 5 races</span><h2>Last 5</h2></div>${img({ type: 'ratings', si: s.index, ri: lastRi, span: 'last5', rows: strip(last5) })}</div>${fvBars(c, s, last5)}</div>
         <div class="panel fv-panel"><div class="panel-h"><div><span class="label">${s.year} · season average</span><h2>Season</h2></div>${img({ type: 'ratings', si: s.index, ri: lastRi, season: true, rows: strip(season) })}</div>${fvBars(c, s, season)}</div>

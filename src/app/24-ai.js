@@ -35,7 +35,7 @@ function mediaContext(c, seasonIdx, roundId, kind) {
   if (s.goals.length) lines.push(`Season goals: ${s.goals.map(g => `${goalTitle(g)} (${evalGoal(g, s).ok ? 'on target' : 'not yet'})`).join('; ')}`);
   if (r) {
     const w = s.weekends[r.id];
-    lines.push(`This event: Round ${rounds.indexOf(r) + 1}, ${r.name} Grand Prix at ${r.venue}${r.sprint ? ' (sprint weekend)' : ''}.`);
+    lines.push(`This event: Round ${rounds.indexOf(r) + 1}, ${gpTitle(r)} at ${r.venue}${r.sprint ? ' (sprint weekend)' : ''}.`);
     for (const k of sessionsFor(s, r)) {
       const sd = w?.sessions[k];
       if (!sd?.done) continue;
@@ -530,7 +530,7 @@ function templateArticle(c, m) {
   const r = s.calendar.find(x => x.id === m.roundId);
   const head = best ? `${c.profile.last}: “${quoteClip(best.answer)}”` : `${c.profile.last} keeps cards close to chest${r ? ' in ' + r.name : ''}`;
   const body = [
-    `${name} spoke to the media ${r ? (m.kind === 'preweekend' ? 'ahead of the ' : 'after the ') + r.name + (m.kind === 'preweekend' ? ' Grand Prix' : ' Grand Prix weekend') : 'during ' + s.year} and ${answered.length >= 3 ? 'was in a talkative mood' : answered.length ? 'gave a few measured answers' : 'had little to say'}.`,
+    `${name} spoke to the media ${r ? (m.kind === 'preweekend' ? 'ahead of the ' : 'after the ') + gpTitle(r) + (m.kind === 'preweekend' ? '' : ' weekend') : 'during ' + s.year} and ${answered.length >= 3 ? 'was in a talkative mood' : answered.length ? 'gave a few measured answers' : 'had little to say'}.`,
     ...answered.slice(0, 2).map(q => `Asked “${q.question}”, the ${s.teams.find(t => t.id === s.playerTeamId)?.name} driver replied: “${q.answer.trim()}”`),
   ];
   return { article: { outlet: m.questions[0]?.outlet || 'Paddock Pass', headline: head, summary: body[0], body }, reactions: [], rep: answered.length ? 0 : -1 };

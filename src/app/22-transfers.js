@@ -273,7 +273,7 @@ function transferStory(c, s, tr) {
     kicker = 'BREAKING · U-turn'; massive = !!champ;
     headline = champ ? `BREAKING: ${Champ} ${L} unretires` : choose(rnd, [`BREAKING: ${L} unretires`, `BREAKING: ${L} U-turns on retirement`, `BREAKING: ${L} is staying in F1 after all`]);
     standfirst = `Despite announcing a retirement earlier this season, ${nm} will race on in ${s.year + 1}${m0.kind === 'extend' ? `, having signed a new contract with ${team}` : `, with ${team}`}${m0.until ? ` that runs ${length(m0.until)}` : ''}.`;
-    body = [`The retirement was announced ${rr ? `after the ${rr.name} Grand Prix` : 'earlier in the year'}, and the paddock had started saying its goodbyes. Now ${L} has changed course.`,
+    body = [`The retirement was announced ${rr ? `after the ${gpTitle(rr)}` : 'earlier in the year'}, and the paddock had started saying its goodbyes. Now ${L} has changed course.`,
       career, champ ? `A ${champ} back for more: the grid is all the better for it.` : choose(rnd, ['Few drivers walk back a retirement. Fewer still do it within the same season.', `${team} clearly think there is plenty left in the tank.`])];
   } else if (m0.kind === 'extend') {
     headline = champ ? `BREAKING: ${Champ} ${L} commits future to ${to}` : choose(rnd, [`BREAKING: ${L} signs new ${to} deal`, `BREAKING: ${L} commits future to ${to}`]);

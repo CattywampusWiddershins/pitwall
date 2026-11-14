@@ -46,9 +46,9 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day' }[spec.type];
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day', track: 'track-news', team: 'team-news' }[spec.type] || spec.type; // (any other: its type)
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
-  modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h'].includes(spec.type) ? '' : `${esc(r?.name || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+  modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h', 'team'].includes(spec.type) ? '' : `${esc((spec.type === 'track' ? trackGp(spec.tid)?.name : r?.name) || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
     <div class="modal-f"><span class="muted" style="font-size:12px;margin-right:auto">${gfxWidth(spec)} × ${gfxHeight(spec)} PNG${gfxHeight(spec) === GFX_H && gfxWidth(spec) === GFX_W ? ', sized for social posts' : ''}.</span><button class="btn ghost" data-act="modal-close">Close</button><button class="btn primary" data-act="card-save">Save image</button></div>`);
 }
@@ -203,7 +203,7 @@ async function gfxStandings(g, k, c, s, { kind, ri }) {
       else k.text('-', xPts + wPts + 60, y + rh / 2 - 2, { size: 40, weight: 800, align: 'center' });
     }
   }
-  k.text(`POINTS AFTER THE ${r.name.toUpperCase()} GP`, GFX_W / 2, GFX_H - 50, { size: 30, weight: 600, align: 'center', fam: k.body });
+  k.text(`POINTS AFTER THE ${gpShort(r).toUpperCase()}`, GFX_W / 2, GFX_H - 50, { size: 30, weight: 600, align: 'center', fam: k.body });
 }
 
 /** A session's result: the podium (or front row of three), then fourth to tenth. k: R, SPR or Q. */
@@ -211,7 +211,7 @@ async function gfxResults(g, k, c, s, { k: key, ri }) {
   const r = activeRounds(s)[ri]; const sd = s.weekends[r.id]?.sessions?.[key]; const res = sd?.results?.filter(x => x.d) || [];
   if (res.length < 3) return false;
   const quali = key === 'Q' || key === 'SQ';
-  await gfxFrame(g, k, r.name.toUpperCase(), { sub: { R: 'RACE', SPR: 'SPRINT', Q: 'QUALIFYING', SQ: 'SPRINT QUALIFYING' }[key] });
+  await gfxFrame(g, k, gpTitle(r).toUpperCase(), { sub: { R: 'RACE', SPR: 'SPRINT', Q: 'QUALIFYING', SQ: 'SPRINT QUALIFYING' }[key] });
   const ptsOf = (x, p) => pointsFor(key, p, x.st, x.pts);
   const side = (x, p) => quali ? (p === 1 ? x.lap || '' : x.gap || x.lap || '') : `${ptsOf(x, p)}`;
   // the podium: second, first (taller), third
@@ -248,7 +248,7 @@ async function gfxResults(g, k, c, s, { k: key, ri }) {
 async function gfxClass(g, k, c, s, { k: key, ri }) {
   const r = activeRounds(s)[ri]; const res = s.weekends[r.id]?.sessions?.[key]?.results?.filter(x => x.d) || [];
   if (res.length < 3) return false;
-  await gfxFrame(g, k, `${r.name.toUpperCase()} GRAND PRIX`, { sub: `${key === 'FP' ? 'PRACTICE' : 'PRACTICE ' + key.slice(2)}  ·  CLASSIFICATION` });
+  await gfxFrame(g, k, gpTitle(r).toUpperCase(), { sub: `${key === 'FP' ? 'PRACTICE' : 'PRACTICE ' + key.slice(2)}  ·  CLASSIFICATION` });
   const laps = res.some(x => +x.laps > 0);
   const best = parseLap(res[0].lap);
   const gapOf = (x, i) => {
@@ -340,7 +340,7 @@ async function gfxPerm(g, k, c, s, { kind, ri, who, stage = '' }) {
   }
   const hx = fig ? 725 : GFX_W / 2, hw = fig ? 640 : GFX_W - 80; // the name and the table sit beside the figure
   k.text(P.final ? 'TITLE PERMUTATIONS' : team ? 'CONSTRUCTORS’ TITLE' : 'TITLE DECIDER', GFX_W / 2, 140, { size: 70, weight: 800, align: 'center', max: GFX_W - 80 });
-  k.text(`${r.name.toUpperCase()} ${stage === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}  ·  ROUND ${ri + 1}${stage === 'race' ? '  ·  AFTER THE SPRINT' : ''}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
+  k.text(`${(stage === 'sprint' ? gpAdj(r) + ' sprint' : gpTitle(r)).toUpperCase()}  ·  ROUND ${ri + 1}${stage === 'race' ? '  ·  AFTER THE SPRINT' : ''}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
   if (team) await gfxLogo(g, k, c, tm, hx - 160, 236, 320, 70, '#FFFFFF');
   k.text(name, hx, team ? 340 : 290, { size: team ? 72 : 96, weight: 900, align: 'center', max: hw });
   k.text(`${t.x.pts} POINTS  ·  ${t.x.gap ? `${t.x.gap} BEHIND` : m.rows[1] && t.x.pts > m.rows[1].pts ? `${t.x.pts - m.rows[1].pts} AHEAD` : 'LEVEL ON POINTS'}`, hx, team ? 400 : 360, { size: 30, weight: 600, color: '#D0D6E2', align: 'center', max: hw });
@@ -505,7 +505,7 @@ function driverTitleFacts(c, s, id, ri, rnd = Math.random) {
 /** What a title graphic says: { small, big, sub }. mode pre (it can be won) or won. */
 function titleWords(c, s, { kind, ri, stage, mode, ids }) {
   const r = activeRounds(s)[ri]; const team = kind === 'team'; const rnd = seeded(`${s.index}-${r.id}-${kind}-${mode}-${stage}`);
-  const where = `${_up(r.name)} ${stage === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}`;
+  const where = _up(stage === 'sprint' ? gpAdj(r) + ' sprint' : gpTitle(r));
   const nm = (id) => team ? _up(s.teams.find(t => t.id === id)?.name || id) : gfxLast(s, id);
   const full = (id) => team ? nm(id) : _up(dName(s, id) || id);
   // a driver: led by the most remarkable thing about the title, with the next one underneath
@@ -665,7 +665,7 @@ async function gfxAward(c, s, kind, ri) {
   const shade = g.createLinearGradient(0, 560, 0, 980); shade.addColorStop(0, 'rgba(21,21,30,0)'); shade.addColorStop(1, 'rgba(21,21,30,1)'); g.fillStyle = shade; g.fillRect(0, 560, GFX_W, 420); g.fillStyle = GFX_BG; g.fillRect(0, 980, GFX_W, GFX_H - 980);
   await gfxHeader(g, k);
   k.text(kind === 'dots' ? 'DRIVER OF THE SEASON' : 'DRIVER OF THE DAY', GFX_W / 2, 140, { size: 76, weight: 800, align: 'center', max: GFX_W - 80 });
-  k.text(kind === 'dots' ? `${s.year} FORMULA 1 SEASON${pick.final ? '' : `  ·  AFTER ${roundsDone(s)} OF ${rounds.length} ROUNDS`}` : `${r.name.toUpperCase()} GRAND PRIX  ·  ROUND ${ri + 1} OF ${rounds.length}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
+  k.text(kind === 'dots' ? `${s.year} FORMULA 1 SEASON${pick.final ? '' : `  ·  AFTER ${roundsDone(s)} OF ${rounds.length} ROUNDS`}` : `${gpTitle(r).toUpperCase()}  ·  ROUND ${ri + 1} OF ${rounds.length}`, GFX_W / 2, 200, { size: 28, weight: 600, color: '#D0D6E2', align: 'center', max: GFX_W - 80 });
   // with a full-body picture, the driver stands at the left and the card takes the rest
   const fig = await gfxBody(c, id);
   if (fig) { gfxGlow(g, 225, 560, 400, col, 0.5); await gfxFigure(g, fig, { cx: 225, top: 235, bottom: GFX_H, frac: 0.6 }); }
@@ -818,7 +818,7 @@ async function gfxPreview(g, k, c, s, { ri }) {
   await k.logo(50, 40, 200, 64, '#3A2410', 'left');
   const d = roundDate(s, r);
   gfxSpaced(g, k, `ROUND ${ri + 1}  ·  ${r.venue.toUpperCase()}${d ? `  ·  ${fmtDay(d).toUpperCase()}` : ''}`, GFX_W / 2, 1090, { size: 30, weight: 700, color: '#FFF3D6', spacing: 0.22 });
-  const title = `${String(r.name).toUpperCase()} GP`;
+  const title = gpShort(r).toUpperCase();
   g.save(); g.shadowColor = 'rgba(255,200,90,0.85)'; g.shadowBlur = 60; k.text(title, GFX_W / 2, 1210, { size: 170, weight: 900, color: '#F2C14E', align: 'center', max: GFX_W - 60 }); g.restore();
   g.save(); g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 14; g.shadowOffsetY = 8; k.text(title, GFX_W / 2, 1210, { size: 170, weight: 900, color: '#F2C14E', align: 'center', max: GFX_W - 60 }); g.restore();
 }
@@ -1032,7 +1032,7 @@ async function gfxGraph(g, k, c, s, { ri, mode, ids = [] }) {
   const R0 = rounds[ri];
   const title = mode === 'decider' ? 'TITLE DECIDER' : mode === 'review' ? `${s.year} SEASON` : 'THE TITLE FIGHT';
   k.text(title, 56, 130, { size: 72, weight: 900, max: GFX_W - 320 });
-  k.text(mode === 'decider' ? `${String(R0.name).toUpperCase()} GP · ROUND ${ri + 1} · STILL IN CONTENTION` : mode === 'review' ? 'POINTS THROUGH THE SEASON' : 'GAP TO THE LEADER · LAST FIVE RACES', 56, 196, { size: 28, weight: 600, color: '#B9C0CF', max: GFX_W - 112 });
+  k.text(mode === 'decider' ? `${gpShort(R0).toUpperCase()} · ROUND ${ri + 1} · STILL IN CONTENTION` : mode === 'review' ? 'POINTS THROUGH THE SEASON' : 'GAP TO THE LEADER · LAST FIVE RACES', 56, 196, { size: 28, weight: 600, color: '#B9C0CF', max: GFX_W - 112 });
   const L = 120, Rr = 290, T = 270, B = GFX_H - 130; const px = (j) => L + j * (GFX_W - L - Rr) / (xs.length - 1); const py = (v) => T + (1 - (v - ymin) / ((ymax - ymin) || 1)) * (B - T);
   g.lineWidth = 2; g.strokeStyle = '#2A2A36';
   for (let q = 0; q <= 5; q++) { const v = ymin + (ymax - ymin) * q / 5; g.beginPath(); g.moveTo(L, py(v)); g.lineTo(GFX_W - Rr + 10, py(v)); g.stroke(); k.text(String(Math.round(v)), L - 16, py(v), { size: 24, weight: 700, color: '#8D95A6', align: 'right' }); }
@@ -1082,7 +1082,7 @@ async function gfxLapGraph(g, k, c, s, { ri }) {
   await k.logo(GFX_W - 230, 36, 180, 56, GFX_RED, 'right');
   k.text('THE TITLE, LAP BY LAP', 56, 130, { size: 72, weight: 900, max: GFX_W - 320 });
   const sub = T.final ? 'CHAMPIONSHIP ORDER IF THE RACE ENDED THERE · GOLD: CHAMPION ON THE ROAD' : solo ? `POINTS IF THE RACE ENDED THERE · GOLD: WHERE ${gfxLast(s, solo)} BECOMES CHAMPION` : 'POINTS IF THE RACE ENDED THERE';
-  k.text(`${String(r.name).toUpperCase()} GP · ${sub}`, 56, 196, { size: 28, weight: 600, color: '#B9C0CF', max: GFX_W - 320 });
+  k.text(`${gpShort(r).toUpperCase()} · ${sub}`, 56, 196, { size: 28, weight: 600, color: '#B9C0CF', max: GFX_W - 320 });
   const L = 130, Rr = 330, Tp = 270, B = GFX_H - 130;
   const px = (j) => L + j * (GFX_W - L - Rr) / (N - 1);
   const py = (v) => T.final ? Tp + (v - 1) / Math.max(1, ids.length - 1) * (B - Tp) : Tp + (1 - (v - ymin) / ((ymax - ymin) || 1)) * (B - Tp);

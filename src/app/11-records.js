@@ -205,7 +205,7 @@ function buildTimeline(c) {
     rounds.forEach((r, ri) => {
       const ses = s.weekends[r.id]?.sessions; if (!ses) return;
       const date = roundDate(s, r);
-      const where = { seasonIdx: s.index, hist: isHist(s), ri, r, date, year: s.year, when: `${s.year} ${r.name} GP` };
+      const where = { seasonIdx: s.index, hist: isHist(s), ri, r, date, year: s.year, when: `${s.year} ${gpShort(r)}` };
       const ms = [];
       const age = (id, d = date) => ageParts(bornOf(c, id), d);
       const mile = (id, text, rank = 1, list = null) => ms.push({ id, text, rank, ...(list ? { list } : {}) });
