@@ -58,7 +58,7 @@ const actions = {
   'fg-fill-all'() { const u = ui.setup; u.futureGrid.forEach((t, ti) => t.drivers.forEach((d, si) => { if (retiredBy(u, d)) setupFill(u, ti, si); })); render(); toast('Retired drivers replaced'); },
   'fc-move'(el) { const L = ui.setup.futureCal; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; render(); },
   'fc-remove'(el) { ui.setup.futureCal.splice(+el.dataset.i, 1); render(); },
-  'cal-remove'(el) { const s = latestSeason(); const r = s.calendar[+el.dataset.i]; if (!r || Object.values(s.weekends[r.id]?.sessions || {}).some(sd => sd?.done)) return; s.calendar.splice(+el.dataset.i, 1); store.save(); render(); toast(`${r.name} is off the ${s.year} calendar`); },
+  'cal-remove'(el) { const s = latestSeason(); const r = s.calendar[+el.dataset.i]; if (!r || Object.values(s.weekends[r.id]?.sessions || {}).some(sd => sd?.done)) return; calEdit(s, () => s.calendar.splice(+el.dataset.i, 1)); store.save(); render(); toast(`${r.name} is off the ${s.year} calendar`); },
   'nd-add'(el) {
     const { scope, key } = el.dataset; const drafts = ndDrafts(scope); const nd = drafts[key] || {};
     const name = (nd.name || '').trim(); if (!name) { toast('Enter the new driver’s name'); return; }
@@ -365,7 +365,7 @@ const actions = {
     store.save(); render(); toast(`${name} added. Pick them in a seat above.`);
     photoModal(d.id);
   },
-  'cal-del'(el) { latestSeason().calendar.splice(+el.dataset.i, 1); store.save(); render(); },
+  'cal-del'(el) { const s = latestSeason(); calEdit(s, () => s.calendar.splice(+el.dataset.i, 1)); store.save(); render(); },
   'cal-move'(el) {
     const s = latestSeason(); const i = +el.dataset.i, j = i + (+el.dataset.dir);
     if (j < 0 || j >= s.calendar.length) return;
@@ -564,8 +564,8 @@ const changes = {
   },
   practice(el) { latestSeason().format.practice = el.value; store.save(); render(); },
   'cal-sprint'(el) { latestSeason().calendar[+el.dataset.i].sprint = el.checked; store.save(); render(); },
-  'cal-on'(el) { latestSeason().calendar[+el.dataset.i].off = !el.checked; store.save(); render(); },
-  'cal-add'(el) { if (el.value === '__new') { el.value = ''; trackAddModal('cal'); return; } if (!el.value) return; const s = latestSeason(); const g = trackGp(el.value); let id = g.id; while (s.calendar.some(r => r.id === id)) id += '2'; s.calendar.push({ ...g, id, ...(id !== g.id ? { track: g.id } : {}), sprint: false, off: false, added: true }); store.save(); render(); toast(`${g.name} added to the ${s.year} calendar`); },
+  'cal-on'(el) { const s = latestSeason(); calEdit(s, () => { s.calendar[+el.dataset.i].off = !el.checked; }); store.save(); render(); },
+  'cal-add'(el) { if (el.value === '__new') { el.value = ''; trackAddModal('cal'); return; } if (!el.value) return; const s = latestSeason(); const g = trackGp(el.value); let id = g.id; while (s.calendar.some(r => r.id === id)) id += '2'; calEdit(s, () => s.calendar.push({ ...g, id, ...(id !== g.id ? { track: g.id } : {}), sprint: false, off: false, added: true })); store.save(); render(); toast(`${g.name} added to the ${s.year} calendar`); },
 };
 function goalList(el) { return el.dataset.scope === 'setup' ? ui.setup.goals : ui.modal.goals; }
 // team identity fields live on the setup form or on the active career's team

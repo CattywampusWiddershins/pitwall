@@ -590,7 +590,7 @@ function openerStory(c, s, r, rnd, { name, last }) {
   }
 
   // 4. the calendar: length, sprints, new and returning races, ones dropped
-  const rounds = activeRounds(s); const nowT = new Set(rounds.map(roundTrackId)); const thenT = new Set(activeRounds(prev).map(roundTrackId));
+  const rounds = startRounds(s); const nowT = new Set(rounds.map(roundTrackId)); const thenT = new Set(activeRounds(prev).map(roundTrackId));
   const added = rounds.filter(x => !thenT.has(roundTrackId(x))); const dropped = activeRounds(prev).filter(x => !nowT.has(roundTrackId(x)));
   const spr = rounds.filter(x => x.sprint).length; const fin = rounds[rounds.length - 1];
   let p4 = w('cal', [`${cap1(numWord(rounds.length))} rounds lie ahead${spr ? `, ${spr} of them sprint weekends` : ''}, ending in ${fin.name}.`, `The calendar runs to ${rounds.length} races${spr ? ` and ${plural(spr, 'sprint')}` : ''}, with ${fin.name} the last stop.`]);

@@ -152,6 +152,17 @@ function hydrateCareer(c) {
   if (c.extraTeam2025 === undefined && c.startYear >= 2025) c.extraTeam2025 = c.startYear === 2025 ? ['apxgp', 'konnersport'].find(x => firstPlayed(c).teams.some(t => t.id === x)) || null : null;
   feederBios(c);
   realTransfers(c);
+  repairCalStart(c);
+}
+/** Before 5.6.0 a change to the calendar mid-season wasn't kept. Once, for the season under way: where its calendar no
+ *  longer has the tracks it was announced with, that one is kept as how it started, and the change is told from now. */
+function repairCalStart(c) {
+  const s = c.seasons[c.seasons.length - 1]; if (!s || isHist(s) || s.calStart || s.calChecked) return; s.calChecked = true;
+  const ann = c.calReannounced?.[s.year] || c.calAnnounced?.[s.year]; const done = roundsDone(s);
+  if (!ann?.cal?.length || !done || done >= activeRounds(s).length) return;
+  const was = new Set(ann.cal.map(roundTrackId)), now = new Set(activeRounds(s).map(roundTrackId)); const at = new Date().toISOString();
+  const log = [...[...now].filter(t => !was.has(t)).map(tid => ({ tid, op: 'add', ri: done, at })), ...[...was].filter(t => !now.has(t)).map(tid => ({ tid, op: 'off', ri: done, at }))];
+  if (log.length) { s.calStart = clone(ann.cal); s.calLog = log; }
 }
 function hydrateState(st) { addCustomTracks(st); for (const c of st?.careers || []) hydrateCareer(c); return st; }
 /*

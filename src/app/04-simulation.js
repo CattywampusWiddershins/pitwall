@@ -599,6 +599,8 @@ const dAbbr = (s, did) => s.drivers[did]?.abbr || did || '—';
 const gridIds = (s) => s.teams.flatMap(t => t.drivers).filter(Boolean);
 const teammateOf = (s, did = PLAYER) => { const t = teamOf(s, did); return t ? t.drivers.find(x => x && x !== did) || null : null; };
 const activeRounds = (s) => s.calendar.filter(r => !r.off);
+/** The calendar as the season started, before any change made once it was under way. */
+const startRounds = (s) => s.calStart || activeRounds(s);
 
 const SESSION_LABEL = { FP1: 'Practice 1', FP2: 'Practice 2', FP3: 'Practice 3', FP: 'Practice', SQ: 'Sprint Qualifying', SPR: 'Sprint', Q: 'Qualifying', R: 'Race' };
 const SESSION_SHORT = { FP1: 'FP1', FP2: 'FP2', FP3: 'FP3', FP: 'FP', SQ: 'SQ', SPR: 'Sprint', Q: 'Quali', R: 'Race' };

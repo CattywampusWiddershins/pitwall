@@ -930,7 +930,7 @@ async function gfxTrack(g, k, c, s, { tid, kick = 'Breaking', line = '' }) {
   k.text(kick.toUpperCase(), 230, 96, { size: 132, weight: 900, color: ink, max: GFX_W - 280 });
   // the circuit's name in the triangle, the Grand Prix and the news below
   if (T.circuit) k.wrap(T.circuit.toUpperCase(), GFX_W - 40, py + ph - 92, { size: 34, weight: 800, color: ink, align: 'right', max: 400, lines: 2, lh: 1.1, fam: k.disp, middle: true });
-  k.text(`${trackGp(tid).name} Grand Prix`.toUpperCase(), 50, GFX_H - 160, { size: 96, weight: 900, color: ink, max: GFX_W - 100 });
+  k.text(gpTitle({ track: tid, name: trackGp(tid).name }).toUpperCase(), 50, GFX_H - 160, { size: 96, weight: 900, color: ink, max: GFX_W - 100 });
   k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });
 }
 
@@ -1174,7 +1174,7 @@ async function gfxH2H(g, k, c, s, { a, b, scope }) {
  * headline, picked from the variants that fit the season.
  */
 function seasonGfxData(c, s) {
-  const prev = c.seasons[s.index - 1]; const rounds = activeRounds(s); if (!rounds.length) return null;
+  const prev = c.seasons[s.index - 1]; const rounds = startRounds(s); if (!rounds.length) return null;
   const grid = gridIds(s);
   const champ = prev && roundsDone(prev) >= activeRounds(prev).length ? driverStandings(prev)[0]?.id ?? null : null;
   const onGrid = !!champ && grid.includes(champ);

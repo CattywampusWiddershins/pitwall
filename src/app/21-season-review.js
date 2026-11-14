@@ -564,7 +564,7 @@ function buildStories(c, s) {
   for (const m of c.media) {
     if (!m.article || m.seasonIdx !== s.index) continue;
     const ri = m.roundId ? rounds.findIndex(x => x.id === m.roundId) : m.kind === 'preseason' ? -1 : m.kind === 'endseason' ? rounds.length : Math.max(0, Math.floor(rounds.length / 2) - 1);
-    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'preweekend' ? 1 : m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
+    out.push({ id: 'm' + m.id, seq: ri * 10 + (m.kind === 'preweekend' ? 0.05 : m.kind === 'quali' ? 3 : m.kind === 'sprint' ? 5 : 7), kind: 'interview', i: ri, r: rounds[ri] || null, outlet: m.article.outlet, kicker: 'Your interview', headline: mediaHeadline(m), standfirst: m.article.summary || mediaTitle(c, m), body: (m.article.body || []).filter(p => p !== m.article.summary).slice(0, 2), media: m });
   }
   // milestones and records from the career timeline
   const tl = careerTimeline(c);

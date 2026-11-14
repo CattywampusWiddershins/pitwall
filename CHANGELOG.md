@@ -2,6 +2,15 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.6.0
+
+- **A calendar changed mid-season makes the news.** Once a session of the season has been logged, a track brought in or taken off in Settings is kept track of, and the press tells it after the last race run by then: "BREAKING: South African Grand Prix replaces Miami Grand Prix" (with the breaking track graphic), a track added with nothing replaced, or a race cancelled.
+- **Its contract for the years after.** If a track brought in has a deal for next season that hadn't been announced yet, it's announced on its race weekend: a contract for next season and beyond. If it had been announced, the replacement story says the contract has been moved up. Either way, it's no longer new on next year's calendar.
+- **The season preview keeps the calendar the season started with,** not the one it was changed to.
+- **A season already under way** whose calendar no longer has the tracks it was announced with has the change told once, from now (before the next weekend).
+- **Grands Prix by their proper names** on track graphics and in the new stories: the South African, British, Spanish and Mexico City Grands Prix, not "South Africa Grand Prix".
+- **Pre-weekend interviews come after the race preview,** before practice.
+
 ## 5.5.1
 
 - **Today's race distance for a track from the World Map.** A track added from the World Map now gets the laps a Grand Prix there would run today (the fewest that pass 305 km: Kyalami's 4.529 km makes 68), not the laps of the last race held there (72 in 1993). Tracks already added are corrected once, where the laps were still the World Map's; ones you changed are left alone. A new track with no laps entered gets the same.
