@@ -194,7 +194,16 @@ function repairFirstGrid(c) {
 }
 
 /** Tracks added for a single weekend: part of the circuits for every save. */
-function addCustomTracks(st = state) { for (const [id, t] of Object.entries(st?.customTracks || {})) D.TRACKS[id] ||= { ...t, custom: true }; }
+/** A Grand Prix's distance today: the fewest laps that pass 305 km. */
+const distanceLaps = (km) => Math.ceil(305 / km);
+function addCustomTracks(st = state) {
+  for (const [id, t] of Object.entries(st?.customTracks || {})) {
+    // a track added from the World Map before 5.5.1 took the laps of the last race held there (Kyalami's 72 from 1993):
+    // while that number hasn't been changed, it becomes today's race distance
+    if (t.wc && t.km > 0 && !t.lapsChecked) { const x = window.F1WORLD?.circuits?.find(o => o.id === t.wc); if (x && t.laps === x.laps) t.laps = distanceLaps(t.km); t.lapsChecked = true; }
+    D.TRACKS[id] ||= { ...t, custom: true };
+  }
+}
 
 /* F1 25 lets a career add an 11th team for 2025 only: APXGP or Konnersport (c.extraTeam2025: 'apxgp' | 'konnersport' |
    null; undefined while a career that started earlier hasn't reached 2025 and been asked). My Team careers have

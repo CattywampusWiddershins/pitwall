@@ -314,7 +314,9 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
         : v.out ? [tp ? `Last time here ended in a ${v.st} for ${L(focus)}. Lessons learned?` : `Your last visit here ended in a ${v.st}. Any demons to put to rest?`]
         : [`P${v.pos} here in ${last.year}. What's realistic this time?`, `What did ${yo(focus)} learn last time here that helps this weekend?`]); }
     if (wins >= 2) add('herewins', 8, `${dName(s, focus)} has won here ${wins} times.`, [`${cap1(numWord(wins))} wins here already. Is this ${tp ? "the team's" : 'your'} favourite track?`]);
-    if (T.custom) add('here-new', 9, `${r.name} is a new venue for Formula 1.`, [`Formula 1 has never raced here before. What do you know about the track so far?`, `How do you prepare for a circuit nobody has raced on?`]);
+    const wasHeld = lastHeld(c, tid, s.year);
+    if (!last && wasHeld && s.year - wasHeld > 1) add('here-return', 8, `Formula 1 is back at ${r.name} for the first time since ${wasHeld}.`, [`Formula 1 is back here for the first time since ${wasHeld}. What do you know about the place?`, `Nobody on the grid has raced here in Formula 1. Does that level the field?`]);
+    else if (T.custom && !wasHeld) add('here-new', 9, `${r.name} is a new venue for Formula 1.`, [`Formula 1 has never raced here before. What do you know about the track so far?`, `How do you prepare for a circuit nobody has raced on?`]);
     else if (!last) add('here-first', 4, `${dName(s, focus)} has not raced here before in this career.`, [`It's ${tp ? "the team's" : 'your'} first visit here in this era. How have you prepared?`]);
     const prevS = c.seasons[s.index - 1];
     if (prevS && !isHist(prevS) && !T.custom && !activeRounds(prevS).some(x => trackOf(x) === tid)) add('here-back', 5, `${r.name} is back on the calendar this year.`, [`${r.name} is back on the calendar. Good to be here?`]);

@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.5.1
+
+- **Today's race distance for a track from the World Map.** A track added from the World Map now gets the laps a Grand Prix there would run today (the fewest that pass 305 km: Kyalami's 4.529 km makes 68), not the laps of the last race held there (72 in 1993). Tracks already added are corrected once, where the laps were still the World Map's; ones you changed are left alone. A new track with no laps entered gets the same.
+- **A track F1 raced at long ago isn't new.** Stories and interviews knew a circuit's past only from 2016 on, so Kyalami's return was "a brand-new venue for Formula 1". They now know every Grand Prix since 1950 from the World Map: "the first race there since 1993", "Formula 1 is back here for the first time since 1993". And a round only on the calendar, not yet raced, no longer counts as the last time F1 was there.
+
 ## 5.5.0
 
 My Team's Car development, Finances and Sponsors, rebuilt around how F1 25's My Team works.

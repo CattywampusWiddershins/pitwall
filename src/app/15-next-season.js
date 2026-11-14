@@ -45,8 +45,11 @@ function trackWinners(c, tid) {
 /** The last year a track was raced, in this career or in real life before it. */
 function lastHeld(c, tid, before) {
   let y = null;
-  for (const s of c.seasons) if (s.year < before && activeRounds(s).some(r => roundTrackId(r) === tid)) y = Math.max(y || 0, s.year);
+  for (const s of c.seasons) if (s.year < before && !isHist(s) && activeRounds(s).some(r => roundTrackId(r) === tid && s.weekends[r.id]?.sessions?.R?.done)) y = Math.max(y || 0, s.year); // (a race run, not one only on the calendar)
   for (const [yr, h] of Object.entries(H.seasons || {})) if (+yr < before && h.rounds.some(r => (r.track || H.roundTrack[r.id] || r.id) === tid)) y = Math.max(y || 0, +yr);
+  // before 2016 (where the season-by-season results start): the World Map's record of every Grand Prix since 1950, for a
+  // built-in track or one added from it (Kyalami last held one in 1993)
+  if (!y) { const T = D.TRACKS[tid]; const x = window.F1WORLD?.circuits?.find(o => (T?.wc && o.id === T.wc) || o.track === tid); if (x?.last && x.last < before) y = x.last; }
   return y;
 }
 function renderNextSeason(c, s, only = null) {

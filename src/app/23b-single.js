@@ -82,7 +82,7 @@ function wmPreset(id) {
   const about = `${name} held ${gpWord(x.gps)} ${span}${x.races?.[0] ? `, as the ${x.races.join(', the ')}` : ''}.`
     + (top.length ? ` Its most frequent winner${top.length > 1 ? 's' : ''}: ${top.map(who).join(', ')}.` : '')
     + (x.lastWin ? ` The last, in ${x.lastWin.year}, was won by ${proseName(x.lastWin.name)}.` : '');
-  return { wc: x.id, gp: country, circuit: name, city: x.loc || '', country, laps: x.laps || '', km: x.km || '', corners: '', firstGP: x.first || '', about,
+  return { wc: x.id, gp: country, circuit: name, city: x.loc || '', country, laps: x.km ? distanceLaps(x.km) : x.laps || '', km: x.km || '', corners: '', firstGP: x.first || '', about,
     record: x.record || null, map: x.map || null };
 }
 function drawTrackAddModal() {
@@ -108,7 +108,7 @@ function swAddTrack(add) {
   if (!(+add.km > 0)) return { error: 'Give the track its lap length in km (it sets the race distance)' };
   let id = 'x-' + (swSlug(circuit) || 'track'); while (D.TRACKS[id] && !D.TRACKS[id].custom) id += '2';
   const gp = (add.gp || '').trim() || country; const km = +add.km; const year = +add.firstGP || null;
-  const t = { circuit, gp, country, city: (add.city || '').trim() || country, laps: Math.max(1, Math.round(+add.laps || 50)), km, corners: +add.corners || null, firstGP: year,
+  const t = { circuit, gp, country, city: (add.city || '').trim() || country, laps: Math.max(1, Math.round(+add.laps || distanceLaps(km))), km, corners: +add.corners || null, firstGP: year,
     about: (add.about || '').trim() || `${circuit}${add.city ? `, in ${add.city.trim()}` : ''}: the home of the ${gp} Grand Prix in your Pitwall.`, record: null };
   // from the World Map: the circuit it is, its real outline and the fastest race lap there
   const pre = add.wc ? wmPreset(add.wc) : null; if (pre) { t.wc = pre.wc; if (pre.map) t.map = pre.map; if (pre.record) t.record = pre.record; }
