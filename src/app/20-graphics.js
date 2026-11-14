@@ -828,7 +828,10 @@ async function gfxCalendar(g, k, c, s, { year, cal = null, fresh = [] }) {
   const W = GFX_W, H = GFX_H; g.fillStyle = '#F1F1F1'; g.fillRect(0, 0, W, H);
   gfxDiag(g, 0, 0, W, H, { gap: 18, width: 6, alpha: 0.035, color: '#000000' });
   // an announced calendar for a season that doesn't exist yet gets its dates the way a real one would
-  const se = c.seasons.find(x => x.year === year) || { year, calendar: (cal || []).map(([id, name, venue, track, sprint]) => ({ id, name, venue, track, sprint: !!sprint })) }; const rounds = activeRounds(se);
+  // the calendar as it was announced (a round changed since keeps its announced place), dated from the season where it has the round
+  const real = c.seasons.find(x => x.year === year);
+  const se = cal ? { ...(real || {}), year, calendar: cal.map(([id, name, venue, track, sprint]) => ({ ...(real?.calendar.find(x => x.id === id) || {}), id, name, venue, ...(track ? { track } : {}), sprint: !!sprint, off: false })) } : real;
+  if (!se) return false; const rounds = activeRounds(se);
   if (!rounds.length) return false;
   await k.logo(50, 40, 300, 100, GFX_RED, 'left');
   k.text(String(year), 50, 210, { size: 150, weight: 900, color: '#15151E' });

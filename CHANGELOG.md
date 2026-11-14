@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.7.2
+
+- **A calendar announcement shows the calendar as it was announced.** Once the season it announced had started, its graphic was drawn from that season's calendar as it is now, so the 2027 calendar announced during 2026 showed Kyalami, brought in mid-2027, instead of Miami. It now shows the rounds that were announced, dated as the season runs them.
+
 ## 5.7.1
 
 - **The expected strategies after Friday.** The post-Friday story now gives the quickest plan from Friday's long runs, with its tyres and the laps to stop on (and the window around each stop), then the next two plans and how much slower they are: "The quickest way through the 50 laps looks like a two-stop: Medium, Medium, then Hard, stopping on laps 18 (13 to 23) and 36 (31 to 40). A one-stop on Medium to Hard is 0.3s slower..."
