@@ -324,6 +324,8 @@ function engTickSession(S) {
 // the cars you've asked to be kept updated on, this race
 let engWatch = { uid: null, ids: new Set() };
 const engWatchSet = (S, x, on) => { if (engWatch.uid !== S.L.uid) engWatch = { uid: S.L.uid, ids: new Set() }; if (on) engWatch.ids.add(x.i); else engWatch.ids.delete(x.i); if (engMem.watch) delete engMem.watch[x.i]; };
+/** What the engineer says to an instruction: just an acknowledgement, never how it works. */
+const engAck = () => ['Copy.', 'Copy that.', 'Understood.', 'Will do.', 'Copy, will do.'][Math.floor(Math.random() * 5)];
 const engNoRace = 'No live race right now. Once you are on track, I will have the numbers.';
 /*
   The instructions: each has its keywords (a sentence needs one from every group in `k`; a longer phrase that matches
@@ -355,9 +357,9 @@ const ENG_INTENTS = [
   { id: 'standings', race: true, cat: 'The race', title: 'The championship', k: [['championship', 'standings', 'title', 'table', 'points lead', 'championship lead']], ex: ['How’s the championship looking?', 'Where are we in the standings?'],
     say: (S) => { let R; try { R = liveStandings(S.c, S.s, S.r, S.L, S.idOf, 'driver').rows; } catch { return 'I can’t work out the standings right now.'; } const k = R.findIndex(x => x.id === PLAYER); if (k < 0) return 'You’re not in the standings yet.'; const lead = R[0]; return k === 0 ? `As it stands, you lead the championship by ${R[1] ? R[0].pts - R[1].pts : 0} points.` : `As it stands, you are P${k + 1} in the championship on ${R[k].pts}, ${lead.pts - R[k].pts} behind ${lastName(dName(S.s, lead.id))}.`; } },
   { id: 'watch', cat: 'The race', title: 'Follow a car', k: [['keep me updated on', 'keep me posted on', 'update me on', 'updates on', 'keep an eye on', 'watch', 'follow', 'track', 'tell me about', 'let me know about', 'let me know if', 'tell me if']], ex: ['Keep me updated on Piastri', 'Keep an eye on the car behind', 'Let me know if Norris pits'], car: true,
-    say: (S, E, x) => { if (!x) { engSet({ chat: 3 }); return 'Copy. I will give you the gaps every lap.'; } engWatchSet(S, x, true); return `Copy, I'll keep you updated on ${S.name(x)}: the gap every lap when they're right behind or ahead, every few laps otherwise, and their stops.`; } },
+    say: (S, E, x) => { if (!x) { engSet({ chat: 3 }); return engAck(); } engWatchSet(S, x, true); return engAck(); } },
   { id: 'unwatch', cat: 'The race', title: 'Stop following a car', k: [['stop updates on', 'no more updates on', 'stop watching', 'forget about', 'stop following', 'stop tracking', 'no updates on', 'dont need updates on', "don't need updates on"]], ex: ['Stop updates on Piastri', 'Forget about Norris'], car: true,
-    say: (S, E, x) => { if (!x) { engWatch = { uid: null, ids: new Set() }; return 'Copy, no more updates on other cars.'; } engWatchSet(S, x, false); return `Copy, no more on ${S.name(x)}.`; } },
+    say: (S, E, x) => { if (!x) { engWatch = { uid: null, ids: new Set() }; return engAck(); } engWatchSet(S, x, false); return engAck(); } },
   // ---- tyres and stops
   { id: 'tyres', cat: 'Tyres and stops', title: 'Tyres', k: [['tyre', 'tyres', 'wear', 'grip', 'rubber', 'compound', 'degradation', 'deg', 'softs', 'mediums', 'hards', 'inters', 'what is he on', 'what is she on', 'what are they on', 'what are they on']], ex: ['How are my tyres?', 'What tyres is Hamilton on?', 'How much wear?', 'What is the car ahead on?'], car: true,
     say: (S, E, x) => x ? `${S.name(x)} is on ${engCarTyre(S, x)}${x.stops ? `, ${plural(x.stops, 'stop')} made` : ', no stops yet'}.` : `${cap1(engCarTyre(S, S.me))}.${S.ST?.curLife != null ? ` About ${plural(Math.max(0, S.ST.curLife), 'lap')} left in them.` : ''}` },
@@ -402,9 +404,9 @@ const ENG_INTENTS = [
   // ---- the radio itself
   { id: 'check', cat: 'The radio', title: 'Radio check', k: [['radio check', 'hear me', 'can you hear', 'testing', 'is this working', 'mic check']], ex: ['Radio check', 'Can you hear me?'], live: false, say: () => 'Loud and clear.' },
   { id: 'repeat', cat: 'The radio', title: 'Say it again', k: [['repeat', 'say again', 'say that again', 'didnt catch', "didn't catch", 'pardon', 'come again', 'what did you say']], ex: ['Say again?', 'Repeat that'], live: false, say: () => engLast || 'Nothing to repeat.' },
-  { id: 'quiet', cat: 'The radio', title: 'Less radio', k: [['quiet', 'leave me', 'shut up', 'less radio', 'stop talking', 'no more radio', 'let me drive', 'focus', 'less talking']], ex: ['Leave me alone', 'Less radio please'], live: false, say: () => { engSet({ chat: 1 }); return 'Copy. Only the important stuff from now.'; } },
-  { id: 'more', cat: 'The radio', title: 'More radio', k: [['more info', 'talk more', 'more radio', 'keep me updated', 'updates', 'keep me posted', 'more updates', 'every lap']], ex: ['Keep me updated', 'Gaps every lap'], live: false, say: () => { engSet({ chat: 3 }); return 'Copy. I will give you the gaps every lap.'; } },
-  { id: 'normal', cat: 'The radio', title: 'Normal radio', k: [['normal radio', 'back to normal', 'normal updates']], ex: ['Back to normal radio'], live: false, say: () => { engSet({ chat: 2 }); return 'Copy. Back to normal.'; } },
+  { id: 'quiet', cat: 'The radio', title: 'Less radio', k: [['quiet', 'leave me', 'shut up', 'less radio', 'stop talking', 'no more radio', 'let me drive', 'focus', 'less talking']], ex: ['Leave me alone', 'Less radio please'], live: false, say: () => { engSet({ chat: 1 }); return engAck(); } },
+  { id: 'more', cat: 'The radio', title: 'More radio', k: [['more info', 'talk more', 'more radio', 'keep me updated', 'updates', 'keep me posted', 'more updates', 'every lap']], ex: ['Keep me updated', 'Gaps every lap'], live: false, say: () => { engSet({ chat: 3 }); return engAck(); } },
+  { id: 'normal', cat: 'The radio', title: 'Normal radio', k: [['normal radio', 'back to normal', 'normal updates']], ex: ['Back to normal radio'], live: false, say: () => { engSet({ chat: 2 }); return engAck(); } },
   { id: 'thanks', cat: 'The radio', title: 'Thanks', low: true, k: [['thanks', 'thank you', 'cheers', 'nice one', 'good job', 'great job', 'well done']], ex: ['Thanks', 'Good job, guys'], live: false, say: () => 'No worries. Keep it up.' },
   { id: 'sorry', cat: 'The radio', title: 'Mistakes', low: true, k: [['sorry', 'my bad', 'my mistake', 'apologies', 'i messed up', 'lost it', 'spun', 'went off']], ex: ['Sorry, my mistake', 'I spun'], live: false, say: () => 'No worries. Head down, plenty of race left.' },
   { id: 'copy', cat: 'The radio', title: 'Copy', low: true, k: [['copy', 'understood', 'okay', 'ok', 'roger', 'got it', 'yes', 'yep', 'will do']], ex: ['Copy', 'Understood'], live: false, say: () => 'Copy.' },

@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 6.0.1
+
+- Work on features still being tested, switched off in this release.
+
 ## 6.0.0
 
 - **Live Session.** Live Race is now Live Session, and follows practice and qualifying as well as the race. Practice and qualifying get their own timing dashboard:
