@@ -46,7 +46,7 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day', track: 'track-news', team: 'team-news', friday: spec.mode === 'runs' ? 'friday-long-runs' : 'friday-expected-pace' }[spec.type] || spec.type; // (any other: its type)
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day', track: 'track-news', team: 'team-news', friday: spec.mode === 'runs' ? 'friday-long-runs' : 'friday-expected-pace', strategy: 'friday-strategy' }[spec.type] || spec.type; // (any other: its type)
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h', 'team'].includes(spec.type) ? '' : `${esc((spec.type === 'track' ? trackGp(spec.tid)?.name : r?.name) || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
@@ -163,7 +163,7 @@ async function drawGraphic(spec) {
   const cv = document.createElement('canvas'); cv.width = gfxWidth(spec); cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
   if (spec.type === 'title') { const ok = await gfxTitle(g, k, c, s, spec); return ok === false ? null : cv; }
-  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, team: gfxTeamNews, friday: gfxFriday, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, team: gfxTeamNews, friday: gfxFriday, strategy: gfxStrategy, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -975,6 +975,57 @@ async function gfxFriday(g, k, c, s, { mode, rows, ri }) {
     k.text(rr ? `+${(rr / 1000).toFixed(3)}` : 'FASTEST', x0 + W(rr) + 12, yr + bh / 2, { size: Math.min(24, bh * 0.85), weight: 700, color: '#B9C0CF', fam: k.body });
   }
   k.text('GAP TO THE FASTEST TEAM  ·  QUALIFYING: ITS QUICKER CAR  ·  RACE: LONG-RUN PACE A LAP, WITH RECENT RACES', GFX_W / 2, GFX_H - 40, { size: 19, weight: 600, color: '#8B97AF', align: 'center', max: GFX_W - 80, fam: k.body });
+}
+/** After Friday, the strategies: the three quickest plans as bars across the race's laps (a block per stint in its
+ *  tyre's colour, a marker on each stop with its window shaded and its laps under it, the time against the fastest), and
+ *  the tyres on Friday along the bottom (pace against the medium, loss a lap, life) with the pit stop's cost. */
+async function gfxStrategy(g, k, c, s, { laps, loss, plans, tyres = {}, ri }) {
+  const r = activeRounds(s)[ri]; if (!r || !plans?.length || !laps) return false;
+  await gfxFrame(g, k, 'STRATEGY', { sub: `AFTER FRIDAY  ·  ${gpTitle(r).toUpperCase()}` });
+  g.fillStyle = GFX_RED; g.fillRect(40, 262, GFX_W - 80, 6);
+  const INK = { 16: '#FFFFFF', 17: '#15151E', 18: '#15151E' };
+  const x0 = 60, x1 = GFX_W - 60, X = (l) => x0 + l / laps * (x1 - x0), y0 = 330, step = plans.length >= 3 ? 230 : 260;
+  const tick = laps > 60 ? 20 : 10;
+  for (let l = 0; l <= laps; l += tick) k.text(l ? String(l) : 'LAP 1', X(l), y0 - 18, { size: 22, weight: 700, color: '#9AA0AE', align: 'center', fam: k.body });
+  const word = (n) => n === 1 ? 'ONE-STOP' : n === 2 ? 'TWO-STOP' : `${n}-STOP`;
+  plans.forEach((p, i) => {
+    const y = y0 + i * step; const by = y + 62, bh = 70;
+    g.fillStyle = '#2A2F3C'; for (let l = 0; l <= laps; l += tick) g.fillRect(X(l) - 1, y, 2, 160);
+    k.text(`${i + 1}. ${word(p.seq.length - 1)}`, x0, y + 30, { size: 36, weight: 800 });
+    k.text(i ? `+${(p.dt / 1000).toFixed(1)}s` : 'FASTEST', x1, y + 30, { size: 34, weight: 800, color: i ? '#FFFFFF' : '#2FD07A', align: 'right' });
+    g.fillStyle = 'rgba(255,255,255,0.12)'; for (const [a, b] of p.win || []) g.fillRect(X(a - 0.5), by - 14, X(b + 0.5) - X(a - 0.5), bh + 28);
+    let at = 0;
+    p.seq.forEach((cmp, j) => {
+      const L = p.lens[j]; const last = j === p.seq.length - 1; const xa = X(at) + (j ? 4 : 0), xb = X(at + L) - (last ? 0 : 4);
+      g.fillStyle = COMPOUNDS[cmp]?.[2] || '#888'; g.beginPath(); g.roundRect ? g.roundRect(xa, by, xb - xa, bh, 6) : g.rect(xa, by, xb - xa, bh); g.fill();
+      const lab = xb - xa > 210 ? `${COMPOUNDS[cmp]?.[0] || '?'} · ${L} LAPS` : xb - xa > 90 ? `${COMPOUNDS[cmp]?.[0] || '?'} · ${L}` : COMPOUNDS[cmp]?.[0] || '?';
+      k.text(lab, (xa + xb) / 2, by + bh / 2, { size: 32, weight: 900, color: INK[cmp] || '#FFFFFF', align: 'center', max: xb - xa - 12 });
+      at += L;
+      if (!last) {
+        g.fillStyle = '#FFFFFF'; g.beginPath(); g.moveTo(X(at), by + bh + 14); g.lineTo(X(at) - 11, by + bh + 32); g.lineTo(X(at) + 11, by + bh + 32); g.closePath(); g.fill();
+        k.text(`LAP ${at}`, X(at), by + bh + 50, { size: 24, weight: 700, align: 'center' });
+        const w = p.win?.[j]; if (w && w[1] > w[0]) k.text(`${w[0]}–${w[1]}`, X(at), by + bh + 76, { size: 20, weight: 600, color: '#8B97AF', align: 'center', fam: k.body });
+      }
+    });
+  });
+  // the tyres on Friday
+  const comps = [16, 17, 18].filter(x => tyres[x]); const ty = 1040;
+  if (comps.length) {
+    g.fillStyle = GFX_ROW; g.fillRect(40, ty, GFX_W - 80, 190);
+    k.text('THE TYRES ON FRIDAY', 64, ty + 36, { size: 24, weight: 700, color: '#9AA0AE' });
+    if (loss) k.text(`PIT STOP ${(loss / 1000).toFixed(0)}s`, GFX_W - 64, ty + 36, { size: 24, weight: 700, color: '#9AA0AE', align: 'right' });
+    const ref = tyres[17]?.base ?? null; const cw = (GFX_W - 128) / 3;
+    comps.forEach((cmp, j) => {
+      const T = tyres[cmp]; const cx = 64 + j * (cw + 8), yy = ty + 66;
+      g.strokeStyle = COMPOUNDS[cmp][2]; g.lineWidth = 10; g.beginPath(); g.arc(cx + 34, yy + 50, 32, 0, Math.PI * 2); g.stroke();
+      k.text(COMPOUNDS[cmp][0], cx + 34, yy + 50, { size: 30, weight: 900, align: 'center' });
+      k.text(COMPOUNDS[cmp][1].toUpperCase(), cx + 84, yy + 20, { size: 28, weight: 800, max: cw - 96 });
+      const vs = ref != null && cmp !== 17 ? (T.base - ref) / 1000 : null;
+      k.text(cmp === 17 || vs == null ? (cmp === 17 ? 'Reference' : '') : `${vs > 0 ? '+' : '−'}${Math.abs(vs).toFixed(2)}s a lap`, cx + 84, yy + 56, { size: 22, weight: 600, color: '#C8CEDA', fam: k.body, max: cw - 96 });
+      k.text(`+${(T.deg / 1000).toFixed(3)}s / lap${T.life ? ` · ${T.life} laps` : ''}`, cx + 84, yy + 86, { size: 22, weight: 600, color: '#C8CEDA', fam: k.body, max: cw - 96 });
+    });
+  }
+  k.text('FROM THE GRID’S FRIDAY LONG RUNS  ·  SHADED: THE PIT WINDOW, WITHIN 2.5s OF THE BEST LAP TO STOP', GFX_W / 2, GFX_H - 40, { size: 19, weight: 600, color: '#8B97AF', align: 'center', max: GFX_W - 80, fam: k.body });
 }
 /** A team joining or returning to the grid, laid out like a driver's breaking news: framed in its main colour, its
  *  logo large on its second colour (its short name, in its main colour, where it has no logo). */

@@ -867,7 +867,8 @@ function fridayStory(c, s, i, r, { name, last, tName }) {
     body.push(t);
   }
   return { id: rid + 'fri', seq: i * 10 + 0.15 + ni * 0.1, kind: 'friday', i, r, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Friday', headline, standfirst, body, quotes: [],
-    fridayGfx: { rows: T.map(o => [o.team.id, o.team.name, o.team.color, Math.round(o.q), Math.round(o.r), o.box ? o.box.map(Math.round) : null]) } };
+    fridayGfx: { rows: T.map(o => [o.team.id, o.team.name, o.team.color, Math.round(o.q), Math.round(o.r), o.box ? o.box.map(Math.round) : null]) },
+    stratGfx: S.length ? { laps: F.laps, loss: Math.round(F.loss), plans: S.map(p => ({ seq: p.seq, lens: p.lens, win: p.windows, dt: Math.round(p.dt) })), tyres: F.tyres } : null };
 }
 function storyGfx(s, x) {
   if (x.seasonGfx) return seasonGfxSet(career(), s).map(v => ({ type: 'season', ...v, si: s.index, ri: 0 }));
@@ -893,6 +894,7 @@ function storyGfx(s, x) {
   if (x.lapGfx) out.push({ type: 'graph', mode: 'laps', ...base });
   if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
   if (x.fridayGfx) out.push({ type: 'friday', mode: 'pace', ...x.fridayGfx, ...base }, { type: 'friday', mode: 'runs', ...x.fridayGfx, ...base });
+  if (x.stratGfx) out.push({ type: 'strategy', ...x.stratGfx, ...base });
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });
   if (x.trackGfx) out.push({ type: 'track', ...x.trackGfx, ...base });
