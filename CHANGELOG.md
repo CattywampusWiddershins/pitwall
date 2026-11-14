@@ -2,6 +2,12 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.6.1
+
+- **Track and team news graphics open again.** A track's breaking news (a new venue, a deal, a replacement like Kyalami's) and a team joining the grid couldn't be enlarged or saved, from the story or from Recent graphics on the dashboard.
+- **Other drivers' words before the weekend.** The race preview now has quotes from the driver on a winning run, the championship leader, the last winner, the nearest chaser, a driver at their home race and others near the top, each in their own words for where they stand, with a quote graphic. Yours is written for you until you do the pre-weekend interview, then it's your own words.
+- **Grands Prix by their proper names everywhere:** results, practice, standings, preview and title graphics, race reports, qualifying and sprint stories, the weekend pages, records and the AI's notes. The South African, Saudi Arabian, British and Mexico City Grands Prix (and the South African sprint), not "South Africa GP". Interviews you've already done are shown with the right name too.
+
 ## 5.6.0
 
 - **A calendar changed mid-season makes the news.** Once a session of the season has been logged, a track brought in or taken off in Settings is kept track of, and the press tells it after the last race run by then: a replacement (with the breaking track graphic), a track added with nothing replaced, or a race cancelled.
