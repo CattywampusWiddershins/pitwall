@@ -246,8 +246,8 @@ const ENG_WORDS = new Set(['the', 'and', 'nor', 'per', 'not', 'for', 'can', 'box
 const ENG_NICK = { max: 'VER', checo: 'PER', lewis: 'HAM', ham: 'HAM', charles: 'LEC', lando: 'NOR', oscar: 'PIA', george: 'RUS', carlos: 'SAI', fernando: 'ALO', nando: 'ALO', yuki: 'TSU', nico: 'HUL', hulk: 'HUL', kimi: 'ANT' };
 /** Drivers, teams, a place, the car ahead or behind, your teammate and a tyre named in what you said. */
 function engEntities(t, S) {
-  const out = { cars: [], rel: null, comp: null, pos: null, team: null };
-  const words = t.trim().split(' ');
+  const out = { cars: [], rel: null, comp: null, pos: null, team: null, fix: [] };
+  const words = t.trim().split(' ').map(w => w.replace(/'s?$/, ''));
   if (S) {
     const cars = S.L.field.filter(x => S.idOf(x.i));
     for (const x of cars) {
@@ -255,7 +255,11 @@ function engEntities(t, S) {
       // (a three-letter code counts too, unless it's an everyday word: "nor", "per")
       const hit = (w) => w === last || (w.length >= 5 && engLev(w, last) <= (last.length >= 8 ? 2 : 1)) || (parts.length > 1 && w === parts[0] && w.length > 3) || (abbr.length === 3 && w === abbr && !ENG_WORDS.has(w));
       const nick = Object.entries(ENG_NICK).some(([n, a]) => words.includes(n) && a.toLowerCase() === abbr);
-      if (x.i !== S.me.i && (words.some(hit) || (last.includes(' ') && t.includes(' ' + last + ' ')) || nick)) out.cars.push(x);
+      if (x.i !== S.me.i && (words.some(hit) || (last.includes(' ') && t.includes(' ' + last + ' ')) || nick)) {
+        out.cars.push(x);
+        // a name heard a little wrong ("lecler"): put right in what's shown
+        const w = words.find(hit); if (w && w !== last && w !== abbr && w !== parts[0]) out.fix.push([w, lastName(dName(S.s, id))]);
+      }
     }
     for (const tm of S.s.teams) { const n = tm.name.toLowerCase(); const key = n.split(' ')[0]; if (t.includes(' ' + n + ' ') || (key.length > 3 && words.includes(key))) { out.team = tm; break; } }
   }
@@ -279,8 +283,12 @@ function engTarget(S, E) {
   if (E.team) return S.L.field.filter(x => x.i !== S.me.i && teamOf(S.s, S.idOf(x.i))?.id === E.team.id).sort((a, b) => Math.abs(a.pos - S.me.pos) - Math.abs(b.pos - S.me.pos))[0] || null;
   return null;
 }
-const engRelGap = (S, x) => { if (!S.race) return !x.best ? `${S.name(x)} has no time yet` : !S.me.best ? `${S.name(x)} is on ${fmtLap(x.best)}, you have no time yet` : x.best === S.me.best ? `${S.name(x)} is on exactly your time` : `${S.name(x)} is ${(Math.abs(x.best - S.me.best) / 1000).toFixed(3)} ${x.best < S.me.best ? 'quicker' : 'slower'}`; const g = engGap(S, x); const down = (S.G[x.i]?.down ?? 0) - (S.G[S.me.i]?.down ?? 0); if (down >= 1) return `${S.name(x)} is ${plural(down, 'lap')} down`; if (down <= -1) return `${S.name(x)} is ${plural(-down, 'lap')} ahead of you`; return g >= 0 ? `${S.name(x)} is ${engSec(g)} ahead` : `${S.name(x)} is ${engSec(g)} behind`; };
+const engRelGap = (S, x) => { if (!S.race) return !x.best ? `${S.name(x)} has no time yet` : !S.me.best ? `${S.name(x)} is on ${fmtLap(x.best)}, you have no time yet` : x.best === S.me.best ? `${S.name(x)} is on exactly your time, ${fmtLap(x.best)}` : `${S.name(x)} is on ${fmtLap(x.best)}, ${(Math.abs(x.best - S.me.best) / 1000).toFixed(3)} ${x.best < S.me.best ? 'quicker' : 'slower'}`; const g = engGap(S, x); const down = (S.G[x.i]?.down ?? 0) - (S.G[S.me.i]?.down ?? 0); if (down >= 1) return `${S.name(x)} is ${plural(down, 'lap')} down`; if (down <= -1) return `${S.name(x)} is ${plural(-down, 'lap')} ahead of you`; return g >= 0 ? `${S.name(x)} is ${engSec(g)} ahead` : `${S.name(x)} is ${engSec(g)} behind`; };
 const engTrend = (S, x) => { if (!S.race) return ''; let e = null; try { e = paceEdge(S.me, x, (y) => S.L.pitLaps?.[y.i] || []); } catch { } if (e == null) return ''; const ahead = engGap(S, x) > 0; const closing = ahead ? e > 0 : e < 0; return ` ${closing ? (ahead ? "You're closing in" : "They're closing in") : (ahead ? "They're pulling away" : "You're pulling away")}, ${(Math.abs(e) / 1000).toFixed(2)} a lap.`; };
+/** Another car's times: its best (and place, outside the race), its last lap, and against yours. */
+const engLapsOf = (S, x) => { const nm = S.name(x); if (!x.best && !x.last) return `${nm} has no time yet.`;
+  const vs = !S.race && S.me.best && x.best ? (x.best === S.me.best ? ' Exactly your time.' : ` ${(Math.abs(x.best - S.me.best) / 1000).toFixed(3)} ${x.best < S.me.best ? 'quicker' : 'slower'} than you.`) : '';
+  return `${nm}'s best is ${x.best ? fmtLap(x.best) : 'not set yet'}${!S.race && x.best && x.pos ? `, P${x.pos}` : ''}.${x.last && x.last !== x.best ? ` Last lap ${fmtLap(x.last)}.` : ''}${vs}`; };
 const engCarTyre = (S, x) => x.c ? `${engTyres(x.c)}, ${plural(x.age ?? 0, 'lap')} old` : 'no tyre data';
 const engYou = (S) => !S.race ? (S.me.pos === 1 ? 'You are quickest.' : `That is you, P${S.me.pos}.`) : S.me.pos === 1 ? `You are leading.${S.behind ? ` ${S.name(S.behind)} is ${engSec(-engGap(S, S.behind))} behind.` : ''}` : `That is you, P${S.me.pos}.`;
 /*
@@ -325,12 +333,29 @@ function engTickSession(S) {
   // traffic on a flying lap: a car on an out lap or in lap within 3 s ahead on track, once a lap
   if (me.ds === 1 && S.TR?.ahead && S.TR.ahead.s < 3 && [2, 3].includes(S.TR.ahead.x.ds) && M.traffic[S.TR.ahead.x.i] !== me.lap) { M.traffic[S.TR.ahead.x.i] = me.lap; say(2, `Traffic ahead. ${S.name(S.TR.ahead.x)}, on ${S.TR.ahead.x.ds === 3 ? 'an out lap' : 'an in lap'}.`); }
   // the cars you follow, improving
-  const W = engWatch.uid === L.uid ? engWatch.ids : new Set();
-  for (const i of W) { const x = L.field.find(y => y.i === i); if (!x?.best) continue; if (M.best[i] && x.best < M.best[i]) say(1, `${S.name(x)} improves, P${x.pos}. ${engRelGap(S, x)}.`); M.best[i] = x.best; }
+  // (a lap of theirs counts once they were on a flying lap; in practice a lap on a run counts too, said only when chatty)
+  const W = engWatch.uid === L.uid ? engWatch.ids : new Set(); M.wl ||= {};
+  for (const i of W) {
+    const x = L.field.find(y => y.i === i); if (!x) continue; const nm = S.name(x);
+    const P = M.wl[i] ||= { lap: x.lap, ds: x.ds, fly: x.ds === 1, run: x.ds === 4, best: x.best || 0 };
+    if (x.ds === 1 && P.ds !== 1) say(2, `${nm} is on a push lap.`);
+    if (x.lap !== P.lap) {
+      const done = liveLaps(x).find(l => l.n === P.lap); const counts = P.fly || (L.kind === 'practice' && P.run);
+      if (done?.ms && counts) {
+        const vs = me.best ? (done.ms === me.best ? ' Exactly your time.' : ` ${(Math.abs(done.ms - me.best) / 1000).toFixed(3)} ${done.ms < me.best ? 'quicker' : 'slower'} than you.`) : '';
+        if (!done.valid) say(P.fly ? 2 : 3, `${nm}'s lap is deleted.`);
+        else if (!P.best || done.ms < P.best) say(P.fly ? 1 : 3, `${nm} ${P.best ? 'improves' : 'sets a time'}. ${fmtLap(done.ms)}, P${x.pos}.${vs}`);
+        else say(P.fly ? 2 : 3, `${nm}, ${fmtLap(done.ms)}. No improvement, still P${x.pos} on ${fmtLap(x.best || P.best)}.`);
+      }
+      P.lap = x.lap; P.fly = x.ds === 1; P.run = x.ds === 4;
+    }
+    if (x.ds === 1) P.fly = true; if (x.ds === 4) P.run = true;
+    P.ds = x.ds; if (x.best && (!P.best || x.best < P.best)) P.best = x.best;
+  }
 }
 // the cars you've asked to be kept updated on, this race
 let engWatch = { uid: null, ids: new Set() };
-const engWatchSet = (S, x, on) => { if (engWatch.uid !== S.L.uid) engWatch = { uid: S.L.uid, ids: new Set() }; if (on) engWatch.ids.add(x.i); else engWatch.ids.delete(x.i); if (engMem.watch) delete engMem.watch[x.i]; };
+const engWatchSet = (S, x, on) => { if (engWatch.uid !== S.L.uid) engWatch = { uid: S.L.uid, ids: new Set() }; if (on) engWatch.ids.add(x.i); else engWatch.ids.delete(x.i); if (engMem.watch) delete engMem.watch[x.i]; if (engMem.wl) delete engMem.wl[x.i]; };
 /** What the engineer says to an instruction: just an acknowledgement, never how it works. */
 const engAck = () => ['Copy.', 'Copy that.', 'Understood.', 'Will do.', 'Copy, will do.'][Math.floor(Math.random() * 5)];
 const engNoRace = 'No live race right now. Once you are on track, I will have the numbers.';
@@ -352,11 +377,11 @@ const ENG_INTENTS = [
   { id: 'leader', cat: 'The race', title: 'The leader', k: [['leader', 'leading', 'in the lead', 'who is first', 'winning', 'who is quickest', 'who is fastest', 'who is on top', 'top of the timesheet', 'top time', 'fastest time']], ex: ['Who’s leading?', 'Gap to the leader', 'Who is winning?'],
     say: (S) => { const x = S.byPos[0]; if (!S.race) return !x?.best ? 'Nobody has a time yet.' : x.i === S.me.i ? `You are quickest, ${fmtLap(x.best)}.` : `${S.name(x)} is quickest, ${fmtLap(x.best)}. ${engRelGap(S, x)}.`; return x.i === S.me.i ? `You are leading.${S.behind ? ` ${S.name(S.behind)} is ${engSec(-engGap(S, S.behind))} behind.` : ''}` : `${S.name(x)} is leading, ${engSec(engGap(S, x))} up the road.`; } },
   { id: 'pace', cat: 'The race', title: 'Pace', k: [['pace', 'lap times', 'laptimes', 'faster', 'quicker', 'slower', 'losing time', 'gaining', 'speed', 'how quick', 'how fast']], ex: ['How’s my pace?', 'Am I quicker than Leclerc?', 'Pace of the car behind'], car: true,
-    say: (S, E, x) => { const y = x || S.ahead || S.behind; const last = S.me.last ? `Last lap ${fmtLap(S.me.last)}.` : ''; if (!S.race) return y ? `${last} ${engRelGap(S, y)} on best laps.`.trim() : last || 'No lap times yet.'; return y ? `${last}${engTrend(S, y) || ` Not enough clean laps against ${S.name(y)} yet.`}` : last || 'No lap times yet.'; } },
-  { id: 'lastlap', cat: 'The race', title: 'Your last lap', k: [['last lap', 'my lap', 'lap time', 'how was that', 'that lap', 'my time', 'best lap']], ex: ['What was my last lap?', 'How was that lap?', 'My best lap?'],
-    say: (S) => { const b = engMem.best?.[S.me.i]; return S.me.last ? `Last lap ${fmtLap(S.me.last)}.${b && b !== S.me.last ? ` Your best is ${fmtLap(b)}.` : b ? ' That is your best.' : ''}` : 'No lap time yet.'; } },
-  { id: 'fastest', cat: 'The race', title: 'Fastest lap', k: [['fastest lap', 'purple', 'quickest lap', 'fastest car', 'fastest on track']], ex: ['Who has the fastest lap?', 'Who’s quickest on track?'],
-    say: (S) => { if (!S.race) { const x = S.byPos.find(y => y.best === S.top); return x ? `${x.i === S.me.i ? 'You have' : `${S.name(x)} has`} the fastest lap, ${fmtLap(S.top)}.` : 'No times yet.'; } const B = Object.entries(engMem.best || {}).sort((a, b) => a[1] - b[1])[0]; if (!B) return 'No fastest lap yet.'; const x = S.L.field.find(y => y.i === +B[0]); return x?.i === S.me.i ? `You have the fastest lap, ${fmtLap(B[1])}.` : `${S.name(x)} has the fastest lap, ${fmtLap(B[1])}.`; } },
+    say: (S, E, x) => { const y = x || S.ahead || S.behind; const last = S.me.last ? `Last lap ${fmtLap(S.me.last)}.` : ''; if (!S.race) return x ? engLapsOf(S, x) : y ? `${last} ${engRelGap(S, y)} on best laps.`.trim() : last || 'No lap times yet.'; return y ? `${last}${engTrend(S, y) || ` Not enough clean laps against ${S.name(y)} yet.`}` : last || 'No lap times yet.'; } },
+  { id: 'lastlap', cat: 'The race', title: 'Your last lap', k: [['last lap', 'my lap', 'lap time', 'laptime', 'time', 'times', 'best time', 'last time', 'how was that', 'that lap', 'my time', 'best lap', 'his lap', 'her lap', 'their lap', 'what did he do', 'what did she do', 'what did they do']], ex: ['What was my last lap?', 'How was that lap?', 'What’s Norris’s lap time?', 'Leclerc’s best lap?'], car: true,
+    say: (S, E, x) => { if (x && x.i !== S.me.i) return engLapsOf(S, x); const b = S.race ? engMem.best?.[S.me.i] : S.me.best; return S.me.last ? `Last lap ${fmtLap(S.me.last)}.${b && b !== S.me.last ? ` Your best is ${fmtLap(b)}.` : b ? ' That is your best.' : ''}` : 'No lap time yet.'; } },
+  { id: 'fastest', cat: 'The race', title: 'Fastest lap', k: [['fastest lap', 'purple', 'quickest lap', 'fastest car', 'fastest on track']], ex: ['Who has the fastest lap?', 'Who’s quickest on track?', 'What’s Piastri’s fastest lap?'], car: true,
+    say: (S, E, y) => { if (y && y.i !== S.me.i) return engLapsOf(S, y); if (!S.race) { const x = S.byPos.find(y => y.best === S.top); return x ? `${x.i === S.me.i ? 'You have' : `${S.name(x)} has`} the fastest lap, ${fmtLap(S.top)}.` : 'No times yet.'; } const B = Object.entries(engMem.best || {}).sort((a, b) => a[1] - b[1])[0]; if (!B) return 'No fastest lap yet.'; const x = S.L.field.find(y => y.i === +B[0]); return x?.i === S.me.i ? `You have the fastest lap, ${fmtLap(B[1])}.` : `${S.name(x)} has the fastest lap, ${fmtLap(B[1])}.`; } },
   { id: 'mate', cat: 'The race', title: 'Your teammate', k: [['teammate']], ex: ['Where’s my teammate?', 'Gap to my teammate'],
     say: (S, E, x) => x ? `${S.name(x)} is P${x.pos}. ${engRelGap(S, x)}.` : 'I can’t see your teammate.' },
   { id: 'finish', race: true, cat: 'The race', title: 'Projected finish', k: [['finish', 'projected', 'projection', 'predict', 'end up', 'expect', 'chances', 'where will i', 'podium', 'points']], ex: ['Where will I finish?', 'Can we get a podium?', 'Are we in the points?'],
@@ -370,14 +395,14 @@ const ENG_INTENTS = [
   // ---- tyres and stops
   { id: 'tyres', cat: 'Tyres and stops', title: 'Tyres', k: [['tyre', 'tyres', 'wear', 'grip', 'rubber', 'compound', 'degradation', 'deg', 'softs', 'mediums', 'hards', 'inters', 'what is he on', 'what is she on', 'what are they on', 'what are they on']], ex: ['How are my tyres?', 'What tyres is Hamilton on?', 'How much wear?', 'What is the car ahead on?'], car: true,
     say: (S, E, x) => x ? `${S.name(x)} is on ${engCarTyre(S, x)}${x.stops ? `, ${plural(x.stops, 'stop')} made` : ', no stops yet'}.` : `${cap1(engCarTyre(S, S.me))}.${S.ST?.curLife != null ? ` About ${plural(Math.max(0, S.ST.curLife), 'lap')} left in them.` : ''}` },
-  { id: 'life', race: true, cat: 'Tyres and stops', title: 'Tyre life', k: [['how long', 'last', 'make it', 'go longer', 'extend', 'life', 'to the end', 'to the flag', 'hold on']], ex: ['How long will these tyres last?', 'Can I make it to the end?', 'Can we go longer?'],
-    say: (S) => { const life = S.ST?.curLife; if (life == null) return 'Not enough laps on this set to tell yet.'; return life >= S.left ? `They should make the end. About ${plural(life, 'lap')} in them, ${plural(S.left, 'lap')} to go.` : `About ${plural(Math.max(0, life), 'lap')} left in them. They won’t make the end.`; } },
-  { id: 'boxnow', race: true, cat: 'Tyres and stops', title: 'Box this lap (you tell the team)', k: [['box this lap', 'pit this lap', 'box now', 'pit now', 'coming in', 'boxing', 'i am boxing', 'box box', 'pit me', 'bring me in', 'i want to box', 'i want to pit', 'can i box', 'should i box', 'should i pit', 'can i pit']], ex: ['Box this lap', 'I want to pit', 'Should I box?', 'Coming in'],
-    say: (S) => { const n = S.plan?.stints?.[0]?.c; const RJ = S.RJ; const out = RJ ? ` You would come out P${RJ.pos}${RJ.ahead ? `, behind ${S.name(RJ.ahead)}` : ''}.` : ''; if (S.call) return `Yes, box this lap for ${engTyres(S.call.c)}.${out}`; const k = S.ST?.k ?? S.plan?.k; return n ? `Copy. We had you stopping on lap ${S.me.lap + (k || 1) - 1}, but box this lap is fine: ${engTyres(n)}.${out}` : `Copy, box this lap.${out}`; } },
-  { id: 'stayout', race: true, cat: 'Tyres and stops', title: 'Stay out', k: [['stay out', 'staying out', 'not boxing', 'no box', 'dont box', "don't box", 'not pitting', 'one more lap', 'another lap']], ex: ['I’m staying out', 'One more lap', 'Not boxing'],
-    say: (S) => { const life = S.ST?.curLife; return `Copy, stay out.${life != null ? ` About ${plural(Math.max(0, life), 'lap')} left in these.` : ''}`; } },
-  { id: 'stop', race: true, cat: 'Tyres and stops', title: 'The next stop', k: [['box', 'pit', 'stop', 'strategy', 'plan', 'when do we', 'when are we', 'pit window', 'window']], ex: ['When do I box?', 'What’s the plan?', 'What’s the strategy?', 'When is the pit window?'],
-    say: (S) => { if (S.call) return `Box this lap for ${engTyres(S.call.c)}.`; const p = S.plan; if (!p) return S.ST?.none ? 'No plan on these tyres yet.' : 'No plan fits with the tyres left.'; if (!p.stints.length) return 'No more stops. To the flag on this set.'; const k = S.ST?.k ?? p.k; return `Next stop lap ${S.me.lap + k - 1}${p.window?.[1] > p.window?.[0] ? `, window laps ${S.me.lap + p.window[0] - 1} to ${S.me.lap + p.window[1] - 1}` : ''}, onto ${p.stints.map(x => engTyres(x.c)).join(', then ')}.`; } },
+  { id: 'life', cat: 'Tyres and stops', title: 'Tyre life', k: [['how long', 'last', 'make it', 'go longer', 'extend', 'life', 'to the end', 'to the flag', 'hold on']], ex: ['How long will these tyres last?', 'Can I make it to the end?', 'Can we go longer?'],
+    say: (S) => { if (!S.race) return S.me.age != null ? `${plural(S.me.age, 'lap')} on this set.` : 'No tyre data yet.'; const life = S.ST?.curLife; if (life == null) return 'Not enough laps on this set to tell yet.'; return life >= S.left ? `They should make the end. About ${plural(life, 'lap')} in them, ${plural(S.left, 'lap')} to go.` : `About ${plural(Math.max(0, life), 'lap')} left in them. They won’t make the end.`; } },
+  { id: 'boxnow', cat: 'Tyres and stops', title: 'Box this lap (you tell the team)', k: [['box this lap', 'pit this lap', 'box now', 'pit now', 'coming in', 'boxing', 'i am boxing', 'box box', 'pit me', 'bring me in', 'i want to box', 'i want to pit', 'can i box', 'should i box', 'should i pit', 'can i pit']], ex: ['Box this lap', 'I want to pit', 'Should I box?', 'Coming in'],
+    say: (S) => { if (!S.race) return ['Copy, box this lap.', 'Box, box. Copy.', 'Copy. Box this lap.'][Math.floor(Math.random() * 3)]; const n = S.plan?.stints?.[0]?.c; const RJ = S.RJ; const out = RJ ? ` You would come out P${RJ.pos}${RJ.ahead ? `, behind ${S.name(RJ.ahead)}` : ''}.` : ''; if (S.call) return `Yes, box this lap for ${engTyres(S.call.c)}.${out}`; const k = S.ST?.k ?? S.plan?.k; return n ? `Copy. We had you stopping on lap ${S.me.lap + (k || 1) - 1}, but box this lap is fine: ${engTyres(n)}.${out}` : `Copy, box this lap.${out}`; } },
+  { id: 'stayout', cat: 'Tyres and stops', title: 'Stay out', k: [['stay out', 'staying out', 'not boxing', 'no box', 'dont box', "don't box", 'not pitting', 'one more lap', 'another lap']], ex: ['I’m staying out', 'One more lap', 'Not boxing'],
+    say: (S) => { if (!S.race) return engAck(); const life = S.ST?.curLife; return `Copy, stay out.${life != null ? ` About ${plural(Math.max(0, life), 'lap')} left in these.` : ''}`; } },
+  { id: 'stop', cat: 'Tyres and stops', title: 'The next stop', k: [['box', 'pit', 'stop', 'strategy', 'plan', 'when do we', 'when are we', 'pit window', 'window']], ex: ['When do I box?', 'What’s the plan?', 'What’s the strategy?', 'When is the pit window?'],
+    say: (S, E, x, t) => { if (!S.race) return / (when|plan|strategy|window) /.test(t) ? 'No stops to plan in this one. Box whenever you want.' : 'Copy, box this lap.'; if (S.call) return `Box this lap for ${engTyres(S.call.c)}.`; const p = S.plan; if (!p) return S.ST?.none ? 'No plan on these tyres yet.' : 'No plan fits with the tyres left.'; if (!p.stints.length) return 'No more stops. To the flag on this set.'; const k = S.ST?.k ?? p.k; return `Next stop lap ${S.me.lap + k - 1}${p.window?.[1] > p.window?.[0] ? `, window laps ${S.me.lap + p.window[0] - 1} to ${S.me.lap + p.window[1] - 1}` : ''}, onto ${p.stints.map(x => engTyres(x.c)).join(', then ')}.`; } },
   { id: 'rejoin', race: true, cat: 'Tyres and stops', title: 'Where you’d rejoin', k: [['rejoin', 'come out', 'where would i', 'exit', 'drop to']], ex: ['Where would I come out?', 'Would I rejoin in traffic?'],
     say: (S) => S.RJ ? `If you box now, you come out P${S.RJ.pos}${S.RJ.ahead ? `, ${engSec(S.RJ.gapA)} behind ${S.name(S.RJ.ahead)}` : ', in the lead'}${S.RJ.behind ? `, ${engSec(S.RJ.gapB)} ahead of ${S.name(S.RJ.behind)}` : ''}.` : 'I can’t work that out right now.' },
   { id: 'undercut', race: true, cat: 'Tyres and stops', title: 'Undercut and overcut', k: [['undercut', 'overcut', 'jump him', 'get past in the pits', 'pit stop to pass']], ex: ['Can we undercut Norris?', 'Is the overcut on?'], car: true,
@@ -400,8 +425,8 @@ const ENG_INTENTS = [
     say: (S) => S.L.store == null ? 'No battery reading yet.' : `Battery at ${Math.round(S.L.store / 40)}%, ${(S.L.store / 1000).toFixed(1)} megajoules.${S.L.store > 2500 ? ' Plenty there, use it.' : S.L.store < 1000 ? ' Low, harvest for a bit.' : ''}` },
   { id: 'weather', cat: 'The car', title: 'Weather', k: [['weather', 'rain', 'wet', 'dry', 'forecast', 'cloud', 'sun', 'track temp', 'temperature', 'drizzle']], ex: ['Is rain coming?', 'What’s the weather doing?', 'Track temperature?'],
     say: (S) => { const W = S.L.weather; if (!W) return 'No weather from the game.'; const fc = (W.forecast || []).filter(x => x.session === S.L.sessionType && x.at > 0).slice(0, 2); return `${WEATHER[W.now]?.[0] || 'Unknown'}, track ${W.track} degrees.${fc.length ? ` In ${fc[0].at} minutes, ${fc[0].rain}% chance of rain.` : ''}${S.WC?.text ? ` ${S.WC.text.replace(':', '.')}` : ''}`; } },
-  { id: 'push', race: true, cat: 'The car', title: 'Push or look after it', k: [['push', 'attack', 'go for it', 'flat out', 'full send', 'quali mode', 'qualifying mode', 'give it everything']], ex: ['Can I push?', 'Can I go flat out?'],
-    say: (S) => { const life = S.ST?.curLife; const ok = life == null || life >= Math.min(S.left, (S.ST?.k ?? 99)) + 2; const fuel = S.FP && S.FP.end < 0; return ok && !fuel ? 'Yes, you can push. Tyres and fuel are fine.' : fuel ? 'Careful, we need to save fuel.' : 'Careful with the tyres, they need to last.'; } },
+  { id: 'push', cat: 'The car', title: 'Push or look after it', k: [['push', 'attack', 'go for it', 'flat out', 'full send', 'quali mode', 'qualifying mode', 'give it everything']], ex: ['Can I push?', 'Can I go flat out?'],
+    say: (S) => { if (!S.race) return S.L.kind === 'quali' ? 'Yes, full push. Everything you have.' : 'Yes, push when you are ready.'; const life = S.ST?.curLife; const ok = life == null || life >= Math.min(S.left, (S.ST?.k ?? 99)) + 2; const fuel = S.FP && S.FP.end < 0; return ok && !fuel ? 'Yes, you can push. Tyres and fuel are fine.' : fuel ? 'Careful, we need to save fuel.' : 'Careful with the tyres, they need to last.'; } },
   { id: 'defend', race: true, cat: 'The car', title: 'Defending', k: [['defend', 'cover', 'block', 'protect', 'under pressure']], ex: ['Do I need to defend?', 'Is he close enough to attack?'],
     say: (S) => { const b = S.behind; if (!b) return 'Nobody behind you.'; const g = -engGap(S, b); return `${S.name(b)} is ${engSec(g)} behind.${g < 1000 ? ' DRS range, cover the inside.' : ''}${engTrend(S, b)}`; } },
   { id: 'damage', cat: 'The car', title: 'Damage and problems', k: [['damage', 'wing', 'broken', 'puncture', 'floor', 'problem', 'issue', 'something wrong', 'undriveable', 'vibration', 'feels weird', 'strange']], ex: ['I’ve got damage', 'Something feels wrong with the car'],
@@ -431,9 +456,18 @@ function engMatch(t) {
   return best?.I || null;
 }
 const engPrompt = () => { const s = latestSeason(); const names = s ? [...new Set(Object.values(s.drivers).map(d => lastName(d.name || '')).filter(Boolean))].slice(0, 30) : []; return `Formula 1 team radio. ${names.join(', ')}. ${(s?.teams || []).map(t => t.name).join(', ')}. Box, pit, gap, tyres, softs, mediums, hards, inters, undercut, safety car, VSC, ERS, DRS.`; };
-/** What you said, answered: { text, intent, target, reply }. */
+// words the speech recognition often gets a little wrong, put right in what's shown
+const ENG_SHOW_FIX = [[/\bgab\b/gi, 'gap'], [/\b(bocks|boks|bucks)\b/gi, 'box'], [/\bmedians\b/gi, 'mediums'], [/\bmedian\b/gi, 'medium'], [/\blabs\b/gi, 'laps'], [/\blab\b/gi, 'lap'], [/\bsafety cart\b/gi, 'safety car']];
+/** What you said as the engineer understood it: the names you meant and those few words put right. */
+function engShown(text, E) {
+  let out = String(text || '');
+  for (const [w, to] of E?.fix || []) out = out.replace(new RegExp(`(^|[^\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'giu'), (m, a) => a + to);
+  for (const [re, to] of ENG_SHOW_FIX) out = out.replace(re, to);
+  return out;
+}
+/** What you said (put right, as the engineer understood it), answered: { text, intent, target, reply }. */
 async function engAnswer(text) {
-  const t = engNorm(text); const S = engSnap(); const E = engEntities(t, S); const x = engTarget(S, E);
+  const t = engNorm(text); const S = engSnap(); const E = engEntities(t, S); const x = engTarget(S, E); text = engShown(text, E);
   let I = engMatch(t);
   if (!I && (E.cars.length || E.team)) I = ENG_INTENTS.find(i => i.id === 'gap'); // just a name: where they are
   if (!I) return { text, intent: null, reply: 'Say again?' };
@@ -496,8 +530,8 @@ async function engRecStop() {
   if (!res?.ok) { engTestSet({ state: res?.error === 'not_installed' ? 'Speech recognition isn’t downloaded yet.' : 'Couldn’t make that out.' }); return; }
   const heard = res.text.trim(); if (!heard) { engTestSet({ state: 'Didn’t hear anything. Check the microphone.' }); return; }
   const A = await engAnswer(heard);
-  engTestSet({ state: '', heard, intent: A.intent ? A.intent.title + (A.target ? ` · ${A.target}` : '') : 'Nothing matched', reply: A.reply });
-  engSay(A.reply, { prio: 1, me: heard });
+  engTestSet({ state: '', heard: A.text, intent: A.intent ? A.intent.title + (A.target ? ` · ${A.target}` : '') : 'Nothing matched', reply: A.reply });
+  engSay(A.reply, { prio: 1, me: A.text });
   if (!engVoiceReady() && !engRadioHere()) toast(`Engineer: ${A.reply}`);
 }
 function engTestSet(p) { engTest = { ...(engTest || {}), ...p }; const el = document.getElementById('eng-test'); if (el) el.innerHTML = engTestHtml(); }

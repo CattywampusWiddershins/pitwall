@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 6.0.5
+
+- Work on features still being tested, switched off in this release.
+
 ## 6.0.4
 
 - A race from a single weekend no longer shows up in your career as a race that was never logged, after the single weekend is deleted or while you switch between saves. A recording that still shows up in the wrong save has a **Not this career’s** button to put it aside.
