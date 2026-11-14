@@ -338,6 +338,8 @@ function buildStories(c, s) {
       out.push({ id: rid + k.toLowerCase(), seq: i * 10 + 0.1 + n * 0.1, kind: 'practice', sess: k, i, r, subject: top, outlet: outletFor(seeded(rid + k)), kicker: k === 'FP' ? 'Practice' : label,
         headline: `${last(top)} fastest in ${label}`, body: [] });
     });
+    // after Friday: what practice says about the weekend, team by team
+    { const fs = fridayStory(c, s, i, r, { name, last, tName }); if (fs) out.push(fs); }
     // sprint qualifying: as qualifying, for the sprint's grid
     if (r.sprint && ses.SQ?.done) {
       const q = ses.SQ.results.filter(x => !OUT.includes(x.st)); const pole = q[0]?.d;
@@ -817,6 +819,44 @@ function contenderStory(c, s, i, kind, stage, m, x, { name, last, tName }, seq) 
     titleGfx: { kind, stage, mode: 'pre', ids: [x.id] } };
 }
 /** The graphics that go with a story: results, standings, ratings and each contender's permutations. */
+/**
+ * The post-Friday story (after Practice 2, or Practice 1 on a sprint weekend): who's quickest over a lap, on the long
+ * runs and overall (the two counted equally), the team that's quick on one and not the other, the least consistent of
+ * the front-runners, the best of the rest and who has most to find. With the expected pace and the long runs as graphics.
+ */
+function fridayStory(c, s, i, r, { name, last, tName }) {
+  const F = fridayOutlook(c, s, r); if (!F) return null;
+  const rid = `${s.index}-${r.id}`; const rnd = seeded(rid + 'fri'); const T = F.teams; const n = (o) => o.team.name;
+  const sec = (ms) => (ms / 1000).toFixed(2) + 's';
+  const byQ = T.slice().sort((a, b) => a.q - b.q), byR = T.slice().sort((a, b) => a.r - b.r);
+  const Q = byQ[0], R = byR[0], A = T[0], B = T[1]; const same = Q === R;
+  const qRank = (o) => byQ.indexOf(o) + 1, rRank = (o) => byR.indexOf(o) + 1;
+  const headline = same ? choose(rnd, [`${n(A)} the team to beat after Friday in ${r.name}`, `${n(A)} on top on Friday: quickest over a lap and on the long runs`])
+    : choose(rnd, [`${n(Q)} quickest over a lap, ${n(R)} on the long runs: Friday in ${r.name}`, `${n(R)} look strongest for the race, ${n(Q)} for qualifying`]);
+  const fr = F.front.filter(d => s.drivers[d]);
+  const standfirst = fr.length >= 3 ? `If Friday holds, ${name(fr[0])} leads the way in qualifying, with ${name(fr[1])} and ${name(fr[2])} close behind.` : `What Friday’s practice says about the ${gpTitle(r)}.`;
+  const body = [];
+  body.push(same ? `${n(A)} come out of Friday on top on both counts: their quicker car is forecast fastest in qualifying, and their long runs were the best of the field per lap.${B ? ` ${n(B)} are next overall, ${sec(B.q)} back over one lap and ${sec(B.r)} a lap in the race.` : ''}`
+    : `${n(Q)} have the edge over one lap, ${sec(byQ[1].q)} clear of ${n(byQ[1])}. On the long runs it’s ${n(R)}, ${sec(byR[1].r)} a lap up on ${n(byR[1])}. Taking both together, ${n(A)} come out on top${B ? `, ahead of ${n(B)}` : ''}.`);
+  // the puzzle: a front-runner far better on one than the other, and the least consistent long runs at the front
+  const top = T.slice(0, 5); const odd = top.map(o => ({ o, d: rRank(o) - qRank(o) })).filter(x => Math.abs(x.d) >= 2).sort((a, b) => Math.abs(b.d) - Math.abs(a.d))[0];
+  const spread = T.slice(0, 4).filter(o => o.box).sort((a, b) => (b.box[3] - b.box[1]) - (a.box[3] - a.box[1]))[0];
+  const p2 = [];
+  if (odd) p2.push(odd.d > 0 ? `${n(odd.o)} are the puzzle. Over one lap they are ${ordWord(qRank(odd.o))}, ${odd.o.q ? `just ${sec(odd.o.q)} off` : 'the quickest'}, but on the long runs they drop to ${ordWord(rRank(odd.o))}, ${sec(odd.o.r)} a lap down.`
+    : `${n(odd.o)} look better for Sunday than Saturday: ${ordWord(qRank(odd.o))} over one lap, but ${ordWord(rRank(odd.o))} on the long runs.`);
+  if (spread) p2.push(spread === odd?.o ? 'Their long-run laps were also the most spread out of the leading teams.' : `${n(spread)}’${/s$/.test(n(spread)) ? '' : 's'} long runs were the least consistent of the leading teams.`);
+  const mine = T.find(o => o.team.id === s.playerTeamId); const mineAt = T.indexOf(mine) + 1;
+  if (mine && ![A, B, Q, R, odd?.o, spread].includes(mine)) p2.push(`${n(mine)}${isPrincipal(c) ? ', your team,' : `, with ${last(PLAYER)},`} are ${ordWord(mineAt)} overall: ${ordWord(qRank(mine))} over a lap and ${ordWord(rRank(mine))} on the long runs.`);
+  if (p2.length) body.push(p2.join(' '));
+  if (T.length >= 7) {
+    const gap = T[4].all - T[3].all; const last3 = T[T.length - 1];
+    body.push(`${gap >= 300 ? `Behind them there’s a gap of ${sec(gap)} to ${n(T[4])}` : `${n(T[4])} lead the rest`}, best of the rest ahead of ${n(T[5])} and ${n(T[6])}. ${n(last3)} have the most to find: ${sec(last3.q)} over a lap and ${sec(last3.r)} a lap in the race.`);
+  }
+  const lastKey = F.keys[F.keys.length - 1]; const ni = ['FP1', 'FP2', 'FP3', 'FP'].indexOf(lastKey);
+  if (F.plan?.stops) body.push(`The forecast points to ${F.plan.stops === 1 ? 'a one-stop' : F.plan.stops === 2 ? 'a two-stop' : `a ${F.plan.stops}-stop`} race.`);
+  return { id: rid + 'fri', seq: i * 10 + 0.15 + ni * 0.1, kind: 'friday', i, r, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Friday', headline, standfirst, body, quotes: [],
+    fridayGfx: { rows: T.map(o => [o.team.id, o.team.name, o.team.color, Math.round(o.q), Math.round(o.r), o.box ? o.box.map(Math.round) : null]) } };
+}
 function storyGfx(s, x) {
   if (x.seasonGfx) return seasonGfxSet(career(), s).map(v => ({ type: 'season', ...v, si: s.index, ri: 0 }));
   if (x.preQuoteGfx?.quotes?.length) return [{ type: 'quote', ...x.preQuoteGfx, solo: x.preQuoteGfx.quotes.length === 1, si: s.index, ri: 0 }];
@@ -840,6 +880,7 @@ function storyGfx(s, x) {
   if (x.graphIds?.length >= 2) out.push({ type: 'graph', mode: 'rivalry', ids: x.graphIds, ...base });
   if (x.lapGfx) out.push({ type: 'graph', mode: 'laps', ...base });
   if (x.kind === 'preview' && /-pv$/.test(x.id)) out.push({ type: 'preview', ...base });
+  if (x.fridayGfx) out.push({ type: 'friday', mode: 'pace', ...x.fridayGfx, ...base }, { type: 'friday', mode: 'runs', ...x.fridayGfx, ...base });
   if (x.calGfx) out.push({ type: 'calendar', ...x.calGfx, ...base });
   if (x.trId) out.push({ type: 'breaking', tr: x.trId, ...base });
   if (x.trackGfx) out.push({ type: 'track', ...x.trackGfx, ...base });
@@ -872,7 +913,7 @@ function quoteGfx(s, x) {
 function storyHtml(c, s, x, lead = false) {
   const G = storyGfx(s, x); const has = (t) => G.some(o => o.type === t);
   const when = x.r ? `R${x.i + 1} · ${esc(x.r.name)} · ${fmtDay(roundDate(s, x.r))}` : x.i < 0 ? 'Pre-season' : '';
-  const kcls = { race: 'done', title: 'next', preview: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next', rivalry: 'dnf', incident: 'dnf', battle: 'sprint', review: 'next' }[x.kind] || '';
+  const kcls = { race: 'done', title: 'next', preview: 'sprint', friday: 'sprint', rumour: 'dnf', record: 'next', milestone: 'done', transfer: 'breaking', dotd: 'next', rivalry: 'dnf', incident: 'dnf', battle: 'sprint', review: 'next' }[x.kind] || '';
   const q = (x.quotes || []).filter(Boolean);
   return `<article class="article story ${lead ? 'lead' : ''} ${x.kind === 'transfer' ? 'breaking' : ''} ${x.massive ? 'massive' : ''} ${x.fanVoice ? 'fan-voice' : ''}">
     <div class="row" style="justify-content:space-between">${x.fanVoice ? fvMark(true) : `<span class="outlet">${esc(x.outlet)}</span>`}<span class="row" style="gap:8px"><span class="tag ${kcls}">${esc(x.kicker)}</span><span class="muted" style="font-size:12px">${when}</span></span></div>

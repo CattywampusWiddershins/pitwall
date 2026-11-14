@@ -46,7 +46,7 @@ async function gfxModal(key) {
   const spec = _gfxSpecs.get(key); if (!spec) return;
   const url = await gfxURL(spec); if (!url) return;
   const s = career().seasons[spec.si]; const r = activeRounds(s)[spec.ri];
-  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day', track: 'track-news', team: 'team-news' }[spec.type] || spec.type; // (any other: its type)
+  const what = { standings: spec.kind === 'team' ? 'team-standings' : 'driver-standings', results: { R: 'race', SPR: 'sprint', Q: 'qualifying', SQ: 'sprint-qualifying' }[spec.k], class: { FP1: 'practice-1', FP2: 'practice-2', FP3: 'practice-3', FP: 'practice' }[spec.k], ratings: spec.season ? 'season-ratings' : spec.span === 'last5' ? 'last-5-ratings' : 'driver-ratings', perm: 'permutations-' + String(spec.who).toLowerCase(), title: spec.mode === 'won' ? (spec.kind === 'team' ? 'constructors-champions' : 'world-champion') : 'title-showdown', pole: 'pole', winner: 'winner', h2h: 'head-to-head', leaderboard: 'career-leaderboard', preview: 'preview', season: 'season-preview', calendar: 'calendar', breaking: 'breaking', record: spec.kind === 'milestone' ? 'milestone' : 'record', quote: 'quote', graph: spec.mode === 'laps' ? 'title-lap-by-lap' : 'points-graph', award: spec.kind === 'dots' ? 'driver-of-the-season' : 'driver-of-the-day', track: 'track-news', team: 'team-news', friday: spec.mode === 'runs' ? 'friday-long-runs' : 'friday-expected-pace' }[spec.type] || spec.type; // (any other: its type)
   ui.modal = { kind: 'card', url, name: `pitwall-${s.year}-r${spec.ri + 1}-${what}.png` };
   modal(`<div class="modal-h"><h2>${['leaderboard', 'h2h', 'team'].includes(spec.type) ? '' : `${esc((spec.type === 'track' ? trackGp(spec.tid)?.name : r?.name) || '')} · `}${esc(what.replace(/-/g, ' '))}</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
     <div class="modal-b"><img src="${url}" alt="" style="width:100%;max-width:540px;display:block;margin:0 auto;border-radius:6px"></div>
@@ -163,7 +163,7 @@ async function drawGraphic(spec) {
   const cv = document.createElement('canvas'); cv.width = gfxWidth(spec); cv.height = gfxHeight(spec); const g = cv.getContext('2d'); const k = gfxKit(g);
   if (spec.type === 'award') return gfxAward(c, s, spec.kind, spec.ri);
   if (spec.type === 'title') { const ok = await gfxTitle(g, k, c, s, spec); return ok === false ? null : cv; }
-  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, team: gfxTeamNews, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
+  const ok = await ({ class: gfxClass, standings: gfxStandings, results: gfxResults, ratings: gfxRatings, perm: gfxPerm, track: gfxTrack, team: gfxTeamNews, friday: gfxFriday, pole: gfxPole, winner: gfxWinner, leaderboard: gfxLeaderboard, h2h: gfxH2H, preview: gfxPreview, calendar: gfxCalendar, breaking: gfxBreaking, record: gfxRecord, quote: gfxQuote, season: gfxSeason, graph: spec.mode === 'laps' ? gfxLapGraph : gfxGraph }[spec.type])?.(g, k, c, s, spec);
   return ok === false ? null : cv;
 }
 
@@ -934,6 +934,48 @@ async function gfxTrack(g, k, c, s, { tid, kick = 'Breaking', line = '' }) {
   k.text(line.toUpperCase(), 50, GFX_H - 80, { size: 44, weight: 600, color: ink, max: GFX_W - 100 });
 }
 
+/** After Friday, two graphics: each team's expected pace (bars: qualifying, its quicker car; race, long-run pace a
+ *  lap), and its long runs (box and whiskers: every long-run lap, tyres evened out; box the middle half, white line
+ *  the median, whiskers quickest to slowest). Rows: [teamId, name, colour, quali gap, race gap, box] in ms. */
+async function gfxFriday(g, k, c, s, { mode, rows, ri }) {
+  const r = activeRounds(s)[ri]; if (!r || !rows?.length) return false;
+  const runs = mode === 'runs'; const R = runs ? rows.filter(x => x[5]).sort((a, b) => a[5][2] - b[5][2]) : rows; if (R.length < 3) return false;
+  await gfxFrame(g, k, runs ? 'LONG RUNS' : 'EXPECTED PACE', { sub: `AFTER FRIDAY  ·  ${gpTitle(r).toUpperCase()}` });
+  const top = runs ? 300 : 310, bottom = GFX_H - 80, rh = Math.min(92, (bottom - top) / R.length); const x0 = 470, x1 = GFX_W - (runs ? 50 : 150);
+  const team = (id) => s.teams.find(t => t.id === id) || { id, name: id };
+  g.fillStyle = GFX_RED; g.fillRect(40, top - 40, GFX_W - 80, 6);
+  if (runs) {
+    const lo = Math.min(...R.map(x => x[5][0])), hi = Math.max(...R.map(x => x[5][4])); const a = Math.floor(lo / 1000), b = Math.ceil(hi / 1000);
+    const X = (v) => x0 + (v / 1000 - a) / Math.max(1, b - a) * (x1 - x0);
+    for (let v = a; v <= b; v++) { g.fillStyle = v ? '#2A2F3C' : '#5A6378'; g.fillRect(X(v * 1000) - 1, top - 6, 2, R.length * rh + 6); k.text(`${v > 0 ? '+' : ''}${v}s`, X(v * 1000), top - 18, { size: 20, weight: 700, color: '#9AA0AE', align: 'center', fam: k.body }); }
+    for (let j = 0; j < R.length; j++) {
+      const [id, nm, col, , , bx] = R[j]; const y = top + j * rh + rh / 2;
+      g.fillStyle = col; g.fillRect(40, y - rh * 0.36, 10, rh * 0.72);
+      await gfxLogo(g, k, c, team(id), 64, y - rh * 0.3, 76, rh * 0.6, '#FFFFFF');
+      k.text(nm.toUpperCase(), 156, y, { size: Math.min(32, rh * 0.38), weight: 800, max: x0 - 176 });
+      g.strokeStyle = col; g.lineWidth = 4; g.beginPath(); g.moveTo(X(bx[0]), y); g.lineTo(X(bx[4]), y); g.moveTo(X(bx[0]), y - 14); g.lineTo(X(bx[0]), y + 14); g.moveTo(X(bx[4]), y - 14); g.lineTo(X(bx[4]), y + 14); g.stroke();
+      const bh = Math.min(40, rh * 0.5); g.fillStyle = col; g.globalAlpha = 0.4; g.fillRect(X(bx[1]), y - bh / 2, Math.max(2, X(bx[3]) - X(bx[1])), bh); g.globalAlpha = 1;
+      g.strokeRect(X(bx[1]), y - bh / 2, Math.max(2, X(bx[3]) - X(bx[1])), bh);
+      g.fillStyle = '#FFFFFF'; g.fillRect(X(bx[2]) - 3, y - bh / 2, 6, bh);
+    }
+    k.text('EVERY LONG-RUN LAP, FUEL AND TYRES EVENED OUT  ·  BOX: MIDDLE HALF  ·  WHITE: MEDIAN  ·  WHISKERS: QUICKEST TO SLOWEST', GFX_W / 2, GFX_H - 40, { size: 19, weight: 600, color: '#8B97AF', align: 'center', max: GFX_W - 80, fam: k.body });
+    return;
+  }
+  const max = Math.max(1, ...R.map(x => Math.max(x[3], x[4]))) * 1.05; const W = (v) => Math.max(4, v / max * (x1 - x0));
+  g.fillStyle = '#FFFFFF'; g.fillRect(x0, top - 26, 26, 14); k.text('QUALIFYING', x0 + 36, top - 19, { size: 20, weight: 700, color: '#C8CEDA', fam: k.body });
+  g.globalAlpha = 0.5; g.fillRect(x0 + 230, top - 26, 26, 14); g.globalAlpha = 1; k.text('RACE PACE, A LAP', x0 + 266, top - 19, { size: 20, weight: 700, color: '#C8CEDA', fam: k.body });
+  for (let j = 0; j < R.length; j++) {
+    const [id, nm, col, q, rr] = R[j]; const y = top + j * rh; const bh = Math.min(30, rh * 0.32);
+    g.fillStyle = col; g.fillRect(40, y + rh * 0.14, 10, rh * 0.72);
+    await gfxLogo(g, k, c, team(id), 64, y + rh * 0.2, 76, rh * 0.6, '#FFFFFF');
+    k.text(nm.toUpperCase(), 156, y + rh / 2, { size: Math.min(32, rh * 0.38), weight: 800, max: x0 - 176 });
+    const yq = y + rh / 2 - bh - 3, yr = y + rh / 2 + 3;
+    g.fillStyle = col; g.fillRect(x0, yq, W(q), bh); g.globalAlpha = 0.5; g.fillRect(x0, yr, W(rr), bh); g.globalAlpha = 1;
+    k.text(q ? `+${(q / 1000).toFixed(3)}` : 'FASTEST', x0 + W(q) + 12, yq + bh / 2, { size: Math.min(24, bh * 0.85), weight: 700, fam: k.body });
+    k.text(rr ? `+${(rr / 1000).toFixed(3)}` : 'FASTEST', x0 + W(rr) + 12, yr + bh / 2, { size: Math.min(24, bh * 0.85), weight: 700, color: '#B9C0CF', fam: k.body });
+  }
+  k.text('GAP TO THE FASTEST TEAM  ·  QUALIFYING: ITS QUICKER CAR  ·  RACE: LONG-RUN PACE A LAP, WITH RECENT RACES', GFX_W / 2, GFX_H - 40, { size: 19, weight: 600, color: '#8B97AF', align: 'center', max: GFX_W - 80, fam: k.body });
+}
 /** A team joining or returning to the grid, laid out like a driver's breaking news: framed in its main colour, its
  *  logo large on its second colour (its short name, in its main colour, where it has no logo). */
 async function gfxTeamNews(g, k, c, s, { id, line = '' }) {

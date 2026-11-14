@@ -2,6 +2,16 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 5.7.0
+
+Teams, Drivers and Records in the newer style, and a story after Friday practice.
+
+- **Teams as livery cards.** Each team in its colours with its car and logo, this season's place and points (with a bar against the leader), its drivers and its all-time numbers (career gains in green, as before).
+- **Drivers as portrait cards.** Each driver standing in their team's colours in front of their number, this season's place and points, the name stacked F1-style and the career numbers along the bottom. You're outlined and tagged.
+- **Team and driver pages** open with a hero in the team's colours: the car and logo (or the driver and their number), the season, the facts, then the numbers as tiles and the points season by season as a chart, your career's seasons lit up. Picture buttons sit under the hero.
+- **Records as cards**, a tab for each kind (career totals, streaks, in a season, age, constructors): the holder in their colours, the figure large, and who on today's grid is closest, with a bar towards it. The records you hold are outlined, and the ones set in your career are tagged. Records set in your career are a timeline at the side, and Held by you names the record you're nearest.
+- **After Friday.** A story once Friday's practice is in (Practice 1 and 2, or Practice 1 on a sprint weekend): the fastest team over a lap, on the long runs and overall (qualifying and race pace counted equally), a team quick on one and not the other, the least consistent of the front-runners, the best of the rest and who has most to find. Two graphics go with it: each team's expected pace (qualifying and race, bars) and its long runs (box and whiskers of every long-run lap, fuel and tyres evened out). It's worked out from Friday alone, so it doesn't change once Saturday's sessions come in.
+
 ## 5.6.1
 
 - **Track and team news graphics open again.** A track's breaking news (a new venue, a deal, a replacement like Kyalami's) and a team joining the grid couldn't be enlarged or saved, from the story or from Recent graphics on the dashboard.

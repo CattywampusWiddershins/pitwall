@@ -664,6 +664,7 @@ Object.assign(actions, {
     renderGen++; store.save(); render(); toast(`Penalty removed for ${dName(s, p.d)}`);
   },
   'cal-tab'(el) { ui.calTab = el.dataset.v; render(); },
+  'rec-tab'(el) { ui.recTab = el.dataset.v; render(); },
   'tr-new-next'() { transferModal({ nextOnly: true }); },
   'nc-move'(el) { const c = career(); const s = latestSeason(); const L = ncList(c, s); const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; store.save(); render(); },
   'nc-remove'(el) { const c = career(); const s = latestSeason(); ncList(c, s).splice(+el.dataset.i, 1); store.save(); render(); },

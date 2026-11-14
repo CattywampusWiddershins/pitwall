@@ -383,6 +383,16 @@ function renderReview() {
 }
 
 /* ---------------------------------------------------------------- drivers */
+/** A name as first names and the surname (the cards and heroes print the surname large). */
+function nameParts(nm) { const ln = lastName(nm || ''); const fn = nm && nm.endsWith(ln) ? nm.slice(0, nm.length - ln.length).trim() : ''; return [fn, ln || nm || '']; }
+/** A tile with a colour edge: label, figure (with the green career figure) and a line under it. */
+const lvTile = (label, v, extra = '', sub = '') => `<div class="lv-tile"><small>${label}</small><b>${v}${extra}</b>${sub ? `<span>${sub}</span>` : ''}</div>`;
+/** Points season by season as bars, the seasons of your career lit up. rows: [{ year, pts, career }]. */
+function lvSeasons(rows, title = 'Points, season by season') {
+  if (rows.length < 2) return '';
+  const max = Math.max(1, ...rows.map(x => x.pts));
+  return `<div class="panel"><div class="panel-h"><h2>${title}</h2><span class="muted" style="font-size:12px">Brighter: your career</span></div><div class="panel-b"><div class="lv-seasons">${rows.map(x => `<div class="${x.career ? 'career' : ''}" style="height:${Math.max(1, x.pts / max * 100)}%" title="${x.year}: ${fmtPts(x.pts)} points"><em>${fmtPts(x.pts)}</em><span>${String(x.year).slice(2)}</span></div>`).join('')}</div></div></div>`;
+}
 const refName = (id) => D.DRIVERS[id]?.name || D.HIST_DRIVERS[id] || id;
 const fmtPts = (v) => Number.isInteger(v) ? String(v) : v.toFixed(1);
 /** What the green numbers count: everything added in this career, or just this season (a setting). */
@@ -458,20 +468,27 @@ function renderDrivers() {
   return `<div class="page">
     <div class="page-head"><div><h1>Drivers</h1><div class="sub">Real F1 career totals, plus every race logged in your career (in green: added in the career, or this season).</div></div>
       <div class="row">${addScopeSeg()}${sortSel('drv-sort-sel', k, [['wins', 'Wins'], ['titles', 'Titles'], ['podiums', 'Podiums'], ['poles', 'Poles'], ['starts', 'Starts'], ['pts', 'Points'], ['fls', 'Fastest laps'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All drivers']].map(([v, l]) => `<button data-act="drv-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
-    <div class="cards">${rows.map(r => driverCard(c, s, r, name(r.id), known[r.id])).join('')}</div>
+    <div class="lv-grid drv">${rows.map(r => driverCard(c, s, r, name(r.id), known[r.id], ctx[ctx.length - 1])).join('')}</div>
   </div>`;
 }
 const sortSel = (ch, v, opts) => `<label class="row muted" style="gap:6px;font-size:13px">Sort <select data-ch="${ch}" style="width:auto">${opts.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
-/** A driver as a card: team colour, photo, number, flag and the career totals. */
-function driverCard(c, s, r, nm, entry) {
+/** A driver as a card in their team's colours: standing in front of their number, this season's place and points,
+ *  the name stacked and the career totals along the bottom. */
+function driverCard(c, s, r, nm, entry, now = null) {
   const t = teamOf(s, r.id); const col = t?.color || '#5E6A82';
   const add = (key, fmt) => plus(r.tot[key] - r.from[key], fmt);
   const nat = r.id === PLAYER_ID ? c.profile.nationality : r.bio?.nat;
-  const stat = (label, v, extra = '') => `<div><span class="label">${label}</span><b>${v}</b>${extra}</div>`;
-  return `<button class="dcard ${r.id === PLAYER ? 'me' : ''}" style="--c:${col}" data-act="open-driver" data-id="${r.id}">
-    <span class="dcard-num">${esc(entry?.number ?? '')}</span>
-    <div class="dcard-top">${avatar(c, s, r.id, 58)}<div class="dcard-who"><span class="ab">${natFlag(nat, 12)} ${esc(entry?.abbr || r.id)}</span><b>${esc(nm)}</b><small>${t ? esc(t.name) : r.bio?.feeder ? esc(r.bio.feeder) : 'Not on the grid'}${ageNow(c, r.id) != null ? ` · ${ageNow(c, r.id)}` : ''}</small></div>${r.bio?.fictional ? '<span class="tag">Fictional</span>' : ''}</div>
-    <div class="dcard-stats">${stat('Titles', r.tot.titles.length || '–')}${stat('Wins', r.tot.wins, add('wins'))}${stat('Podiums', r.tot.podiums, add('podiums'))}${stat('Poles', r.tot.poles, add('poles'))}${stat('Starts', r.tot.starts, add('starts'))}${stat('Points', fmtPts(r.tot.pts), add('pts', fmtPts))}</div>
+  const row = t && now?.done ? now.ds.find(x => x.id === r.id) : null;
+  // on the grid: their picture, else their team's default driver; off it, only a picture of their own
+  const body = t ? bodyFor(c, r.id, s) : bodyOf(c, r.id);
+  const [fn, ln] = nameParts(nm); const age = ageNow(c, r.id);
+  const stat = (label, v, extra = '') => `<div><small>${label}</small>${v}${extra}</div>`;
+  return `<button class="lv-drv ${r.id === PLAYER ? 'me' : ''}" data-n="${esc(entry?.number ?? '')}" style="--c:${col}" data-act="open-driver" data-id="${r.id}">
+    ${r.id === PLAYER ? `<span class="lv-tag">${isPrincipal(c) ? 'Lead driver' : 'You'}</span>` : r.bio?.fictional ? '<span class="lv-tag">Fictional</span>' : ''}
+    ${row ? `<div class="lv-hd"><div class="p">P${row.pos}</div><div class="pt">${fmtPts(row.pts)} PTS</div></div>` : ''}
+    ${body ? `<img class="lv-body" src="${esc(body.url)}" alt="" loading="lazy">` : `<span class="lv-face">${avatar(c, s, r.id, 120)}</span>`}
+    <div class="lv-nm">${fn ? `<span>${esc(fn)}</span>` : ''}<b>${esc(ln)}</b><i>${natFlag(nat, 11)} ${t ? esc(t.name) : r.bio?.feeder ? esc(r.bio.feeder) : 'Not on the grid'}${age != null ? ` · ${age}` : ''}</i></div>
+    <div class="lv-foot"><div class="lv-stats">${stat('Titles', r.tot.titles.length || '–')}${stat('Wins', r.tot.wins, add('wins'))}${stat('Podiums', r.tot.podiums, add('podiums'))}${stat('Poles', r.tot.poles, add('poles'))}${stat('Starts', r.tot.starts, add('starts'))}</div></div>
   </button>`;
 }
 
@@ -504,33 +521,27 @@ function renderDriver() {
 
   return `<div class="page">
     <div class="row"><button class="btn sm ghost" data-act="nav" data-view="drivers">${ICON.left} All drivers</button></div>
-    <section class="hero" style="--team:${col}">
-      <div class="stripes"></div>${carPhoto(c, team?.id) ? `<img class="hero-car" src="${esc(carPhoto(c, team.id))}" alt="">` : ''}
-      <div class="hero-pic">${avatar(c, s, id, 104)}<div class="big-num">${esc(d.number || '–')}</div></div>
-      <div style="position:relative;z-index:1;min-width:0">
-        <span class="label">${team ? `<button data-act="open-team" data-id="${team.id}" class="link-btn">${esc(team.name)}</button> · ${s.year}` : `Not on the ${s.year} grid`}</span>
-        <div class="name">${natFlag(nat, 22)} ${esc(name)}${isMe ? ` <span class="tag">${isPrincipal(c) ? 'Your lead driver' : 'You'}</span>` : ''}${bio?.fictional ? ' <span class="tag">Fictional</span>' : ''}</div>
-        <div class="meta">${nat ? `<span>${esc(nat)}</span>` : ''}${age != null ? `<span>Age ${age}</span>` : ''}${bio?.debut ? `<span>Debut: ${esc(bio.debut)}</span>` : ''}${isYou ? '' : `<span>Contract: ${esc(contractTxt(c, latestSeason(), id))}</span>`}</div>
+    <section class="lv-hero" style="--c:${col}">
+      <div class="l"><div>
+        <div class="kick">${team ? `<button data-act="open-team" data-id="${team.id}" class="link-btn">${esc(team.name)}</button>` : `Not on the ${s.year} grid`}${d.number ? ` · #${esc(d.number)}` : ''}${nat ? ` · ${natFlag(nat, 12)} ${esc(nat)}` : ''}${age != null ? ` · ${age}` : ''}${isMe ? ` · <span class="tag">${isPrincipal(c) ? 'Your lead driver' : 'You'}</span>` : ''}${bio?.fictional ? ' · <span class="tag">Fictional</span>' : ''}</div>
+        <h1>${(() => { const [fn, ln] = nameParts(name); return `${fn ? `<span>${esc(fn)}</span>` : ''}${esc(ln)}`; })()}</h1></div>
+        <div class="facts">${[me && team ? [`${s.year}`, (() => { const p = driverStandings(s).find(x => x.id === id); return p && roundsDone(s) ? `P${p.pos} · ${fmtPts(p.pts)} pts` : 'Not started'; })()] : null,
+          [ 'Debut', bio?.debut || (seasons[0] ? `${seasons[0].s.year} ${gpShort(activeRounds(seasons[0].s)[0])}` : '–') ], firstWin ? ['First win', firstWin] : null,
+          isYou ? null : ['Contract', contractTxt(c, latestSeason(), id)]].filter(Boolean).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join('')}</div>
       </div>
-      <div class="next-card">
-        <span class="label">World championships</span>
-        <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${titles.length}</div>
-        <span class="muted" style="font-size:13px">${titles.length ? titles.join(', ') : tot.bestChamp ? `Best: P${tot.bestChamp} in the championship` : 'No completed seasons yet'}</span>
-        <div class="row" style="gap:6px">${inCareer ? `<button class="btn sm" data-act="driver-h2h" data-id="${id}">${isMe ? 'Head to head' : 'Compare with you'}</button>` : ''}${isYou ? '' : `<button class="btn sm" data-act="tr-new" data-driver="${id}">${ICON.swap} Transfer</button>`}${pictureControls('driver', id, !!driverPhoto(c, id))}</div>
-        ${bodyControls(c, id, { thumb: false })}
-      </div>
+      <div class="r">${d.number ? `<span class="num">${esc(d.number)}</span>` : ''}${(() => { const b = team ? bodyFor(c, id, s) : bodyOf(c, id); return b ? `<img class="big" src="${esc(b.url)}" alt="">` : `<span class="face">${avatar(c, s, id, 160)}</span>`; })()}</div>
     </section>
+    <div class="lv-tools">${inCareer ? `<button class="btn sm" data-act="driver-h2h" data-id="${id}">${isMe ? 'Head to head' : 'Compare with you'}</button>` : ''}${isYou ? '' : `<button class="btn sm" data-act="tr-new" data-driver="${id}">${ICON.swap} Transfer</button>`}${pictureControls('driver', id, !!driverPhoto(c, id))}</div>
+    ${bodyControls(c, id, { thumb: false })}
     ${numberOneToggle(c, id)}
 
     <div class="row add-scope-row">${addScopeSeg()}</div>
-    <div class="tiles">
-      <div class="tile"><span class="label">Starts</span><span class="v">${tot.starts}${plus(add('starts'))}</span></div>
-      <div class="tile"><span class="label">Wins</span><span class="v">${tot.wins}${plus(add('wins'))}</span></div>
-      <div class="tile"><span class="label">Podiums</span><span class="v">${tot.podiums}${plus(add('podiums'))}</span></div>
-      <div class="tile"><span class="label">Poles</span><span class="v">${tot.poles}${plus(add('poles'))}</span></div>
-      <div class="tile"><span class="label">Fastest laps</span><span class="v" style="color:var(--purple)">${tot.fls}${plus(add('fls'))}</span></div>
-      <div class="tile"><span class="label">Points</span><span class="v">${fmtPts(tot.pts)}${plus(add('pts'), fmtPts)}</span></div>
+    <div class="lv-tiles" style="--c:${col}">
+      ${lvTile('Titles', titles.length || '–', '', titles.length ? titles.join(', ') : tot.bestChamp ? `Best: P${tot.bestChamp}` : '')}
+      ${lvTile('Wins', tot.wins, plus(add('wins')))}${lvTile('Podiums', tot.podiums, plus(add('podiums')))}${lvTile('Poles', tot.poles, plus(add('poles')))}
+      ${lvTile('Starts', tot.starts, plus(add('starts')))}${lvTile('Fastest laps', tot.fls, plus(add('fls')))}${lvTile('Points', fmtPts(tot.pts), plus(add('pts'), fmtPts))}
     </div>
+    <div style="--c:${col}">${lvSeasons(seasons.filter(x => x.o.starts).map(x => ({ year: x.s.year, pts: x.o.pts, career: !isHist(x.s) })))}</div>
 
     <div class="panel"><div class="panel-h"><h2>Career by season</h2><span class="muted" style="font-size:12px">Green figures are what this driver has added in your career</span></div><div class="panel-b tight table-wrap"><table>
       <thead><tr><th>Season</th><th>Team</th><th class="num">Pos</th><th class="num">Starts</th><th class="num">Pts</th><th class="num">Wins</th><th class="num">Pod</th><th class="num">Poles</th><th class="num">FL</th><th class="num">DNF</th><th class="num">Avg finish</th></tr></thead>
@@ -631,20 +642,26 @@ function renderTeams() {
   return `<div class="page">
     <div class="page-head"><div><h1>Teams</h1><div class="sub">Real F1 team records, plus every race logged in your career (in green: added in the career, or this season).</div></div>
       <div class="row">${addScopeSeg()}${sortSel('tm-sort-sel', k, [['conTitles', 'Constructors’ titles'], ['drvTitles', 'Drivers’ titles'], ['wins', 'Wins'], ['poles', 'Poles'], ['podiums', 'Podiums'], ['starts', 'Starts'], ['winPct', 'Win %'], ['name', 'Name']])}<div class="seg">${[['grid', `${s.year} grid`], ['all', 'All teams']].map(([v, l]) => `<button data-act="tm-scope" data-v="${v}" class="${scope === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
-    <div class="cards">${rows.map(r => teamCard(c, s, r)).join('')}</div>
+    <div class="lv-grid">${rows.map(r => teamCard(c, s, r, ctx[ctx.length - 1])).join('')}</div>
   </div>`;
 }
-/** A team as a card: colours, logo, this season's drivers and the record. */
-function teamCard(c, s, r) {
-  const t = s.teams.find(x => x.id === r.id);
+/** A team as a card in its livery: this season's place and points, its car and logo, its drivers and the record. */
+function teamCard(c, s, r, now = null) {
+  const t = s.teams.find(x => x.id === r.id); const bio = D.TEAM_BIO[r.id];
   const add = (key) => plus(r.tot[key] - r.from[key]);
-  const bio = D.TEAM_BIO[r.id];
-  const country = (bio?.base || '').split(',').pop().trim();
-  const stat = (label, v, extra = '') => `<div><span class="label">${label}</span><b>${v}</b>${extra}</div>`;
-  return `<button class="dcard tcard ${r.id === s.playerTeamId ? 'me' : ''}" style="--c:${r.meta.color}" data-act="open-team" data-id="${r.id}">
-    <div class="dcard-top">${teamLogo(c, r.meta, 46)}<div class="dcard-who"><span class="ab">${countryFlag(country, 12)} ${esc(bio?.short || r.meta.name.slice(0, 3).toUpperCase())}</span><b>${esc(r.meta.name)}</b><small>${bio?.since ? `Since ${bio.since}` : ''}${bio?.engine ? ` · ${esc(bio.engine)}` : ''}</small></div>${r.src?.fictional ? '<span class="tag">Fictional</span>' : ''}</div>
-    <div class="tcard-drivers">${t ? t.drivers.filter(Boolean).map(d => `<span>${avatar(c, s, d, 24)} ${esc(dName(s, d))}</span>`).join('') : '<span class="muted">Not on the grid</span>'}</div>
-    <div class="dcard-stats">${stat('Constructors’', r.tot.conTitles.length || '–')}${stat('Drivers’', r.tot.drvTitles || '–')}${stat('Wins', r.tot.wins, add('wins'))}${stat('Poles', r.tot.poles, add('poles'))}${stat('Podiums', r.tot.podiums, add('podiums'))}${stat('Starts', r.tot.starts, add('starts'))}</div>
+  const row = t && now?.done ? now.cs.find(x => x.team.id === r.id) : null; const lead = now?.cs?.[0]?.pts || 0;
+  const logo = teamLogoUrl(c, r.id) || teamLogoUrl(c, teamRoot(r.id)); const car = carPhoto(c, r.id);
+  const short = bio?.short || r.meta.name.slice(0, 3).toUpperCase();
+  const sub = r.id === MYTEAM && c.myTeam ? [c.myTeam.founded && `Since ${c.myTeam.founded}`, c.myTeam.engine].filter(Boolean).join(' · ') : [bio?.since && `Since ${bio.since}`, bio?.engine].filter(Boolean).join(' · ');
+  const stat = (label, v, extra = '') => `<div><small>${label}</small>${v}${extra}</div>`;
+  const who = (d) => { const [fn, ln] = nameParts(dName(s, d)); return `<span>${avatar(c, s, d, 26)}${fn ? esc(fn) + ' ' : ''}<b>${esc(ln)}</b></span>`; };
+  return `<button class="lv-team ${r.id === s.playerTeamId ? 'me' : ''}" style="--c:${r.meta.color}" data-act="open-team" data-id="${r.id}">
+    <div class="lv-top"><div class="lv-pos">${row ? 'P' + row.pos : esc(short)}<small>${t ? `${s.year} · ${row ? fmtPts(row.pts) + ' PTS' : 'NOT STARTED'}` : r.meta.lastYear ? `LAST RACED ${r.meta.lastYear}` : 'NOT ON THE GRID'}</small></div><div class="lv-nm">${esc(r.meta.name)}<span>${esc(sub)}</span></div></div>
+    ${logo ? `<img class="lv-logo" src="${esc(logo)}" alt="">` : ''}${r.src?.fictional ? '<span class="lv-tag">Fictional</span>' : ''}
+    ${car ? `<img class="lv-car" src="${esc(car)}" alt="" loading="lazy">` : `<div class="lv-ph">${esc(short)}</div>`}
+    <div class="lv-foot"><div class="lv-who">${t ? t.drivers.filter(Boolean).map(who).join('') : '<span class="muted">Not on the grid</span>'}</div>
+      <div class="lv-stats">${stat('Constr.', r.tot.conTitles.length || '–')}${stat('Drivers’', r.tot.drvTitles || '–')}${stat('Wins', r.tot.wins, add('wins'))}${stat('Poles', r.tot.poles, add('poles'))}${stat('Podiums', r.tot.podiums, add('podiums'))}</div>
+      ${row ? `<div class="lv-pts"><span class="t"><i style="width:${lead ? Math.max(1, row.pts / lead * 100) : 0}%"></i></span>${fmtPts(row.pts)} PTS</div>` : ''}</div>
   </button>`;
 }
 
@@ -667,32 +684,24 @@ function renderTeam() {
   for (const x of seasons) for (const d of x.drivers) { const o = seasonStatsCache(x.s)[d]; const a = (alumni[d] ||= { id: d, s: x.s, seasons: [], pts: 0, wins: 0, podiums: 0 }); a.seasons.push(x.s.year); a.s = x.s; a.pts += o?.pts || 0; a.wins += o?.wins || 0; a.podiums += o?.podiums || 0; }
   return `<div class="page">
     <div class="row"><button class="btn sm ghost" data-act="nav" data-view="teams">${ICON.left} All teams</button></div>
-    <section class="hero" style="--team:${meta.color};--team-2:${col2}">
-      <div class="stripes"></div>${carPhoto(c, id) ? `<img class="hero-car" src="${esc(carPhoto(c, id))}" alt="">` : ''}
-      ${teamLogo(c, meta, 92)}
-      <div style="position:relative;z-index:1;min-width:0">
-        <span class="label">${onGrid ? `${s.year} constructors · ${cur && roundsDone(s) ? 'P' + cur.pos : 'season not started'}` : `Not on the ${s.year} grid`}</span>
-        <div class="name">${esc(meta.name)}${src?.fictional ? ' <span class="tag">Fictional</span>' : ''}${isMine ? ' <span class="tag">Your team</span>' : ''}</div>
-        <div class="meta">${[isMine ? c.myTeam.base : bio.base, (isMine ? c.myTeam.engine : bio.engine) && `${isMine ? c.myTeam.engine : bio.engine} power`, `Team principal: ${isMine ? c.myTeam.principal || `${c.profile.first} ${c.profile.last}` : bio.principal || '–'}`].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</div>
+    <section class="lv-hero" style="--c:${meta.color}">
+      <div class="l"><div>
+        <div class="kick">${onGrid ? `${s.year} constructors · ${cur && roundsDone(s) ? `P${cur.pos} · ${fmtPts(cur.pts)} pts` : 'season not started'}` : `Not on the ${s.year} grid`}${src?.fictional ? ' · <span class="tag">Fictional</span>' : ''}${isMine ? ' · <span class="tag">Your team</span>' : ''}</div>
+        <h1>${esc(meta.name)}</h1></div>
+        <div class="facts">${[lineup.length ? ['Drivers', lineup.map(d => lastName(dName(s, d))).join(', ')] : null, [ 'Base', isMine ? c.myTeam.base : bio.base ], [ 'Power unit', isMine ? c.myTeam.engine : bio.engine ],
+          ['Team principal', isMine ? c.myTeam.principal || `${c.profile.first} ${c.profile.last}` : bio.principal]].filter(x => x && x[1]).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join('')}</div>
       </div>
-      <div class="next-card">
-        <span class="label">Constructors’ championships</span>
-        <div style="font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1">${tot.conTitles.length}</div>
-        <span class="muted" style="font-size:13px;max-width:260px">${tot.conTitles.length ? esc(tot.conTitles.join(', ')) : tot.bestCon ? `Best: P${tot.bestCon}` : 'No titles yet'}</span>
-        <div class="row" style="gap:6px">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}${fallbackControls('team', D.TEAM_BIO[id]?.lineage?.[0] || id)}</div>
-        <span class="muted" style="font-size:11px;max-width:260px">Default driver: a full body in ${esc(meta.name)} kit, shown for any of its drivers without a picture.</span>
-      </div>
+      <div class="r">${teamLogoUrl(c, id) ? `<img class="lg" src="${esc(teamLogoUrl(c, id))}" alt="">` : ''}${carPhoto(c, id) ? `<img class="big car" src="${esc(carPhoto(c, id))}" alt="">` : `<span class="face">${teamLogo(c, meta, 120)}</span>`}</div>
     </section>
+    <div class="lv-tools">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}${fallbackControls('team', D.TEAM_BIO[id]?.lineage?.[0] || id)}<span class="muted" style="font-size:11px">Default driver: a full body in ${esc(meta.name)} kit, shown for any of its drivers without a picture.</span></div>
 
     <div class="row add-scope-row">${addScopeSeg()}</div>
-    <div class="tiles">
-      <div class="tile"><span class="label">Starts</span><span class="v">${tot.starts}${plus(add('starts'))}</span></div>
-      <div class="tile"><span class="label">Wins</span><span class="v">${tot.wins}${plus(add('wins'))}</span></div>
-      <div class="tile"><span class="label">Poles</span><span class="v">${tot.poles}${plus(add('poles'))}</span></div>
-      <div class="tile"><span class="label">Podiums</span><span class="v">${tot.podiums}${plus(add('podiums'))}</span></div>
-      <div class="tile"><span class="label">Fastest laps</span><span class="v" style="color:var(--purple)">${tot.fls}${plus(add('fls'))}</span></div>
-      <div class="tile"><span class="label">Drivers’ titles</span><span class="v">${tot.drvTitles}${plus(titlesAdded)}</span></div>
+    <div class="lv-tiles" style="--c:${meta.color}">
+      ${lvTile('Constructors’', tot.conTitles.length || '–', '', tot.conTitles.length ? tot.conTitles.join(', ') : tot.bestCon ? `Best: P${tot.bestCon}` : '')}
+      ${lvTile('Drivers’', tot.drvTitles || '–', plus(titlesAdded))}${lvTile('Wins', tot.wins, plus(add('wins')))}${lvTile('Poles', tot.poles, plus(add('poles')))}
+      ${lvTile('Podiums', tot.podiums, plus(add('podiums')))}${lvTile('Starts', tot.starts, plus(add('starts')))}${lvTile('Fastest laps', tot.fls, plus(add('fls')))}
     </div>
+    <div style="--c:${meta.color}">${lvSeasons(seasons.filter(x => x.done).map(x => ({ year: x.s.year, pts: x.o.pts, career: !isHist(x.s) })))}</div>
 
     <div class="panel"><div class="panel-h"><h2>Record by season</h2><span class="muted" style="font-size:12px">Green figures are what the team has added in your career</span></div><div class="panel-b tight table-wrap"><table>
       <thead><tr><th>Season</th><th>Entered as</th><th class="num">Pos</th><th class="num">Starts</th><th class="num">Pts</th><th class="num">Wins</th><th class="num">Pod</th><th class="num">Poles</th><th class="num">FL</th><th>Drivers</th></tr></thead>

@@ -38,7 +38,7 @@ function weekendActuals(s, r) {
  */
 function recentForm(c, s, round, kind) {
   const past = [];
-  for (const ss of c.seasons.slice(0, s.index + 1)) { if (isHist(ss)) continue; for (const r of activeRounds(ss)) { if (ss === s && r === round) break; const a = weekendActuals(ss, r)?.[kind]; if (a) past.push({ ss, a }); } }
+  for (const ss of c.seasons.slice(0, s.index + 1)) { if (isHist(ss)) continue; for (const r of activeRounds(ss)) { if (ss.index === s.index && r === round) break; const a = weekendActuals(ss, r)?.[kind]; if (a) past.push({ ss, a }); } }
   const now = Object.fromEntries(gridIds(s).map(d => [d, teamRoot(teamOf(s, d)?.id)]));
   const by = {};
   for (const { ss, a } of past.reverse()) {
@@ -59,6 +59,57 @@ function blendGaps(prac, form) {
     out[d] = pv != null && fv != null ? FC_PRACTICE * pv + (1 - FC_PRACTICE) * fv : pv ?? fv;
   }
   const m2 = median(Object.values(out)); for (const d in out) out[d] -= m2; return out;
+}
+/**
+ * After Friday: what practice says about the weekend, team by team, as it stood once Friday was over (Practice 1 and
+ * 2, or Practice 1 on a sprint weekend), so the story doesn't change when later sessions come in. Qualifying: each
+ * team's quicker car in the qualifying forecast. Race: the race forecast's long-run pace per lap, the team's average.
+ * Overall: the two counted equally. Long runs: every lap of every dry run of three laps or more, with the fuel and ERS
+ * evened out as the forecast does, less the grid's pace on that tyre at that age, so the spread is the car and driver,
+ * not the soft against the hard. { keys, teams: [{ team, q, r, all, box: [min, q1, med, q3, max] }] (ms, gaps to the
+ * best), front: [driver ids], plan } or null without F1 25 lap data.
+ */
+const _friday = new Map();
+function fridayKeys(s, r) { const fp = sessionsFor(s, r).filter(k => /^FP/.test(k)); return fp.slice(0, r.sprint ? 1 : 2); }
+function fridayOutlook(c, s, r) {
+  const w = s.weekends[r.id]; const keys = fridayKeys(s, r);
+  if (!keys.length || !keys.every(k => w?.sessions?.[k]?.done) || !keys.some(k => w.sessions[k].game?.laps && !w.sessions[k].estimated)) return null;
+  const ck = `${s.index}:${r.id}:${keys.map(k => w.sessions[k].game?.key || w.sessions[k].game?.at || '').join()}:${renderGen}`;
+  if (_friday.has(ck)) return _friday.get(ck);
+  // the season as it stood on Friday evening: this weekend with only Friday's sessions
+  const sv = Object.create(s); sv.weekends = { ...s.weekends, [r.id]: { ...w, sessions: Object.fromEntries(keys.map(k => [k, w.sessions[k]])) } };
+  let out = null;
+  try {
+    const QF = qualiForecast(c, sv, r); const F = raceForecast(sv, r);
+    if (QF.length && F?.teams.length) {
+      const T = {}; const get = (t) => T[t.id] ||= { team: t, q: null, r: null, laps: [] };
+      for (const x of QF) { const t = teamOf(s, x.d); if (t) { const o = get(t); o.q = o.q == null ? x.gap : Math.min(o.q, x.gap); } }
+      for (const o of F.teams) get(o.team).r = o.off;
+      const grid = gridRuns(sv, r);
+      for (const d of gridIds(s)) {
+        const t = teamOf(s, d); if (!t) continue;
+        for (const k of keys) {
+          const sd = w.sessions[k]; if (!sd?.game?.laps?.[d] || sd.estimated) continue; const N = normLaps(sd, d).laps;
+          for (const x of practiceStints(sd, d)) {
+            const g = grid[x.c]; if (!DRY.includes(x.c) || !g) continue;
+            const run = []; for (let lap = x.from; lap <= x.to; lap++) if (N[lap - 1] && sd.game.laps[d][lap - 1]?.[1]) run.push({ age: lap - x.from + 1, ms: N[lap - 1] });
+            if (run.length < 3) continue; const best = Math.min(...run.map(o => o.ms));
+            for (const o of run) if (o.ms <= best * 1.025) get(t).laps.push(o.ms - (g.base + g.deg * (o.age - 1)));
+          }
+        }
+      }
+      const qt = (a, p) => { const i = (a.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return a[lo] + (a[hi] - a[lo]) * (i - lo); };
+      const rows = Object.values(T).filter(o => o.q != null && o.r != null).map(o => { const a = o.laps.slice().sort((x, y) => x - y); return { ...o, n: a.length, box: a.length >= 5 ? [0, 0.25, 0.5, 0.75, 1].map(p => qt(a, p)) : null }; });
+      if (rows.length >= 4) {
+        const qb = Math.min(...rows.map(o => o.q)), rb = Math.min(...rows.map(o => o.r)); const mb = Math.min(...rows.filter(o => o.box).map(o => o.box[2]));
+        for (const o of rows) { o.q -= qb; o.r -= rb; o.all = (o.q + o.r) / 2; if (o.box) o.box = o.box.map(v => v - mb); delete o.laps; }
+        rows.sort((a, b) => a.all - b.all);
+        out = { keys, teams: rows, front: QF.slice(0, 3).map(x => x.d), plan: F.plan ? { stops: F.plan.stops } : null };
+      }
+    }
+  } catch (e) { console.warn('Friday outlook', e); }
+  _friday.set(ck, out); if (_friday.size > 60) _friday.delete(_friday.keys().next().value);
+  return out;
 }
 /** The qualifying forecast: [{ d, gap (ms to the field), ideal, best, form }] fastest first, for drivers on the grid. */
 function qualiForecast(c, s, round) {

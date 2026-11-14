@@ -19,7 +19,7 @@ const DRY = [16, 17, 18];
  */
 const _skCache = new Map();
 function strategyKeys(s, round) {
-  const ck = `${s.index}:${round.id}`; const hit = _skCache.get(ck); if (hit?.gen === renderGen) return hit.v;
+  const ck = `${s.index}:${round.id}:${Object.keys(s.weekends[round.id]?.sessions || {}).join()}`; const hit = _skCache.get(ck); // (the sessions too: the Friday story looks at Friday alone) if (hit?.gen === renderGen) return hit.v;
   const w = s.weekends[round.id];
   const have = RUN_KEYS.filter(k => { const sd = w?.sessions?.[k]; return sd?.game?.laps?.[PLAYER] && !sd.estimated; });
   const per = Object.fromEntries(have.map(k => [k, practiceRuns(s, round, PLAYER, [k])]));

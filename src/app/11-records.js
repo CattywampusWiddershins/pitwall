@@ -308,7 +308,7 @@ function renderRecords() {
   const c = career(); const s = latestSeason();
   const tl = careerTimeline(c);
   const grid = gridIds(s);
-  const holderHtml = (h) => `<div class="drv">${h.team ? teamLogo(c, s.teams.find(t => t.id === h.id) || teamMeta(c, h.id), 22) : grid.includes(h.id) || tl.P[h.id] ? avatar(c, s, h.id, 24) : ''}<span class="nm"><b>${esc(h.name)}</b></span>${h.career ? ' <span class="tag done">Career</span>' : ''}</div>`;
+  // who on today's grid is closest to a record: { id, name, v, team } or null
   const chase = (R) => {
     const key = REC_STAT[R.id];
     if (R.group === 'team' && (R.id === 'teamWins' || R.id === 'teamTitles')) {
@@ -319,43 +319,58 @@ function renderRecords() {
         return k === 'wins' ? D.TEAM_BIO[root]?.wins || 0 : D.TEAM_BIO[root]?.conTitles?.length || 0;
       };
       const best = s.teams.map(t => ({ t, v: teamVal(t) })).filter(x => !R.holders.some(h => h.id === x.t.id)).sort((a, b) => b.v - a.v)[0];
-      return best ? `${esc(best.t.name)} <b>${best.v}</b>` : '–';
+      return best ? { id: best.t.id, name: best.t.name, v: best.v, team: true } : null;
     }
-    if (!key && R.id !== 'winless') return '–';
+    if (!key && R.id !== 'winless') return null;
     const val = (id) => {
       const p = tl.P[id] || (D.DRIVER_BIO[id] ? { ...D.DRIVER_BIO[id], titles: D.DRIVER_BIO[id].titles?.length || 0, winStreak: 0, podStreak: 0, poleStreak: 0, ptsStreak: 0 } : null);
       if (!p) return null;
       return R.id === 'winless' ? (p.wins ? null : p.starts) : p[key];
     };
     const best = grid.filter(id => !R.holders.some(h => h.id === id)).map(id => ({ id, v: val(id) })).filter(x => x.v).sort((a, b) => b.v - a.v)[0];
-    return best ? `${esc(tl.nameOf(best.id))} <b>${fmtPts(best.v)}</b>` : '–';
+    return best ? { id: best.id, name: tl.nameOf(best.id), v: best.v } : null;
   };
+  // a holder's colours: a team's own, a driver's latest team in this career, else neutral
+  const colOf = (id, team) => { if (team) return (s.teams.find(t => t.id === id) || teamMeta(c, id)).color; for (let i = c.seasons.length - 1; i >= 0; i--) { const t = teamOf(c.seasons[i], id); if (t) return t.color; } return '#5E6A82'; };
+  const pic = (h) => { if (h.team) { const u = teamLogoUrl(c, h.id) || teamLogoUrl(c, teamRoot(h.id)); return u ? `<img class="lg" src="${esc(u)}" alt="">` : `<i>${esc((D.TEAM_BIO[h.id]?.short || h.name.slice(0, 3)).toUpperCase())}</i>`; }
+    const u = driverPhoto(c, h.id); return u ? `<img class="ph" src="${esc(u)}" alt="">` : `<i>${esc(h.name.split(/\s+/).map(x => x[0]).join('').slice(0, 3).toUpperCase())}</i>`; };
+  const label = (R) => R.label[0].toUpperCase() + R.label.slice(1);
   const broken = tl.events.filter(e => e.type === 'record' && !e.hist);
+  const tab = REC_GROUPS.some(([g]) => g === ui.recTab) ? ui.recTab : 'total';
+  // the record you're nearest, among those you're closest to on the grid
+  const mine = D.RECORDS.map(R0 => tl.recs[R0.id]).map(R => ({ R, ch: R.group === 'age' || R.group === 'season' ? null : chase(R) })).filter(x => x.ch?.id === PLAYER && x.R.value > 0).sort((a, b) => b.ch.v / b.R.value - a.ch.v / a.R.value)[0];
+  const card = (R0) => {
+    const R = tl.recs[R0.id]; const hs = R.holders; const h0 = hs[0]; const g = R.group;
+    const ch = g === 'age' || g === 'season' ? null : chase(R);
+    const col = h0 ? colOf(h0.id, h0.team) : '#5E6A82'; const me = hs.some(h => h.id === PLAYER);
+    const fig = !hs.length ? '–' : g === 'age' ? esc(h0.disp || '–') : recVal(R);
+    const when = [...new Set(hs.map(h => h.when).filter(Boolean))].join(' · ');
+    return `<div class="lv-rec ${me ? 'me' : ''}" style="--c:${col}">${hs.some(h => h.career) ? '<span class="lv-ctag">CAREER</span>' : ''}
+      <div class="pic">${h0 ? pic(h0) : '<i>–</i>'}</div>
+      <div class="tx"><span class="what">${esc(label(R))}</span><span class="fig">${fig}</span>
+        <span class="who">${hs.length ? esc(listJoin(hs.map(h => h.name))) : 'Nobody yet'}${when ? `<span>${esc(when)}</span>` : ''}</span>
+        ${ch ? `<div class="lv-chase" style="--cc:${colOf(ch.id, ch.team)}"><span>Closest: ${esc(ch.name)}${ch.id === PLAYER ? ' (you)' : ''}</span><b>${fmtPts(ch.v)}</b>${R.value > 0 ? `<span class="t"><i style="width:${Math.min(100, ch.v / R.value * 100)}%"></i></span>` : ''}</div>` : ''}
+      </div></div>`;
+  };
+  const note = REC_GROUPS.find(([g]) => g === tab)[2];
   return `<div class="page">
     <div class="page-head"><div><h1>Records</h1><div class="sub">The F1 record book: real records up to ${firstPlayed(c).year - 1}, then updated by every session in your career. Records set in your career are tagged.</div></div></div>
-    <div class="tiles">
-      <div class="tile"><span class="label">Records tracked</span><span class="v">${D.RECORDS.length}</span></div>
-      <div class="tile"><span class="label">Broken in career</span><span class="v">${broken.filter(e => e.kind === 'broken').length}</span></div>
-      <div class="tile"><span class="label">Equalled</span><span class="v">${broken.filter(e => e.kind === 'equalled').length}</span></div>
-      <div class="tile"><span class="label">Held by you</span><span class="v">${Object.values(tl.recs).filter(R => R.holders.some(h => h.id === PLAYER)).length}</span></div>
-      <div class="tile"><span class="label">${isPrincipal(c) ? 'Lead driver’s age' : 'Your age'}</span><span class="v" style="font-size:22px">${bornOf(c, PLAYER) ? ageTxt(ageParts(bornOf(c, PLAYER), careerNow(c))) : '–'}</span><span class="muted" style="font-size:12px">${bornOf(c, PLAYER) ? 'at the latest race' : 'Add a date of birth in Settings'}</span></div>
-      <div class="tile"><span class="label">Career date</span><span class="v" style="font-size:22px">${fmtDay(careerNow(c), true)}</span></div>
+    <div class="lv-tiles">
+      ${lvTile('Records tracked', D.RECORDS.length)}
+      ${lvTile('Broken in career', broken.filter(e => e.kind === 'broken').length)}
+      ${lvTile('Equalled', broken.filter(e => e.kind === 'equalled').length)}
+      ${lvTile(isPrincipal(c) ? 'Held by your driver' : 'Held by you', Object.values(tl.recs).filter(R => R.holders.some(h => h.id === PLAYER)).length, '', mine ? `Closest: ${esc(mine.R.label)}, ${fmtPts(mine.ch.v)} of ${fmtPts(mine.R.value)}` : '')}
+      ${lvTile(isPrincipal(c) ? 'Lead driver’s age' : 'Your age', bornOf(c, PLAYER) ? `<span style="font-size:22px">${ageTxt(ageParts(bornOf(c, PLAYER), careerNow(c)))}</span>` : '–', '', bornOf(c, PLAYER) ? 'at the latest race' : 'Add a date of birth in Settings')}
+      ${lvTile('Career date', `<span style="font-size:22px">${fmtDay(careerNow(c), true)}</span>`)}
     </div>
-    ${REC_GROUPS.map(([g, title, note]) => `<div class="panel"><div class="panel-h"><h2>${title}</h2>${note ? `<span class="muted" style="font-size:12px">${note}</span>` : ''}</div><div class="panel-b tight table-wrap"><table>
-      <thead><tr><th>Record</th><th>Holder</th><th class="num">${g === 'age' ? 'Age' : 'Record'}</th><th>Set</th><th>${g === 'age' || g === 'season' ? '' : 'Closest on the grid'}</th></tr></thead>
-      <tbody>${D.RECORDS.filter(R => R.group === g).map(R0 => { const R = tl.recs[R0.id]; return `<tr class="${R.holders.some(h => h.id === PLAYER) ? 'me' : ''}">
-        <td><b>${esc(R.label[0].toUpperCase() + R.label.slice(1))}</b></td>
-        <td>${R.holders.length ? R.holders.map(holderHtml).join('') : '<span class="muted">Nobody yet</span>'}</td>
-        <td class="num"><b>${R.holders.length ? (g === 'age' ? R.holders.map(h => esc(h.disp || '–')).join('<br>') : recVal(R)) : '–'}</b></td>
-        <td class="muted">${R.holders.map(h => esc(h.when || '')).join('<br>')}</td>
-        <td class="muted">${g === 'age' || g === 'season' ? '' : chase(R)}</td></tr>`; }).join('')}</tbody>
-    </table></div></div>`).join('')}
-    <div class="panel"><div class="panel-h"><h2>Records set in your career</h2></div>
-      ${broken.length ? `<div class="panel-b tight table-wrap"><table><thead><tr><th>When</th><th>Record</th><th>By</th><th class="num">Mark</th><th>Previous</th></tr></thead><tbody>
-        ${broken.slice().reverse().map(e => { const R = tl.recs[e.rid]; return `<tr><td class="muted">${esc(e.when)}<div style="font-size:12px">${fmtDay(e.date, true)}</div></td><td>${esc(R.label[0].toUpperCase() + R.label.slice(1))} <span class="tag ${e.kind === 'broken' ? 'next' : ''}">${e.kind}</span></td>
-          <td><b>${esc(listJoin(recNames(tl, e)))}</b></td><td class="num">${R.group === 'age' ? esc(e.disp) : R.pct ? e.value.toFixed(1) + '%' : fmtPts(e.value)}</td>
-          <td class="muted">${esc(listJoin(recPrev(e).map(h => h.name)) || '–')}</td></tr>`; }).join('')}</tbody></table></div>`
-      : '<div class="empty">No records broken yet. They will appear here, and in Stories, as your career writes them.</div>'}
+    <div class="row" style="justify-content:space-between"><div class="seg">${REC_GROUPS.map(([g, title]) => `<button data-act="rec-tab" data-v="${g}" class="${tab === g ? 'on' : ''}">${title.replace('In a single season', 'In a season').replace(' records', '')}</button>`).join('')}</div>${note ? `<span class="muted" style="font-size:12px">${note}</span>` : ''}</div>
+    <div class="lv-rlayout">
+      <div class="lv-rcards">${D.RECORDS.filter(R => R.group === tab).map(card).join('')}</div>
+      <div class="panel"><div class="panel-h"><h2>Set in your career</h2></div><div class="panel-b">${broken.length ? `<div class="lv-timeline">${broken.slice().reverse().map(e => { const R = tl.recs[e.rid]; const by = e.team ? e.team.id : e.id;
+        return `<div class="lv-ev" style="--c:${by ? colOf(by, !!e.team) : 'var(--team)'}"><b>${esc(label(R))}</b> <span><span class="tag ${e.kind === 'broken' ? 'next' : ''}">${e.kind}</span></span>
+          <div>${esc(listJoin(recNames(tl, e)))}, ${R.group === 'age' ? esc(e.disp) : R.pct ? e.value.toFixed(1) + '%' : fmtPts(e.value)}</div>
+          <div class="muted">${esc(e.when)} · ${fmtDay(e.date, true)}${recPrev(e).length ? ` · was ${esc(listJoin(recPrev(e).map(h => h.name)))}` : ''}</div></div>`; }).join('')}</div>`
+        : '<div class="empty">No records broken yet. They will appear here, and in Stories, as your career writes them.</div>'}</div></div>
     </div>
   </div>`;
 }
