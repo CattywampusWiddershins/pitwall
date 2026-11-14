@@ -104,7 +104,10 @@ function fridayOutlook(c, s, r) {
         const qb = Math.min(...rows.map(o => o.q)), rb = Math.min(...rows.map(o => o.r)); const mb = Math.min(...rows.filter(o => o.box).map(o => o.box[2]));
         for (const o of rows) { o.q -= qb; o.r -= rb; o.all = (o.q + o.r) / 2; if (o.box) o.box = o.box.map(v => v - mb); delete o.laps; }
         rows.sort((a, b) => a.all - b.all);
-        out = { keys, teams: rows, front: QF.slice(0, 3).map(x => x.d), plan: F.plan ? { stops: F.plan.stops } : null };
+        // the strategies: the race forecast's quickest plans from the grid's Friday runs (up to three), time against the best
+        let strats = [];
+        try { const g = strategyRuns(sv, r).grid; if (Object.keys(g).length >= 2) { const P = optimalStrategies(g, F.n, { loss: pitLoss(c, trackOf(r)).green }); strats = P.map(p => ({ stops: p.stops, seq: p.seq, lens: p.lens, windows: p.windows || [], dt: p.t - P[0].t })); } } catch { /* no plans */ }
+        out = { keys, teams: rows, front: QF.slice(0, 3).map(x => x.d), plan: F.plan ? { stops: F.plan.stops } : null, strats, laps: F.n };
       }
     }
   } catch (e) { console.warn('Friday outlook', e); }

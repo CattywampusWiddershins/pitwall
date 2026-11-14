@@ -853,7 +853,19 @@ function fridayStory(c, s, i, r, { name, last, tName }) {
     body.push(`${gap >= 300 ? `Behind them there’s a gap of ${sec(gap)} to ${n(T[4])}` : `${n(T[4])} lead the rest`}, best of the rest ahead of ${n(T[5])} and ${n(T[6])}. ${n(last3)} have the most to find: ${sec(last3.q)} over a lap and ${sec(last3.r)} a lap in the race.`);
   }
   const lastKey = F.keys[F.keys.length - 1]; const ni = ['FP1', 'FP2', 'FP3', 'FP'].indexOf(lastKey);
-  if (F.plan?.stops) body.push(`The forecast points to ${F.plan.stops === 1 ? 'a one-stop' : F.plan.stops === 2 ? 'a two-stop' : `a ${F.plan.stops}-stop`} race.`);
+  // the expected strategies: the quickest plan with its stops, then the others against it
+  const S = F.strats || [];
+  if (S.length) {
+    const stopsWord = (k) => k === 1 ? 'one-stop' : k === 2 ? 'two-stop' : `${k}-stop`;
+    const tyres = (p) => { const n = p.seq.map(x => COMPOUNDS[x]?.[1] || '?'); return n.length === 2 ? `${n[0]} to ${n[1]}` : `${n.slice(0, -1).join(', ')}, then ${n[n.length - 1]}`; };
+    const an = (t) => (/^(?!one)[aeiou8]|^11|^18/i.test(t) ? 'an ' : 'a ') + t; // (a one-stop)
+    const stopAt = (p) => { const at = p.lens.slice(0, -1).map((_, j) => p.lens.slice(0, j + 1).reduce((a, b) => a + b, 0)); return listJoin(at.map((l, j) => { const w = p.windows[j]; return w && w[1] > w[0] ? `${l} (${w[0]} to ${w[1]})` : String(l); })); };
+    const p0 = S[0];
+    let t = `The quickest way through the ${F.laps} laps looks like ${an(stopsWord(p0.stops))}: ${tyres(p0)}, stopping on lap${p0.stops > 1 ? 's' : ''} ${stopAt(p0)}.`;
+    const alt = S.slice(1).map(p => `${an(stopsWord(p.stops))} on ${tyres(p)} is ${(p.dt / 1000).toFixed(1)}s slower`);
+    if (alt.length) t += ` ${cap1(listJoin(alt))}.`;
+    body.push(t);
+  }
   return { id: rid + 'fri', seq: i * 10 + 0.15 + ni * 0.1, kind: 'friday', i, r, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Friday', headline, standfirst, body, quotes: [],
     fridayGfx: { rows: T.map(o => [o.team.id, o.team.name, o.team.color, Math.round(o.q), Math.round(o.r), o.box ? o.box.map(Math.round) : null]) } };
 }
