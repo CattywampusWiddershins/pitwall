@@ -256,8 +256,8 @@ function calendarStories(c, s) {
   const name = (d, s2 = s) => d === PLAYER_ID ? `${c.profile.first} ${c.profile.last}` : (s2.drivers[d] ? dName(s2, d) : null) || refName(d);
   // The calendar changed once the season was under way: told after the last race run by then (before the next weekend).
   // A track brought in this season isn't new to next year's calendar if it came in before that news was out, and its
-  // deal for the years after: if that was already out, the contract has been moved up; if not, it's told on the
-  // track's race weekend, as a contract for next season and beyond.
+  // deal for the years after is told with it, this season added on (Kyalami's ten years from 2028 make eleven): moved
+  // up, if the deal was already out; if not, announced with it.
   const changes = calChanges(s); const addedAt = {}; for (const x of changes) if (x.add) addedAt[x.add.tid] = x.ri - 1;
   const annNext = c.calAnnounced?.[s.year + 1]?.si === s.index ? c.calAnnounced[s.year + 1] : null;
   const timing = (ann, y) => { // when an announcement's stories come out
@@ -272,7 +272,7 @@ function calendarStories(c, s) {
   };
   const dealAt = (d) => pickIn(`deal-at-${d.tid}-${d.at}`, Math.min(d.ri, lastI), lastI); // a deal for a track not on this year's calendar
   const futureDeal = (tid) => (c.trackDeals || []).filter(d => d.tid === tid && d.si <= s.index && d.to > s.year).pop();
-  const early = {}; // a track brought in this season with a deal: 'told' (out before it came in) or 'hold' (told on its weekend)
+  const early = {}; // a track brought in this season with a deal: 'told' (out before it came in) or 'hold' (told with it)
   for (const [tid, i] of Object.entries(addedAt)) {
     const d = futureDeal(tid); if (!d) continue;
     const tn = annNext && timing(annNext, s.year + 1);
@@ -285,10 +285,12 @@ function calendarStories(c, s) {
     if (A) {
       const T = D.TRACKS[A.tid]; const an = gpTitle(A.r); const gn = G && gpTitle(G.r); const last = lastHeld(c, A.tid, s.year); const d = futureDeal(A.tid);
       const hist = last ? `, Formula 1’s first race there since ${last}` : ', a first for Formula 1';
-      const moved = d && early[A.tid] === 'told' ? ` Its contract, ${annNext?.newTracks.includes(A.tid) ? `due to start in ${s.year + 1}` : `running to the end of ${d.to}`}, has been moved up to this season.` : '';
+      const yrs = d && (d.from == null || d.to > d.from) ? d.to - s.year + 1 : 0; const aYr = `${[8, 11, 18].includes(yrs) || (yrs >= 80 && yrs < 90) ? 'an' : 'a'} ${yrs}-year`;
+      const moved = !yrs ? '' : early[A.tid] === 'told' ? ` Its contract, ${annNext?.newTracks.includes(A.tid) ? `due to start in ${s.year + 1}` : `running to the end of ${d.to}`}, has been moved up to this season: ${plural(yrs, 'season')}, to the end of ${d.to}.`
+        : ` It comes with ${aYr} contract: this season, then ${s.year + 1}${d.to > s.year + 1 ? ` to the end of ${d.to}` : ''}.`;
       out.push({ ...base, kicker: 'Breaking', massive: true,
-        trackGfx: { tid: A.tid, kick: 'Breaking', line: G ? `Replaces the ${gn} in ${s.year}` : `Round ${A.k + 1} of the ${s.year} calendar` },
-        headline: G ? `BREAKING: ${an} replaces ${gn}` : `BREAKING: ${an} added to the ${s.year} calendar`,
+        trackGfx: { tid: A.tid, kick: 'Breaking', line: `${G ? `Replaces the ${gn}${yrs ? '' : ` in ${s.year}`}` : `Round ${A.k + 1} of the ${s.year} calendar`}${yrs ? ` · ${yrs}-year deal` : ''}` },
+        headline: `${G ? `BREAKING: ${an} replaces ${gn}` : `BREAKING: ${an} added to the ${s.year} calendar`}${yrs ? ` on ${yrs}-year deal` : ''}`,
         standfirst: G ? `The ${an}${T?.circuit ? ` at ${T.circuit}` : ''} takes round ${A.k + 1}${A.k === G.k ? `, the ${gn}’s slot` : ` in place of the ${gn}`}${hist}.${moved}`
           : `The ${an}${T?.circuit ? ` at ${T.circuit}` : ''} joins the ${s.year} calendar as round ${A.k + 1} of ${rounds.length}${hist}.${moved}` });
     } else {
@@ -314,7 +316,7 @@ function calendarStories(c, s) {
       headline: choose(rnd, [`F1 reveals the ${y} calendar: ${ann.cal.length} rounds`, `${ann.cal.length} races, ${ann.cal.filter(r => r.sprint).length} sprints: the ${y} calendar is out`, `From ${ann.cal[0].name} to ${ann.cal[ann.cal.length - 1].name}: F1’s ${y} schedule`]),
       standfirst: `The ${y} season opens in ${ann.cal[0].name} and ends in ${ann.cal[ann.cal.length - 1].name}${fresh.length ? `, with ${listJoin(fresh.map(t => trackGp(t).name))} new to the calendar` : ''}.`, body: [], more: { title: 'Round by round', lines }, quotes: [] });
     for (const tid of ann.newTracks) {
-      if (!isFresh(tid, spread ? kNew[tid] : ann.ri)) continue; // (its deal, if any, is told on its race weekend)
+      if (!isFresh(tid, spread ? kNew[tid] : ann.ri)) continue; // (its deal, if any, was told when it came in)
       const last = lastHeld(c, tid, addedAt[tid] != null ? s.year : y); const deal = (c.trackDeals || []).filter(d => d.tid === tid && d.si === s.index).pop(); const T = D.TRACKS[tid]; const nm = trackGp(tid).name;
       if (deal) told.add(deal); // one story for the new venue and its deal, not two
       const yrs = deal ? deal.to - s.year : 0; const k = spread ? kNew[tid] : ann.ri; if (spread && k > showTo) continue;
@@ -327,13 +329,7 @@ function calendarStories(c, s) {
     const nm = trackGp(d.tid).name; const rnd = seeded(`deal-${d.tid}-${d.at}`); const years = d.to - s.year;
     const longer = d.from == null || d.to > d.from;
     const kt = rounds.findIndex(r => roundTrackId(r) === d.tid);
-    if (early[d.tid] === 'hold' && longer) { // brought in this season: its future told as its weekend begins
-      if (kt < 0 || kt > roundsDone(s)) continue; const r = rounds[kt]; const an = gpTitle(r); const G = changes.find(x => x.add?.tid === d.tid)?.gone;
-      out.push({ id: `deal-${d.tid}-${d.at}`, seq: kt * 10 + 0.02, kind: 'calendar', i: kt, r, trackGfx: { tid: d.tid, kick: 'Breaking', line: `Signed for ${s.year + 1} and beyond, to ${d.to}` }, subject: null, outlet: choose(rnd, D.OUTLETS), kicker: 'Breaking', massive: true,
-        headline: choose(rnd, [`BREAKING: The ${an} is here to stay, with a deal to ${d.to}`, `BREAKING: ${nm} signed beyond ${s.year}: F1 deal runs to ${d.to}`]),
-        standfirst: `${G ? `Brought in to replace the ${gpTitle(G.r)} this season, the` : 'Added to this season’s calendar, the'} ${an} has a contract for ${s.year + 1} and beyond: ${plural(years, 'more season')}, to the end of ${d.to}.`, body: [], quotes: [] });
-      continue;
-    }
+    if (early[d.tid] === 'hold' && longer) continue; // brought in this season: told in that story
     const k = kt >= d.ri && !(addedAt[d.tid] != null && early[d.tid] === 'told') ? kt : dealAt(d); // (one out before its track came in stays where it was)
     if (k > showTo) continue;
     out.push({ id: `deal-${d.tid}-${d.at}`, seq: k * 10 + 9.2, kind: 'calendar', i: k, r: rounds[k] || null,

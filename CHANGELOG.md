@@ -4,8 +4,8 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 
 ## 5.6.0
 
-- **A calendar changed mid-season makes the news.** Once a session of the season has been logged, a track brought in or taken off in Settings is kept track of, and the press tells it after the last race run by then: "BREAKING: South African Grand Prix replaces Miami Grand Prix" (with the breaking track graphic), a track added with nothing replaced, or a race cancelled.
-- **Its contract for the years after.** If a track brought in has a deal for next season that hadn't been announced yet, it's announced on its race weekend: a contract for next season and beyond. If it had been announced, the replacement story says the contract has been moved up. Either way, it's no longer new on next year's calendar.
+- **A calendar changed mid-season makes the news.** Once a session of the season has been logged, a track brought in or taken off in Settings is kept track of, and the press tells it after the last race run by then: a replacement (with the breaking track graphic), a track added with nothing replaced, or a race cancelled.
+- **Its contract comes with it.** A track brought in that already has a deal for the seasons after is announced on that deal, with this season added on: "BREAKING: South African Grand Prix replaces Miami Grand Prix on 11-year deal" (2028 to 2037, plus 2027). If the deal had already been announced, the story says it has been moved up. Either way, the track is no longer new on next year's calendar.
 - **The season preview keeps the calendar the season started with,** not the one it was changed to.
 - **A season already under way** whose calendar no longer has the tracks it was announced with has the change told once, from now (before the next weekend).
 - **Grands Prix by their proper names** on track graphics and in the new stories: the South African, British, Spanish and Mexico City Grands Prix, not "South Africa Grand Prix".
