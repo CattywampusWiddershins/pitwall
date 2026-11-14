@@ -154,7 +154,6 @@ function setupTick() {
 function setupRedraw() { const el = document.getElementById('setup-notes'); if (el) { const c = career(), s = latestSeason(), r = nextRound(s); if (r) el.outerHTML = setupNotesPanel(c, s, r); } }
 /** The setup notes for this weekend: the ones still to make, and the last few made. */
 function setupNotesPanel(c, s, r) {
-  if (!DEV_MODE) return '';
   const notes = s.weekends[r.id]?.setupNotes || []; const open = notes.filter(x => x.status === 'open'); const done = notes.filter(x => x.status === 'done').slice(-4).reverse();
   const row = (x) => `<div class="su-note ${x.status}"><div><b>${esc(x.label)}</b><small class="muted">${esc(SESSION_SHORT[x.session] || x.session || '')}${x.backup ? ' · if it’s still there' : ''}</small></div>
     <div>${esc(cap1(x.say))}${x.from != null ? ` <span class="mono">${setupFmt(x.key, x.from)} → ${setupFmt(x.key, x.to)}</span>` : ''}${x.status === 'done' ? ` <span class="muted">· now ${setupFmt(x.key, x.now)}</span>` : ''}</div>

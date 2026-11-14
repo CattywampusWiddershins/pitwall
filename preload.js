@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('api', {
     install: (kind, id) => ipcRenderer.invoke('engineer:install', kind, id),
     remove: (kind, id) => ipcRenderer.invoke('engineer:remove', kind, id),
     speak: (text, voice, opts) => ipcRenderer.invoke('engineer:speak', text, voice, opts),
-    hear: (bytes, prompt) => ipcRenderer.invoke('engineer:hear', bytes, prompt),
+    hear: (bytes, prompt, mode) => ipcRenderer.invoke('engineer:hear', bytes, prompt, mode),
     record: (x) => ipcRenderer.invoke('engineer:record', x),
     setKey: (acc) => ipcRenderer.invoke('engineer:key', acc),
     onButtons: (cb) => ipcRenderer.on('engineer:buttons', (_e, m) => cb(m)),

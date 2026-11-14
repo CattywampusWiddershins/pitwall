@@ -306,12 +306,13 @@ const applySettings = (payload = {}) => {
 const devMode = () => !app.isPackaged || fs.existsSync(path.join(dataDir(), 'dev-mode'));
 ipcMain.handle('app:dev', () => devMode());
 const engineer = createEngineer({ dir: dataDir });
-const devOnly = (fn) => (...a) => devMode() ? fn(...a) : null;
+// the race engineer was dev mode only while it was built; it's in the public release now (marked BETA in the app)
+const devOnly = (fn) => fn;
 ipcMain.handle('engineer:status', devOnly(() => engineer.status()));
 ipcMain.handle('engineer:install', devOnly((_e, kind, id) => engineer.install(kind, id)));
 ipcMain.handle('engineer:remove', devOnly((_e, kind, id) => engineer.remove(kind, id)));
 ipcMain.handle('engineer:speak', devOnly((_e, text, voice, opts) => engineer.speak(text, voice, opts)));
-ipcMain.handle('engineer:hear', devOnly((_e, bytes, prompt) => engineer.hear(bytes, prompt)));
+ipcMain.handle('engineer:hear', devOnly((_e, bytes, prompt, mode) => engineer.hear(bytes, prompt, mode)));
 ipcMain.handle('engineer:record', devOnly((_e, x) => { try { replays.radio(x); } catch { /* not kept */ } return true; }));
 // push to talk on a key: Windows hands it to Pitwall even while the game is in front (a press, not a hold)
 let pttKey = '';
@@ -357,8 +358,8 @@ function overlayEdit(on) {
 ipcMain.handle('overlay:set', devOnly((_e, on) => { if (on) overlayOpen(); else if (overlay && !overlay.isDestroyed()) overlay.destroy(); return true; }));
 ipcMain.handle('overlay:edit', devOnly((_e, on) => overlayEdit(on)));
 ipcMain.handle('overlay:reset', devOnly(() => { if (overlay && !overlay.isDestroyed()) overlay.setBounds(overlayDefault()); try { fs.unlinkSync(overlayFile()); } catch { } return true; }));
-ipcMain.on('overlay:show', (_e, payload) => { if (devMode() && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:show', payload); });
-ipcMain.on('overlay:style', (_e, st) => { if (devMode() && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:style', st); });
+ipcMain.on('overlay:show', (_e, payload) => { if (overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:show', payload); });
+ipcMain.on('overlay:style', (_e, st) => { if (overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:style', st); });
 // "Done" on the overlay itself
 ipcMain.on('overlay:done', () => { overlayEdit(false); toWindow('overlay:edited', 1); });
 
@@ -398,7 +399,7 @@ function setupTelemetry() {
     stash: { save: (o) => writeJsonAtomic(stashFile(), o), load: () => readJson(stashFile(), null), clear: () => { try { fs.unlinkSync(stashFile()); } catch { /* none */ } } },
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); savePending(); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
-    onButtons: (mask) => { if (devMode()) toWindow('engineer:buttons', mask); },
+    onButtons: (mask) => toWindow('engineer:buttons', mask),
     onLive: (m) => { try { if (m.done || (m.sessionType >= 15 && m.sessionType <= 17)) replays.onLive(m); } catch { /* a recording problem never stops the live feed */ } liveRace = m.done ? null : { ...(liveRace?.uid === m.uid ? liveRace : {}), ...m, pack: m.pack || (liveRace?.uid === m.uid ? liveRace.pack : null) }; toWindow('telemetry:live', m); try { companion?.live(m); } catch { /* a phone that's gone never stops the window's feed */ } },
   });
   telemetry.configure(readJson(telemetryFile(), { enabled: false, port: 20778 }));

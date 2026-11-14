@@ -2,6 +2,22 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 6.1.0
+
+- **Race engineer (BETA).** A race engineer who talks to you on the team radio, and listens when you talk back. It's off until you turn it on in Settings → Race engineer, and it's still being tested: it can mishear you or get things wrong.
+  - **Voices.** Nine voices to choose from, each with a preview. They're made on your PC, and nothing is sent anywhere. Each voice is a one-time download, and there's a team radio sound to go with it. With the engineer off, Live Session plays your uploaded pit-call sounds as before.
+  - **Unprompted calls** in the race: the start, pit calls with the tyre, safety cars, tyre life in laps, penalties as they're given, and the flag. In practice and qualifying he calls each lap's time and place, the cut-off, traffic, and the clock. How much he talks is up to you: just the calls, normal, or chatty.
+  - **Talking back.** Push to talk on a wheel or controller button (give it "UDP Action" in F1 25's controls, so it works on PC or console), or a keyboard key. Pick your microphone, and try it with the live test in Settings. Speech recognition is a one-time download, and also runs on your PC. There's a faster option and a more accurate one.
+  - **Ask in your own words.** He listens for keywords, so there are no set sentences: gaps, who's around you, lap times (anyone's), tyres, the next stop, where you'd rejoin, the undercut, fuel, battery, weather, the championship, and more. A **Help** tab lists what you can ask, with examples.
+  - **Practice and qualifying too.** Ask "Where am I losing to Verstappen?" for a corner-by-corner answer, ask whether you're safe in qualifying, or ask for your sectors.
+  - **Follow a driver.** "Keep me updated on Piastri" gets you their gap, their stops, and who's around them. In practice and qualifying you hear about each of their laps.
+  - **Before the race.** Once qualifying is logged, "What's our plan for the race?" gets the strategy, what the cars around you should do, who you'll be fighting, and where you should finish.
+  - **Chatter.** He answers what drivers really say on the radio: appeals after contact (he knows who hit whom and what the stewards decided), penalties and track limits, blue flags, crashes, frustration, and celebrating.
+  - **Hearing you right.** Misheard names are put right ("Lecler" becomes Leclerc), and so are misheard phrases in a question about a driver ("Captain Verstappen" becomes "Gap to Verstappen"). What you said shows corrected.
+  - **The radio graphic**, TV-style: your name and number in the team colour, moving bars, your words, then the engineer's. It shows in Live Session and in Race Replay (at 2x or slower).
+  - **Over the game.** The radio graphic can also show on screen over F1 25, in borderless or windowed mode, with clicks going straight through to the game. You can move it and resize it, set the background and text opacity, and pick the longest message before it scrolls.
+- **Setup notes (BETA).** In practice, tell the engineer how the car feels ("loose rear at turn 10"). He suggests a setup change for that corner's speed, and the note stays on the practice dashboard and the post-session screens until you change that setting.
+
 ## 6.0.9
 
 - Work on features still being tested, switched off in this release.

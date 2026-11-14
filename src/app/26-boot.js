@@ -45,7 +45,7 @@
     window.api.live.on(onLiveMsg);
   }
   // dev mode, and the race engineer in it
-  try { await engineerBoot(); if (DEV_MODE) render(); } catch (e) { console.error(e); }
+  try { await engineerBoot(); render(); } catch (e) { console.error(e); }
   // a new version of Pitwall, a few seconds after it opens
   if (window.api?.updates) setTimeout(() => checkUpdates(), 4000);
 })();

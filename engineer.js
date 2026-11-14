@@ -10,6 +10,8 @@ const PIPER_ZIP = 'https://github.com/rhasspy/piper/releases/download/2023.11.14
 const VOICE_BASE = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/';
 const WHISPER_ZIP = 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip';
 const WHISPER_MODEL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin';
+// the accurate option: the small English model, quantised (slower, about 2.5 s a sentence, but hears fast talking better)
+const WHISPER_SMALL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin';
 // [id, name, accent, voice, path under VOICE_BASE, MB]
 const VOICES = [
   ['gb-north', 'Northern', 'British', 'Male', 'en_GB/northern_english_male/medium/en_GB-northern_english_male-medium', 63],
@@ -70,6 +72,7 @@ module.exports = function createEngineer({ dir }) {
     voice: (id) => path.join(root(), 'voices', id + '.onnx'),
     whisper: () => path.join(root(), 'whisper', 'Release', 'whisper-cli.exe'),
     model: () => path.join(root(), 'whisper', 'ggml-base.en.bin'),
+    small: () => path.join(root(), 'whisper', 'ggml-small.en-q5_1.bin'),
     tmp: () => path.join(root(), 'tmp'),
   };
   const has = (f) => { try { return fs.statSync(f).size > 0; } catch { return false; } };
@@ -103,17 +106,20 @@ module.exports = function createEngineer({ dir }) {
       } else if (kind === 'whisper') {
         if (!has(P.whisper())) { const z = path.join(root(), 'whisper.zip'); await download(WHISPER_ZIP, z, key); await unzip(z, path.join(root(), 'whisper')); fs.rmSync(z, { force: true }); }
         if (!has(P.model())) await download(WHISPER_MODEL, P.model(), key);
+      } else if (kind === 'whisper-small') {
+        if (!has(P.whisper())) { const z = path.join(root(), 'whisper.zip'); await download(WHISPER_ZIP, z, key); await unzip(z, path.join(root(), 'whisper')); fs.rmSync(z, { force: true }); }
+        if (!has(P.small())) await download(WHISPER_SMALL, P.small(), key);
       }
       delete jobs[key]; return { ok: true, status: status() };
     } catch (e) { delete jobs[key]; return { ok: false, error: e.message || String(e) }; }
   }
   function remove(kind, id) {
     stopVoice();
-    try { if (kind === 'voice') { fs.rmSync(P.voice(id), { force: true }); fs.rmSync(P.voice(id) + '.json', { force: true }); } else if (kind === 'whisper') fs.rmSync(path.join(root(), 'whisper'), { recursive: true, force: true }); } catch { /* already gone */ }
+    try { if (kind === 'voice') { fs.rmSync(P.voice(id), { force: true }); fs.rmSync(P.voice(id) + '.json', { force: true }); } else if (kind === 'whisper') fs.rmSync(path.join(root(), 'whisper'), { recursive: true, force: true }); else if (kind === 'whisper-small') fs.rmSync(P.small(), { force: true }); } catch { /* already gone */ }
     return status();
   }
   function status() {
-    return { voices: VOICES.map(v => ({ ...v, installed: has(P.voice(v.id)) && has(P.voice(v.id) + '.json') })), piper: has(P.piper()), whisper: has(P.whisper()) && has(P.model()), whisperMB: 157,
+    return { voices: VOICES.map(v => ({ ...v, installed: has(P.voice(v.id)) && has(P.voice(v.id) + '.json') })), piper: has(P.piper()), whisper: has(P.whisper()) && has(P.model()), whisperMB: 157, accurate: has(P.whisper()) && has(P.small()), accurateMB: 190,
       jobs: Object.fromEntries(Object.entries(jobs).map(([k, j]) => [k, { got: j.got, total: j.total }])) };
   }
 
@@ -143,12 +149,14 @@ module.exports = function createEngineer({ dir }) {
 
   // ---- hearing: a clip of you talking (16 kHz WAV from the window), turned into text; the prompt carries the names
   // the race might bring up, so whisper spells them as F1 does
-  function hear(bytes, prompt) {
+  function hear(bytes, prompt, mode) {
     if (!has(P.whisper()) || !has(P.model())) return Promise.resolve({ ok: false, error: 'not_installed' });
+    const model = mode === 'accurate' && has(P.small()) ? P.small() : P.model();
     fs.mkdirSync(P.tmp(), { recursive: true }); const f = path.join(P.tmp(), `in-${Date.now()}.wav`); fs.writeFileSync(f, Buffer.from(bytes));
     const threads = String(Math.max(2, Math.min(8, require('os').cpus().length - 2)));
     return new Promise((ok) => {
-      execFile(P.whisper(), ['-m', P.model(), '-f', f, '-nt', '-np', '-l', 'en', '-t', threads, '--prompt', String(prompt || '').slice(0, 600)], { windowsHide: true, timeout: 20000, maxBuffer: 1 << 20 }, (e, out) => {
+      // (beam search: a few readings weighed against each other, which hears fast talking much better at the same speed)
+      execFile(P.whisper(), ['-m', model, '-f', f, '-nt', '-np', '-l', 'en', '-t', threads, '-bs', '5', '-bo', '5', '--prompt', String(prompt || '').slice(0, 600)], { windowsHide: true, timeout: 20000, maxBuffer: 1 << 20 }, (e, out) => {
         fs.rmSync(f, { force: true });
         if (e) return ok({ ok: false, error: 'The speech recognition failed' });
         const text = String(out || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
