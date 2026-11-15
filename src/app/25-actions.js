@@ -326,13 +326,13 @@ const actions = {
     const ta = document.getElementById(`ans-${m.id}-${el.dataset.i}`); if (ta) ta.value = el.dataset.t;
   },
   async 'media-publish'(el) {
-    const c = career(); const m = c.media.find(x => x.id === el.dataset.id);
+    ivStopAll(); const c = career(); const m = c.media.find(x => x.id === el.dataset.id);
     ui.busy = true; render();
     const out = await generateArticle(c, m);
     ui.busy = false;
     Object.assign(m, out); ui.mediaOpen = null; store.save(); render(); toast('Article published');
   },
-  'media-discard'(el) { const c = career(); c.media = c.media.filter(x => x.id !== el.dataset.id); ui.mediaOpen = null; store.save(); render(); },
+  'media-discard'(el) { ivStopAll(); const c = career(); c.media = c.media.filter(x => x.id !== el.dataset.id); ui.mediaOpen = null; store.save(); render(); },
   'media-delete'(el) { confirmBox('Delete article', 'Remove this article and its transcript? Its reputation effect is removed too.', 'Delete', () => { const c = career(); c.media = c.media.filter(x => x.id !== el.dataset.id); store.save(); render(); }); },
   async 'save-ai'() {
     const key = $('#set-key').value.trim(); const model = $('#set-model').value.trim();

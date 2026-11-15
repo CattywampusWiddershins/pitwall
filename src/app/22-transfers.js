@@ -345,12 +345,13 @@ function mediaTitle(c, m) {
   return `${kind}${r ? ' · ' + r.name : ''} · ${s?.year || ''}`;
 }
 function renderMediaSession(c, m) {
-  return `<div class="panel">
+  return `<div class="panel" id="media-session">
     <div class="panel-h"><div><span class="label">In progress</span><h2>${esc(mediaTitle(c, m))}</h2></div>
       <div class="row"><button class="btn sm ghost danger" data-act="media-discard" data-id="${m.id}">Discard</button></div></div>
     <div class="panel-b qa">
-      ${m.questions.map((q, i) => `<div class="q">
-        <div class="who"><b>${esc(q.reporter)}</b> · ${esc(q.outlet)}</div>
+      ${ivBar(m)}
+      ${m.questions.map((q, i) => `<div class="q${IV.id === m.id && IV.i === i ? ' iv-on' : ''}">
+        <div class="who">${q.follow ? '<span class="tag">Follow-up</span> ' : ''}<b>${esc(q.reporter)}</b> · ${esc(q.outlet)}</div>
         <div class="qt">${esc(q.question)}</div>
         <textarea id="ans-${m.id}-${i}" data-ch="media-answer" data-id="${m.id}" data-i="${i}" placeholder="Your answer…" style="min-height:70px">${esc(q.answer || '')}</textarea>
         <div class="tone-picks">${['No comment.', 'I’d rather focus on the next race.', 'Credit to the team, they did a great job.'].map(t => `<button class="btn sm ghost" data-act="media-quick" data-id="${m.id}" data-i="${i}" data-t="${esc(t)}">${esc(t)}</button>`).join('')}</div>
@@ -366,7 +367,7 @@ function renderArticle(c, m) {
     <div class="headline">${esc(a.headline)}</div>
     <div class="body">${(a.body || []).map(p => `<p>${esc(p)}</p>`).join('')}</div>
     ${m.reactions?.length ? `<div class="reactions">${m.reactions.map(r => `<div class="reaction"><b>${esc(r.who)}:</b> ${esc(r.text)}</div>`).join('')}</div>` : ''}
-    <details><summary class="muted" style="cursor:pointer;font-size:13px">Interview transcript</summary><div class="qa" style="margin-top:10px">${m.questions.map(q => `<div class="q"><div class="who"><b>${esc(q.reporter)}</b> · ${esc(q.outlet)}</div><div class="qt">${esc(q.question)}</div><div class="ans">${esc(q.answer || 'No answer.')}</div></div>`).join('')}</div></details>
+    <details><summary class="muted" style="cursor:pointer;font-size:13px">Interview transcript</summary><div class="qa" style="margin-top:10px">${m.questions.map(q => `<div class="q"><div class="who">${q.follow ? '<span class="tag">Follow-up</span> ' : ''}<b>${esc(q.reporter)}</b> · ${esc(q.outlet)}</div><div class="qt">${esc(q.question)}</div><div class="ans">${esc(q.answer || 'No answer.')}</div></div>`).join('')}</div></details>
     <div><button class="btn sm ghost danger" data-act="media-delete" data-id="${m.id}">Delete article</button></div>
   </article>`;
 }

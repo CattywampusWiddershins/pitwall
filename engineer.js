@@ -186,11 +186,12 @@ module.exports = function createEngineer({ dir }) {
   const gpuIdle = () => { if (gpu) { clearTimeout(gpu.idle); gpu.idle = setTimeout(gpuStop, 30 * 60 * 1000); } }; // freed from the card after 30 minutes unused
   /** Ready the graphics card's speech recognition ahead of the first word (a live session starting). */
   function warm(mode) { if (mode === 'gpu' && has(P.gpuServer()) && has(P.turbo())) gpuStart().then(gpuIdle).catch(() => {}); }
+  const secs = (f) => { try { return (fs.statSync(f).size - 44) / 32000; } catch { return 0; } }; // a 16 kHz 16-bit clip's length
   async function hearGpu(f, prompt) {
     await gpuStart(); gpuIdle();
     const fd = new FormData(); fd.append('file', new Blob([fs.readFileSync(f)], { type: 'audio/wav' }), 'in.wav'); fd.append('response_format', 'text'); fd.append('prompt', String(prompt || '').slice(0, 800)); fd.append('temperature', '0'); fd.append('beam_size', '5');
     const port = gpu?.port; if (!port) throw new Error('The speech recognition stopped');
-    const r = await fetch(`http://127.0.0.1:${port}/inference`, { method: 'POST', body: fd, signal: AbortSignal.timeout(15000) });
+    const r = await fetch(`http://127.0.0.1:${port}/inference`, { method: 'POST', body: fd, signal: AbortSignal.timeout(Math.max(15000, secs(f) * 600)) });
     if (!r.ok) throw new Error(`The speech recognition said ${r.status}`);
     return (await r.text());
   }
@@ -207,7 +208,7 @@ module.exports = function createEngineer({ dir }) {
     const threads = String(Math.max(2, Math.min(8, require('os').cpus().length - 2)));
     return new Promise((ok) => {
       // (beam search: a few readings weighed against each other, which hears fast talking much better at the same speed)
-      execFile(P.whisper(), ['-m', model, '-f', f, '-nt', '-np', '-l', 'en', '-t', threads, '-bs', '5', '-bo', '5', '--prompt', String(prompt || '').slice(0, 600)], { windowsHide: true, timeout: 20000, maxBuffer: 1 << 20 }, (e, out) => {
+      execFile(P.whisper(), ['-m', model, '-f', f, '-nt', '-np', '-l', 'en', '-t', threads, '-bs', '5', '-bo', '5', '--prompt', String(prompt || '').slice(0, 600)], { windowsHide: true, timeout: Math.max(20000, secs(f) * 2000), maxBuffer: 1 << 20 }, (e, out) => {
         keepClip(f);
         if (e) return ok({ ok: false, error: 'The speech recognition failed' });
         const text = String(out || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();

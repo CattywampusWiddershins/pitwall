@@ -697,8 +697,9 @@ async function engAnswerAs(text, t, S, E, x, I) {
 const ENG_REC = { on: false };
 let engTest = null; // Settings' live test: { heard, intent, reply, state }
 function engPttDown(src) {
-  if (!engApi() || (!engCfg().on && src !== 'ui')) return;
+  if (!engApi() || (!engCfg().on && src !== 'ui' && !(typeof IV !== 'undefined' && IV.id))) return;
   if (ENG_REC.on) { if (ENG_REC.toggle) engRecStop(); return; }
+  if (typeof IV !== 'undefined' && IV.id) return; // a spoken interview listens for itself: the button only ends your answer
   engRecStart(src);
 }
 function engPttUp() { if (!ENG_REC.on) return; if (performance.now() - ENG_REC.t0 < 400) { ENG_REC.toggle = true; return; } engRecStop(); }
@@ -736,24 +737,27 @@ function engRecChunk(d) {
   const lv = document.getElementById('eng-level'); if (lv) lv.style.width = Math.min(100, rms * 600) + '%';
   const now = performance.now(); if (rms > 0.02) { ENG_REC.spoke = now; ENG_REC.quietAt = 0; } else if (ENG_REC.spoke && !ENG_REC.quietAt) ENG_REC.quietAt = now;
   if (ENG_REC.ending && now >= ENG_REC.ending) return engRecStop(true);
-  if ((ENG_REC.toggle && ENG_REC.quietAt && now - ENG_REC.quietAt > 1400) || now - ENG_REC.t0 > 10000) engRecStop(true);
+  if ((ENG_REC.toggle && ENG_REC.quietAt && now - ENG_REC.quietAt > (ENG_REC.quiet || 1400)) || now - ENG_REC.t0 > (ENG_REC.max || 10000)) engRecStop(true);
 }
-async function engRecStart(src) {
-  Object.assign(ENG_REC, { on: true, t0: performance.now(), toggle: src === 'key', chunks: [...ENG_MIC.ring], spoke: 0, quietAt: 0, ending: 0, src });
+/* opts (a spoken interview): max length, the quiet that ends it, the speech prompt, and where what you said goes instead of the engineer */
+async function engRecStart(src, opts = {}) {
+  Object.assign(ENG_REC, { on: true, t0: performance.now(), toggle: src === 'key' || !!opts.toggle, chunks: [...ENG_MIC.ring], spoke: 0, quietAt: 0, ending: 0, src, max: opts.max || 0, quiet: opts.quiet || 0, prompt: opts.prompt || null, hook: opts.hook || null });
   ENG_MIC.ring = []; ENG_MIC.ringN = 0;
   engTestSet({ state: 'Listening…' }); engBeep(1400);
   try { await engMicOpen(); clearTimeout(ENG_MIC.idleT); ENG_REC.rate = ENG_MIC.rate; }
-  catch (e) { ENG_REC.on = false; engTestSet({ state: `The microphone couldn’t open: ${e.message || e.name}` }); toast('The microphone couldn’t open'); }
+  catch (e) { ENG_REC.on = false; ENG_REC.hook = null; engTestSet({ state: `The microphone couldn’t open: ${e.message || e.name}` }); toast('The microphone couldn’t open'); }
 }
 /** Let go: a quarter of a second more (the end of the last word), then what you said goes to the speech recognition. */
 async function engRecStop(now = false) {
   if (!ENG_REC.on) return;
   if (!now) { if (!ENG_REC.ending) ENG_REC.ending = performance.now() + 250; return; }
   ENG_REC.on = false; engMicIdle();
+  const H = ENG_REC.hook; ENG_REC.hook = null; const spoke = !!ENG_REC.spoke;
   engBeep(900, 0.05);
   const lv = document.getElementById('eng-level'); if (lv) lv.style.width = '0%';
   const n = ENG_REC.chunks.reduce((a, b) => a + b.length, 0); const rate = ENG_REC.rate || 48000;
-  if (n < rate * 0.3) { engTestSet({ state: 'Too short: hold the button while you talk.' }); return; }
+  if (H && !spoke) return H(null, 'Nothing heard');
+  if (n < rate * 0.3) { if (H) return H(null, 'Too short'); engTestSet({ state: 'Too short: hold the button while you talk.' }); return; }
   const x = new Float32Array(n); let o = 0; for (const ch of ENG_REC.chunks) { x.set(ch, o); o += ch.length; }
   { let pk = 0; for (let i = 0; i < n; i++) pk = Math.max(pk, Math.abs(x[i])); if (pk > 0.01 && pk < 0.7) { const g = Math.min(8, 0.85 / pk); for (let i = 0; i < n; i++) x[i] *= g; } } // a quiet microphone brought up to a good level
   // to 16 kHz for the speech recognition (averaged over each step, so it doesn't alias)
@@ -762,8 +766,10 @@ async function engRecStop(now = false) {
   const buf = new ArrayBuffer(44 + m * 2); const v = new DataView(buf); const w = (p, str) => [...str].forEach((ch, k) => v.setUint8(p + k, ch.charCodeAt(0)));
   w(0, 'RIFF'); v.setUint32(4, 36 + m * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, m * 2, true);
   for (let i = 0; i < m; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, y[i])) * 32767, true);
-  engTestSet({ state: 'Working out what you said…' });
-  let res; try { res = await engApi().hear(new Uint8Array(buf), engPrompt(), engCfg().asr || 'fast'); } catch (e) { res = { ok: false, error: e.message }; }
+  if (H) H.working?.();
+  else engTestSet({ state: 'Working out what you said…' });
+  let res; try { res = await engApi().hear(new Uint8Array(buf), ENG_REC.prompt || engPrompt(), engCfg().asr || 'fast'); } catch (e) { res = { ok: false, error: e.message }; }
+  if (H) return H(res?.ok ? res.text.trim() || null : null, res?.ok ? 'Nothing heard' : res?.error === 'not_installed' ? 'The speech recognition isn’t downloaded' : 'Couldn’t make that out');
   if (!res?.ok) { engTestSet({ state: res?.error === 'not_installed' ? 'Speech recognition isn’t downloaded yet.' : 'Couldn’t make that out.' }); return; }
   const heard = res.text.trim(); if (!heard) { engTestSet({ state: 'Didn’t hear anything. Check the microphone.' }); return; }
   const A = await engAnswer(heard);

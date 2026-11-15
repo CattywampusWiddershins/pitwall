@@ -15,7 +15,7 @@
   /* the text's opacity (the slider in Settings): names, number, bars, logo and the words */
   #wrap .eng-radio > * { opacity: var(--txa); }
   /* the words: as many lines as the window's height allows, moved on in jumps when there are more */
-  #wrap .er-text { overflow: hidden; position: relative; transition: height 0.18s ease-out; }
+  #wrap .er-text { overflow: hidden; position: relative; padding: 0 8px; margin: 0 -8px; /* room for the slanted letters at both edges, so the last one isn't cut */ transition: height 0.18s ease-out; }
   #wrap .er-spacer { display: block; }
   #wrap .er-caret { display: inline; }
   /* a small gap after what you said, and before what you say next when a message carries on */
