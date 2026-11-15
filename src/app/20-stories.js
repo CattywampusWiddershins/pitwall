@@ -899,16 +899,19 @@ function raceBeats(F, w, L, { duelsNow = new Set(), duelsOn = new Set() } = {}) 
   const ended = new Set();
   const incs = F.incidents.map(inc => {
     const big = isC(inc.a) || isC(inc.b) || [inc.a, inc.b].some(d => num(d) && num(d) <= 3);
-    const bOut = inc.out === inc.b; const hurt = !bOut && inc.dmg?.includes(inc.b);
-    return { inc, wt: (inc.major ? 6 : 2.5) + (big ? 3 : 0) + (bOut ? 2 : hurt ? 1 : 0) + ([inc.a, inc.b].some(mine) ? 1.5 : 0), bOut, hurt };
-  }).sort((a, b) => b.wt - a.wt).slice(0, 1); // only the most serious contact
-  for (const { inc, wt, bOut, hurt } of incs) {
+    const bOut = inc.out === inc.b; const hurt = !bOut && inc.dmg?.includes(inc.b); const both = !bOut && inc.dmg?.includes(inc.a) && inc.dmg?.includes(inc.b);
+    return { inc, wt: (inc.major ? 6 : 2.5) + (big ? 3 : 0) + (bOut ? 2 : both ? 1.5 : hurt ? 1 : 0) + ([inc.a, inc.b].some(mine) ? 1.5 : 0), bOut, hurt, both };
+  }).sort((a, b) => b.wt - a.wt)
+    // the most serious contact, and another that did damage, put a car out or involved you
+    .filter((x, k) => k === 0 || x.inc.dmg?.length || x.inc.out || [x.inc.a, x.inc.b].some(mine)).slice(0, 2);
+  for (const { inc, wt, bOut, hurt, both } of incs) {
     const A = L(inc.a), B = L(inc.b); const lp = onLap(inc.lap);
-    const end = bOut ? w('inc-end', [`, ending ${B}’s race`, `, and ${B} did not make it to the flag`, `, which put ${B} out`]) : hurt ? w('inc-dmg', [`, damaging ${B}’s car`, `, and ${B} came away with damage`, `, leaving ${B} nursing a damaged car`]) : '';
+    const end = both ? w('inc-both', [', and both cars came away damaged', ', damaging both cars', ', leaving both with damage']) : bOut ? w('inc-end', [`, ending ${B}’s race`, `, and ${B} did not make it to the flag`, `, which put ${B} out`]) : hurt ? w('inc-dmg', [`, damaging ${B}’s car`, `, and ${B} came away with damage`, `, leaving ${B} nursing a damaged car`]) : '';
     if (bOut) ended.add(inc.b);
     const text = inc.noFault ? w('inc-even', [`${A} and ${B} tangled${lp}${end}, a racing incident in the stewards’ eyes.`, `${A} and ${B} made contact${lp}${end}; nobody was blamed.`, inc.lap ? `Lap ${inc.lap} brought contact between ${A} and ${B}${end}, put down as a racing incident.` : null])
       : inc.pen && inc.pen !== 'a warning' ? w('inc-pen', [`${A} was handed ${inc.pen} for hitting ${B}${lp}${end}.`, `Contact with ${B}${lp} earned ${A} ${inc.pen}${end}.`, `The stewards hit ${A} with ${inc.pen} after a clash with ${B}${lp}${end}.`, `${A} went for a gap that wasn’t there${lp}, hit ${B} and collected ${inc.pen}${end}.`])
       : inc.major ? w('inc-major', [`${A} and ${B} collided${lp}${end}, and ${A} was given ${inc.pen || 'the blame'}.`, `A heavy clash between ${A} and ${B}${lp}${end} drew ${inc.pen || 'a reprimand'} for ${A}.`])
+      : both ? w('inc-both-free', [`${A} and ${B} collided${lp}${end}, yet the stewards took no action.`, `${A} hit ${B}${lp}${end}, and the stewards did not even investigate.`])
       : w('inc-minor', [`${A} tagged ${B}${lp}${end || ', with no lasting harm done'}.`, `There was a brush between ${A} and ${B}${lp}${end}.`, `${A} and ${B} touched${lp}${end || ', but both carried on'}.`, `${A} nudged ${B}${lp}${end}; the stewards let it go.`]);
     add('incident', wt, text, [inc.a, inc.b]);
   }

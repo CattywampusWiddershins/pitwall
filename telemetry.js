@@ -297,6 +297,8 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null; msg.setup = s.setup || null; // (setup: the setup advisor)
     msg.myDmg = s.myDmg || null; // your car's damage, part by part
     msg.recentColl = s.collisions.slice(-8); msg.recentPens = s.penalties.slice(-10); // contact and penalties, for the race engineer
+    // your own last contacts (a busy first lap can push them out of the last 8), with which cars were damaged by each
+    msg.myColl = s.collisions.filter(x => x.a === s.player || x.b === s.player).slice(-4).map(x => ({ ...x, dmg: [...new Set(s.damage.filter(d => (d.car === x.a || d.car === x.b) && d.t >= x.t - 0.2 && d.t <= x.t + 1).map(d => d.car))] }));
     onLive(msg);
   }
   // Every car, every lap: speed, throttle, brake and place on the map in 50 m slices, for the fastest-lap head to head.

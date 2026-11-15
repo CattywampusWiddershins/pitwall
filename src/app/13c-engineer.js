@@ -507,7 +507,11 @@ function engDamageCalls(S, M, say) {
   const D = S.L.myDmg; if (!D) return; const was = M.dmg || (M.dmg = { ...D }); let hit = false;
   for (const [k] of ENG_DMG_PART) if ((D[k] || 0) - (was[k] || 0) >= 10) hit = true;
   if ((D.drs && !was.drs) || (D.ers && !was.ers)) hit = true;
-  if (hit) { M.dmg = { ...D }; const t = engDamageSay(S, false); if (t) say(1, t, 1); }
+  if (hit) {
+    M.dmg = { ...D }; const t = engDamageSay(S, false); if (!t) return;
+    const now = S.L.clock || 0; const C = (S.L.myColl || []).filter(c => now - c.t < 4 && c.t <= now + 1).pop(); const o = C && S.L.field.find(y => y.i === (C.a === S.me.i ? C.b : C.a));
+    say(1, o ? `Contact with ${S.name(o)}. ${t}` : t, 1);
+  }
 }
 /** What the engineer says to an instruction: just an acknowledgement, never how it works. */
 const engAck = () => ['Copy.', 'Copy that.', 'Understood.', 'Will do.', 'Copy, will do.'][Math.floor(Math.random() * 5)];
@@ -552,7 +556,8 @@ const ENG_INTENTS = [
     say: (S, E, x) => {
       const { L, me } = S; const now = L.clock || 0;
       if (!S.race) return x ? engPick([`Noted. We’ve reported ${S.name(x)} to the stewards.`, `Copy, it’s with the stewards.`]) : engPick(['Noted, we’ve reported it to the stewards.', 'Copy. We’ll ask them to look at it.']);
-      const C = (L.recentColl || []).filter(c => (c.a === me.i || c.b === me.i) && now - c.t < 45 && c.t <= now + 1).pop();
+      // your last contact: with the driver you name in the last 5 minutes, otherwise any in the last 3 (you may only get to say it a lap later)
+      const C = (L.myColl || (L.recentColl || []).filter(c => c.a === me.i || c.b === me.i)).filter(c => c.t <= now + 1 && (x && x.i !== me.i ? (c.a === x.i || c.b === x.i) && now - c.t < 300 : now - c.t < 180)).pop();
       const oi = C ? (C.a === me.i ? C.b : C.a) : x?.i; const o = L.field.find(y => y.i === oi) || x; const nm = o ? S.name(o) : 'him';
       const pens = (L.recentPens || []).filter(p => ENG_COLL_INF.has(p.infringement) && (C ? p.t >= C.t - 1 : now - p.t < 45));
       const theirs = pens.find(p => p.car === oi && engPenWhat(p)), ours = pens.find(p => p.car === me.i && engPenWhat(p));
@@ -561,8 +566,9 @@ const ENG_INTENTS = [
       if (!C) return x ? engPick([`We didn’t see contact with ${nm} from here. We’ll keep an eye on him.`, `Copy, we’ll watch ${nm}.`]) : engPick(['We didn’t see contact from here. Keep pushing.', 'Nothing on our side. Head down.']);
       // who was at fault, as far as we can tell: usually the car that was behind
       const mine = C.a === me.i ? C.posA : C.posB, his = C.a === me.i ? C.posB : C.posA;
-      if (!mine || !his) return engPick([`Copy, we’ll ask race control to look at it.`, 'Understood, it’s with the stewards.']);
-      if (his > mine) return engPick([`Yeah, we saw it. We’ve reported ${nm} to race control.`, 'Understood, it’s with the stewards.', `Copy, we’ve asked race control to look at ${nm}.`]);
+      if (!mine || !his) return engPick([`Copy, we’ll ask race control to look at it.`, 'Understood, it’s with the stewards.']) + hurt;
+      const dm = C.dmg || []; const hurt = dm.includes(me.i) && dm.includes(oi) ? ' Both cars took damage.' : dm.includes(me.i) ? ' And you took damage from it.' : dm.includes(oi) ? ` ${nm} came off worse, he has damage.` : '';
+      if (his > mine) return engPick([`Yeah, we saw it. We’ve reported ${nm} to race control.`, 'Understood, it’s with the stewards.', `Copy, we’ve asked race control to look at ${nm}.`]) + hurt;
       return engPick(['We’ll mention it, but that one looked like yours. Let’s keep pushing.', 'Copy. Not sure the stewards will see it that way. Head down.', 'Understood. Leave it, let’s just keep pushing.']);
     } },
   { id: 'pens', cat: 'Chatter', title: 'Penalties and warnings', k: [['do i have a penalty', 'did i get a penalty', 'have i got a penalty', 'any penalties', 'my penalty', 'penalised', 'penalized', 'penalties', 'penalty', 'track limits', 'warnings', 'warning', 'black and white']], ex: ['Did I get a penalty?', 'How many track limits warnings?', 'Has Norris got a penalty?'], car: true,
