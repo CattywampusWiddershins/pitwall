@@ -2,6 +2,22 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 6.2.0
+
+- **Race engineer: hearing you (BETA).**
+  - **The best option, on an NVIDIA graphics card.** In Settings → Race engineer → Hearing you, "Best (NVIDIA)" uses a much stronger speech model that runs on your graphics card. It's a one-time 1.2 GB download. Each sentence takes about a tenth to a quarter of a second. It holds about 1 GB of the card's memory and only works for that moment after you speak, so the game keeps its frame rate. The memory is freed after 30 minutes unused. The choice only shows on PCs with an NVIDIA card.
+  - **Nothing you say is lost.** The microphone now stays open while you use the radio, so recording starts the moment you press, with the third of a second before it. It also keeps a quarter of a second after you let go, so the last word isn't cut off. It closes after 5 minutes without a word, or when the engineer is turned off. A quiet microphone is brought up to a good level.
+  - **More words put right:** "Matt" for Max, "lap, bye-bye" for lap by lap, and misheard words in a question about "him" or "her".
+  - **Your last 20 clips are kept** on your PC (in the engineer's folder, never sent anywhere), so a misheard one can be looked into.
+- **Race engineer: damage.** He now reads your car's damage from F1 25, part by part: front wings, rear wing, floor, diffuser and sidepods, plus DRS and ERS faults and gearbox and engine damage. Ask about it, and he tells you which parts are hit and how badly. He suggests a new front wing at the stop when it's worth it, and reminds you the floor, diffuser and sidepods can't be fixed at a stop. In the race, he also tells you unprompted when a part takes a hit.
+- **Race engineer: understanding you.**
+  - "What position is Verstappen?" now gives Verstappen's position, not yours.
+  - "Him", "he" and "they" mean the driver you asked about last: "What's the gap to Norris?", then "Can we undercut him?"
+  - "Give me the gaps to Norris lap by lap" follows Norris.
+  - "He drove into me" and other ways of saying it count as contact.
+  - A long comment about other drivers gets a reply, not a gap.
+  - The undercut answer was the wrong way round: it said you'd come out ahead after a stop. It now says how far behind you'd come out, and how much you'd need to find on fresher tyres.
+
 ## 6.1.1
 
 - **Setup notes under parc fermé.** You can now tell the engineer how the car feels in qualifying and the race too. He suggests only what you can still change: the front wing in the garage (in qualifying, and before the race starts), and the brake bias and on-throttle differential on the wheel. If none of those would fix it, he tells you so.

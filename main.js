@@ -313,6 +313,7 @@ ipcMain.handle('engineer:install', devOnly((_e, kind, id) => engineer.install(ki
 ipcMain.handle('engineer:remove', devOnly((_e, kind, id) => engineer.remove(kind, id)));
 ipcMain.handle('engineer:speak', devOnly((_e, text, voice, opts) => engineer.speak(text, voice, opts)));
 ipcMain.handle('engineer:hear', devOnly((_e, bytes, prompt, mode) => engineer.hear(bytes, prompt, mode)));
+ipcMain.handle('engineer:warm', (_e, mode) => { engineer.warm(mode); return true; });
 ipcMain.handle('engineer:record', devOnly((_e, x) => { try { replays.radio(x); } catch { /* not kept */ } return true; }));
 // push to talk on a key: Windows hands it to Pitwall even while the game is in front (a press, not a hold)
 let pttKey = '';

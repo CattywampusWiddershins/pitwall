@@ -1216,5 +1216,6 @@ function onLiveMsg(m) {
   else if ((m.pack || onLive) && !$('#modal-root').innerHTML && !(a && a.matches('input, textarea, select'))) render();
   else { const el = document.getElementById('ers-live-now'); if (el) el.innerHTML = liveNowHtml(liveErs); }
   if (!follower) { try { engineerTick(); } catch (e) { console.warn('engineer', e); } }
+  if (!follower && !same && engCfg().on && engCfg().asr === 'gpu') engApi()?.warm?.('gpu'); // the graphics card's speech recognition, ready for the first word
   if (!follower && typeof setupTick === 'function') { try { setupTick(); } catch (e) { console.warn('setup', e); } } // the setup advisor (13e-setup.js), if it's there
 }

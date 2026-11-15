@@ -137,6 +137,13 @@ function parseBodyDamage(b, L) {
   for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 34 > b.length) break; out.push(b[o + 28] + b[o + 29] + b[o + 30] + b[o + 31] + b[o + 32] + b[o + 33]); }
   return out;
 }
+/** Car damage, your car part by part (percent): tyres and brakes (RL, RR, FL, FR), the wings, floor, diffuser and
+ *  sidepods, DRS and ERS faults, gearbox and engine. For the race engineer. */
+function parseMyDamage(b, L, i) {
+  const w = stride(b, L, 46); const o = HEADER + i * w; if (i == null || o + 46 > b.length) return null;
+  const q = (k) => [b[o + k], b[o + k + 1], b[o + k + 2], b[o + k + 3]];
+  return { tyre: q(16), brake: q(20), fl: b[o + 28], fr: b[o + 29], rw: b[o + 30], floor: b[o + 31], diff: b[o + 32], side: b[o + 33], drs: b[o + 34], ers: b[o + 35], gb: b[o + 36], eng: b[o + 37], blown: b[o + 44], seized: b[o + 45] };
+}
 /** Car damage: each car's power unit and gearbox, in percent worn (gearbox and engine damage, then the MGU-H, energy
  *  store, control electronics, engine, MGU-K and turbocharger wear), for My Team's car development. */
 function parsePuWear(b, L) {
@@ -288,6 +295,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length,
       stints: s.stints[i]?.length ? s.stints[i].map(t => [t.visual, t.end]) : null, ...bests(s.laps[i]), ds: x.ds, inv: !!x.invalid, pen: x.pen || 0, warn: x.warn || 0 }));
     msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null; msg.setup = s.setup || null; // (setup: the setup advisor)
+    msg.myDmg = s.myDmg || null; // your car's damage, part by part
     msg.recentColl = s.collisions.slice(-8); msg.recentPens = s.penalties.slice(-10); // contact and penalties, for the race engineer
     onLive(msg);
   }
@@ -431,7 +439,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     else if (h.type === PACKET.HISTORY) { const x = parseHistory(b); if (x) { s.laps[x.car] = x.laps; s.stints[x.car] = x.stints; } }
     else if (h.type === PACKET.SETUPS) { const x = parseSetup(b, L, h.player); if (x) s.setup = x; } // setup advisor
     else if (h.type === PACKET.DAMAGE) {
-      s.wearNow = parseWear(b, L); s.pu = parsePuWear(b, L);
+      s.wearNow = parseWear(b, L); s.pu = parsePuWear(b, L); s.myDmg = parseMyDamage(b, L, h.player);
       const body = parseBodyDamage(b, L);
       if (s.body) body.forEach((v, i) => { if (v - (s.body[i] || 0) >= 2) s.damage.push({ car: i, t: h.time }); });
       s.body = body;

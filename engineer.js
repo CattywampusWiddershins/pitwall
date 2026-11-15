@@ -1,4 +1,4 @@
-// The race engineer's voice and ears (dev mode): speech made by Piper and speech understood by whisper.cpp, both run on
+// The race engineer's voice and ears: speech made by Piper and speech understood by whisper.cpp, both run on
 // this PC with nothing sent anywhere. Neither ships with Pitwall: the voice program and each voice download when a voice
 // is chosen in Settings, and the speech recognition when talking back is turned on, into the user folder ("engineer").
 // Windows only for now (the programs are Windows builds; zips are unpacked with Windows' own tar).
@@ -12,6 +12,11 @@ const WHISPER_ZIP = 'https://github.com/ggml-org/whisper.cpp/releases/download/v
 const WHISPER_MODEL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin';
 // the accurate option: the small English model, quantised (slower, about 2.5 s a sentence, but hears fast talking better)
 const WHISPER_SMALL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin';
+// the best option, on an NVIDIA graphics card: large-v3-turbo through whisper-server (the model stays loaded on the card,
+// about 1 GB of its memory, and each sentence takes a tenth to a quarter of a second). The CUDA 12 build carries the
+// CUDA libraries it needs; it's freed from the card after 30 minutes unused.
+const WHISPER_GPU_ZIP = 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-cublas-12.4.0-bin-x64.zip';
+const WHISPER_TURBO = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin';
 // [id, name, accent, voice, path under VOICE_BASE, MB]
 const VOICES = [
   ['gb-north', 'Northern', 'British', 'Male', 'en_GB/northern_english_male/medium/en_GB-northern_english_male-medium', 63],
@@ -73,6 +78,8 @@ module.exports = function createEngineer({ dir }) {
     whisper: () => path.join(root(), 'whisper', 'Release', 'whisper-cli.exe'),
     model: () => path.join(root(), 'whisper', 'ggml-base.en.bin'),
     small: () => path.join(root(), 'whisper', 'ggml-small.en-q5_1.bin'),
+    gpuServer: () => path.join(root(), 'whisper-gpu', 'Release', 'whisper-server.exe'),
+    turbo: () => path.join(root(), 'whisper-gpu', 'ggml-large-v3-turbo-q5_0.bin'),
     tmp: () => path.join(root(), 'tmp'),
   };
   const has = (f) => { try { return fs.statSync(f).size > 0; } catch { return false; } };
@@ -106,6 +113,9 @@ module.exports = function createEngineer({ dir }) {
       } else if (kind === 'whisper') {
         if (!has(P.whisper())) { const z = path.join(root(), 'whisper.zip'); await download(WHISPER_ZIP, z, key); await unzip(z, path.join(root(), 'whisper')); fs.rmSync(z, { force: true }); }
         if (!has(P.model())) await download(WHISPER_MODEL, P.model(), key);
+      } else if (kind === 'whisper-gpu') {
+        if (!has(P.gpuServer())) { const z = path.join(root(), 'whisper-gpu.zip'); await download(WHISPER_GPU_ZIP, z, key); await unzip(z, path.join(root(), 'whisper-gpu')); fs.rmSync(z, { force: true }); }
+        if (!has(P.turbo())) await download(WHISPER_TURBO, P.turbo(), key);
       } else if (kind === 'whisper-small') {
         if (!has(P.whisper())) { const z = path.join(root(), 'whisper.zip'); await download(WHISPER_ZIP, z, key); await unzip(z, path.join(root(), 'whisper')); fs.rmSync(z, { force: true }); }
         if (!has(P.small())) await download(WHISPER_SMALL, P.small(), key);
@@ -115,11 +125,11 @@ module.exports = function createEngineer({ dir }) {
   }
   function remove(kind, id) {
     stopVoice();
-    try { if (kind === 'voice') { fs.rmSync(P.voice(id), { force: true }); fs.rmSync(P.voice(id) + '.json', { force: true }); } else if (kind === 'whisper') fs.rmSync(path.join(root(), 'whisper'), { recursive: true, force: true }); else if (kind === 'whisper-small') fs.rmSync(P.small(), { force: true }); } catch { /* already gone */ }
+    try { if (kind === 'voice') { fs.rmSync(P.voice(id), { force: true }); fs.rmSync(P.voice(id) + '.json', { force: true }); } else if (kind === 'whisper') fs.rmSync(path.join(root(), 'whisper'), { recursive: true, force: true }); else if (kind === 'whisper-small') fs.rmSync(P.small(), { force: true }); else if (kind === 'whisper-gpu') { gpuStop(); fs.rmSync(path.join(root(), 'whisper-gpu'), { recursive: true, force: true }); } } catch { /* already gone */ }
     return status();
   }
   function status() {
-    return { voices: VOICES.map(v => ({ ...v, installed: has(P.voice(v.id)) && has(P.voice(v.id) + '.json') })), piper: has(P.piper()), whisper: has(P.whisper()) && has(P.model()), whisperMB: 157, accurate: has(P.whisper()) && has(P.small()), accurateMB: 190,
+    return { voices: VOICES.map(v => ({ ...v, installed: has(P.voice(v.id)) && has(P.voice(v.id) + '.json') })), piper: has(P.piper()), whisper: has(P.whisper()) && has(P.model()), whisperMB: 157, accurate: has(P.whisper()) && has(P.small()), accurateMB: 190, gpu: has(P.gpuServer()) && has(P.turbo()), gpuMB: 1245, nvidia: nvidia(),
       jobs: Object.fromEntries(Object.entries(jobs).map(([k, j]) => [k, { got: j.got, total: j.total }])) };
   }
 
@@ -149,7 +159,48 @@ module.exports = function createEngineer({ dir }) {
 
   // ---- hearing: a clip of you talking (16 kHz WAV from the window), turned into text; the prompt carries the names
   // the race might bring up, so whisper spells them as F1 does
+  // the last 20 clips you said are kept (in engineer/clips, never sent anywhere) for when one is misheard
+  function keepClip(f) {
+    try { const d = path.join(root(), 'clips'); fs.mkdirSync(d, { recursive: true }); fs.renameSync(f, path.join(d, path.basename(f)));
+      const all = fs.readdirSync(d).filter(x => x.endsWith('.wav')).sort(); for (const x of all.slice(0, -20)) fs.rmSync(path.join(d, x), { force: true }); } catch { fs.rmSync(f, { force: true }); }
+  }
+  // ---- the graphics card: whisper-server with large-v3-turbo, started when it's first needed and kept running
+  const nvidia = () => fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvidia-smi.exe'));
+  let gpu = null; // { p, port, ready, idle }
+  const freePort = () => new Promise((ok, no) => { const srv = require('net').createServer(); srv.unref(); srv.on('error', no); srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => ok(port)); }); });
+  function gpuStop() { if (gpu) { clearTimeout(gpu.idle); try { gpu.p?.kill(); } catch { } gpu = null; } }
+  // one server at a time: a word said while it's still starting waits for that one
+  function gpuStart() {
+    if (gpu?.ready) return gpu.ready;
+    const g = { p: null, port: 0, idle: null }; gpu = g;
+    g.ready = (async () => {
+      g.port = await freePort();
+      const p = spawn(P.gpuServer(), ['-m', P.turbo(), '--host', '127.0.0.1', '--port', String(g.port), '-l', 'en', '-t', '4'], { windowsHide: true, stdio: 'ignore' });
+      g.p = p; p.on('exit', () => { if (gpu === g) gpu = null; });
+      const t0 = Date.now();
+      for (;;) { try { await fetch(`http://127.0.0.1:${g.port}/`); return true; } catch { } if (gpu !== g || Date.now() - t0 > 30000) throw new Error('The speech recognition didn’t start'); await new Promise(r => setTimeout(r, 150)); }
+    })();
+    g.ready.catch(() => { if (gpu === g) gpuStop(); });
+    return g.ready;
+  }
+  const gpuIdle = () => { if (gpu) { clearTimeout(gpu.idle); gpu.idle = setTimeout(gpuStop, 30 * 60 * 1000); } }; // freed from the card after 30 minutes unused
+  /** Ready the graphics card's speech recognition ahead of the first word (a live session starting). */
+  function warm(mode) { if (mode === 'gpu' && has(P.gpuServer()) && has(P.turbo())) gpuStart().then(gpuIdle).catch(() => {}); }
+  async function hearGpu(f, prompt) {
+    await gpuStart(); gpuIdle();
+    const fd = new FormData(); fd.append('file', new Blob([fs.readFileSync(f)], { type: 'audio/wav' }), 'in.wav'); fd.append('response_format', 'text'); fd.append('prompt', String(prompt || '').slice(0, 800)); fd.append('temperature', '0'); fd.append('beam_size', '5');
+    const port = gpu?.port; if (!port) throw new Error('The speech recognition stopped');
+    const r = await fetch(`http://127.0.0.1:${port}/inference`, { method: 'POST', body: fd, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error(`The speech recognition said ${r.status}`);
+    return (await r.text());
+  }
   function hear(bytes, prompt, mode) {
+    if (mode === 'gpu' && has(P.gpuServer()) && has(P.turbo())) {
+      fs.mkdirSync(P.tmp(), { recursive: true }); const f = path.join(P.tmp(), `in-${Date.now()}.wav`); fs.writeFileSync(f, Buffer.from(bytes));
+      // the card first; if it fails, the processor's model (the clip is kept either way)
+      return hearGpu(f, prompt).then(out => { keepClip(f); return { ok: true, text: String(out || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim() }; })
+        .catch(() => { const b = fs.readFileSync(f); keepClip(f); return hear(b, prompt, 'accurate'); });
+    }
     if (!has(P.whisper()) || !has(P.model())) return Promise.resolve({ ok: false, error: 'not_installed' });
     const model = mode === 'accurate' && has(P.small()) ? P.small() : P.model();
     fs.mkdirSync(P.tmp(), { recursive: true }); const f = path.join(P.tmp(), `in-${Date.now()}.wav`); fs.writeFileSync(f, Buffer.from(bytes));
@@ -157,7 +208,7 @@ module.exports = function createEngineer({ dir }) {
     return new Promise((ok) => {
       // (beam search: a few readings weighed against each other, which hears fast talking much better at the same speed)
       execFile(P.whisper(), ['-m', model, '-f', f, '-nt', '-np', '-l', 'en', '-t', threads, '-bs', '5', '-bo', '5', '--prompt', String(prompt || '').slice(0, 600)], { windowsHide: true, timeout: 20000, maxBuffer: 1 << 20 }, (e, out) => {
-        fs.rmSync(f, { force: true });
+        keepClip(f);
         if (e) return ok({ ok: false, error: 'The speech recognition failed' });
         const text = String(out || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
         ok({ ok: true, text });
@@ -165,5 +216,5 @@ module.exports = function createEngineer({ dir }) {
     });
   }
 
-  return { status, install, remove, speak, hear, stop: stopVoice, VOICES, _radio: radio, _readWav: readWav, _wav: wav };
+  return { status, install, remove, speak, hear, warm, stop: () => { stopVoice(); gpuStop(); }, VOICES, _radio: radio, _readWav: readWav, _wav: wav };
 };
