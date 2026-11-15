@@ -8,6 +8,7 @@ What changed in each version of Pitwall, newest first. Each version is tagged in
 - **Contact that the stewards let go is no longer forgotten.**
   - Race reports now mention a second contact when it damaged a car, put a car out or involved you, not only the most serious one. Contact that damaged both cars says so, along with the fact that the stewards took no action.
   - The race engineer remembers your contact for 3 minutes, or 5 when you name the driver, so "he drove into me" a lap later still counts. He says when it damaged your car, theirs or both, and his damage call names who it came from ("Contact with Verstappen. Front wing…").
+- **Race reports:** a driver whose winning run ends isn't also mentioned again as last time's winner ("three straight wins ends with a retirement" then "Bahrain winner did not finish this time"). Driver of the Day is given with the share of the fans' vote, not a rating out of 10.
 - **Radio overlay:** the last slanted letter at the edge of a line is no longer cut off.
 
 ## 6.2.0

@@ -497,19 +497,20 @@ function winnerStatusLine(W, last, rnd, { ri, titles, leader }) {
   return null;
 }
 function raceMemoryLine(mem, res, W, last, name, rnd, status = null) {
-  const bits = [];
+  const bits = []; const said = new Set(); // a driver's day is told once: an ended streak already says how the last winner got on
   const runW = mem.run(W);
   if (runW.wins >= 1) bits.push(runW.wins + 1 >= 3 ? `${last(W)} has now won ${streakWord(runW.wins + 1)} in a row.` : `It is back-to-back wins for ${last(W)}.`);
   // streaks that ended today
   for (const x of res) {
     if (x.d === W) continue;
     const run = mem.run(x.d); const k = res.indexOf(x);
-    if (run.wins >= 2) { bits.push(`${last(x.d)}’s run of ${streakWord(run.wins)} straight wins ends with ${OUT.includes(x.st) ? outNoun(x.st) : ordWord(k + 1)}.`); break; }
+    if (run.wins >= 2) { said.add(x.d); bits.push(`${last(x.d)}’s run of ${streakWord(run.wins)} straight wins ends with ${OUT.includes(x.st) ? outNoun(x.st) : ordWord(k + 1)}.`); break; }
   }
   const pod = res.slice(1, 3).find(x => !OUT.includes(x.st) && mem.run(x.d).podiums >= 2);
+  if (pod) said.add(pod.d);
   if (pod) bits.push(`${last(pod.d)} is on the podium for a ${ordWord(mem.run(pod.d).podiums + 1)} race running.`);
-  if (mem.lastWinner && mem.lastWinner !== W) { const x = res.find(y => y.d === mem.lastWinner); if (x) bits.push(`${mem.lastRound ? `${mem.lastRound.name} winner` : 'Last time out’s winner'} ${last(x.d)} ${OUT.includes(x.st) ? outVerb(x.st) : `finished ${ordWord(res.indexOf(x) + 1)}`} this time.`); }
-  if (mem.defending && mem.defending !== W && mem.defending !== mem.lastWinner) { const x = res.find(y => y.d === mem.defending); if (x && rnd() < 0.7) bits.push(`Defending champion ${name(x.d)} ${OUT.includes(x.st) ? outPast(x.st) : `came home ${ordWord(res.indexOf(x) + 1)}`}.`); }
+  if (mem.lastWinner && mem.lastWinner !== W) { const x = res.find(y => y.d === mem.lastWinner); if (x && !said.has(x.d)) bits.push(`${mem.lastRound ? `${mem.lastRound.name} winner` : 'Last time out’s winner'} ${last(x.d)} ${OUT.includes(x.st) ? outVerb(x.st) : `finished ${ordWord(res.indexOf(x) + 1)}`} this time.`); }
+  if (mem.defending && mem.defending !== W && mem.defending !== mem.lastWinner) { const x = res.find(y => y.d === mem.defending); if (x && !said.has(x.d) && rnd() < 0.7) bits.push(`Defending champion ${name(x.d)} ${OUT.includes(x.st) ? outPast(x.st) : `came home ${ordWord(res.indexOf(x) + 1)}`}.`); }
   const why = status && rnd() < 0.55 && winnerStatusLine(W, last, rnd, status); if (why) bits.unshift(why);
   return bits.slice(0, 3).join(' ') || null;
 }

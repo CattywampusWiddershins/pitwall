@@ -437,7 +437,7 @@ function buildStories(c, s) {
     if (memLine) body.push(memLine);
     const rivLines = rivalryRaceLines(c, s, i, res, last, rnd); if (rivLines.length) body.push(rivLines.join(' '));
     const dd = driverOfTheDay(s, i);
-    if (dd) body.push(`Driver of the Day: ${name(dd.id)} (${dd.rating.toFixed(1)}/10)${dd.pub.length ? `, who ${listJoin(dd.pub)}` : ''}.`);
+    if (dd) body.push(`Driver of the Day: ${name(dd.id)}${dd.votes != null ? `, with ${votePct(dd.votes)} of the fans’ vote` : ''}${dd.pub.length ? `, who ${listJoin(dd.pub)}` : ''}.`);
     // the player and their teammate
     const pi = res.findIndex(x => x.d === PLAYER);
     if (pi >= 3 || (pi >= 0 && OUT.includes(res[pi].st))) {
