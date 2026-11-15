@@ -90,7 +90,16 @@ const stride = (b, L, base, tail = 0) => {
 /** Your car's position on the map (world x and z, in metres). */
 function playerMotion(b, L, p) { const o = HEADER + p * stride(b, L, 60); return o + 12 > b.length ? null : { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }; }
 /** Every car's place on the map (world x and z). */
-function allMotion(b, L) { const w = stride(b, L, 60); const out = []; for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 12 > b.length) break; out.push({ x: b.readFloatLE(o), z: b.readFloatLE(o + 8) }); } return out; }
+function allMotion(b, L) {
+  const w = stride(b, L, 60); const out = [];
+  for (let i = 0; i < L.cars; i++) {
+    const o = HEADER + i * w; if (o + 12 > b.length) break; const m = { x: b.readFloatLE(o), z: b.readFloatLE(o + 8) };
+    // a spin: moving at speed more than 60° away from the way the car points (velocity at 12, forward direction at 24, normalised to 32767)
+    if (o + 30 <= b.length) { const vx = b.readFloatLE(o + 12), vz = b.readFloatLE(o + 20), fx = b.readInt16LE(o + 24) / 32767, fz = b.readInt16LE(o + 28) / 32767; const v = Math.hypot(vx, vz), f = Math.hypot(fx, fz); m.v = v; m.spin = v > 8 && f > 0.5 && (vx * fx + vz * fz) / (v * f) < 0.5; }
+    out.push(m);
+  }
+  return out;
+}
 /** Every car's speed (km/h), throttle and brake (0 to 1). */
 function allTelemetry(b, L) { const w = stride(b, L, 60, 3); const out = []; for (let i = 0; i < L.cars; i++) { const o = HEADER + i * w; if (o + 14 > b.length) break; out.push({ spd: b.readUInt16LE(o), thr: b.readFloatLE(o + 2), brk: b.readFloatLE(o + 10) }); } return out; }
 /** Your car's speed (km/h), throttle and brake (0 to 1), and whether DRS is open. */
@@ -301,6 +310,23 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     msg.myColl = s.collisions.filter(x => x.a === s.player || x.b === s.player).slice(-4).map(x => ({ ...x, dmg: [...new Set(s.damage.filter(d => (d.car === x.a || d.car === x.b) && d.t >= x.t - 0.2 && d.t <= x.t + 1).map(d => d.car))] }));
     onLive(msg);
   }
+  /*
+    Contact where one car had already lost it: it spun in the 6 seconds before (and not because of the hit), or it was
+    crawling at under 45% of its own best lap's speed at that spot while the other was near its usual speed. That car
+    is `lost` (spun: from a spin), and the other had nowhere to go, whoever the stewards blame.
+  */
+  function lostBefore(s, a, b, t) {
+    const spun = (i) => { const f = s.spin?.from[i]; return f != null && f <= t + 0.1 && t - f < 6 && t - (s.spin.last[i] ?? -99) < 3; };
+    const sa = spun(a), sb = spun(b);
+    if (sa !== sb) return { lost: sa ? a : b, spun: true };
+    if (sa && sb) return {};
+    const ref = (i) => { const bin = s.traces?.[i]?.best?.bins?.[Math.floor((s.distNow?.[i] ?? -1) / TRACE_BIN)]; return bin?.[0] ? bin[1] / bin[0] : null; };
+    const va = s.telAll?.[a]?.spd, vb = s.telAll?.[b]?.spd, ra = ref(a), rb = ref(b);
+    if (va == null || vb == null || !ra || !rb) return {};
+    if (va < 0.45 * ra && vb >= 0.75 * rb && vb > 80) return { lost: a, spun: false };
+    if (vb < 0.45 * rb && va >= 0.75 * ra && va > 80) return { lost: b, spun: false };
+    return {};
+  }
   // Every car, every lap: speed, throttle, brake and place on the map in 50 m slices, for the fastest-lap head to head.
   // A lap is followed as it's driven and kept only if it ran from the line to the line on track: an out-lap, a lap
   // into or out of the pits, a trip to the garage or a lap left invalid is dropped. A session started on a flying lap
@@ -314,6 +340,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
   function logTraces(s, lap) {
     if (!s.telAll) return; const T = s.traces ||= {}; const n = Math.ceil((s.info?.trackLength || 0) / TRACE_BIN);
     lap.forEach((c, i) => {
+      (s.distNow ||= [])[i] = c.dist; // (where each car is on the lap, for contact)
       const t = s.telAll[i]; if (!t || !c.lap) return;
       const R = T[i] ||= { cur: null, best: null, done: null, bestWas: null };
       // a flashback back across the line: the lap before carries on being rebuilt, and isn't kept until it's finished again
@@ -434,7 +461,12 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       const list = D.raw[h.type] ||= [];
       if (list.length < 4 && h.time - (D.last[h.type] ?? -99) > 20 && (s.tel?.spd || 0) > 150 && !s.pit[h.player]) { D.last[h.type] = h.time; list.push({ t: Math.round(h.time * 10) / 10, b64: b.toString('base64') }); }
     }
-    if (h.type === PACKET.MOTION) { s.mot = playerMotion(b, L, h.player) || s.mot; s.motAll = allMotion(b, L); }
+    if (h.type === PACKET.MOTION) {
+      s.mot = playerMotion(b, L, h.player) || s.mot; s.motAll = allMotion(b, L);
+      // when each car's latest spin began (a new one after 2 s without), for telling who had lost it before contact
+      const sp = s.spin ||= { from: [], last: [] };
+      s.motAll.forEach((m, i) => { if (!m.spin) return; if (!(h.time - (sp.last[i] ?? -99) < 2)) sp.from[i] = h.time; sp.last[i] = h.time; });
+    }
     else if (h.type === PACKET.TELEMETRY) { s.tel = playerTelemetry(b, L, h.player) || s.tel; s.telAll = allTelemetry(b, L); }
     else if (h.type === PACKET.STATUS) { s.stat = playerStatus(b, L, h.player) || s.stat; s.tyres = allTyres(b, L); s.tyres.forEach((x, i) => { if (isFinite(x.dep)) s.depMax[i] = Math.max(s.depMax[i] || 0, x.dep); }); }
     else if (h.type === PACKET.TYRE_SETS) { const x = parseTyreSets(b); if (x && x.car === h.player) s.tyreSets = { sets: x.sets, fitted: x.fitted }; }
@@ -489,7 +521,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       else if (code === 'COLL' && b.length >= HEADER + 6) {
         // the game reports contact every frame it lasts: keep one per pair every 10 seconds, with who was ahead
         const a = b[33], c2 = b[34]; const last = s.collisions.find(x => ((x.a === a && x.b === c2) || (x.a === c2 && x.b === a)) && h.time - x.t < 10);
-        if (!last && a !== c2) s.collisions.push({ a, b: c2, t: h.time, lap: s.curLap[a] || 0, posA: s.pos[a] || 0, posB: s.pos[c2] || 0 });
+        if (!last && a !== c2) s.collisions.push({ a, b: c2, t: h.time, lap: s.curLap[a] || 0, posA: s.pos[a] || 0, posB: s.pos[c2] || 0, ...lostBefore(s, a, c2, h.time) });
       }
       else if (code === 'OVTK' && b.length >= HEADER + 6) pass(s, s.overtakes, b[33], b[34], h.time);
       else if (code === 'RTMT' && b.length >= HEADER + 6) s.retirements.push({ car: b[33], reason: b[34], t: h.time, lap: s.curLap[b[33]] || 0 });

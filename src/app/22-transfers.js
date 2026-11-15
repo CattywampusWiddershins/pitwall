@@ -322,9 +322,32 @@ function reputation(c) {
   const v = c.media.filter(m => m.article).reduce((a, m) => a + (+m.rep || 0), 0);
   return Math.max(-10, Math.min(10, v));
 }
+/*
+  The interview that's due: in the latest round with anything logged, the latest of pre-weekend, post-qualifying,
+  post-sprint and post-race that its sessions allow. Once it's published, the next round's pre-weekend follows a race
+  (the end-of-season interview after the last one); otherwise nothing is due until the next session is logged. Before
+  any round, the pre-season media day. { si, kind, rid } or null.
+*/
+function mediaNext(c) {
+  const s = latestSeason(); if (!s) return null; const rounds = activeRounds(s);
+  const done = (kind, rid) => c.media.some(m => m.seasonIdx === s.index && m.kind === kind && (m.roundId || null) === (rid || null) && m.article);
+  const ses = (r) => s.weekends[r.id]?.sessions || {};
+  const any = (r) => Object.values(ses(r)).some(x => x?.done);
+  let li = -1; rounds.forEach((r, i) => { if (any(r)) li = i; });
+  if (li < 0) return done('preseason', null) ? (rounds[0] && !done('preweekend', rounds[0].id) ? { si: s.index, kind: 'preweekend', rid: rounds[0].id } : null) : { si: s.index, kind: 'preseason', rid: null };
+  const r = rounds[li], w = ses(r);
+  const kind = w.R?.done ? 'race' : w.SPR?.done ? 'sprint' : w.Q?.done ? 'quali' : 'preweekend';
+  if (!done(kind, r.id)) return { si: s.index, kind, rid: r.id };
+  if (kind !== 'race') return null;
+  const nr = rounds[li + 1];
+  return nr ? (done('preweekend', nr.id) ? null : { si: s.index, kind: 'preweekend', rid: nr.id }) : (done('endseason', null) ? null : { si: s.index, kind: 'endseason', rid: null });
+}
+const mediaIs = (m, n) => !!n && m.seasonIdx === n.si && m.kind === n.kind && (m.roundId || null) === (n.rid || null);
 function renderMedia() {
   const c = career();
-  const open = c.media.find(m => m.id === ui.mediaOpen) || c.media.find(m => !m.article && m.questions?.length);
+  const next = mediaNext(c); const drafts = c.media.filter(m => !m.article && m.questions?.length);
+  const open = drafts.find(m => m.id === ui.mediaOpen) || drafts.find(m => mediaIs(m, next));
+  const older = drafts.filter(m => m !== open);
   const published = c.media.filter(m => m.article).slice().reverse();
   const rep = reputation(c);
   const repLabel = rep >= 6 ? 'Paddock favourite' : rep >= 2 ? 'Well liked' : rep > -2 ? 'Neutral' : rep > -6 ? 'Divisive' : 'Villain of the paddock';
@@ -332,7 +355,9 @@ function renderMedia() {
     <div class="page-head"><div><h1>Media</h1><div class="sub">Press conferences shaped by your results.</div></div>
       <div class="row">${!settings.hasKey && window.api ? '<span class="muted" style="font-size:12px">Offline questions · add an API key in Settings for AI journalists</span>' : ''}<button class="btn primary" data-act="new-media">${ICON.mic} New media session</button></div></div>
     <div class="panel"><div class="panel-b"><div class="rep-meter"><span class="label" style="width:130px">Media reputation</span><div class="track"><span class="knob" style="left:${(rep + 10) / 20 * 100}%"></span></div><b style="width:170px;text-align:right;font-family:var(--font-display)">${repLabel}</b></div></div></div>
-    ${open ? renderMediaSession(c, open) : ''}
+    ${open ? renderMediaSession(c, open) : next ? `<div class="panel"><div class="panel-h"><div><span class="label">Next up</span><h2>${esc(mediaTitle(c, { seasonIdx: next.si, roundId: next.rid, kind: next.kind }))}</h2></div>
+      <button class="btn primary" data-act="media-next" ${ui.busy ? 'disabled' : ''}>${ui.busy ? '<span class="spinner"></span> Writing the questions…' : 'Start'}</button></div></div>` : ''}
+    ${older.length ? `<div class="panel"><div class="panel-h"><h2>Unfinished interviews</h2><span class="muted">${older.length}</span></div><div class="panel-b" style="display:grid;gap:8px">${older.slice().reverse().map(m => `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span>${esc(mediaTitle(c, m))}</span><span class="row"><button class="btn sm" data-act="media-open" data-id="${m.id}">Open</button><button class="btn sm ghost danger" data-act="media-discard" data-id="${m.id}">Discard</button></span></div>`).join('')}</div></div>` : ''}
     <div class="panel"><div class="panel-h"><h2>Press clippings</h2><span class="muted">${published.length} article${published.length === 1 ? '' : 's'}</span></div>
       ${published.length ? published.map(m => renderArticle(c, m)).join('') : '<div class="empty">Your published interviews will appear here.</div>'}
     </div>

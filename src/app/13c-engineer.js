@@ -567,6 +567,8 @@ const ENG_INTENTS = [
       // who was at fault, as far as we can tell: usually the car that was behind
       const mine = C.a === me.i ? C.posA : C.posB, his = C.a === me.i ? C.posB : C.posA;
       if (!mine || !his) return engPick([`Copy, we’ll ask race control to look at it.`, 'Understood, it’s with the stewards.']) + hurt;
+      if (C.lost === me.i) return engPick(['You’d lost it, he had nowhere to go. Let’s see what the stewards make of it.', 'Copy. You were already sideways, so that one might come back on us.']);
+      if (C.lost === oi) return engPick([`We saw it. ${nm} lost it in front of you, nothing you could do.`, `Yeah, ${nm} had spun. Nowhere to go.`]);
       const dm = C.dmg || []; const hurt = dm.includes(me.i) && dm.includes(oi) ? ' Both cars took damage.' : dm.includes(me.i) ? ' And you took damage from it.' : dm.includes(oi) ? ` ${nm} came off worse, he has damage.` : '';
       if (his > mine) return engPick([`Yeah, we saw it. We’ve reported ${nm} to race control.`, 'Understood, it’s with the stewards.', `Copy, we’ve asked race control to look at ${nm}.`]) + hurt;
       return engPick(['We’ll mention it, but that one looked like yours. Let’s keep pushing.', 'Copy. Not sure the stewards will see it that way. Head down.', 'Understood. Leave it, let’s just keep pushing.']);

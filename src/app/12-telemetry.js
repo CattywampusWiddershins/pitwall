@@ -35,7 +35,8 @@ const WARNING = 5;
 function buildIncidents(r, map) {
   const out = [];
   // what a contact between two cars led to: { dmg: [ids damaged], out: id retired } (from 3.0; older races have neither)
-  const effect = (A, B, t) => { const x = (r.collisions || []).find(o => ((map[o.a] === A && map[o.b] === B) || (map[o.a] === B && map[o.b] === A)) && (t == null || Math.abs(o.t - t) < 20)); return x?.dmg ? { dmg: x.dmg.map(i => map[i]).filter(Boolean), out: map[x.out] || null } : {}; };
+  const lostOf = (x) => x?.lost != null && map[x.lost] ? { lost: map[x.lost], spun: !!x.spun } : {};
+  const effect = (A, B, t) => { const x = (r.collisions || []).find(o => ((map[o.a] === A && map[o.b] === B) || (map[o.a] === B && map[o.b] === A)) && (t == null || Math.abs(o.t - t) < 20)); return x?.dmg ? { dmg: x.dmg.map(i => map[i]).filter(Boolean), out: map[x.out] || null, ...lostOf(x) } : {}; };
   for (const p of r.penaltyEvents || []) {
     if (!COLLISION_INFR.includes(p.infringement) || !map[p.car] || !map[p.other] || p.car === p.other) continue;
     const major = p.infringement === 3 || p.type !== WARNING;
@@ -49,7 +50,9 @@ function buildIncidents(r, map) {
     if (out.some(o => !o.pen && ((o.a === A && o.b === B) || (o.a === B && o.b === A)) && Math.abs(o.lap - x.lap) <= 1)) continue;
     const known = x.posA && x.posB && x.posA !== x.posB;
     const [a, b] = known && x.posA < x.posB ? [B, A] : [A, B]; // the car behind
-    out.push({ lap: x.lap || 0, a, b, major: false, pen: null, noFault: !known, t: x.t, ...(x.dmg ? { dmg: x.dmg.map(i => map[i]).filter(Boolean), out: map[x.out] || null } : {}) });
+    const L = lostOf(x); // a car that had lost it was hit by the other, which is the one that ran into it
+    const [a2, b2] = L.lost ? [L.lost === A ? B : A, L.lost] : [a, b];
+    out.push({ lap: x.lap || 0, a: a2, b: b2, major: false, pen: null, noFault: !known && !L.lost, t: x.t, ...(x.dmg ? { dmg: x.dmg.map(i => map[i]).filter(Boolean), out: map[x.out] || null } : {}), ...L });
   }
   return out.sort((p, q) => p.lap - q.lap);
 }
@@ -75,9 +78,24 @@ INCIDENT_QUOTES.forgive[1].push("It cost us a lot, but {O} apologised straight a
 INCIDENT_QUOTES.annoyed[0].push("{O} could have given me a bit more room there.", "Not the cleanest from {O}. I lost a bit of time.", "I’d like a word with {O}, but it was minor.", "{O} was a bit greedy into that corner.", "A bit unnecessary from {O}, but we moved on.");
 INCIDENT_QUOTES.annoyed[1].push("{O} ended my race. I’m not in the mood to forgive that right now.", "That was a dangerous move from {O}. Someone could have been hurt.", "I’m furious. {O} wasn’t even close to making that pass.", "It’s not the first time with {O}. Something has to change.", "We were having a great race until {O} decided it for us.");
 INCIDENT_QUOTES.even.push("Contact with {X}, but that’s what happens when you race hard.", "Hard but fair with {X}. A bit of rubbing is part of racing.", "We both wanted the same piece of track. No big deal.", "{X} and I touched. Nobody did anything wrong.", "It was close all race with {X}. A small touch was always on the cards.", "Racing incident. We both carried on.", "I wouldn’t blame {X}, and I don’t think {X} would blame me.", "Just two cars fighting for one corner. It happens.", "A bit of contact with {X}. Honestly, I enjoyed the fight.");
+// contact after one car had lost it (spun, or suddenly crawling): what each of them says
+INCIDENT_QUOTES.lostSelf = ['I lost the rear and {V} had nowhere to go. I’m sorry for that.', 'My mistake. I lost it, and {V} paid for it.', 'I got it wrong on my own, and {V} was right there. I’ve apologised.', 'That’s on me. I lost the car and {V} couldn’t avoid me.'];
+INCIDENT_QUOTES.lostOther = ['{O} lost it right in front of me. There was nowhere to go.', 'I had no time to react when {O} lost it.', 'Nothing I could do. {O} was suddenly sideways in front of me.', 'Wrong place, wrong time. {O} lost the car and I had nowhere to go.'];
+/** Who had lost it before contact, and who ran into them: { S, H }, or null for ordinary contact. */
+const incLost = (inc) => inc.lost && (inc.lost === inc.a || inc.lost === inc.b) ? { S: inc.lost, H: inc.lost === inc.a ? inc.b : inc.a } : null;
+/** The sentence for contact after a car had lost it: what happened, what it led to, and what the stewards made of it. */
+function lostLine(inc, last, { lp = inc.lap ? ` on lap ${inc.lap}` : '', rnd = Math.random } = {}) {
+  const { S, H } = incLost(inc); const s = last(S), h = last(H);
+  const what = inc.spun ? choose(rnd, ['spun', 'spun round', 'looped it']) : choose(rnd, ['lost the car', 'lost it']);
+  const end = inc.out ? `, ${inc.out === S ? `and ${s}’s race was over` : `ending ${h}’s race`}` : inc.dmg?.includes(S) && inc.dmg?.includes(H) ? ', damaging both cars' : '';
+  const pen = inc.pen && inc.pen !== 'a warning' ? (inc.a === S ? ` The stewards still gave ${s} ${inc.pen}.` : ` ${h} was given ${inc.pen} all the same.`) : '';
+  return `${s} ${what}${lp} and ${h}, right behind, had nowhere to go${end}.${pen}`;
+}
 /** Both drivers' reactions to an incident. The player's own words never get made up: only an AI driver speaks. */
 function incidentQuotes(c, inc, last, rnd) {
-  const out = []; const k = inc.major || inc.dmg?.length || inc.out ? 1 : 0;
+  const out = [];
+  const lost = incLost(inc);
+  if (lost) { const f = (txt, other) => txt.replace('{V}', last(other)).replace('{O}', last(other)); if (lost.S !== PLAYER_ID) out.push({ id: lost.S, text: f(choose(rnd, INCIDENT_QUOTES.lostSelf), lost.H) }); if (lost.H !== PLAYER_ID) out.push({ id: lost.H, text: f(choose(rnd, INCIDENT_QUOTES.lostOther), lost.S) }); return out; } const k = inc.major || inc.dmg?.length || inc.out ? 1 : 0;
   const fill = (txt, me, other) => txt.replace('{V}', last(other)).replace('{O}', last(other)).replace('{X}', last(other))
     .replace('{PEN}', inc.pen && inc.pen !== 'a warning' ? `The penalty is fair. ` : '').replace('{PEN2}', inc.pen && inc.pen !== 'a warning' ? 'The penalty is right, but it ' : 'It ').replace(/ It doesn’t/, ' It doesn’t').replace('right, but it It', 'right, but it');
   if (inc.noFault) { for (const [me, other] of [[inc.a, inc.b], [inc.b, inc.a]]) if (me !== PLAYER_ID) out.push({ id: me, text: fill(choose(rnd, INCIDENT_QUOTES.even), me, other) }); return out; }
@@ -89,6 +107,7 @@ function incidentQuotes(c, inc, last, rnd) {
 }
 /** A sentence for the race report on the incidents that mattered. */
 function incidentLine(inc, last) {
+  if (incLost(inc)) return lostLine(inc, last);
   if (inc.noFault) return `${last(inc.a)} and ${last(inc.b)} made contact${inc.lap ? ` on lap ${inc.lap}` : ''}, a racing incident.`;
   if (inc.pen) return `${last(inc.a)} was given ${inc.pen} for ${inc.major ? 'colliding with' : 'contact with'} ${last(inc.b)}${inc.lap ? ` on lap ${inc.lap}` : ''}.`;
   return `${last(inc.a)} tagged ${last(inc.b)}${inc.lap ? ` on lap ${inc.lap}` : ''}, but the stewards took no action.`;
@@ -124,13 +143,63 @@ function incidentStories(c, s, i, r, key, sd, h) {
     const touches = listJoin(tier.map(x => `${h.last(x.inc.a)} and ${h.last(x.inc.b)}${x.inc.lap ? ` on lap ${x.inc.lap}` : ''}${where(x)}`));
     standfirst = `There was contact between ${touches}.${pens.length ? ` ${pens.map(x => incidentLine(x.inc, h.last)).join(' ')}` : ' The stewards took no action on any of it.'}`;
   } else {
-    headline = inc.noFault ? choose(rnd, [`Contact between ${h.last(inc.a)} and ${h.last(inc.b)} in ${gp}`, `${h.last(inc.a)} and ${h.last(inc.b)} tangle${sprint ? ' in the sprint' : ''}`])
+    const lost = incLost(inc);
+    headline = lost ? choose(rnd, inc.spun ? [`${h.last(lost.S)} spins and ${h.last(lost.H)} has nowhere to go`, `${h.last(lost.S)}’s spin collects ${h.last(lost.H)} in ${gp}`] : [`${h.last(lost.S)} loses it and ${h.last(lost.H)} has nowhere to go`, `${h.last(lost.S)}’s moment collects ${h.last(lost.H)} in ${gp}`])
+      : inc.noFault ? choose(rnd, [`Contact between ${h.last(inc.a)} and ${h.last(inc.b)} in ${gp}`, `${h.last(inc.a)} and ${h.last(inc.b)} tangle${sprint ? ' in the sprint' : ''}`])
       : inc.pen && inc.pen !== 'a warning' ? choose(rnd, [`${h.last(inc.a)} penalised for clash with ${h.last(inc.b)}`, `Stewards hand ${h.last(inc.a)} ${inc.pen} after contact with ${h.last(inc.b)}`])
       : inc.out ? `${h.last(inc.a)} and ${h.last(inc.b)} collide in ${gp}` : choose(rnd, [`${h.last(inc.a)} and ${h.last(inc.b)} touch in ${gp}`, `A brush between ${h.last(inc.a)} and ${h.last(inc.b)}${sprint ? ' in the sprint' : ''}`]);
     standfirst = incidentLine(inc, h.last).replace(/\.$/, where(lead) + '.') + ` ${listJoin(after(lead))}.`;
   }
   return [{ id: `${s.index}-${r.id}${key}inc0`, seq: i * 10 + (sprint ? 2 : 4) + 0.5, kind: 'incident', i, r, replay: { k: key, lap: inc.lap, ds: [inc.a, inc.b] }, subject: inc.b, outlet: choose(rnd, D.OUTLETS), kicker: why === 'heavy' && inc.pen ? 'Stewards' : 'Contact',
     headline, standfirst, body: tier.length > 1 ? [listJoin(after(lead)) + '.'] : [], quotes: incidentQuotes(c, inc, h.last, rnd) }];
+}
+/*
+  Races logged before contact was judged live: each contact is checked once against the race's recording (when it has
+  one). A car whose progress collapsed to under 45% of what it usually made at that spot on its other laps, while the
+  other car was still near its usual pace, had lost it before the contact.
+*/
+function recLost(D, ia, ib, t) {
+  if (ia == null || ib == null || t == null) return null;
+  const S = D.samples || []; const at = (x, i) => x.f.find(y => y[0] === i);
+  const usual = (i, lapX) => {
+    const m = new Map();
+    for (let k = 1; k < S.length; k++) { const p = at(S[k - 1], i), q = at(S[k], i); const dt = S[k].k - S[k - 1].k; if (!p || !q || q[2] !== p[2] || q[2] === lapX || p[6] || q[6] || !(dt > 0.5 && dt < 1.6)) continue; const v = (q[3] - p[3]) / dt; if (v > 0) { const b = Math.floor(p[3] / 50); (m.get(b) || m.set(b, []).get(b)).push(v); } }
+    return (d) => { const b = Math.floor(d / 50); const a = [...(m.get(b - 1) || []), ...(m.get(b) || []), ...(m.get(b + 1) || [])].sort((x, y) => x - y); return a.length >= 2 ? a[a.length >> 1] : null; };
+  };
+  const W = S.filter(x => x.k >= t - 10 && x.k <= t + 2); if (W.length < 2) return null;
+  const lapOf = (i) => at(W[W.length - 1], i)?.[2]; const uA = usual(ia, lapOf(ia)), uB = usual(ib, lapOf(ib));
+  // each second: how each car moved against its usual there (null where it can't be told)
+  const step = (k) => {
+    const pa = at(W[k - 1], ia), qa = at(W[k], ia), pb = at(W[k - 1], ib), qb = at(W[k], ib); const dt = W[k].k - W[k - 1].k;
+    if (!pa || !qa || !pb || !qb || pa[2] !== qa[2] || pb[2] !== qb[2] || !(dt > 0.5 && dt < 1.6) || Math.abs(pa[3] - pb[3]) > 200) return null;
+    const ra = uA(pa[3]), rb = uB(pb[3]); return ra && rb ? { a: (qa[3] - pa[3]) / dt / ra, b: (qb[3] - pb[3]) / dt / rb } : null;
+  };
+  // a car crawling for two seconds running (a spin or a stop, not a moment's braking in traffic) while the other came on at speed
+  for (let k = 1; k < W.length - 1; k++) {
+    const x = step(k), y = step(k + 1); if (!x || !y) continue;
+    if (x.a < 0.45 && x.b < 0.45) return null;
+    if (x.a < 0.45 && y.a < 0.45 && x.b >= 0.75) return ia;
+    if (x.b < 0.45 && y.b < 0.45 && x.a >= 0.75) return ib;
+  }
+  return null;
+}
+async function incidentsFromRecordings() {
+  const c = career(); if (!c || !window.api?.replays || incidentsFromRecordings.busy) return; incidentsFromRecordings.busy = true;
+  try {
+    const have = new Set((await window.api.replays.list() || []).map(x => x.key)); let changed = false;
+    for (const s of c.seasons) for (const w of Object.values(s.weekends || {})) for (const sd of Object.values(w.sessions || {})) {
+      const g = sd?.game; if (!g || g.lostChk || !g.incidents?.length || !have.has(g.key)) continue;
+      const D = await window.api.replays.load(g.key); if (!D?.samples?.length) continue;
+      const map = D.meta.ids ? Object.fromEntries(D.meta.ids.map((d, i) => [i, d])) : liveMap(c, s, { parts: D.meta.parts, player: D.meta.player });
+      const idx = {}; for (const [i, d] of Object.entries(map)) if (d) idx[d] = +i;
+      for (const inc of g.incidents) {
+        if (inc.lost) continue; const L = recLost(D, idx[inc.a], idx[inc.b], inc.t); if (L == null) continue;
+        inc.lost = map[L]; inc.spun = false; if (!inc.pen) { inc.noFault = false; if (inc.b !== inc.lost) [inc.a, inc.b] = [inc.b, inc.a]; } // the car that ran into it first
+      }
+      g.lostChk = 1; changed = true;
+    }
+    if (changed) { store.save(); render(); }
+  } catch (e) { console.warn(e); } finally { incidentsFromRecordings.busy = false; }
 }
 const GAME_SESSION_NAMES = { 1: 'Practice 1', 2: 'Practice 2', 3: 'Practice 3', 4: 'Practice', 5: 'Qualifying 1', 6: 'Qualifying 2', 7: 'Qualifying 3', 8: 'Qualifying', 9: 'One-shot qualifying', 10: 'Sprint Shootout 1', 11: 'Sprint Shootout 2', 12: 'Sprint Shootout 3', 13: 'Sprint Shootout', 14: 'One-shot Sprint Shootout', 15: 'Race', 16: 'Race' };
 let telemetryStatus = null;
@@ -367,7 +436,7 @@ function applyGameResult(c, r, place) {
     wear: byId(x => x.wear || []), finished: byId(x => x.laps),
     ...(r.cars.some(x => x.fuel?.length) ? { fuel: byId(x => x.fuel || []), ersDep: byId(x => x.ersDep || []) } : {}),
     penalties: r.penaltyEvents.filter(p => map[p.car] && (PENALTY_NAMES[p.type] || p.type === WARNING)).map(p => ({ d: map[p.car], type: p.type, infr: p.infringement, time: p.time, lap: p.lap, other: map[p.other] || null, t: p.t ?? null })),
-    incidents: buildIncidents(r, map),
+    incidents: buildIncidents(r, map), lostChk: 1,
     ...(r.tyreSets ? { tyreSets: r.tyreSets } : {}),
     ...(r.ers ? { ers: ersWithTyres(r, map) } : {}),
     ...(isRaceKind(key) && Array.isArray(r.overtakes) ? { overtakes: r.overtakes.filter(x => map[x.a] && map[x.b]).map(x => [map[x.a], map[x.b], x.lap || 0]), passSource: r.passSource || null } : {}),

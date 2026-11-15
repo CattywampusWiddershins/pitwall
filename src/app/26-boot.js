@@ -13,7 +13,7 @@
     });
   }
   try { ui.liveCompact = localStorage.getItem('pitwall.liveCompact') === '1'; } catch { /* Full, then */ }
-  setTimeout(() => learnWetFromReplays(), 15000); // wet-weather crossovers from races recorded before // Live Race and Race Replay: compact or full
+  setTimeout(() => learnWetFromReplays(), 15000); setTimeout(() => incidentsFromRecordings(), 20000); // wet-weather crossovers from races recorded before // Live Race and Race Replay: compact or full
   // the real season, followed: always there beside the careers (made the first time), never the one that opens
   try { ensureRealSave(); } catch (e) { console.error(e); }
   const own = state.careers.filter(x => !x.realSeason);

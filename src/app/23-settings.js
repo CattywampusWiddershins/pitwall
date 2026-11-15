@@ -578,7 +578,8 @@ function newMediaModal(roundId) {
   const defRound = roundId || withR[withR.length - 1]?.id || withQ[withQ.length - 1]?.id || '';
   const ws = (id) => season.weekends[id]?.sessions || {};
   const defKind = roundId ? (ws(roundId).R?.done ? 'race' : ws(roundId).SPR?.done ? 'sprint' : 'quali') : (withR.length ? 'race' : 'preseason');
-  ui.modal = { kind: 'media', seasonIdx: season.index, roundId: defRound, mkind: defKind };
+  const nx = !roundId && mediaNext(c); // (the interview that's due, when there is one)
+  ui.modal = nx ? { kind: 'media', seasonIdx: nx.si, roundId: nx.rid || defRound, mkind: nx.kind } : { kind: 'media', seasonIdx: season.index, roundId: defRound, mkind: defKind };
   drawMediaModal();
 }
 function drawMediaModal() {

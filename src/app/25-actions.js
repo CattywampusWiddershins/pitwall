@@ -313,7 +313,7 @@ const actions = {
   async 'media-start'() {
     const c = career(); const m = ui.modal;
     const needsRound = ['preweekend', 'quali', 'sprint', 'race'].includes(m.mkind);
-    ui.busy = true; drawMediaModal();
+    ui.busy = true; if (document.getElementById('modal-root')?.innerHTML) drawMediaModal(); else render();
     const { questions } = await generateQuestions(c, m.seasonIdx, needsRound ? m.roundId : null, m.mkind);
     ui.busy = false;
     const entry = { id: uid(), seasonIdx: m.seasonIdx, roundId: needsRound ? m.roundId : null, kind: m.mkind, createdAt: new Date().toISOString(), questions, article: null, reactions: [], rep: 0 };
@@ -332,6 +332,8 @@ const actions = {
     ui.busy = false;
     Object.assign(m, out); ui.mediaOpen = null; store.save(); render(); toast('Article published');
   },
+  'media-open'(el) { ivStopAll(); ui.mediaOpen = el.dataset.id; render(); window.scrollTo?.({ top: 0, behavior: 'smooth' }); },
+  async 'media-next'() { const n = mediaNext(career()); if (!n || ui.busy) return; ui.modal = { kind: 'media', seasonIdx: n.si, roundId: n.rid, mkind: n.kind }; await actions['media-start'](); },
   'media-discard'(el) { ivStopAll(); const c = career(); c.media = c.media.filter(x => x.id !== el.dataset.id); ui.mediaOpen = null; store.save(); render(); },
   'media-delete'(el) { confirmBox('Delete article', 'Remove this article and its transcript? Its reputation effect is removed too.', 'Delete', () => { const c = career(); c.media = c.media.filter(x => x.id !== el.dataset.id); store.save(); render(); }); },
   async 'save-ai'() {

@@ -107,8 +107,9 @@ function mediaAngles(c, seasonIdx, roundId, kind) {
       }
       // incidents and penalties
       for (const inc of (ses.R.game?.incidents || []).filter(o => o.a === d || o.b === d)) {
-        const other = inc.a === d ? inc.b : inc.a; const blame = !inc.noFault && inc.a === d;
-        add('inc-' + d + other, inc.major ? 9 : 5, `Lap ${inc.lap || '?'}: ${incidentLine(inc, L)}`, inc.noFault ? [`${nm === 'you' ? 'You' : nm} and ${L(other)} touched on lap ${inc.lap}. Racing incident?`]
+        const other = inc.a === d ? inc.b : inc.a; const blame = !inc.noFault && inc.a === d; const Y = nm === 'you' ? 'you' : nm; const lost = incLost(inc);
+        add('inc-' + d + other, inc.major ? 9 : 5, `Lap ${inc.lap || '?'}: ${incidentLine(inc, L)}`, lost ? (lost.S === d ? [`${cap1(Y)} lost it on lap ${inc.lap} and ${L(other)} had nowhere to go. What happened?`, ...(inc.pen && inc.a === d ? [`The stewards still penalised ${Y} after ${L(other)} ran into ${Y === 'you' ? 'you' : 'them'}. Fair?`] : [])] : [`${L(other)} lost it right in front of ${Y}. Was there anything ${Y} could do?`])
+          : inc.noFault ? [`${nm === 'you' ? 'You' : nm} and ${L(other)} touched on lap ${inc.lap}. Racing incident?`]
           : blame ? [inc.major ? `The stewards blamed ${nm === 'you' ? 'you' : nm} for the collision with ${L(other)}. Fair call?` : `A bit of contact with ${L(other)}. Was that on ${nm === 'you' ? 'you' : nm}?`, inc.major ? `${L(other)} wasn't happy after the contact. What do you say to that?` : `Have ${nm === 'you' ? 'you' : nm} spoken to ${L(other)} about the contact?`]
           : [inc.major ? `${L(other)} hit ${nm === 'you' ? 'you' : nm}${inc.pen ? ` and got ${inc.pen}` : ''}. Is that enough?` : `${L(other)} gave ${nm === 'you' ? 'you' : nm} a tap on lap ${inc.lap}. Any damage?`, `How do ${nm === 'you' ? 'you' : 'you'} feel about ${L(other)} after today?`]);
       }
