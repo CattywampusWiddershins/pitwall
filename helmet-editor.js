@@ -313,7 +313,11 @@ module.exports = function createHelmetEditor({ dataDir }) {
     A draw call (88 bytes from byte 76 of the mesh record): [streams][4][2][index start][count][base vertex]
     [bounding sphere x4][slot*8][1][layout][0][buffers (indices into the mesh's own buffer list)].
   */
-  const CAR3D = { 2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', livery: { 0: [4, 0], 4: [15, 0], 13: [26, 0] } } };
+  // the 2026 car: every part's lod 0 mesh (the body, sidepods, nose, engine cover, wings…, already placed in the car's
+  // space). Each mesh names its draw calls' materials after its index buffer; the ones called "body" are the paint (the
+  // livery), with their texture coordinates in the call's fifth stream. Damaged floors and the open DRS flap are left
+  // out, and so are the rain-bead and shadow layers (copies of surfaces).
+  const CAR3D = { 2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ } };
   function carModel(year = 2026) {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const c = CAR3D[year]; if (!c) return { ok: false, error: `The ${year} car can only be edited flat for now.` };
@@ -322,15 +326,31 @@ module.exports = function createHelmetEditor({ dataDir }) {
       const res = (key) => { const r = E.res.find(x => x.id.endsWith(key)); if (!r) throw new Error('Missing ' + key); return r; };
       const vbs = {}; const vb = (k) => vbs[k] ||= (() => { const r = res(`fom_car.idf?lod=all&vb=${k}`); const h = fragOf(b, E, r.frags[0]); return { st: h.readUInt32LE(4), d: fragOf(b, E, r.frags[1]) }; })();
       const ib = fragOf(b, E, res('fom_car.idf?lod=all&ib=0').frags[1]);
-      const m = fragOf(b, E, res('fom_car.idf?lod=0&mesh').frags[0]); const n = m.readUInt32LE(0);
-      const list = (m.toString('latin1').match(/eaid:\/\/[^\0]+/g) || []).map(s => +((s.match(/vb=(\d+)/) || [])[1] ?? -1));
+      // where each part sits: the car model's node list (from byte 236, 120 bytes each: index, name offset, parent,
+      // position, rotation as a quaternion, scale), named from the string table that starts at "Scene Root". The
+      // sidepods, nose, engine cover and front wings are modelled round their own middle; the body, halo and rear wing
+      // are already in place (their nodes are at the origin).
+      const place = {};
+      { const md = fragOf(b, E, res('fom_car.idf?model').frags[0]); const nt = md.toString('latin1'); const sb = nt.indexOf('Scene Root\0');
+        for (let o = 236, i = 0; sb > 0 && o + 120 <= md.length && md.readUInt32LE(o) === i; o += 120, i++) {
+          const s = sb + md.readUInt32LE(o + 4); const name = nt.slice(s, nt.indexOf('\0', s)); const parent = md.readUInt32LE(o + 8); if (parent !== 0 && parent !== i) continue;
+          place[name] = { p: [0, 1, 2].map(k => md.readFloatLE(o + 12 + k * 4)), q: [0, 1, 2, 3].map(k => md.readFloatLE(o + 24 + k * 4)) }; } }
+      const xf = (X) => { if (!X) return null; const [qx, qy, qz, qw] = X.q, [px, py, pz] = X.p; // the rotation as a matrix, then the move
+        const m = [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), 2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), 2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)];
+        return (x, y, z) => [m[0] * x + m[1] * y + m[2] * z + px, m[3] * x + m[4] * y + m[5] * z + py, m[6] * x + m[7] * y + m[8] * z + pz]; };
       const liv = { pos: [], uv: [], idx: [] }, rest = { pos: [], idx: [] };
-      for (let k = 0; k < n; k++) {
-        const o = 76 + k * 88; if (o + 88 > m.length) break; const u = (i) => m.readUInt32LE(o + i * 4);
-        const ns = u(0), start = u(3), count = u(4), base = u(5); if (count < 30) continue; const bufs = [...Array(ns)].map((_, i) => list[u(14 + i)]);
-        const P = vb(bufs[0]); if (P.st !== 12) continue; const L = c.livery[k]; const into = L ? liv : rest; const UV = L ? vb(L[0]) : null;
-        const map = new Map(); const first = into.pos.length / 3;
-        for (let i = 0; i < count; i++) { const v = ib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); into.pos.push(P.d.readFloatLE(v * 12), P.d.readFloatLE(v * 12 + 4), P.d.readFloatLE(v * 12 + 8)); if (UV) { const q = v * UV.st + L[1] * 4; into.uv.push(half2float(UV.d.readUInt16LE(q)), half2float(UV.d.readUInt16LE(q + 2))); } } into.idx.push(first + j); }
+      for (const mr of E.res.filter(x => x.type === 'GfxMeshRes' && /fom_car\.idf\?lod=0&/.test(x.id))) {
+        const part = (mr.id.match(/lod=0&(?:(.*)&)?mesh$/) || [])[1] || 'body'; if (c.skip.test(part)) continue; const T = xf(place[part]);
+        const m = fragOf(b, E, mr.frags[0]); const n = m.readUInt32LE(0); const txt = m.toString('latin1');
+        const list = (txt.match(/eaid:\/\/[^\0]+/g) || []).map(s => +((s.match(/vb=(\d+)/) || [])[1] ?? -1));
+        const ibAt = txt.indexOf('&ib=0\0'); const names = ibAt < 0 ? [] : txt.slice(ibAt + 6).split('\0').slice(0, n);
+        for (let k = 0; k < n; k++) {
+          const o = 76 + k * 88; if (o + 88 > m.length) break; const u = (i) => m.readUInt32LE(o + i * 4);
+          const ns = u(0), start = u(3), count = u(4), base = u(5); if (count < 3 || names[k] === 'rainbeads' || names[k] === 'shadow') continue; const bufs = [...Array(ns)].map((_, i) => list[u(14 + i)]);
+          const P = vb(bufs[0]); if (P.st !== 12) continue; const L = names[k] === 'body' && ns > 4 ? [bufs[4], 0] : null; const into = L ? liv : rest; const UV = L ? vb(L[0]) : null;
+          const map = new Map(); const first = into.pos.length / 3;
+          for (let i = 0; i < count; i++) { const v = ib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); const x = P.d.readFloatLE(v * 12), y = P.d.readFloatLE(v * 12 + 4), z = P.d.readFloatLE(v * 12 + 8); into.pos.push(...(T ? T(x, y, z) : [x, y, z])); if (UV) { const q = v * UV.st + L[1] * 4; into.uv.push(half2float(UV.d.readUInt16LE(q)), half2float(UV.d.readUInt16LE(q + 2))); } } into.idx.push(first + j); }
+        }
       }
       const f32 = (a) => Buffer.from(new Float32Array(a).buffer), u32 = (a) => Buffer.from(new Uint32Array(a).buffer);
       return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx) }, rest: { pos: f32(rest.pos), idx: u32(rest.idx) } };

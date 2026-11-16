@@ -1137,7 +1137,7 @@ async function edCarExport() {
     <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.file)}">Show the zip</button></div>`);
 }
 /*
-  The car in 3D: the 2026 car's body (from the game), the livery parts showing the canvas as their texture, the rest in
+  The car in 3D: the whole 2026 car (every part, from the game), the painted parts showing the canvas as their texture, the rest in
   dark grey for the shape. It uses the helmet's renderer (so the helmet has to have been read from the game), with a
   scene and camera of its own. Stickers under the pointer are moved on the car itself (the point under it, from the
   model's texture coordinates); new ones go where the view is pointed. Sizing and turning stay on Flat and in the panel.
@@ -1162,7 +1162,7 @@ function edCar3Build(r) {
   const liv = mk(r.liv, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide }));
   const rest = mk(r.rest, new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide }));
   const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60);
-  ED.car3 = { scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 7.5 };
+  ED.car3 = { scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 9.5 };
 }
 function edFrameCar() {
   const C = ED.car3, T = ED.three; if (!C || !T) return; C.tex.image = ED.stkCv || C.tex.image;
