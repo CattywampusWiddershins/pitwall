@@ -341,9 +341,9 @@ module.exports = function createHelmetEditor({ dataDir }) {
       const xf = (X) => { if (!X) return null; const [qx, qy, qz, qw] = X.q, [px, py, pz] = X.p; // the rotation as a matrix, then the move
         const m = [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), 2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), 2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)];
         return (x, y, z) => [m[0] * x + m[1] * y + m[2] * z + px, m[3] * x + m[4] * y + m[5] * z + py, m[6] * x + m[7] * y + m[8] * z + pz]; };
-      const liv = { pos: [], uv: [], idx: [] }, rest = { pos: [], idx: [] };
+      const liv = { pos: [], uv: [], idx: [], parts: [] }, rest = { pos: [], idx: [], parts: [] }; // (parts: each part's run of the index list, for showing one part alone)
       for (const mr of E.res.filter(x => x.type === 'GfxMeshRes' && /fom_car\.idf\?lod=0&/.test(x.id))) {
-        const part = (mr.id.match(/lod=0&(?:(.*)&)?mesh$/) || [])[1] || 'body'; if (c.skip.test(part)) continue; const T = xf(place[part]);
+        const part = (mr.id.match(/lod=0&(?:(.*)&)?mesh$/) || [])[1] || 'body'; if (c.skip.test(part)) continue; const T = xf(place[part]); const l0 = liv.idx.length, r0 = rest.idx.length;
         const m = fragOf(b, E, mr.frags[0]); const n = m.readUInt32LE(0); const txt = m.toString('latin1');
         const list = (txt.match(/eaid:\/\/[^\0]+/g) || []).map(s => +((s.match(/vb=(\d+)/) || [])[1] ?? -1));
         const ibAt = txt.indexOf('&ib=0\0'); const names = ibAt < 0 ? [] : txt.slice(ibAt + 6).split('\0').slice(0, n);
@@ -354,9 +354,10 @@ module.exports = function createHelmetEditor({ dataDir }) {
           const map = new Map(); const first = into.pos.length / 3;
           for (let i = 0; i < count; i++) { const v = ib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); const x = P.d.readFloatLE(v * 12), y = P.d.readFloatLE(v * 12 + 4), z = P.d.readFloatLE(v * 12 + 8); into.pos.push(...(T ? T(x, y, z) : [x, y, z])); if (UV) { const q = v * UV.st + L[1] * 4; into.uv.push(half2float(UV.d.readUInt16LE(q)), half2float(UV.d.readUInt16LE(q + 2))); } } into.idx.push(first + j); }
         }
+        if (liv.idx.length > l0) liv.parts.push({ name: part, start: l0, count: liv.idx.length - l0 }); if (rest.idx.length > r0) rest.parts.push({ name: part, start: r0, count: rest.idx.length - r0 });
       }
       const f32 = (a) => Buffer.from(new Float32Array(a).buffer), u32 = (a) => Buffer.from(new Uint32Array(a).buffer);
-      return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx) }, rest: { pos: f32(rest.pos), idx: u32(rest.idx) } };
+      return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx), parts: liv.parts }, rest: { pos: f32(rest.pos), idx: u32(rest.idx), parts: rest.parts } };
     } catch (e) { return { ok: false, error: 'Couldn’t read the car from F1 25: ' + e.message }; }
   }
   /** An archive holding one resource (copied from another, its fragments replaced): for SWOFTY's overlay. */

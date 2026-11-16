@@ -1693,3 +1693,7 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
 .he-guide { font-size: 12px; } #ed-guideop { width: 110px; accent-color: var(--team); }
 
 .he.car3d .he-view > canvas.he-stkcv { display: none !important; }
+
+.he:not(.car3d) .only-car3d { display: none !important; }
+.he-car3dbar { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-right: 8px; }
+.he.car3d .he-guide, .he.car3d #ed-guideop { display: none !important; } /* (the guide is drawn on Flat only) */

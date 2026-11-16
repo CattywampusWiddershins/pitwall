@@ -178,7 +178,7 @@ function edBuild() {
         <canvas id="ed-stk" class="he-stkcv only-flat"></canvas>
         <svg id="ed-gizmo" class="he-gizmo"></svg>
         <div class="he-vbar">
-          <div class="he-row only-car"><div class="seg he-seg" id="ed-carview"><button data-carview="flat" class="on">Flat</button><button data-carview="3d" title="The 2026 car with your livery on it: drag a sticker on the car to move it, drag empty space to turn it (sizes and turns on Flat or in the panel)">3D</button></div><label class="he-chk he-guide"><input type="checkbox" id="ed-guide" checked> Guide</label><input type="range" id="ed-guideop" min="0.05" max="0.9" step="0.05" value="0.35" title="How strongly the original livery shows over yours (it's never exported)"></div>
+          <div class="he-row only-car"><span class="only-car3d he-car3dbar"><button class="btn sm" data-ccam="front">Front</button><button class="btn sm" data-ccam="left">Left</button><button class="btn sm" data-ccam="right">Right</button><button class="btn sm" data-ccam="back">Back</button><button class="btn sm" data-ccam="top">Top</button><select class="he-mini" id="ed-carpart" title="Show one part alone, zoomed in">${ED_CARPARTS.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></span><div class="seg he-seg" id="ed-carview"><button data-carview="flat" class="on">Flat</button><button data-carview="3d" title="The 2026 car with your livery on it: drag a sticker on the car to move it, drag empty space to turn it (sizes and turns on Flat or in the panel)">3D</button></div><label class="he-chk he-guide"><input type="checkbox" id="ed-guide" checked> Guide</label><input type="range" id="ed-guideop" min="0.05" max="0.9" step="0.05" value="0.35" title="How strongly the original livery shows over yours (it's never exported)"></div>
           <div class="he-row only-sticker"><div class="seg he-seg" id="ed-stksize"><button data-stk="1024x1024">Square</button><button data-stk="2048x1024">Wide</button><button data-stk="1024x2048">Tall</button></div></div>
           <div class="he-row only-helmet"><button class="btn sm" data-cam="front">Front</button><button class="btn sm" data-cam="left">Left</button><button class="btn sm" data-cam="right">Right</button><button class="btn sm" data-cam="back">Back</button><button class="btn sm" data-cam="top">Top</button></div>
           <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><div class="seg he-seg only-helmet" id="ed-place" title="How new stickers go on"><button data-place="stick" class="${edPlace() === 'stick' ? 'on' : ''}" title="New stickers follow the surface">Follow</button><button data-place="stamp" class="${edPlace() === 'stamp' ? 'on' : ''}" title="New stickers are stamped straight on from your view (lines stay straight)">Stamp</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
@@ -285,7 +285,7 @@ function edThree(r) {
   const mesh = new THREE.Mesh(g, viewMat); mesh.position.copy(C).multiplyScalar(-1); scene.add(mesh);
   ED.three = { R, g, C, RAD, side, RT, fillMat, baseMat, layerMat, trimMat, quad, bakeMesh, bakeScene, bakeCam, scene, cam, mesh, yaw: Math.PI / 2, pitch: 0.08, dist: 0.9, tex: new Map(), ray: new THREE.Raycaster() };
   cv.addEventListener('pointerdown', edDown); cv.addEventListener('pointermove', edMove); cv.addEventListener('pointerup', edUp); cv.addEventListener('pointercancel', edUp);
-  cv.addEventListener('wheel', (e) => { e.preventDefault(); if (edCar3dOn()) { ED.car3.dist = Math.max(2.5, Math.min(14, ED.car3.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); return; } const T = ED.three; T.dist = Math.max(0.45, Math.min(1.8, T.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); }, { passive: false });
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); if (edCar3dOn()) { ED.car3.dist = Math.max(0.4, Math.min(14, ED.car3.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); return; } const T = ED.three; T.dist = Math.max(0.45, Math.min(1.8, T.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); }, { passive: false });
   cv.addEventListener('dragover', (e) => e.preventDefault()); cv.addEventListener('drop', edDrop);
   new ResizeObserver(() => edResize()).observe(ED.root.querySelector('#ed-view'));
   edResize();
@@ -677,7 +677,7 @@ function edImportTexture(e) {
 
 // ---- clicks and edits in the editor
 function edClick(e) {
-  const t = e.target.closest('[data-ed],[data-tab],[data-carview],[data-proj],[data-place],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
+  const t = e.target.closest('[data-ed],[data-tab],[data-carview],[data-ccam],[data-proj],[data-place],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
   if (t.matches('input, select, label')) return; // (inputs are handled as input events)
   const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
   // colour and effects: swatches and the Own / Solid / Gradient and stroke side buttons
@@ -686,6 +686,7 @@ function edClick(e) {
   if (t.dataset.layer && (e.ctrlKey || e.metaKey || e.shiftKey)) { const m = ED.multi ||= new Set(); if (ED.sel) m.add(ED.sel); const id = t.dataset.layer; m.has(id) ? m.delete(id) : m.add(id); ED.sel = m.size === 1 ? [...m][0] : null; ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.tab) { edSwitchTab(t.dataset.tab); return; }
   if (t.dataset.carview) { edCarView(t.dataset.carview); return; }
+  if (t.dataset.ccam && ED.car3) { [ED.car3.yaw, ED.car3.pitch] = ED_CARCAMS[t.dataset.ccam]; edDraw(); return; }
   if (t.dataset.proj) { const L = ED.design.layers.find(l => l.id === ED.sel); if (L) edSetProj(L, t.dataset.proj); return; }
   if (t.dataset.place) { ED.place = t.dataset.place; try { localStorage.setItem('pitwall.editor.place', ED.place); } catch { } ED.root.querySelectorAll('[data-place]').forEach(b => b.classList.toggle('on', b.dataset.place === ED.place)); return; }
   if (t.dataset.stk) { const [w, h] = t.dataset.stk.split('x').map(Number); edCommit(() => { D.w = w; D.h = h; }); return; }
@@ -807,6 +808,7 @@ function edInput(e) {
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
   if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
   if (t.id === 'ed-gres') { if (e.type === 'change') { try { localStorage.setItem('pitwall.editor.gameRes', t.value); } catch { } } return; }
+  if (t.id === 'ed-carpart') { if (e.type === 'change') edCarPart(t.value); return; }
   if (t.id === 'ed-caryear') { if (e.type === 'change') { edCommit(() => { D.year = +t.value; }, { bake: false }); edCarGuide(); if (ED.carView === '3d') edCarView('3d'); } return; }
   if (t.id === 'ed-guide' || t.id === 'ed-guideop') { edDrawSticker(); return; }
   if (t.id === 'ed-name') { if (e.type === 'change') edCommit(() => { D.name = t.value.trim() || 'Helmet'; }, { bake: false, panels: false }); return; }
@@ -1151,7 +1153,7 @@ async function edCarView(v) {
     const year = ED.design.year || 2026; ED.car3s ||= {};
     if (!ED.car3s[year]) { edStatus('Reading the car from F1 25…'); let r = null; try { r = await edApi().carModel(year); } catch (e) { r = { ok: false, error: e.message }; } edStatus();
       if (!r?.ok) { toast(r?.error || 'Couldn’t read the car.'); return; } const was = ED.car3; edCar3Build(r); ED.car3s[year] = ED.car3; ED.car3 = was; }
-    const prev = ED.car3; ED.car3 = ED.car3s[year]; if (prev && prev !== ED.car3) Object.assign(ED.car3, { yaw: prev.yaw, pitch: prev.pitch, dist: prev.dist }); ED.car3.tex.needsUpdate = true;
+    const prev = ED.car3; ED.car3 = ED.car3s[year]; if (prev && prev !== ED.car3) { Object.assign(ED.car3, { yaw: prev.yaw, pitch: prev.pitch }); edCarPart(prev.part || 'all', true); if ((prev.part || 'all') === 'all') ED.car3.dist = prev.dist; } ED.car3.tex.needsUpdate = true;
   }
   ED.carView = v; ED.root.classList.toggle('car3d', v === '3d'); ED.root.querySelector('#ed-hint').textContent = v === '3d' ? 'Drag a sticker on the car to move it · drag empty space to turn the car · scroll to zoom · Add puts new ones where you are looking' : 'The livery as the game lays it out (the original shows faintly over it as a guide) · drag, size and turn like on the helmet'; ED.root.querySelector('#ed-gizmo').innerHTML = ''; edResize();
 }
@@ -1164,11 +1166,12 @@ function edCar3Build(r) {
   const liv = mk(r.liv, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide }));
   const rest = mk(r.rest, new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide }));
   const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60);
-  ED.car3 = { scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 9.5 };
+  liv.userData = { full: liv.geometry.index.array.slice(), parts: r.liv.parts || [] }; rest.userData = { full: rest.geometry.index.array.slice(), parts: r.rest.parts || [] };
+  ED.car3 = { scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 9.5, target: ED_CARMID.clone(), part: 'all' };
 }
 function edFrameCar() {
   const C = ED.car3, T = ED.three; if (!C || !T) return; C.tex.image = ED.stkCv || C.tex.image;
-  C.cam.position.set(Math.sin(C.yaw) * Math.cos(C.pitch) * C.dist, 0.1 + Math.sin(C.pitch) * C.dist, 0.25 + Math.cos(C.yaw) * Math.cos(C.pitch) * C.dist); C.cam.lookAt(0, 0.15, 0.25);
+  const A = C.target || ED_CARMID; C.cam.position.set(A.x + Math.sin(C.yaw) * Math.cos(C.pitch) * C.dist, A.y + Math.sin(C.pitch) * C.dist, A.z + Math.cos(C.yaw) * Math.cos(C.pitch) * C.dist); C.cam.lookAt(A);
   T.R.setRenderTarget(null); T.R.render(C.scene, C.cam); edCarGizmo();
 }
 /*
@@ -1230,6 +1233,27 @@ function edCarGizmo() {
     ${pts.map((p, k) => `<rect data-h="size" data-k="${k}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12" rx="2" class="he-gh"/>`).join('')}
     ${sides.map(([h, p], k) => `<circle data-h="${h}" data-k="${k}" cx="${p[0]}" cy="${p[1]}" r="5" class="he-gh he-gside"/>`).join('')}<circle data-h="turn" cx="${rotH[0]}" cy="${rotH[1]}" r="7" class="he-gh"/>
     <text x="${Math.min(...pts.map(p => p[0]))}" y="${Math.max(...pts.map(p => p[1])) + 20}" class="he-glbl">${edEsc(L.name)}</text>`;
+}
+/*
+  The car's parts, for showing one alone: groups of the game's part names. The camera then aims at its middle and comes
+  in to fit it (the views turn round it). "Whole car" puts everything back.
+*/
+const ED_CARMID = new THREE.Vector3(0, 0.15, 0.25);
+const ED_CARCAMS = { front: [0, 0.12], left: [Math.PI / 2, 0.1], right: [-Math.PI / 2, 0.1], back: [Math.PI, 0.15], top: [Math.PI, 1.5] };
+const ED_CARPARTS = [['all', 'Whole car', null], ['frontwing', 'Front wing', /^(frontwing|frontwingmoving|frontspoiler)/], ['nose', 'Nose', /^nosecone$/], ['body', 'Body and cockpit', /^(body|safetycell|cockpit|driver_surroun|camera_wing)$/],
+  ['sidepods', 'Sidepods', /^sidepod_/], ['cover', 'Engine cover', /^topcanopy/], ['halo', 'Halo', /^hal$/], ['mirrors', 'Mirrors', /^wing_mirror_/], ['rearwing', 'Rear wing', /^rearwing/], ['diffuser', 'Diffuser', /^diffuser/]];
+function edCarPart(key, keepView) {
+  const C = ED.car3; if (!C) return; const G = ED_CARPARTS.find(p => p[0] === key) || ED_CARPARTS[0]; C.part = G[0]; const sel = ED.root.querySelector('#ed-carpart'); if (sel) sel.value = G[0];
+  const box = new THREE.Box3();
+  for (const m of [C.liv, C.rest]) {
+    const U = m.userData; const runs = G[2] ? U.parts.filter(p => G[2].test(p.name)) : null; let idx = U.full;
+    if (runs) { idx = new Uint32Array(runs.reduce((a, p) => a + p.count, 0)); let o = 0; for (const p of runs) { idx.set(U.full.subarray(p.start, p.start + p.count), o); o += p.count; } }
+    m.geometry.setIndex(new THREE.BufferAttribute(idx, 1)); m.visible = idx.length > 0;
+    if (runs) { const P = m.geometry.attributes.position.array; const v = new THREE.Vector3(); for (let i = 0; i < idx.length; i++) box.expandByPoint(v.set(P[idx[i] * 3], P[idx[i] * 3 + 1], P[idx[i] * 3 + 2])); }
+  }
+  C.grid = null; // (the gizmo's lookup follows what's shown)
+  if (!keepView || G[2]) { if (G[2] && !box.isEmpty()) { const s = box.getBoundingSphere(new THREE.Sphere()); C.target = s.center; C.dist = Math.max(0.5, s.radius * 3.6); } else { C.target = ED_CARMID.clone(); if (!keepView) C.dist = 9.5; } }
+  edDraw();
 }
 /** The sticker as a PNG, cut to what's on it (see-through edges trimmed). */
 function edStkPng() {
