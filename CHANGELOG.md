@@ -2,6 +2,11 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 6.4.0
+
+- **Tyre sets keep their laps all weekend.** F1 25's tyre age starts again in every session, so a set you ran in FP1 showed as 1 lap old in FP2. Pitwall now puts each lap you finish down to the set on the car and adds them up across the weekend. Ask the race engineer about your tyres and he gives the real age ("Mediums, 9 laps old, 6 of them from earlier sessions"), and Live shows it too. In the race, a scrubbed set from practice or qualifying shows the laps it already has. This needs Pitwall running during the earlier sessions. A lap driven again after a flashback isn't counted twice, and a set the game shows as unworn (a restarted session) starts from zero.
+- **Race engineer: hearing you in practice and qualifying (BETA).** The example sentences the speech recognition is given now match the session. Practice uses car-feel words (understeer, the rears overheating, stiff over the kerbs, bottoming out), qualifying uses the cut-off, traffic and push laps, and the race keeps gaps and stops. Before, every session used race talk, so practice words were misheard ("the car is very stiff on the curves"). "My radio's overheating" and "my radius is overheating" are now read as the rears.
+
 ## 6.3.0
 
 - **Media: answer out loud (BETA).** In an interview in progress, "Answer out loud" has each reporter read their question in a voice of their own, and you answer into your microphone. What you say is written into the answer box, where you can still edit it before publishing. When an answer dodges the question, is very short or opens something worth pressing, the reporter may ask a follow-up, with two at most in an interview. With an AI key, the follow-ups react to what you actually said. Listening stops when you've finished talking, or press "Done talking", or the push-to-talk button. You can skip a question or stop at any time, and typing your answers works as before. This uses the race engineer's downloads: a voice and the speech recognition from Settings → Race engineer. The more voices you download, the more the reporters sound different.

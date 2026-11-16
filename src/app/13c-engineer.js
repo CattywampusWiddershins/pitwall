@@ -236,9 +236,12 @@ function engTickRest(S, M, E, now, say) {
 }
 
 // ---- understanding you: words as Pitwall knows them, then the drivers, teams, places and tyres you named
+const ENG_REARS = /\b(radius|radios|radio's|radio is|rear is)\b(?=.*\b(overheat|too hot|hot|temp|grip|slid|worn|wear|graining|blister))/gi;
 const ENG_ALIAS = [[/\btires?\b/g, (m) => m.replace('tire', 'tyre')], [/\bmedians?\b/g, 'mediums'], [/\blabs?\b/g, (m) => m.replace('lab', 'lap')], [/\bgab\b/g, 'gap'],
   [/\b(bocks|boks|bucks)\b/g, 'box'], [/\bsafety ?cart?\b/g, 'safety car'], [/\bv ?s ?c\b/g, 'vsc'], [/\be ?r ?s\b/g, 'ers'], [/\binterm[ae]diates?\b/g, 'inters'],
-  [/\bpee (\d)/g, 'p$1'], [/\bposition (\d+)/g, 'p$1'], [/\bteam ?-?mate\b/g, 'teammate'], [/\bin front\b/g, 'ahead'], [/\bbehind me\b/g, 'behind'], [/\bwhat's\b/g, 'what is'], [/\blap,? (bye[- ]?bye|bye lap|by lap)\b/g, 'lap by lap'], [/\bmatt\b/g, 'max'], [/\bwear (am i|is|are)\b/g, 'where $1'], [/\bloosing\b/g, 'losing'], [/\bup dated\b/g, 'updated'], [/\bwho's\b/g, 'who is'], [/\bi'm\b/g, 'i am'], [/\bhow's\b/g, 'how is']];
+  [/\bpee (\d)/g, 'p$1'], [/\bposition (\d+)/g, 'p$1'], [/\bteam ?-?mate\b/g, 'teammate'], [/\bin front\b/g, 'ahead'], [/\bbehind me\b/g, 'behind'], [/\bwhat's\b/g, 'what is'], [/\blap,? (bye[- ]?bye|bye lap|by lap)\b/g, 'lap by lap'], [/\bmatt\b/g, 'max'], [/\bwear (am i|is|are)\b/g, 'where $1'], [/\bloosing\b/g, 'losing'], [/\bup dated\b/g, 'updated'], [/\bwho's\b/g, 'who is'], [/\bi'm\b/g, 'i am'], [/\bhow's\b/g, 'how is'],
+  // "my rears are overheating", heard as "my radio's" or "my radius": put right when it's about heat or grip
+  [ENG_REARS, 'rears']];
 const ENG_ORD = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12 };
 const engNorm = (t) => { let x = ' ' + String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9%' ]+/g, ' ').replace(/\s+/g, ' ') + ' '; for (const [re, to] of ENG_ALIAS) x = x.replace(re, to); return x.replace(/\s+/g, ' '); };
 function engLev(a, b) { if (Math.abs(a.length - b.length) > 2) return 9; const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
@@ -294,7 +297,8 @@ const engTrend = (S, x) => { if (!S.race) return ''; let e = null; try { e = pac
 const engLapsOf = (S, x) => { const nm = S.name(x); if (!x.best && !x.last) return `${nm} has no time yet.`;
   const vs = !S.race && S.me.best && x.best ? (x.best === S.me.best ? ' Exactly your time.' : ` ${(Math.abs(x.best - S.me.best) / 1000).toFixed(3)} ${x.best < S.me.best ? 'quicker' : 'slower'} than you.`) : '';
   return `${nm}'s best is ${x.best ? fmtLap(x.best) : 'not set yet'}${!S.race && x.best && x.pos ? `, P${x.pos}` : ''}.${x.last && x.last !== x.best ? ` Last lap ${fmtLap(x.last)}.` : ''}${vs}`; };
-const engCarTyre = (S, x) => x.c ? `${engTyres(x.c)}, ${plural(x.age ?? 0, 'lap')} old` : 'no tyre data';
+// (your own set: its laps across the weekend, as the game's age counts this session only)
+const engCarTyre = (S, x) => { if (!x.c) return 'no tyre data'; const A = x.i === S.me.i ? setAge(S.L, x) : { laps: x.age ?? 0, before: 0 }; return `${engTyres(x.c)}, ${plural(A.laps, 'lap')} old${A.before ? `, ${A.before} of them from earlier sessions` : ''}`; };
 const engYou = (S) => !S.race ? (S.me.pos === 1 ? 'You are quickest.' : `That is you, P${S.me.pos}.`) : S.me.pos === 1 ? `You are leading.${S.behind ? ` ${S.name(S.behind)} is ${engSec(-engGap(S, S.behind))} behind.` : ''}` : `That is you, P${S.me.pos}.`;
 /*
   Practice and qualifying, unprompted: the start, each lap done (in qualifying every flying lap with its time, place and
@@ -601,7 +605,7 @@ const ENG_INTENTS = [
   { id: 'tyres', cat: 'Tyres and stops', title: 'Tyres', k: [['tyre', 'tyres', 'wear', 'grip', 'rubber', 'compound', 'degradation', 'deg', 'softs', 'mediums', 'hards', 'inters', 'what is he on', 'what is she on', 'what are they on', 'what are they on']], ex: ['How are my tyres?', 'What tyres is Hamilton on?', 'How much wear?', 'What is the car ahead on?'], car: true,
     say: (S, E, x) => x ? `${S.name(x)} is on ${engCarTyre(S, x)}${x.stops ? `, ${plural(x.stops, 'stop')} made` : ', no stops yet'}.` : `${cap1(engCarTyre(S, S.me))}.${S.ST?.curLife != null ? ` About ${plural(Math.max(0, S.ST.curLife), 'lap')} left in them.` : ''}` },
   { id: 'life', cat: 'Tyres and stops', title: 'Tyre life', k: [['how long', 'last', 'make it', 'go longer', 'extend', 'life', 'to the end', 'to the flag', 'hold on']], ex: ['How long will these tyres last?', 'Can I make it to the end?', 'Can we go longer?'],
-    say: (S) => { if (!S.race) return S.me.age != null ? `${plural(S.me.age, 'lap')} on this set.` : 'No tyre data yet.'; const life = S.ST?.curLife; if (life == null) return 'Not enough laps on this set to tell yet.'; return life >= S.left ? `They should make the end. About ${plural(life, 'lap')} in them, ${plural(S.left, 'lap')} to go.` : `About ${plural(Math.max(0, life), 'lap')} left in them. They won’t make the end.`; } },
+    say: (S) => { if (!S.race) { if (S.me.age == null) return 'No tyre data yet.'; const A = setAge(S.L, S.me); return `${plural(A.laps, 'lap')} on this set${A.before ? `, ${A.before} of them from earlier sessions` : ''}.`; } const life = S.ST?.curLife; if (life == null) return 'Not enough laps on this set to tell yet.'; return life >= S.left ? `They should make the end. About ${plural(life, 'lap')} in them, ${plural(S.left, 'lap')} to go.` : `About ${plural(Math.max(0, life), 'lap')} left in them. They won’t make the end.`; } },
   { id: 'boxnow', cat: 'Tyres and stops', title: 'Box this lap (you tell the team)', k: [['box this lap', 'pit this lap', 'box now', 'pit now', 'coming in', 'boxing', 'i am boxing', 'box box', 'pit me', 'bring me in', 'i want to box', 'i want to pit', 'can i box', 'should i box', 'should i pit', 'can i pit']], ex: ['Box this lap', 'I want to pit', 'Should I box?', 'Coming in'],
     say: (S) => { if (!S.race) return ['Copy, box this lap.', 'Box, box. Copy.', 'Copy. Box this lap.'][Math.floor(Math.random() * 3)]; const n = S.plan?.stints?.[0]?.c; const RJ = S.RJ; const out = RJ ? ` You would come out P${RJ.pos}${RJ.ahead ? `, behind ${S.name(RJ.ahead)}` : ''}.` : ''; if (S.call) return `Yes, box this lap for ${engTyres(S.call.c)}.${out}`; const k = S.ST?.k ?? S.plan?.k; return n ? `Copy. We had you stopping on lap ${S.me.lap + (k || 1) - 1}, but box this lap is fine: ${engTyres(n)}.${out}` : `Copy, box this lap.${out}`; } },
   { id: 'stayout', cat: 'Tyres and stops', title: 'Stay out', k: [['stay out', 'staying out', 'not boxing', 'no box', 'dont box', "don't box", 'not pitting', 'one more lap', 'another lap']], ex: ['I’m staying out', 'One more lap', 'Not boxing'],
@@ -662,13 +666,22 @@ function engMatch(t) {
   }
   return best?.I || null;
 }
+/*
+  What the speech recognition is told to expect: example sentences for the session you're in. Practice is mostly about
+  how the car feels (understeer, the rears overheating, the kerbs), qualifying about the cut-off and traffic, the race
+  about gaps and stops; with only race talk in it, practice words were heard as something else ("my radio's overheating").
+*/
 const engPrompt = () => {
   const s = latestSeason(); const grid = s ? gridIds(s).map(d => lastName(dName(s, d))).filter(Boolean) : []; const names = [...new Set([...grid, ...(s ? Object.values(s.drivers).map(d => lastName(d.name || '')).filter(Boolean) : [])])].slice(0, 30);
   const n = (k) => names[k % Math.max(1, names.length)] || 'Verstappen';
+  let kind = 'race'; try { const r = s && nextRound(s); kind = (r && liveFor(career(), r)?.kind) || 'race'; } catch { }
+  const tyres = 'Softs, mediums, hards, inters.';
+  if (kind === 'practice') return `Formula 1 team radio, practice. How are the tyres? What's my tyre condition? My rears are overheating. The fronts are graining. I've got understeer in the slow corners and oversteer on exit. The car is too stiff over the kerbs. It's bottoming out, no traction, rear locking under braking. The setup isn't working, we need to try something else. Front wing, rear wing, ride height, anti-roll bar, differential, brake bias, tyre pressures. Box this lap. Gap to ${n(0)}? ${tyres} ${names.slice(0, 12).join(', ')}.`;
+  if (kind === 'quali') return `Formula 1 team radio, qualifying. Am I through? What's the cut-off? Where am I losing time to ${n(0)}? Any traffic behind? Push lap, out lap, cool-down lap. Track limits. Gap to ${n(1)}? How are the tyres? Understeer, oversteer, the rears are overheating. Box this lap. ${tyres} ${names.join(', ')}. ${(s?.teams || []).map(t => t.name).join(', ')}.`;
   return `Formula 1 team radio. Gap to ${n(0)}? What's the gap to ${n(1)}? Box this lap. Keep me updated on ${n(2)}. How are the tyres? Where am I losing to ${n(3)}? ${n(4)} lap time? He hit me, that's a penalty. Sidepod and floor damage. Can we undercut him? Gaps to ${n(1)} lap by lap. Where's Max? What does our strategy look like? ${names.join(', ')}. ${(s?.teams || []).map(t => t.name).join(', ')}. Softs, mediums, hards, inters, undercut, safety car, VSC, ERS, DRS.`;
 };
 // words the speech recognition often gets a little wrong, put right in what's shown
-const ENG_SHOW_FIX = [[/\bgab\b/gi, 'gap'], [/\b(bocks|boks|bucks)\b/gi, 'box'], [/\bmedians\b/gi, 'mediums'], [/\bmedian\b/gi, 'medium'], [/\blabs\b/gi, 'laps'], [/\blab\b/gi, 'lap'], [/\bsafety cart\b/gi, 'safety car'], [/\blap[.,]? (bye[- ]?bye|bye lap|by lap)\b/gi, 'lap by lap'], [/\bMatt\b/g, 'Max'], [/\bwear (am I|is|are)\b/gi, 'where $1'], [/\bloosing\b/gi, 'losing'], [/\bup dated\b/gi, 'updated']];
+const ENG_SHOW_FIX = [[/\bgab\b/gi, 'gap'], [/\b(bocks|boks|bucks)\b/gi, 'box'], [/\bmedians\b/gi, 'mediums'], [/\bmedian\b/gi, 'medium'], [/\blabs\b/gi, 'laps'], [/\blab\b/gi, 'lap'], [/\bsafety cart\b/gi, 'safety car'], [/\blap[.,]? (bye[- ]?bye|bye lap|by lap)\b/gi, 'lap by lap'], [/\bMatt\b/g, 'Max'], [/\bwear (am I|is|are)\b/gi, 'where $1'], [/\bloosing\b/gi, 'losing'], [/\bup dated\b/gi, 'updated'], [ENG_REARS, 'rears']];
 /** What you said as the engineer understood it: the names you meant and those few words put right. */
 function engShown(text, E) {
   let out = String(text || '');

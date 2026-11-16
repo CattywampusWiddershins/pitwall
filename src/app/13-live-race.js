@@ -853,7 +853,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
       <div class="lc-tiles">${tile(esc(lastName(dName(s, id))), `P${me.pos}`, me.pit ? 'In the pit lane' : `Lap ${me.lap} of ${N}`, 'lcp')}
         ${tile('Ahead', ahead ? `+${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading', ahead ? nm(ahead) : '')}
         ${tile('Behind', behind ? `−${((behind.gapF || 0) / 1000).toFixed(3)}` : '–', behind ? nm(behind) : '')}
-        ${tile('Tyre', `${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0}`, `laps${me.wear != null ? ` · ${me.wear}%` : ''}${ST.curLife ? ` · ~${ST.curLife} left` : ''}`)}
+        ${tile('Tyre', `${me.c ? tyreChip(me.c) : ''} ${setAge(L, me).laps}`, `laps${setAge(L, me).before ? ` (${setAge(L, me).before} before)` : ''}${me.wear != null ? ` · ${me.wear}%` : ''}${ST.curLife ? ` · ~${ST.curLife} left` : ''}`)}
         ${PN ? tile('Projected', `P${PN.mode}`, PN.best === PN.worst ? '' : `P${PN.best}–P${PN.worst}`) : ''}
         ${FP ? tile('Fuel at flag', `${FP.end >= 0 ? '+' : '−'}${Math.abs(FP.end).toFixed(1)} kg`, FP.end >= 0 ? `${FP.lapsSpare.toFixed(1)} laps spare` : `save ${FP.save.toFixed(2)} kg/lap`, FP.end >= 0 ? 'ok' : 'short') : ''}
         ${WC?.text ? tile('Weather', WC.cls === 'call' ? 'Box' : `${WC.rain ?? '–'}%`, esc(WC.text), WC.cls === 'call' ? 'short' : '') : ''}
@@ -867,7 +867,7 @@ function liveDriverCol(c, s, r, L, w, me, id, idOf) {
       <div class="panel-b live-top"><div class="live-pos">P${me.pos}</div>
         <div><span class="label">Ahead</span><b>${ahead ? `${nm(ahead)} +${((me.gapF || 0) / 1000).toFixed(3)}` : 'Leading'}</b></div>
         <div><span class="label">Behind</span><b>${behind ? `${nm(behind)} −${((behind.gapF || 0) / 1000).toFixed(3)}` : '–'}</b></div>
-        <div><span class="label">Tyre</span><b>${me.c ? tyreChip(me.c) : ''} ${me.age ?? 0} laps${me.wear != null ? ` · ${me.wear}%` : ''}</b></div></div></div>
+        <div><span class="label">Tyre</span><b>${me.c ? tyreChip(me.c) : ''} ${setAge(L, me).laps} laps${me.wear != null ? ` · ${me.wear}%` : ''}</b></div></div></div>
     ${fuelCard(FP)}
     <div class="panel live-card"><div class="panel-h"><h2>Strategy</h2><span class="muted" style="font-size:12px">${ST.none ? '' : ST.follow ? (ST.changed ? 'Changed from your plan: this is quicker now' : 'Following your plan') : 'Built from the tyre you’re on'}</span></div>
       <div class="panel-b stack" style="gap:8px">${WP ? lineLbl(ST.wet ? 'On this set' : 'Dry plan (no rain)') : ''}${ST.none ? (wetHtml || '<div class="muted" style="font-size:13px">Waiting for dry-tyre data: no plan on this tyre.</div>') : plan ? `${stintBar(stints.filter(x => x.to >= x.from), N)}
@@ -1094,6 +1094,19 @@ const liveOpened = new Set();
  * into the pit lane with the order 10 s before, each car's stops and tyres, and the fights for a place (a car within a
  * second of the one ahead, on the same lap): a pass, or no pass within three laps or before it drops away.
  */
+/**
+ * The laps on your tyres this weekend: { laps, before } (before: laps the set did in earlier sessions). The game's tyre
+ * age starts again each session, so a set run in FP1, or a scrubbed set fitted in the race, adds the laps the
+ * telemetry put down to it (by its place in the game's list of sets). If the game's own age already runs past what this
+ * session has seen on the set, it counts the earlier laps itself and is taken as it is.
+ */
+function setAge(L, x) {
+  const age = x?.age ?? 0; const T = L?.tyreSets; const k = T?.fitted; const set = T?.sets?.[k];
+  if (!x || x.i !== L?.player || !set || set.c !== x.c || !set.laps) return { laps: age, before: 0 };
+  const before = set.before || 0; const here = set.laps - before;
+  if (!before) return { laps: Math.max(age, set.laps), before: 0 };
+  return age > here + 1 ? { laps: Math.max(age, set.laps), before: Math.max(0, Math.max(age, set.laps) - here) } : { laps: age + before, before };
+}
 function mergeLive(prev, m, now) {
   const L = { ...prev, ...m, pack: m.pack || prev.pack || null, pitLaps: prev.pitLaps || {}, used: prev.used || {}, stopsSeen: prev.stopsSeen || {}, lastC: prev.lastC || {},
     order: prev.order || [], pitEntries: prev.pitEntries || [], wasPit: prev.wasPit || {}, fight: prev.fight || {}, held: prev.held || {}, fights: prev.fights || {}, passTally: prev.passTally || { f: 0, p: 0 }, ageSeen: { ...(prev.ageSeen || {}) }, tw: { ...(prev.tw || {}) } };

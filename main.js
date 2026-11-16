@@ -398,6 +398,7 @@ function setupTelemetry() {
   const stashFile = () => path.join(dataDir(), 'telemetry-session.json');
   telemetry = createTelemetry({
     stash: { save: (o) => writeJsonAtomic(stashFile(), o), load: () => readJson(stashFile(), null), clear: () => { try { fs.unlinkSync(stashFile()); } catch { /* none */ } } },
+    setLog: { save: (o) => writeJsonAtomic(path.join(dataDir(), 'tyre-set-laps.json'), o), load: () => readJson(path.join(dataDir(), 'tyre-set-laps.json'), null) }, // the laps on each tyre set, across the weekend
     onResult: (r) => { pendingResults = [...pendingResults.filter(x => x.key !== r.key), r].slice(-20); savePending(); toWindow('telemetry:result', r); },
     onStatus: (st) => toWindow('telemetry:status', st),
     onButtons: (mask) => toWindow('engineer:buttons', mask),

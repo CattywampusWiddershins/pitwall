@@ -86,7 +86,7 @@ function renderLiveTiming(c, s, r, L, tabs) {
   const trafficCard = TR ? `<div class="panel live-card"><div class="panel-h"><h2>On track</h2><span class="muted" style="font-size:12px">The cars nearest you on the circuit</span></div><div class="panel-b ls-traffic">${tr(TR.ahead, 'Ahead')}${tr(TR.behind, 'Behind')}</div></div>` : '';
   // the car
   const car = `<div class="panel live-card"><div class="panel-h"><h2>Car</h2></div><div class="panel-b ls-car">
-    <div><span class="label">Tyre</span><b>${me.c ? `${tyreChip(me.c)} ${esc(COMPOUNDS[me.c]?.[1] || '')}` : '–'}</b><small>${me.age != null ? `${plural(me.age, 'lap')} old` : ''}${me.wear != null ? ` · ${Math.round(me.wear)}% worn` : ''}</small></div>
+    <div><span class="label">Tyre</span><b>${me.c ? `${tyreChip(me.c)} ${esc(COMPOUNDS[me.c]?.[1] || '')}` : '–'}</b><small>${me.age != null ? `${plural(setAge(L, me).laps, 'lap')} old${setAge(L, me).before ? ` (${setAge(L, me).before} in earlier sessions)` : ''}` : ''}${me.wear != null ? ` · ${Math.round(me.wear)}% worn` : ''}</small></div>
     <div><span class="label">Fuel</span><b>${me.fuel != null ? `${me.fuel.toFixed(1)} kg` : '–'}</b></div>
     <div><span class="label">Battery</span><b>${L.store != null ? `${(L.store / 1000).toFixed(2)} MJ` : '–'}</b><small>${L.store != null ? `${Math.round(L.store / 40)}%` : ''}</small></div>
     ${me.warn || me.pen ? `<div><span class="label">Stewards</span><b>${me.pen ? `+${me.pen} s` : ''}${me.pen && me.warn ? ' · ' : ''}${me.warn ? plural(me.warn, 'warning') : ''}</b></div>` : ''}</div></div>`;

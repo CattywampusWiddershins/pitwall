@@ -206,10 +206,43 @@ function parseHistory(b) {
 */
 const CARRY = ['laps', 'stints', 'penalties', 'retirements', 'collisions', 'overtakes', 'swaps', 'damage', 'wear', 'fuel', 'dep', 'sc', 'leadFin', 'traces', 'grid0', 'gridSent', 'tyreSets'];
 const sameSession = (a, b) => !!a && !!b && a.track === b.track && a.sessionType === b.sessionType && a.sessionLink === b.sessionLink && a.sessionLink > 0;
-module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {}, onButtons = null, stash = null }) {
+module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {}, onButtons = null, stash = null, setLog = null }) {
   let sock = null; let cfg = { enabled: false, port: 20778 };
   const st = { listening: false, error: null, packets: 0, lastAt: null, format: null, session: null };
   const sessions = new Map();
+  /*
+    The laps on each of your tyre sets, across the whole weekend. The game's tyre age starts again in every session, so
+    a set run in FP1 shows as new in FP2 and a scrubbed set fitted in the race as fresh. Each lap you finish is put down
+    to the set on the car (by its place in the game's list of 20, which stays the same all weekend), session by
+    session (by the game's session link, so a session saved and carried on later is still one). Kept on disk until the
+    weekend changes. A lap driven again after a flashback replaces the one it undid.
+  */
+  let book = null; try { book = setLog?.load() || null; } catch { book = null; }
+  const setKey = (s) => s.info.sessionLink > 0 ? 'L' + s.info.sessionLink : 'U' + s.uid;
+  const setBook = (s) => {
+    const W = s.info?.weekendLink || 0;
+    if (!W) return (s.setBook ||= {}); // no weekend to link to (time trial and the like): this session only
+    if (!book || book.weekend !== W) book = { weekend: W, sessions: {} };
+    return book.sessions;
+  };
+  function logSetLap(s, lapNo) {
+    const f = s.tyreSets?.fitted; if (!s.info || !(f >= 0 && f < 20) || !(lapNo > 0)) return;
+    const B = setBook(s); (B[setKey(s)] ||= { type: s.info.sessionType, laps: {} }).laps[lapNo] = f;
+    if (B === book?.sessions && setLog) try { setLog.save(book); } catch { /* the next lap will try again */ }
+  }
+  /** Laps on each set this weekend: { idx: { laps, before } } (before: in earlier sessions). */
+  function setLaps(s) {
+    if (!s.info) return {};
+    const B = setBook(s), me = setKey(s); const now = {}, prev = {};
+    for (const [k, S] of Object.entries(B)) for (const i of Object.values(S.laps || {})) { const o = k === me ? now : prev; o[i] = (o[i] || 0) + 1; }
+    const out = {};
+    for (let i = 0; i < 20; i++) {
+      // a set the game shows unworn and that hasn't run in this session is new (a session restarted after it was used)
+      let before = prev[i] || 0; if (before && s.tyreSets?.sets?.[i]?.wear === 0 && !now[i]) before = 0;
+      const laps = before + (now[i] || 0); if (laps) out[i] = { laps, before };
+    }
+    return out;
+  }
   const status = () => ({ ...cfg, ...st });
   let statusTimer = null;
   const pushStatus = () => { if (statusTimer) return; statusTimer = setTimeout(() => { statusTimer = null; onStatus(status()); }, 1000); };
@@ -303,7 +336,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     msg.field = (s.field || []).slice(0, n).map((x, i) => ({ i, pos: x.pos, lap: x.lap, last: x.last, cur: x.cur, s1: x.s1, s2: x.s2, sector: x.sector, gapF: x.front, gapL: x.lead, pit: x.pit, st: x.status, stops: x.stops, dist: Math.round(x.dist),
       c: s.tyres?.[i]?.c ?? null, age: s.tyres?.[i]?.age ?? null, fuel: s.tyres?.[i]?.fuel != null ? Math.round(s.tyres[i].fuel * 10) / 10 : null, fuelLaps: (s.fuel[i] || []).slice(-8), fuelN: (s.fuel[i] || []).length, wear: s.wearNow?.[i] != null ? Math.round(s.wearNow[i] * 10) / 10 : null, laps: (s.laps[i] || []).slice(-6), nLaps: (s.laps[i] || []).length,
       stints: s.stints[i]?.length ? s.stints[i].map(t => [t.visual, t.end]) : null, ...bests(s.laps[i]), ds: x.ds, inv: !!x.invalid, pen: x.pen || 0, warn: x.warn || 0 }));
-    msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = s.tyreSets || null; msg.setup = s.setup || null; // (setup: the setup advisor)
+    msg.sc = s.sc.now; msg.scPeriods = s.sc.periods; msg.weather = s.info.weather; msg.player = s.player; msg.tyreSets = withSetLaps(s); msg.setup = s.setup || null; // (setup: the setup advisor)
     msg.myDmg = s.myDmg || null; // your car's damage, part by part
     msg.recentColl = s.collisions.slice(-8); msg.recentPens = s.penalties.slice(-10); // contact and penalties, for the race engineer
     // your own last contacts (a busy first lap can push them out of the last 8), with which cars were damaged by each
@@ -399,6 +432,11 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     for (const k of CARRY) if (s[k] != null) keep[k] = k === 'traces' ? Object.fromEntries(Object.entries(s.traces).map(([i, R]) => [i, { best: R.best && { lap: R.best.lap, ms: R.best.ms, bins: R.best.bins } }])) : s[k];
     try { stash.save(keep); } catch { /* the next try will do */ }
   }
+  /** The game's tyre sets, each with the laps it has done this weekend (laps, and before: in earlier sessions). */
+  function withSetLaps(s) {
+    if (!s.tyreSets) return null; const SL = setLaps(s);
+    return { ...s.tyreSets, sets: s.tyreSets.sets.map((x, k) => ({ ...x, laps: SL[k]?.laps || 0, before: SL[k]?.before || 0 })) };
+  }
   function emit(s) {
     if (s.sent || !s.final || !s.info) return;
     s.sent = true; if (stash) try { stash.clear(); } catch { /* nothing kept */ }
@@ -423,7 +461,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
     });
     onResult({ key: `${s.uid}:${s.info.sessionType}`, uid: s.uid, format: s.format, at: new Date().toISOString(), player: s.player, ...s.info, cars, resumed: !!(s.resumedFrom || s.resumed), gridKnown: !!s.grid0,
       penaltyEvents: s.penalties, retirements: s.retirements, collisions: s.collisions,
-      tyreSets: s.tyreSets || null,
+      tyreSets: withSetLaps(s),
       safetyCars: Math.max(s.info.safetyCars || 0, s.sc.sc), virtualSafetyCars: Math.max(s.info.virtualSafetyCars || 0, s.sc.vsc), scPeriods: s.sc.periods,
       overtakes: s.swaps.length ? s.swaps : s.overtakes, passSource: s.swaps.length ? 'positions' : s.overtakes.length ? 'event' : null,
       ers: ersSession(s.info) ? packErs(s) : null });
@@ -484,6 +522,7 @@ module.exports = function createTelemetry({ onResult, onStatus, onLive = () => {
       lap.forEach((c, i) => {
         // a new lap: note the tyre wear at the end of the one just finished
         if (s.curLap[i] && c.lap > s.curLap[i] && s.wearNow[i] != null) (s.wear[i] ||= [])[s.curLap[i] - 1] = Math.round(s.wearNow[i] * 10) / 10;
+        if (i === s.player && s.curLap[i] && c.lap > s.curLap[i]) logSetLap(s, s.curLap[i]); // the set it was driven on
         if (s.curLap[i] && c.lap > s.curLap[i] && s.tyres?.[i]) {
           const T = s.tyres[i]; if (isFinite(T.fuel) && T.fuel >= 0 && T.fuel < 200) (s.fuel[i] ||= [])[s.curLap[i] - 1] = Math.round(T.fuel * 100) / 100;
           if (s.depMax[i]) (s.dep[i] ||= [])[s.curLap[i] - 1] = Math.round(s.depMax[i] / 1000);
