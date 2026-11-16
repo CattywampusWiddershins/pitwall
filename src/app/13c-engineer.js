@@ -119,19 +119,22 @@ function engSnap() {
     try { WC = wetCall(c, s, r, L, me, 20000); } catch { }
     const top = Math.min(...byPos.map(x => x.best).filter(v => v > 0));
     let cut = null; try { cut = L.kind === 'quali' ? lsCut(L, me) : null; } catch { } let TR = null; try { TR = lsTraffic(L, me); } catch { }
-    return { c, s, r, L, me, idOf, name, byPos, race, top: isFinite(top) ? top : null, cut, TR, WC, ST: {}, plan: null, call: null, G: {}, N: L.totalLaps || 0, left: 0, ...around };
+    let RN = null; try { RN = rainAhead(c, r, L, me); } catch { }
+    return { c, s, r, L, me, idOf, name, byPos, race, top: isFinite(top) ? top : null, cut, TR, WC, RN, ST: {}, plan: null, call: null, G: {}, N: L.totalLaps || 0, left: 0, ...around };
   }
   const w = weekend(s, r.id, true); let P = null; try { P = livePlan(c, s, r, L, w, me, PLAYER, idOf); } catch { P = { ST: { none: true }, plan: null, call: null }; }
   const N = L.totalLaps || (L.key === 'SPR' ? Math.ceil(raceLaps(s, r.id) / 3) : raceLaps(s, r.id));
   let RJ = null; try { RJ = rejoin(L.field, me, P.ST.lossNow ?? 20000); } catch { }
   try { WC = wetCall(c, s, r, L, me, P.ST.lossNow ?? 20000); } catch { }
   let FP = null; try { FP = fuelProjection(s, r, L, me, PLAYER); } catch { }
-  const G = raceGaps(L.field);
-  return { c, s, r, L, me, idOf, name, byPos, race, N, left: Math.max(0, N - me.lap + 1), RJ, WC, FP, G, ...P, ...around };
+  const G = raceGaps(L.field); let RN = null; try { RN = rainAhead(c, r, L, me); } catch { }
+  return { c, s, r, L, me, idOf, name, byPos, race, N, left: Math.max(0, N - me.lap + 1), RJ, WC, FP, G, RN, ...P, ...around };
 }
 const engTyre = (c) => COMPOUNDS[c]?.[1] || 'tyre';
 const engTyres = (c) => ({ 16: 'softs', 17: 'mediums', 18: 'hards', 7: 'inters', 8: 'wets' }[c] || 'tyres');
 const engSec = (ms) => `${(Math.abs(ms) / 1000).toFixed(1)}`;
+/** A gap worth saying: under 0.05 s it's the timing not caught up yet (just after a stop), so nothing is said. */
+const engHasGap = (ms) => Math.abs(ms || 0) >= 50;
 /** Gap from you to another car (ms; positive: they're ahead), from the real gaps to the leader. */
 const engGap = (S, x) => S.race ? (S.G[S.me.i]?.g ?? 0) - (S.G[x.i]?.g ?? 0) : (S.me.best && x.best ? S.me.best - x.best : 0);
 
@@ -165,19 +168,21 @@ function engTickRest(S, M, E, now, say) {
   engPenCalls(S, M, say); engDamageCalls(S, M, say);
   // safety cars and red flags
   const sc = L.sc || 0;
-  if (sc !== M.sc) { if (sc === 1) say(1, 'Safety car, safety car.', 1); else if (sc === 2) say(1, 'Virtual safety car. Watch your delta.', 1); else if (M.sc === 1 || M.sc === 2) say(1, 'Green flag, green flag. Go, go.', 1); M.sc = sc; }
+  if (sc !== M.sc && !sc && M.scOff == null) M.scOff = now; if (sc) M.scOff = null;
+  if (sc !== M.sc && (sc || now - M.scOff >= 3000)) { M.scOff = null; if (sc === 1) say(1, 'Safety car, safety car.', 1); else if (sc === 2) say(1, 'Virtual safety car. Watch your delta.', 1); else if (M.sc === 1 || M.sc === 2) say(1, 'Green flag, green flag. Go, go.', 1); M.sc = sc; }
   if (!!L.red !== M.red) { if (L.red) say(1, 'Red flag, red flag. Back to the pits.', 1); M.red = !!L.red; }
   // your own stop
   if (M.pit && !me.pit) { M.pitOut = now; M.pitDone = me.lap; M.lifeSaid = {}; }
   M.pit = !!me.pit;
-  if (M.pitOut && now - M.pitOut > 5000) { const a = S.ahead; M.pitOut = null; say(2, `Good stop. You're P${me.pos}${a ? `, ${S.name(a)} ${engSec(engGap(S, a))} ahead` : ', leading'}.`); }
+  if (M.pitOut && now - M.pitOut > 5000) { const a = S.ahead; M.pitOut = null; say(2, `Good stop. You're P${me.pos}${a ? (engHasGap(engGap(S, a)) ? `, ${S.name(a)} ${engSec(engGap(S, a))} ahead` : '') : ', leading'}.`); }
+  engRainRace(S, M, say);
   // the cars you asked the engineer to follow ("keep me updated on Piastri"). Passes between you and them aren't called (you can
   // see those). When one becomes the car right behind or ahead of you some other way (passing the car behind you, a
   // stop, you passing the car between), the engineer says so, "Piastri behind you now"; then, while it stays there, the gap each
   // lap while it's within 5 s (a car right behind 20 s back gets it every three laps, like one further away). Further
   // away: its places against the others (settled for 8 s; one such call every 30 s for all the cars followed, and two
   // of them swapping is one call), its stops.
-  const W = engWatch.uid === L.uid ? engWatch.ids : new Set(); const gapNow = new Set();
+  const W = engWatch.uid === L.uid ? engWatch.ids : new Set();
   for (const i of W) {
     const x = L.field.find(y => y.i === i); if (!x || !x.pos) continue;
     const side = x === S.ahead ? 'ahead' : x === S.behind ? 'behind' : null;
@@ -189,7 +194,7 @@ function engTickRest(S, M, E, now, say) {
     if (!busy && side !== T.side && now - T.sideAt > 5000) {
       const swapped = T.side && side && T.side !== side;
       // (not again for the same side within 3 minutes: a car slipping between for a while and out again)
-      if (side && !swapped && !(T.saidSide === side && now - T.saidAt < 180000)) { say(1, `${S.name(x)} ${side === 'behind' ? 'behind you' : 'ahead of you'} now, ${engSec(engGap(S, x))}.`); T.lap = me.lap; T.saidSide = side; T.saidAt = now; }
+      if (side && !swapped && !(T.saidSide === side && now - T.saidAt < 180000)) { const g = engGap(S, x); say(1, `${S.name(x)} ${side === 'behind' ? 'behind you' : 'ahead of you'} now${engHasGap(g) ? `, ${engSec(g)}` : ''}.`); T.lap = me.lap; T.saidSide = side; T.saidAt = now; }
       T.side = side; T.posSaid = x.pos; T.ahead = ahead;
     }
     // further away: a change of place against the other cars (not one made by passing you)
@@ -205,8 +210,8 @@ function engTickRest(S, M, E, now, say) {
     T.pit = !!x.pit;
     // the gap: each lap while it's right behind or ahead of you, every three laps otherwise
     const close = T.side && T.side === side && Math.abs(engGap(S, x)) < 5000;
-    if (close) gapNow.add(i);
-    if (!x.pit && !me.pit && me.lap > T.lap && (close || me.lap >= T.lap + 3)) { T.lap = me.lap; say(1, `${engRelGap(S, x)}.${engTrend(S, x)}`); }
+
+    if (!x.pit && !me.pit && me.lap > T.lap && (close || me.lap >= T.lap + 3) && engHasGap(engGap(S, x))) { T.lap = me.lap; say(1, `${engRelGap(S, x)}.${engTrend(S, x)}`); }
   }
   // the cars either side stopping
   for (const [x, k] of [[S.ahead, 'a'], [S.behind, 'b']]) {
@@ -220,11 +225,11 @@ function engTickRest(S, M, E, now, say) {
     for (const x of L.field) if (x.last > 30000 && (!M.best[x.i] || x.last < M.best[x.i])) M.best[x.i] = x.last;
     const fast = Math.min(...Object.values(M.best)); if (me.last && me.last === M.best[me.i] && me.last === fast && me.lap > 3 && now - (M.said.fl || 0) > 60000) { say(3, `Fastest lap. ${fmtLap(me.last)}.`); M.said.fl = now; }
     const every = E.chat >= 3 ? 1 : 5;
-    if (me.lap > 2 && me.lap % every === 0 && !me.pit && S.left > 1) { const a = S.ahead, b = S.behind; const bits = []; if (a && !gapNow.has(a.i)) bits.push(`gap to ${S.name(a)} ${engSec(engGap(S, a))}`); if (b && !gapNow.has(b.i)) bits.push(`${S.name(b)} ${engSec(-engGap(S, b))} behind`); if (bits.length) { say(2, cap1(bits.join(', ')) + '.'); M.gapLap = me.lap; } }
+    if (me.lap > 2 && me.lap % every === 0 && !me.pit && S.left > 1) { const a = S.ahead, b = S.behind; const bits = []; if (a && !W.has(a.i) && engHasGap(engGap(S, a))) bits.push(`gap to ${S.name(a)} ${engSec(engGap(S, a))}`); if (b && !W.has(b.i) && engHasGap(engGap(S, b))) bits.push(`${S.name(b)} ${engSec(-engGap(S, b))} behind`); if (bits.length) { say(2, cap1(bits.join(', ')) + '.'); M.gapLap = me.lap; } }
     // the tyres in laps, as a team talks about them (never a wear percentage): about 10 laps left, then about 5
     const life = S.ST?.curLife; if (life != null && !me.pit) for (const th of [10, 5]) if (life <= th && !(M.lifeSaid ||= {})[th]) { for (const t2 of [10, 5]) if (life <= t2) M.lifeSaid[t2] = true; say(2, `About ${plural(Math.max(0, life), 'lap')} left in these.`); break; }
     if (me.lap >= 4 && S.FP && S.FP.end < -0.3 && now - (M.said.fuel || 0) > 240000) { say(2, `We need to save fuel. ${S.FP.save.toFixed(2)} kg a lap.`); M.said.fuel = now; }
-    if (S.WC?.cls === 'call' && S.WC.text !== M.wc) { say(1, S.WC.text.replace(/:/, '.'), 1); }
+    if (S.WC?.cls === 'call' && S.WC.text !== M.wc) { const [a, b] = S.WC.text.split(':'); say(1, `${a.trim()}, box box.${b ? ` ${cap1(b.trim())}.` : ''}`, 1); }
     M.wc = S.WC?.cls === 'call' ? S.WC.text : null;
     if (me.lap === S.N && !M.said.last) { say(2, 'Last lap. Bring it home.'); M.said.last = true; }
   }
@@ -292,11 +297,58 @@ function engTarget(S, E) {
 }
 let engLastCar = null;
 const engRelGap = (S, x) => { if (!S.race) return !x.best ? `${S.name(x)} has no time yet` : !S.me.best ? `${S.name(x)} is on ${fmtLap(x.best)}, you have no time yet` : x.best === S.me.best ? `${S.name(x)} is on exactly your time, ${fmtLap(x.best)}` : `${S.name(x)} is on ${fmtLap(x.best)}, ${(Math.abs(x.best - S.me.best) / 1000).toFixed(3)} ${x.best < S.me.best ? 'quicker' : 'slower'}`; const g = engGap(S, x); const down = (S.G[x.i]?.down ?? 0) - (S.G[S.me.i]?.down ?? 0); if (down >= 1) return `${S.name(x)} is ${plural(down, 'lap')} down`; if (down <= -1) return `${S.name(x)} is ${plural(-down, 'lap')} ahead of you`; return g >= 0 ? `${S.name(x)} is ${engSec(g)} ahead` : `${S.name(x)} is ${engSec(g)} behind`; };
-const engTrend = (S, x) => { if (!S.race) return ''; let e = null; try { e = paceEdge(S.me, x, (y) => S.L.pitLaps?.[y.i] || []); } catch { } if (e == null) return ''; const ahead = engGap(S, x) > 0; const closing = ahead ? e > 0 : e < 0; return ` ${closing ? (ahead ? "You're closing in" : "They're closing in") : (ahead ? "They're pulling away" : "You're pulling away")}, ${(Math.abs(e) / 1000).toFixed(2)} a lap.`; };
+const engTrend = (S, x) => { if (!S.race) return ''; let e = null; try { e = paceEdge(S.me, x, (y) => S.L.pitLaps?.[y.i] || []); } catch { } if (e == null || Math.abs(e) < 100) return ''; const ahead = engGap(S, x) > 0; const closing = ahead ? e > 0 : e < 0; return ` ${closing ? (ahead ? "You're closing in" : "They're closing in") : (ahead ? "They're pulling away" : "You're pulling away")}, ${(Math.abs(e) / 1000).toFixed(2)} a lap.`; };
 /** Another car's times: its best (and place, outside the race), its last lap, and against yours. */
 const engLapsOf = (S, x) => { const nm = S.name(x); if (!x.best && !x.last) return `${nm} has no time yet.`;
   const vs = !S.race && S.me.best && x.best ? (x.best === S.me.best ? ' Exactly your time.' : ` ${(Math.abs(x.best - S.me.best) / 1000).toFixed(3)} ${x.best < S.me.best ? 'quicker' : 'slower'} than you.`) : '';
   return `${nm}'s best is ${x.best ? fmtLap(x.best) : 'not set yet'}${!S.race && x.best && x.pos ? `, P${x.pos}` : ''}.${x.last && x.last !== x.best ? ` Last lap ${fmtLap(x.last)}.` : ''}${vs}`; };
+/*
+  Rain on the way in the race (on slicks, before it's falling): at about 15 and 10 minutes out with the lap it should
+  come on, at about 5 with how many laps that is. When the plan's next stop for dries comes before it and this set can
+  last until then, the strategy drops that stop (livePlan's ST.extend) and the engineer says to extend the stint. A
+  forecast that moves the rain back out past 17 minutes starts the calls again.
+*/
+function engRainRace(S, M, say) {
+  const { me } = S; const RN = S.RN; const W = M.wx ||= {};
+  if (!RN || RN.lap > S.N || !isSlick(me.c)) return; // (a forecast flickering out for a moment doesn't start the calls again)
+  // the stop for dries dropped for the rain: said as soon as it is, however far off the rain still is (the stop may be
+  // due well before the 15-minute call)
+  if (RN.min > 17) { if (S.ST?.extend && !W.ext && !me.pit) { W.ext = true; say(1, `We’re predicting rain around lap ${RN.lap}, so try to extend the stint. Better to box once for inters than twice.`, 1); } for (const t2 of [15, 10, 5]) delete W[t2]; return; }
+  const ext = S.ST?.extend && !W.ext ? ' We’re predicting rain, so try to extend the stint. Better to box once for inters than twice.' : '';
+  const mins = Math.max(1, Math.round(RN.min)); const laps = Math.max(1, Math.round(RN.laps));
+  // (the nearest mark it's inside: rain first forecast 4 minutes out gets the 5-minute call, not the 15)
+  const th = [5, 10, 15].find(x => RN.min <= x);
+  if (th && !W[th]) {
+    for (const t2 of [15, 10, 5]) if (t2 >= th) W[t2] = true;
+    say(1, th > 5 ? `Rain expected in about ${plural(mins, 'minute')}, around lap ${RN.lap}.${ext}` : `Rain in about ${plural(mins, 'minute')}. That's about ${plural(laps, 'lap')}.${ext}`, 1);
+    if (ext) W.ext = true; return;
+  }
+  if (ext && !me.pit) { say(1, ext.trim(), 1); W.ext = true; }
+}
+/*
+  Rain on the way in practice and qualifying. Qualifying: whether there's time for one dry flying lap before it (from
+  the garage: the exit and an out lap first; on an out lap: the rest of it; on a flying lap: the rest of that), said
+  once when the rain first shows within the session, and again as the last chance comes (about a minute and a half
+  to spare). Practice: a heads-up at about 10 minutes out.
+*/
+function engRainSession(S, M, say) {
+  const { L, me } = S; const RN = S.RN; const W = M.wx ||= {};
+  if (!RN || (L.timeLeft != null && RN.min * 60 > L.timeLeft) || !isSlick(me.c)) return;
+  const mins = Math.max(1, Math.round(RN.min));
+  if (L.kind !== 'quali') { if (RN.min <= 10 && !W.p) { W.p = true; say(2, `Rain expected in about ${plural(mins, 'minute')}.`); } return; }
+  const lap = RN.lapMs / 1000; const frac = Math.min(0.99, Math.max(0, (me.dist || 0) / (L.lapLen || 5000)));
+  const need = me.ds === 1 ? (1 - frac) * lap : me.ds === 0 ? 25 + 1.25 * lap + lap : (1 - frac) * 1.25 * lap + lap; // seconds to the end of a dry flying lap
+  const spare = RN.min * 60 - need;
+  if (!W.first) {
+    W.first = true;
+    if (spare > 3 * lap) say(1, `Rain expected in about ${plural(mins, 'minute')}. Get a clean dry lap in before then.`, 1);
+    else if (spare > 0) say(1, me.ds === 1 ? `Rain in about ${plural(mins, 'minute')}. This lap is dry, make it count.` : `Rain expected in about ${plural(mins, 'minute')}. You have time for one clean dry lap${me.ds === 0 ? ', so go now' : ''}. Push on that one.`, 1);
+    else if (me.ds !== 1) say(1, `Rain in about ${plural(mins, 'minute')}. Not enough time for another dry lap.`, 1);
+    else say(1, `Rain in about ${plural(mins, 'minute')}. It may catch the end of this lap.`, 1);
+    return;
+  }
+  if (!W.last && spare > 0 && spare < 90 && me.ds !== 1) { W.last = true; say(1, 'Last chance for a dry lap before the rain. Go now.', 1); }
+}
 // (your own set: its laps across the weekend, as the game's age counts this session only)
 const engCarTyre = (S, x) => { if (!x.c) return 'no tyre data'; const A = x.i === S.me.i ? setAge(S.L, x) : { laps: x.age ?? 0, before: 0 }; return `${engTyres(x.c)}, ${plural(A.laps, 'lap')} old${A.before ? `, ${A.before} of them from earlier sessions` : ''}`; };
 const engYou = (S) => !S.race ? (S.me.pos === 1 ? 'You are quickest.' : `That is you, P${S.me.pos}.`) : S.me.pos === 1 ? `You are leading.${S.behind ? ` ${S.name(S.behind)} is ${engSec(-engGap(S, S.behind))} behind.` : ''}` : `That is you, P${S.me.pos}.`;
@@ -333,6 +385,7 @@ function engTickSession(S) {
     if (S.cut.safe !== M.safeNow) { M.safeNow = S.cut.safe; M.safeAt = now; }
     if (M.safe !== M.safeNow && now - M.safeAt > 5000) { if (M.safe && !M.safeNow && me.ds !== 1) say(1, `You've dropped to P${me.pos}, into the drop zone.${L.timeLeft ? ` ${lsClock(L.timeLeft)} left.` : ''}`, 1); M.safe = M.safeNow; }
   }
+  engRainSession(S, M, say);
   // the clock
   if (L.timeLeft != null && M.tl != null) {
     if (M.tl > 300 && L.timeLeft <= 300) say(2, `Five minutes left${L.kind === 'quali' ? '' : ' in the session'}.`);

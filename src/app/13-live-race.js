@@ -806,6 +806,10 @@ function livePlan(c, s, r, L, w, me, id, idOf) {
     if (!ST.scCall && !L.red && k < 3 && (me.wear ?? 0) < MIN_STOP_WEAR) { const rate = me.wear > 0 && me.age > 0 ? me.wear / me.age : null; k = Math.max(k, rate ? Math.ceil((MIN_STOP_WEAR - me.wear) / rate) + 1 : 3); }
     if (k === 1) call = { kind: ST.scCall ? 'sc' : 'pit', c: plan.stints[0].c, lap: me.lap };
     ST.offset = offset; ST.k = k;
+    // rain coming before the flag, and the next stop is for dries before it: if this set can last until the rain,
+    // there's no stop for dries (one stop for inters beats two). The engineer tells you to extend the stint.
+    let RN = null; try { RN = !ST.scCall && !L.red && isSlick(me.c) && isSlick(plan.stints[0].c) ? rainAhead(c, r, L, me) : null; } catch { }
+    if (RN && RN.lap <= (ST.n || L.totalLaps || 99) && me.lap + k - 1 < RN.lap && (ST.curLife == null || ST.curLife >= RN.lap - me.lap)) { ST.extend = RN; if (call?.kind === 'pit') call = null; }
   }
   const out = { ST, ahead, behind, plan, call }; _livePlan.set(key, out); if (_livePlan.size > 12) _livePlan.delete(_livePlan.keys().next().value);
   return out;
@@ -1212,7 +1216,9 @@ function savePitLoss(L) {
 }
 function onLiveMsg(m) {
   const same = liveErs?.uid === m.uid;
-  const follower = !!window.api?.companion; // a phone or tablet following the computer's race: the computer saves what it teaches
+  // a phone or tablet following the computer's race: the computer saves what it teaches. (The computer has a
+  // window.api.companion too, the controls for linking a phone; only a follower's is `true`.)
+  const follower = window.api?.companion === true;
   if (m.done) { replayRelist(); if (same) { if (!follower && LIVE_KIND(liveErs.sessionType) === 'race') savePitLoss(liveErs); liveErs = { ...liveErs, done: true }; render(); } return; }
   const before = same ? liveErs.passTally?.f || 0 : 0;
   liveErs = mergeLive(same ? liveErs : {}, m, Date.now());

@@ -707,6 +707,25 @@ function wetCall(c, s, r, L, me, loss) {
   return { rain, ahead, slick, inter, text, cls, tyre, own: M.own, n: M.n };
 }
 /**
+ * When the forecast brings the rain to where inters are needed (the track's crossover), in this session: minutes from
+ * now, laps from now at your pace, and the lap it comes on. Null when it isn't coming, or is already here (raining, or
+ * the forecast already past the crossover). The forecast's steps are minutes from now, with straight lines between.
+ * { min, laps, lap, lapMs }
+ */
+function rainAhead(c, r, L, me) {
+  const W = L?.weather; if (!W || !me || (W.now ?? 0) >= 3) return null;
+  const fc = (W.forecast || []).filter(x => x.session === L.sessionType).sort((p, q) => p.at - q.at); if (fc.length < 2) return null;
+  const thr = wetModel(c, trackOf(r)).toInter.rain; if (fc[0].rain >= thr) return null;
+  let min = null;
+  for (let k = 1; k < fc.length; k++) { const A = fc[k - 1], B = fc[k]; if (B.rain >= thr) { min = A.at + (B.at - A.at) * (thr - A.rain) / ((B.rain - A.rain) || 1); break; } }
+  if (min == null) return null;
+  // the race: your last few laps; practice and qualifying: your best (their other laps are out laps and cool-downs)
+  const recent = median(liveLaps(me).filter(l => l.valid && l.ms > 30000).slice(-3).map(l => l.ms));
+  const lapMs = (LIVE_KIND(L.sessionType) === 'race' ? recent || me.best : me.best || recent) || L.dryRef?.[me.i] || 90000;
+  const frac = Math.min(0.99, Math.max(0, (me.dist || 0) / (L.lapLen || 5000))); const laps = min * 60000 / lapMs;
+  return { min, laps, lap: me.lap + Math.floor(frac + laps), lapMs };
+}
+/**
  * The weather strategy: speculative, from the forecast. The rain at each lap to come (minutes turned into laps at the
  * car's pace, straight lines between the forecast's steps) and the track's crossovers say when inters go on and when
  * slicks come back, each with a window (the laps the rain takes to pass from 5 points under the crossover to 5 over).
