@@ -317,7 +317,10 @@ module.exports = function createHelmetEditor({ dataDir }) {
   // space). Each mesh names its draw calls' materials after its index buffer; the ones called "body" are the paint (the
   // livery), with their texture coordinates in the call's fifth stream. Damaged floors and the open DRS flap are left
   // out, and so are the rain-bead and shadow layers (copies of surfaces).
-  const CAR3D = { 2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ } };
+  const CAR3D = {
+    2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
+    2025: { erp: 'f1_2025_vehicle_package/teams/common_fom.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
+  };
   function carModel(year = 2026) {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const c = CAR3D[year]; if (!c) return { ok: false, error: `The ${year} car can only be edited flat for now.` };

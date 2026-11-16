@@ -770,7 +770,7 @@ function edMenu() {
 async function edOpen(id) {
   ED.root.querySelector('#ed-menu')?.classList.remove('on'); if (ED.dirty) await edSave(true);
   const d = await edApi().open(id); if (!d) { toast('Couldn’t open that design.'); return; }
-  delete d.thumb; ED.design = { images: {}, ...d }; ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = Date.now(); edPanels(); edLib(); edBake();
+  delete d.thumb; ED.design = { images: {}, ...d }; ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = Date.now(); edPanels(); edLib(); edBake(); if (edCar3dOn()) edCarView('3d'); // (its year's car)
 }
 function edTextSet(k, v, el) {
   const L = ED.design.layers.find(l => l.id === ED.sel); const inLayer = !!el.closest('#ed-props');
@@ -807,7 +807,7 @@ function edInput(e) {
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
   if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
   if (t.id === 'ed-gres') { if (e.type === 'change') { try { localStorage.setItem('pitwall.editor.gameRes', t.value); } catch { } } return; }
-  if (t.id === 'ed-caryear') { if (e.type === 'change') { edCommit(() => { D.year = +t.value; }, { bake: false }); edCarGuide(); } return; }
+  if (t.id === 'ed-caryear') { if (e.type === 'change') { edCommit(() => { D.year = +t.value; }, { bake: false }); edCarGuide(); if (ED.carView === '3d') edCarView('3d'); } return; }
   if (t.id === 'ed-guide' || t.id === 'ed-guideop') { edDrawSticker(); return; }
   if (t.id === 'ed-name') { if (e.type === 'change') edCommit(() => { D.name = t.value.trim() || 'Helmet'; }, { bake: false, panels: false }); return; }
   if (t.dataset.tf) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
@@ -1147,9 +1147,11 @@ async function edCarView(v) {
   ED.root.querySelectorAll('[data-carview]').forEach(b => b.classList.toggle('on', b.dataset.carview === v));
   if (v === '3d') {
     if (!ED.three) { toast('The 3D car needs F1 25 read first (open the Helmet tab once).'); ED.root.querySelectorAll('[data-carview]').forEach(b => b.classList.toggle('on', b.dataset.carview === 'flat')); return; }
-    if ((ED.design.year || 2026) !== 2026) { toast('The 3D car is the 2026 one for now. The 2025 livery can be edited flat.'); }
-    if (!ED.car3) { edStatus('Reading the car from F1 25…'); let r = null; try { r = await edApi().carModel(2026); } catch (e) { r = { ok: false, error: e.message }; } edStatus();
-      if (!r?.ok) { toast(r?.error || 'Couldn’t read the car.'); return; } edCar3Build(r); }
+    // each year's car is read once and kept; the view (turn, height, distance) carries over between them
+    const year = ED.design.year || 2026; ED.car3s ||= {};
+    if (!ED.car3s[year]) { edStatus('Reading the car from F1 25…'); let r = null; try { r = await edApi().carModel(year); } catch (e) { r = { ok: false, error: e.message }; } edStatus();
+      if (!r?.ok) { toast(r?.error || 'Couldn’t read the car.'); return; } const was = ED.car3; edCar3Build(r); ED.car3s[year] = ED.car3; ED.car3 = was; }
+    const prev = ED.car3; ED.car3 = ED.car3s[year]; if (prev && prev !== ED.car3) Object.assign(ED.car3, { yaw: prev.yaw, pitch: prev.pitch, dist: prev.dist }); ED.car3.tex.needsUpdate = true;
   }
   ED.carView = v; ED.root.classList.toggle('car3d', v === '3d'); ED.root.querySelector('#ed-hint').textContent = v === '3d' ? 'Drag a sticker on the car to move it · drag empty space to turn the car · scroll to zoom · Add puts new ones where you are looking' : 'The livery as the game lays it out (the original shows faintly over it as a guide) · drag, size and turn like on the helmet'; ED.root.querySelector('#ed-gizmo').innerHTML = ''; edResize();
 }
