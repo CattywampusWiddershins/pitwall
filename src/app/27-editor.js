@@ -859,7 +859,7 @@ function edPick(cx, cy) {
 }
 function edDown(e) {
   if (edCar3dOn()) {
-    if (e.button === 0) { const [X, Y] = edStkAt(e.clientX, e.clientY); if (X > -1e5 && edStkPick(X, Y)) { edStkDown(e); return; } }
+    if (e.button === 0) { const [X, Y] = edStkAt(e.clientX, e.clientY); if (X > -1e5 && edStkPick(X, Y)) { edStkDown(e); edDraw(); return; } }
     e.currentTarget.setPointerCapture(e.pointerId); ED.ptr = { kind: 'corbit', x: e.clientX, y: e.clientY, yaw: ED.car3.yaw, pitch: ED.car3.pitch, click: e.button === 0 }; return; }
   if (ED.view === 'flat' || !ED.three) return; const cv = e.currentTarget; cv.setPointerCapture(e.pointerId);
   if (e.button === 2 || e.button === 1) { ED.ptr = { kind: 'orbit', x: e.clientX, y: e.clientY, yaw: ED.three.yaw, pitch: ED.three.pitch }; return; }
@@ -872,7 +872,7 @@ function edDown(e) {
 }
 function edMove(e) {
   if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.car3.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.car3.pitch = Math.max(-1.2, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
-  if (edCar3dOn()) { if (ED.ptr?.kind === 'stkmove') { const [X] = edStkAt(e.clientX, e.clientY); if (X > -1e5) edStkMove(e); } return; }
+  if (edCar3dOn() && (!ED.ptr || ED.ptr.kind === 'stkmove')) { if (ED.ptr) { const [X] = edStkAt(e.clientX, e.clientY); if (X > -1e5) edStkMove(e); } return; }
   const P = ED.ptr; if (!P) { if (ED.three && ED.view === '3d') { const pk = edPick(e.clientX, e.clientY); e.currentTarget.style.cursor = pk?.L && !pk.L.locked ? 'move' : 'grab'; } return; }
   if (P.kind === 'orbit') { if (Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) > 3) P.click = false; ED.three.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.three.pitch = Math.max(-1.3, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
   if (P.kind === 'move') {
@@ -903,7 +903,7 @@ function edMove(e) {
 }
 function edUp(e) {
   if (ED.ptr?.kind === 'stkmove') { edStkUp(); return; }
-  if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.ptr = null; if (P.click && Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) < 4 && ED.sel) { ED.sel = null; edLayers(); edProps(); } return; }
+  if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.ptr = null; if (P.click && Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) < 4 && ED.sel) { ED.sel = null; edLayers(); edProps(); edDraw(); } return; }
   const P = ED.ptr; ED.ptr = null; if (!P) return;
   if (P.kind === 'orbit' && P.click) { const pk = edPick(e.clientX, e.clientY); if (!pk?.L && ED.sel) { ED.sel = null; edLayers(); edProps(); edDraw(); } return; }
   if (P.kind !== 'orbit') { if (ED.undo.length && ED.undo[ED.undo.length - 1] === edSnap()) ED.undo.pop(); edPanels(); }
@@ -1041,6 +1041,7 @@ async function edBakeSticker() {
 }
 /** The canvas on screen: a chequered see-through background, the sticker fitted in the view. */
 function edDrawSticker() {
+  if (edCar3dOn()) { edDraw(); return; }
   const el = ED.root?.querySelector('#ed-stk'); const v = ED.root?.querySelector('#ed-view'); if (!el || !v) return; const Wv = v.clientWidth, Hv = v.clientHeight; if (!Wv) return;
   const dpr = window.devicePixelRatio || 1; el.width = Wv * dpr; el.height = Hv * dpr; const g = el.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#10151f'; g.fillRect(0, 0, Wv, Hv);
   const D = ED.design; const W = D.w || 1024, H = D.h || 1024; const k = Math.min((Wv - 40) / W, (Hv - 110) / H); const ox = (Wv - W * k) / 2, oy = (Hv - H * k) / 2 + 10;
@@ -1166,7 +1167,67 @@ function edCar3Build(r) {
 function edFrameCar() {
   const C = ED.car3, T = ED.three; if (!C || !T) return; C.tex.image = ED.stkCv || C.tex.image;
   C.cam.position.set(Math.sin(C.yaw) * Math.cos(C.pitch) * C.dist, 0.1 + Math.sin(C.pitch) * C.dist, 0.25 + Math.cos(C.yaw) * Math.cos(C.pitch) * C.dist); C.cam.lookAt(0, 0.15, 0.25);
-  T.R.setRenderTarget(null); T.R.render(C.scene, C.cam); ED.root.querySelector('#ed-gizmo').innerHTML = '';
+  T.R.setRenderTarget(null); T.R.render(C.scene, C.cam); edCarGizmo();
+}
+/*
+  The selected sticker's box on the 3D car. Its corners, edge middles and turn handle are points on the canvas; each is
+  carried onto the car by the livery triangle under the sticker's middle (the one facing the camera, nearest it): the
+  box sits on that triangle's plane, a steady frame even where the sticker crosses onto other parts of the texture.
+  The handles then work as on Flat and on the helmet (the drags are on screen).
+*/
+function edCarGrid() {
+  const C = ED.car3; if (C.grid) return C.grid; const uv = C.liv.geometry.attributes.uv.array, idx = C.liv.geometry.index.array; const N = 64; const cells = Array.from({ length: N * N }, () => []);
+  const fr = (v) => v - Math.floor(v);
+  for (let t = 0; t < idx.length; t += 3) {
+    const us = [0, 1, 2].map(j => fr(uv[idx[t + j] * 2])), vs = [0, 1, 2].map(j => fr(uv[idx[t + j] * 2 + 1]));
+    if (Math.max(...us) - Math.min(...us) > 0.5 || Math.max(...vs) - Math.min(...vs) > 0.5) continue; // (across a tile edge)
+    const x0 = Math.floor(Math.min(...us) * N), x1 = Math.min(N - 1, Math.floor(Math.max(...us) * N)), y0 = Math.floor(Math.min(...vs) * N), y1 = Math.min(N - 1, Math.floor(Math.max(...vs) * N));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) cells[y * N + x].push(t);
+  }
+  return (C.grid = { N, cells, fr });
+}
+/** The car points for a texture point: every livery triangle holding it, as { p (on the car), n, tri }. */
+function edCarAt(u, v) {
+  const C = ED.car3, G = edCarGrid(); if (u < 0 || v < 0 || u >= 1 || v >= 1) return [];
+  const uv = C.liv.geometry.attributes.uv.array, pos = C.liv.geometry.attributes.position.array, idx = C.liv.geometry.index.array; const out = [];
+  for (const t of G.cells[Math.floor(v * G.N) * G.N + Math.floor(u * G.N)]) {
+    const a = idx[t], b = idx[t + 1], c = idx[t + 2]; const ua = G.fr(uv[a * 2]), va = G.fr(uv[a * 2 + 1]);
+    const e1u = G.fr(uv[b * 2]) - ua, e1v = G.fr(uv[b * 2 + 1]) - va, e2u = G.fr(uv[c * 2]) - ua, e2v = G.fr(uv[c * 2 + 1]) - va; const det = e1u * e2v - e2u * e1v; if (Math.abs(det) < 1e-12) continue;
+    const s = ((u - ua) * e2v - e2u * (v - va)) / det, w = (e1u * (v - va) - (u - ua) * e1v) / det; if (s < -1e-4 || w < -1e-4 || s + w > 1 + 1e-4) continue;
+    out.push(edCarTri(t, s, w));
+  }
+  return out;
+}
+/** A point carried on from one triangle's own texture-to-car mapping (also outside it), with the triangle's normal. */
+function edCarTri(t, s, w) {
+  const C = ED.car3, pos = C.liv.geometry.attributes.position.array, idx = C.liv.geometry.index.array; const P = (k) => new THREE.Vector3(pos[idx[t + k] * 3], pos[idx[t + k] * 3 + 1], pos[idx[t + k] * 3 + 2]);
+  const A = P(0), B = P(1), Cc = P(2); const e1 = B.clone().sub(A), e2 = Cc.clone().sub(A);
+  return { p: A.clone().addScaledVector(e1, s).addScaledVector(e2, w), n: e1.clone().cross(e2).normalize(), tri: t };
+}
+function edCarTriST(t, u, v) {
+  const C = ED.car3, G = edCarGrid(), uv = C.liv.geometry.attributes.uv.array, idx = C.liv.geometry.index.array; const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+  const ua = G.fr(uv[a * 2]), va = G.fr(uv[a * 2 + 1]); const e1u = G.fr(uv[b * 2]) - ua, e1v = G.fr(uv[b * 2 + 1]) - va, e2u = G.fr(uv[c * 2]) - ua, e2v = G.fr(uv[c * 2 + 1]) - va; const det = e1u * e2v - e2u * e1v;
+  return [((u - ua) * e2v - e2u * (v - va)) / det, (e1u * (v - va) - (u - ua) * e1v) / det];
+}
+function edCarGizmo() {
+  const svg = ED.root?.querySelector('#ed-gizmo'); if (!svg) return; const C = ED.car3, T = ED.three; const D = ED.design; const L = D.layers.find(l => l.id === ED.sel); const s = L && ED.cache.get(L.id);
+  const off = () => { svg.innerHTML = ''; ED.giz = null; }; if (!L || !s || L.visible === false) return off();
+  const W = D.w || 1024, H = D.h || 1024; const X = edStkXf(L, s, W); const c = Math.cos(-X.rot), sn = Math.sin(-X.rot);
+  const at = (u, w) => { const px = u * s.cw * X.sx, py = -w * s.ch * Math.abs(X.sy) * Math.sign(X.sy || 1); return [(X.cx + px * c - py * sn) / W, (X.cy + px * sn + py * c) / H]; }; // (as on Flat, in texture space)
+  const view = ED.root.querySelector('#ed-view').getBoundingClientRect(), cr = T.R.domElement.getBoundingClientRect(); const toCam = (p) => C.cam.position.clone().sub(p);
+  // the middle: the triangle facing the camera that's nearest it
+  const [mu, mv] = at(0, 0); const mids = edCarAt(mu, mv).filter(h => Math.abs(h.n.dot(toCam(h.p).normalize())) > 0.05).sort((a, b) => toCam(a.p).length() - toCam(b.p).length()); const M = mids[0]; if (!M) return off();
+  const place = ([u, v]) => { const [ss, ww] = edCarTriST(M.tri, u, v); return edCarTri(M.tri, ss, ww).p; }; // (the box on the plane of the middle's triangle: a steady frame for the handles)
+  const scr = (p) => { const q = p.clone().project(C.cam); return [cr.left - view.left + (q.x + 1) / 2 * cr.width, cr.top - view.top + (1 - q.y) / 2 * cr.height]; };
+  const pts = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(q => scr(place(at(...q)))); const top = scr(place(at(0, 0.5))), ctr = scr(M.p);
+  const tl = Math.hypot(top[0] - ctr[0], top[1] - ctr[1]) || 1; const rotH = [top[0] + (top[0] - ctr[0]) / tl * 24, top[1] + (top[1] - ctr[1]) / tl * 24];
+  const sides = [['w', 0.5, 0], ['w', -0.5, 0], ['len', 0, 0.5], ['len', 0, -0.5]].map(([h, u, w]) => [h, scr(place(at(u, w)))]);
+  ED.giz = { ctr, pts, rotH, sides };
+  svg.setAttribute('viewBox', `0 0 ${view.width} ${view.height}`);
+  svg.innerHTML = `<polygon points="${pts.map(p => p.join(',')).join(' ')}" class="he-gbox"/><line x1="${top[0]}" y1="${top[1]}" x2="${rotH[0]}" y2="${rotH[1]}" class="he-gline"/>
+    ${pts.map((p, k) => `<rect data-h="size" data-k="${k}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12" rx="2" class="he-gh"/>`).join('')}
+    ${sides.map(([h, p], k) => `<circle data-h="${h}" data-k="${k}" cx="${p[0]}" cy="${p[1]}" r="5" class="he-gh he-gside"/>`).join('')}<circle data-h="turn" cx="${rotH[0]}" cy="${rotH[1]}" r="7" class="he-gh"/>
+    <text x="${Math.min(...pts.map(p => p[0]))}" y="${Math.max(...pts.map(p => p[1])) + 20}" class="he-glbl">${edEsc(L.name)}</text>`;
 }
 /** The sticker as a PNG, cut to what's on it (see-through edges trimmed). */
 function edStkPng() {
