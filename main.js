@@ -315,6 +315,22 @@ ipcMain.handle('engineer:speak', devOnly((_e, text, voice, opts) => engineer.spe
 ipcMain.handle('engineer:hear', devOnly((_e, bytes, prompt, mode) => engineer.hear(bytes, prompt, mode)));
 ipcMain.handle('engineer:warm', (_e, mode) => { engineer.warm(mode); return true; });
 ipcMain.handle('engineer:record', devOnly((_e, x) => { try { replays.radio(x); } catch { /* not kept */ } return true; }));
+/*
+  The helmet editor (dev mode only, 7.0): F1 25's helmet read from the game on this PC, a design exported as a mod for
+  SWOFTY's Helmet Exchange. See helmet-editor.js.
+*/
+const helmetEd = require('./helmet-editor')({ dataDir });
+const devGate = (fn) => (...a) => devMode() ? fn(...a) : null;
+ipcMain.handle('editor:load', devGate(() => helmetEd.load()));
+ipcMain.handle('editor:pick-game', devGate(async () => { const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Pick the F1 25 folder (the one with F1_25.exe)', properties: ['openDirectory'] }); return canceled ? { ok: false, canceled: true } : helmetEd.setGame(filePaths[0]); }));
+ipcMain.handle('editor:export', devGate((_e, rgba, name) => helmetEd.exportMod(rgba, name)));
+ipcMain.handle('editor:show', devGate((_e, dir) => { if (typeof dir === 'string' && dir.startsWith(path.join(dataDir(), 'editor'))) shell.openPath(dir); return true; }));
+ipcMain.handle('editor:save-png', devGate(async (_e, bytes, name) => { const { canceled, filePath } = await dialog.showSaveDialog({ title: 'Save the helmet texture', defaultPath: (String(name || 'helmet').replace(/[^\w\- ]+/g, '') || 'helmet') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] }); if (canceled) return false; fs.writeFileSync(filePath, Buffer.from(bytes)); return true; }));
+ipcMain.handle('editor:list', devGate(() => helmetEd.list()));
+ipcMain.handle('editor:save', devGate((_e, d) => helmetEd.save(d)));
+ipcMain.handle('editor:open', devGate((_e, id) => helmetEd.open(id)));
+ipcMain.handle('editor:remove', devGate((_e, id) => helmetEd.remove(id)));
+
 // push to talk on a key: Windows hands it to Pitwall even while the game is in front (a press, not a hold)
 let pttKey = '';
 ipcMain.handle('engineer:key', devOnly((_e, acc) => {

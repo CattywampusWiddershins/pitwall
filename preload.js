@@ -49,6 +49,18 @@ contextBridge.exposeInMainWorld('api', {
   },
   // dev mode (features being tried out) and the race engineer in it
   dev: () => ipcRenderer.invoke('app:dev'),
+  // the helmet editor (dev mode only)
+  editor: {
+    load: () => ipcRenderer.invoke('editor:load'),
+    pickGame: () => ipcRenderer.invoke('editor:pick-game'),
+    exportMod: (rgba, name) => ipcRenderer.invoke('editor:export', rgba, name),
+    show: (dir) => ipcRenderer.invoke('editor:show', dir),
+    savePng: (bytes, name) => ipcRenderer.invoke('editor:save-png', bytes, name),
+    list: () => ipcRenderer.invoke('editor:list'),
+    save: (d) => ipcRenderer.invoke('editor:save', d),
+    open: (id) => ipcRenderer.invoke('editor:open', id),
+    remove: (id) => ipcRenderer.invoke('editor:remove', id),
+  },
   engineer: {
     status: () => ipcRenderer.invoke('engineer:status'),
     install: (kind, id) => ipcRenderer.invoke('engineer:install', kind, id),

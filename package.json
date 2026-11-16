@@ -31,6 +31,7 @@
       "telemetry.js",
       "replays.js",
       "engineer.js",
+      "helmet-editor.js",
       "overlay-preload.js",
       "src/**/*",
       "!src/_test*",
