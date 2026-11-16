@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   // dev mode (features being tried out) and the race engineer in it
   dev: () => ipcRenderer.invoke('app:dev'),
+  // the interface's size (Settings → Look): 0.8 to 1.6, or null to read it
+  uiZoom: (z) => ipcRenderer.invoke('ui:zoom', z ?? null),
   // the helmet editor (dev mode only)
   editor: {
     load: () => ipcRenderer.invoke('editor:load'),

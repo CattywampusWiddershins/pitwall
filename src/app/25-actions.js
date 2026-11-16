@@ -804,6 +804,8 @@ Object.assign(actions, {
   },
   'weekend-card'(el) { weekendCardModal(el.dataset.round); },
   'gfx-open'(el) { gfxModal(el.dataset.gfx); },
+  'rail-pin'() { (state.prefs ||= {}).railPinned = state.prefs.railPinned === false; store.save(); render(); },
+  'ui-zoom'(el) { const z = +el.dataset.v; (state.prefs ||= {}).uiZoom = z; store.save(); window.api?.uiZoom?.(z); render(); },
   'ui-style'(el) { state.uiStyle = el.dataset.v; store.save(); applyTheme(); render(); },
   'gfx-logo-clear'() { if (BUILT_IN.logo) state.gfxLogo = null; else delete state.gfxLogo; store.save(); applyTheme(); render(); },
   'gfx-logo-default'() { delete state.gfxLogo; store.save(); applyTheme(); render(); },

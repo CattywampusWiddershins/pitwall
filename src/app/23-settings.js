@@ -229,6 +229,7 @@ function renderLookPicker() {
   const cur = uiStyle();
   return `<div class="panel"><div class="panel-h"><h2>Look</h2><span class="muted" style="font-size:12px">The app's style; the theme below sets its colours</span></div><div class="panel-b">
     <div class="choices look-choices">${UI_STYLES.map(([id, name, note]) => `<button class="choice ${cur === id ? 'on' : ''}" data-act="ui-style" data-v="${id}"><span class="look-mini look-${id}" aria-hidden="true"><i></i><i></i><i></i></span><b>${name}</b><small>${note}</small></button>`).join('')}</div>
+    ${window.api?.uiZoom ? `<div class="label" style="margin-top:14px">Interface size</div><div class="seg" style="margin-top:6px">${[0.9, 1, 1.1, 1.25, 1.5].map(z => `<button data-act="ui-zoom" data-v="${z}" class="${Math.abs((state.prefs?.uiZoom || 1) - z) < 0.01 ? 'on' : ''}">${Math.round(z * 100)}%</button>`).join('')}</div><div class="muted" style="font-size:12px;margin-top:4px">Text and buttons keep this size in a bigger window, and pages use the extra room.</div>` : ''}
   </div></div>`;
 }
 function renderThemePicker(c, s) {

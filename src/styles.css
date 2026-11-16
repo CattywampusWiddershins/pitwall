@@ -1668,3 +1668,14 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
 .he-lname { width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--fg); font: 600 13px var(--font-display); letter-spacing: .04em; padding: 2px 4px; text-transform: none; }
 .he-lname:hover, .he-lname:focus { border-color: var(--line); background: var(--bg); }
 .he-ly.grp { margin-left: 14px; } .he-gh-row { background: var(--panel-2); } .he-gico { background: none !important; color: var(--muted); font-size: 14px; }
+
+/* ---- the sidebar folded away (unpinned): a strip of icons that opens over the page while pointed at (desktop) */
+.rail-pin { margin-left: auto; opacity: .55; } .rail-pin:hover, .rail-pin.on { opacity: 1; } .rail-pin svg { width: 15px; height: 15px; }
+.rail-pin.on svg { transform: rotate(0deg); } .rail-pin:not(.on) svg { transform: rotate(45deg); }
+@media (min-width: 761px) {
+  body.rail-auto .shell { grid-template-columns: 64px 1fr; }
+  body.rail-auto .rail { width: 64px; position: relative; z-index: 40; overflow-x: hidden; transition: width .16s ease, box-shadow .16s ease; padding-left: 10px; padding-right: 10px; }
+  body.rail-auto .rail:hover { width: 232px; box-shadow: 12px 0 32px rgba(0,0,0,.45); }
+  body.rail-auto .rail:not(:hover) .brand-name, body.rail-auto .rail:not(:hover) .rail-pin, body.rail-auto .rail:not(:hover) .career-pill, body.rail-auto .rail:not(:hover) .rail-foot, body.rail-auto .rail:not(:hover) .nav button span { display: none; }
+  body.rail-auto .rail:not(:hover) .nav button { justify-content: center; padding-left: 0; padding-right: 0; }
+}

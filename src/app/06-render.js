@@ -132,6 +132,7 @@ function render() {
   { const c = career(); if (c && settleRumours(c)) { renderGen++; store.save(); } }
   syncPlayer();
   applyTheme();
+  document.body.classList.toggle('rail-auto', state.prefs?.railPinned === false); // the sidebar folded away until pointed at
   const main = $('#main');
   const keepScroll = main.dataset.view === viewKey();
   const top = main.scrollTop;
@@ -198,7 +199,7 @@ function renderRail() {
   const s = curSeason();
   const nav = NAV.filter(([id]) => id !== 'help' || !!window.api?.engineer).filter(([id]) => id !== 'editor' || (DEV_MODE && !!window.api?.editor)).filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
   return `
-    <div class="brand">${gfxLogoUrl() ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}</div>
+    <div class="brand">${gfxLogoUrl() ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}<button class="icon-btn rail-pin ${state.prefs?.railPinned === false ? '' : 'on'}" data-act="rail-pin" title="${state.prefs?.railPinned === false ? 'Keep the sidebar open' : 'Fold the sidebar away (it opens when you point at it)'}" aria-label="Pin the sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6l-1 6 4 4H6l4-4z"/><path d="M12 13v8"/></svg></button></div>
     ${c ? `<div class="career-pill">
       ${c.myTeam ? `<div class="row" style="gap:8px;flex-wrap:nowrap">${teamBadge(c.myTeam, 28)}<span class="label">My Team · ${esc(c.myTeam.name)}</span></div>` : `<span class="label">${c.realSeason ? 'Real season' : c.single ? 'Single weekend' : 'Driver Career'}</span>`}
       ${c.realSeason ? `<span class="who">${esc(String(s?.year || ''))} Formula 1 season</span><span class="muted" style="font-size:12px">${c.real?.checked ? `Results checked ${new Date(c.real.checked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Looking for results…'}</span>` : isPrincipal(c) ? `<span class="who"><span class="n" style="font-size:12px">TP</span>${esc(c.profile.first)} ${esc(c.profile.last)}</span>`

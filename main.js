@@ -80,6 +80,9 @@ function saveSettings({ apiKey, model }) {
 }
 
 let win = null;
+const uiFile = () => path.join(dataDir(), 'ui.json');
+const uiZoom = () => { const z = +readJson(uiFile(), {}).zoom; return z >= 0.8 && z <= 1.6 ? z : 1; };
+ipcMain.handle('ui:zoom', (_e, z) => { if (z != null) { const v = Math.min(1.6, Math.max(0.8, +z || 1)); writeJsonAtomic(uiFile(), { ...readJson(uiFile(), {}), zoom: v }); if (win && !win.isDestroyed()) win.webContents.setZoomFactor(v); } return uiZoom(); });
 const toWindow = (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); };
 
 function createWindow() {
@@ -100,13 +103,10 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
-  // scale the interface with the window: the page fills the width, and a window wider than 1800 (in Windows' own
-  // display-scaled pixels) also grows the text and controls, in 5% steps up to 160%
-  const fit = () => {
-    if (!win || win.isDestroyed()) return;
-    const [w] = win.getContentSize();
-    win.webContents.setZoomFactor(Math.min(1.6, Math.max(1, Math.round(w / 1800 / 0.05) * 0.05)));
-  };
+  // the interface's size: what's picked in Settings (100% unless changed). Text and controls keep their size in a
+  // bigger window, and the parts that can grow (pages, the helmet editor's view) take the extra room, as in other apps.
+  // (It used to grow everything with the window's width, so a 1440p screen showed no more than a 1080p one.)
+  const fit = () => { if (win && !win.isDestroyed()) win.webContents.setZoomFactor(uiZoom()); };
   win.on('resize', fit); win.webContents.on('did-finish-load', fit);
   win.on('closed', () => { if (overlay && !overlay.isDestroyed()) overlay.destroy(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
