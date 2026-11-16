@@ -121,7 +121,9 @@ function edBuild() {
     </div>
     <div class="he-bottom">
       <div class="he-row"><input class="he-name" id="ed-name" maxlength="40" title="The helmet's name"><span class="muted he-small" id="ed-status"></span></div>
-      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn primary" data-ed="export">Export for Helmet Exchange</button></div>
+      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary" data-ed="export">Export SWOFTY addon</button></div>
+    </div>
+    <div class="he-row he-target"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game)</span>
     </div>
     <div class="he-modal" id="ed-modal"></div>
     <input type="file" id="ed-file" accept="image/png,image/webp,image/jpeg" hidden>
@@ -143,7 +145,7 @@ async function edLoad() {
   let r = null; try { r = await edApi().load(); } catch (e) { r = { ok: false, error: e.message }; }
   ED.loading = false;
   if (!r?.ok) { ED.err = r?.error || 'Couldn’t read the helmet.'; ED.needGame = !!r?.needGame; edMsg(`${edEsc(ED.err)}${ED.needGame ? '<br><button class="btn" data-ed="pick-game" style="margin-top:8px">Pick the F1 25 folder…</button>' : ''}`); return; }
-  try { edThree(r); ED.ready = true; edMsg(''); edBake(); edList(); } catch (e) { console.error('editor', e); edMsg('The 3D view couldn’t start: ' + edEsc(e.message)); }
+  try { edThree(r); ED.ready = true; ED.target = r.target; edTargetPicker(r); edMsg(''); edBake(); edList(); } catch (e) { console.error('editor', e); edMsg('The 3D view couldn’t start: ' + edEsc(e.message)); }
 }
 function edMsg(html) { const m = ED.root?.querySelector('#ed-msg'); if (m) { m.innerHTML = html; m.style.display = html ? '' : 'none'; } }
 function edThree(r) {
@@ -461,7 +463,8 @@ function edClick(e) {
   else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
   else if (a === 'designs') { edList().then(edMenu); }
   else if (a === 'png') edExportPng();
-  else if (a === 'export') edExport();
+  else if (a === 'export') edExport('addon');
+  else if (a === 'export-hx') edExport('hx');
   else if (a?.startsWith('bg-')) edBgAction(a, t);
 }
 function edMenu() {
@@ -486,6 +489,7 @@ function edTextSet(k, v, el) {
 function edInput(e) {
   const t = e.target; const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
+  if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
   if (t.id === 'ed-name') { if (e.type === 'change') edCommit(() => { D.name = t.value.trim() || 'Helmet'; }, { bake: false, panels: false }); return; }
   if (t.dataset.tf) { if (t.type === 'color' && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
   if (t.dataset.base) { if (t.type === 'color' && e.type !== 'change') return; if (t.type === 'checkbox') { edCommit(() => { D.base.fade = t.checked; }); return; } edCommit(() => { D.base[t.dataset.base] = t.value; }); return; }
@@ -607,14 +611,29 @@ function edFlat() {
 async function edPngBytes() { const px = edPixels(); const cv = document.createElement('canvas'); cv.width = ED_W; cv.height = ED_H; cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), ED_W, ED_H), 0, 0); const b = await new Promise(ok => cv.toBlob(ok, 'image/png')); return new Uint8Array(await b.arrayBuffer()); }
 async function edExportPng() { if (!ED.three) return; await edBakeDone(); const ok = await edApi().savePng(await edPngBytes(), ED.design.name); if (ok) toast('Texture saved.'); }
 const edBakeDone = () => new Promise(ok => { const w = () => edBaking ? setTimeout(w, 30) : ok(); w(); });
-async function edExport() {
+/**
+ * Export as a zip named after the helmet: 'addon' a SWOFTY addon putting it on the chosen Hamilton replica (picked in
+ * the game as that helmet), 'hx' a player design for the Helmet Exchange addon (where its Helmets tab works).
+ */
+async function edExport(kind = 'addon') {
   if (!ED.three) return; await edBakeDone(); edStatus('Exporting…');
-  const r = await edApi().exportMod(edPixels(), ED.design.name); edStatus();
+  const r = await edApi().exportMod(edPixels(), ED.design.name, kind); edStatus();
   if (!r?.ok) { toast('Export failed: ' + (r?.error || 'unknown error')); return; }
-  edModal(`<h3>Exported</h3><p class="muted">The helmet is ready for SWOFTY, zipped:</p><code class="he-path">${edEsc(r.file)}</code>
-    <ol class="he-steps"><li>In SWOFTY Launcher, open <b>Helmets</b> (the Helmet Exchange addon) and press <b>Import file…</b>, then pick that zip.</li><li>Set <b>Who can pick it</b> to <b>Any driver</b> (your driver is a created one).</li><li>Press <b>Play</b>. In your Driver Career, open <b>Team HQ › Driver Details › Helmets</b> and equip it. It shows with "(HX)" after its name.</li></ol>
+  const steps = kind === 'hx'
+    ? `<li>In SWOFTY Launcher, open <b>Helmets</b> (the Helmet Exchange addon) and press <b>Import file…</b>, then pick that zip.</li><li>Set <b>Who can pick it</b> to <b>Any driver</b>.</li><li>Press <b>Play</b>. In your Driver Career, open <b>Team HQ › Driver Details › Helmets</b> and equip it ("(HX)" after its name). This needs Helmet Exchange's Helmets tab to work in your game build.</li>`
+    : `<li>Add the zip to SWOFTY Launcher as an addon (drag it onto the launcher's window), and turn it on in your profile.</li><li>Press <b>Play</b>, then pick <b>${edEsc(r.target)}</b> for your driver in the game. Your design is on it.</li><li>Turn the addon off to get the original helmet back.</li>`;
+  edModal(`<h3>Exported</h3><p class="muted">${kind === 'hx' ? 'For Helmet Exchange' : 'A SWOFTY addon'}, zipped:</p><code class="he-path">${edEsc(r.file)}</code>
+    <ol class="he-steps">${steps}</ol>
     <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.file)}">Show the zip</button></div>`);
 }
+/** Another design to put the helmet on: the same shell, so only the parts inside the helmet change in the view. */
+async function edSetTarget(id) {
+  await edApi().setTarget(id); edMsg('Reading the helmet from F1 25…'); let r = null; try { r = await edApi().load(); } catch (e) { r = { ok: false, error: e.message }; }
+  if (!r?.ok) { edMsg(edEsc(r?.error || 'Couldn’t read the helmet.')); return; }
+  ED.target = r.target; const T = ED.three; const img = T.fillMat.uniforms.uBase.value.image; img.data.set(new Uint8Array(r.base.buffer, r.base.byteOffset, r.base.byteLength)); T.fillMat.uniforms.uBase.value.needsUpdate = true;
+  edMsg(''); edBake(); edTargetPicker(r);
+}
+function edTargetPicker(r) { const el = ED.root?.querySelector('#ed-target'); if (!el || !r?.targets) return; el.innerHTML = r.targets.map(t => `<option value="${edEsc(t.id)}" ${t.id === r.target ? 'selected' : ''}>${edEsc(t.name)}</option>`).join(''); }
 function edModal(html) { const m = ED.root.querySelector('#ed-modal'); m.innerHTML = html ? `<div class="he-mbox">${html}</div>` : ''; m.classList.toggle('on', !!html); }
 // close / open-folder buttons in the dialog
 document.addEventListener('click', (e) => { const t = e.target.closest?.('#ed-modal [data-ed]'); if (!t) return; if (t.dataset.ed === 'close') edModal(''); else if (t.dataset.ed === 'show-dir') edApi().show(t.dataset.dir); });

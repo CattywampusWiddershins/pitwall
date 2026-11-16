@@ -14,7 +14,14 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
-const DESIGN = 'unassigned_livery17'; // the design the editor's helmet is based on (any player design has the same shell)
+// The designs a helmet can be put on with a SWOFTY addon: Lewis Hamilton's replicas on the same shell (the Arai GP-6,
+// so one texture layout), picked in the game like any helmet. (His 2019, 2020 and 2025 ones are on the Bell HP7.)
+const TARGETS = [
+  { id: 'replica_hamilton08a', group: 'replica', name: 'Lewis Hamilton’s 2008 replica helmet' },
+  { id: 'replica_hamilton14a', group: 'replica', name: 'Lewis Hamilton’s 2014 replica helmet' },
+];
+// a player design, for the Helmet Exchange addon (it makes a helmet of its own from one)
+const HX_DESIGN = { id: 'unassigned_livery17', group: 'unassigned', name: 'player design 17' };
 const W = 2048, H = 1024, SMALL = 21840;
 const CACHE_V = 1;
 
@@ -119,7 +126,10 @@ module.exports = function createHelmetEditor({ dataDir }) {
   const settingsFile = () => path.join(root(), 'settings.json');
   const readSettings = () => { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { return {}; } };
   const saveSettings = (s) => { fs.mkdirSync(root(), { recursive: true }); fs.writeFileSync(settingsFile(), JSON.stringify(s, null, 2)); };
-  const isGame = (dir) => { try { return !!dir && fs.existsSync(path.join(dir, 'livery_package_shared', 'unassigned', DESIGN)) && fs.existsSync(path.join(dir, '2025_asset_groups', 'livery_package', 'unassigned', DESIGN)); } catch { return false; } };
+  const target = () => TARGETS.find(t => t.id === readSettings().target) || TARGETS[0];
+  const erpPath = (g, t) => path.join(g, '2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
+  const texDir = (g, t) => path.join(g, 'livery_package_shared', t.group, t.id, 'textures');
+  const isGame = (dir) => { try { return !!dir && TARGETS.every(t => fs.existsSync(erpPath(dir, t)) && fs.existsSync(texDir(dir, t))); } catch { return false; } };
   /** The F1 25 install: the one picked, else the usual places on each drive (Xbox app, Steam, EA app). */
   function findGame() {
     const s = readSettings(); if (isGame(s.game)) return s.game;
@@ -128,76 +138,90 @@ module.exports = function createHelmetEditor({ dataDir }) {
     return null;
   }
   function setGame(dir) { if (!isGame(dir)) return { ok: false, error: 'That folder doesn’t look like F1 25 (it needs livery_package_shared and 2025_asset_groups).' }; saveSettings({ ...readSettings(), game: dir }); return { ok: true, game: dir }; }
-  const erpPath = (g) => path.join(g, '2025_asset_groups', 'livery_package', 'unassigned', DESIGN, `${DESIGN}_helmet.erp`);
-  const texDir = (g) => path.join(g, 'livery_package_shared', 'unassigned', DESIGN, 'textures');
+  function setTarget(id) { if (!TARGETS.some(t => t.id === id)) return { ok: false }; saveSettings({ ...readSettings(), target: id }); return { ok: true }; }
 
-  /** Builds the cache from the game: the shell's mesh, the base texture (the design's own, for the parts inside the helmet) and the trim. */
-  function buildCache(game) {
-    const b = fs.readFileSync(erpPath(game)); const E = readErp(b);
+  /** Builds the cache from the game for a design: the shell's mesh, its own texture (for the parts inside the helmet) and the trim. */
+  function buildCache(game, t) {
+    const b = fs.readFileSync(erpPath(game, t)); const E = readErp(b);
     const get = (key) => { const r = E.res.find(x => x.id.includes(key)); if (!r) throw new Error('Missing ' + key); return fragOf(b, E, r.frags[1]); };
     const ib = get('gp_6_01.idf?lod=all&ib=0'), vb0 = get('gp_6_01.idf?lod=all&vb=0'), vb3 = get('gp_6_01.idf?lod=all&vb=3');
     const mesh = E.res.find(x => x.id.includes('gp_6_01.idf?lod=0&mesh')); const m = fragOf(b, E, mesh.frags[0]);
-    // lod 0's parts: index start and count (the first is the painted shell)
     const n = vb0.length / 12; const pos = new Float32Array(n * 3), uv = new Float32Array(n * 2);
     for (let i = 0; i < n; i++) { pos[i * 3] = vb0.readFloatLE(i * 12); pos[i * 3 + 1] = vb0.readFloatLE(i * 12 + 4); pos[i * 3 + 2] = vb0.readFloatLE(i * 12 + 8); uv[i * 2] = half2float(vb3.readUInt16LE(i * 4)); uv[i * 2 + 1] = half2float(vb3.readUInt16LE(i * 4 + 2)); }
     // the shell is the first draw call: the first (start 0, count) pair in the mesh record that's a big run of
-    // triangles; this design is known to have 45156 indices there
+    // triangles; the Arai GP-6 is known to have 45156 indices there
     let count = 45156; { const idx = new Uint16Array(ib.buffer, ib.byteOffset, ib.length / 2); for (let o = 0; o + 8 <= m.length; o += 4) { const s = m.readUInt32LE(o), c = m.readUInt32LE(o + 4); if (s === 0 && c > 30000 && c < idx.length && c % 3 === 0) { count = c; break; } } }
     const idx = new Uint16Array(count); for (let i = 0; i < count; i++) idx[i] = ib.readUInt16LE(i * 2);
-    // the texture: the design's own (kept inside the helmet and on the trim)
-    const top = topLevel(fs.readFileSync(path.join(texDir(game), `${DESIGN}_helmet_d.tif.mipmaps`))); if (!top) throw new Error('The helmet texture isn’t in the expected format');
+    const top = topLevel(fs.readFileSync(path.join(texDir(game, t), `${t.id}_helmet_d.tif.mipmaps`))); if (!top) throw new Error('The helmet texture isn’t in the expected format');
     const base = bc1Decode(top, W, H);
     // the trim: pixels that hardly change across the game's designs
     const shared = path.join(game, 'livery_package_shared'); const imgs = [];
     for (const g of fs.readdirSync(shared)) { let dirs = []; try { dirs = fs.readdirSync(path.join(shared, g)); } catch { continue; }
-      for (const d of dirs) { const f = path.join(shared, g, d, 'textures', `${d}_helmet_d.tif.mipmaps`); if (!fs.existsSync(f)) continue; const t = topLevel(fs.readFileSync(f)); if (t) imgs.push(bc1Decode(t, W, H)); if (imgs.length >= 14) break; }
+      for (const d of dirs) { const f = path.join(shared, g, d, 'textures', `${d}_helmet_d.tif.mipmaps`); if (!fs.existsSync(f)) continue; const tl = topLevel(fs.readFileSync(f)); if (tl) imgs.push(bc1Decode(tl, W, H)); if (imgs.length >= 14) break; }
       if (imgs.length >= 14) break; }
     const trim = Buffer.alloc(W * H); const trimCol = Buffer.alloc(W * H * 4);
     for (let p = 0; p < W * H; p++) { let spread = 0; for (let c = 0; c < 3; c++) { let lo = 255, hi = 0; for (const im of imgs) { const v = im[p * 4 + c]; if (v < lo) lo = v; if (v > hi) hi = v; } spread = Math.max(spread, hi - lo); }
       if (imgs.length >= 4 && spread < 40) { trim[p] = 255; for (let c = 0; c < 3; c++) { let s = 0; for (const im of imgs) s += im[p * 4 + c]; trimCol[p * 4 + c] = s / imgs.length; } trimCol[p * 4 + 3] = 255; } }
-    // the parts inside the helmet (seen through the face opening) keep the design's own colours: the base, with the trim on it
     for (let p = 0; p < W * H; p++) if (trim[p]) trimCol.copy(base, p * 4, p * 4, p * 4 + 3);
     const dir = cacheDir(); fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'pos.bin'), Buffer.from(pos.buffer)); fs.writeFileSync(path.join(dir, 'uv.bin'), Buffer.from(uv.buffer)); fs.writeFileSync(path.join(dir, 'idx.bin'), Buffer.from(idx.buffer));
     fs.writeFileSync(path.join(dir, 'base.bin'), base); fs.writeFileSync(path.join(dir, 'trim.bin'), trim);
-    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ v: CACHE_V, game, design: DESIGN, designs: imgs.length, at: new Date().toISOString() }));
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ v: CACHE_V, game, design: t.id, designs: imgs.length, at: new Date().toISOString() }));
   }
-  /** The helmet for the editor: { ok, game, pos, uv, idx, base (RGBA 2048 x 1024), trim (one byte a pixel) } or { ok: false, error, needGame }. */
+  /** The helmet for the editor: { ok, game, target, targets, pos, uv, idx, base (RGBA 2048 x 1024), trim (a byte a pixel) } or { ok: false, error, needGame }. */
   function load() {
     const game = findGame(); if (!game) return { ok: false, needGame: true, error: 'F1 25 wasn’t found. Pick its folder (the one with F1_25.exe).' };
-    let meta = null; try { meta = JSON.parse(fs.readFileSync(path.join(cacheDir(), 'meta.json'), 'utf8')); } catch { }
-    try { if (!meta || meta.v !== CACHE_V || meta.game !== game) buildCache(game); } catch (e) { return { ok: false, error: 'Couldn’t read the helmet from F1 25: ' + e.message }; }
+    const t = target(); let meta = null; try { meta = JSON.parse(fs.readFileSync(path.join(cacheDir(), 'meta.json'), 'utf8')); } catch { }
+    try { if (!meta || meta.v !== CACHE_V || meta.game !== game || meta.design !== t.id) buildCache(game, t); } catch (e) { return { ok: false, error: 'Couldn’t read the helmet from F1 25: ' + e.message }; }
     const r = (f) => fs.readFileSync(path.join(cacheDir(), f));
-    return { ok: true, game, pos: r('pos.bin'), uv: r('uv.bin'), idx: r('idx.bin'), base: r('base.bin'), trim: r('trim.bin'), w: W, h: H };
+    return { ok: true, game, target: t.id, targets: TARGETS.map(x => ({ id: x.id, name: x.name })), pos: r('pos.bin'), uv: r('uv.bin'), idx: r('idx.bin'), base: r('base.bin'), trim: r('trim.bin'), w: W, h: H };
+  }
+  /** The two files that carry a design's colour texture: the full-size .mipmaps and the archive with the small levels. Written under `out` at their game paths. */
+  function writeTexture(game, t, levels, out) {
+    const small = Buffer.concat(levels.slice(3)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
+    const texRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_d.tif.mipmaps`), erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
+    fs.mkdirSync(path.dirname(path.join(out, texRel)), { recursive: true }); fs.writeFileSync(path.join(out, texRel), Buffer.concat(levels.slice(0, 3).map(lz4Literal)));
+    const b = Buffer.from(fs.readFileSync(erpPath(game, t))); const E = readErp(b);
+    const R = E.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL) throw new Error('The game’s helmet archive isn’t laid out as expected.');
+    const packed = zstdWrite(small); b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
+    fs.mkdirSync(path.dirname(path.join(out, erpRel)), { recursive: true }); fs.writeFileSync(path.join(out, erpRel), Buffer.concat([b, packed]));
+    // read back: the texture and the small levels as the game will read them
+    const back = topLevel(fs.readFileSync(path.join(out, texRel))); const b2 = fs.readFileSync(path.join(out, erpRel)); const E2 = readErp(b2);
+    const F2 = E2.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)).frags[1];
+    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small)) throw new Error('The written files didn’t read back correctly.');
+    return [texRel, erpRel].map(p => p.split(path.sep).join('/'));
   }
   /**
-   * A finished texture (RGBA, 2048 x 1024, rows top to bottom) as a Helmet Exchange mod folder: the design's archive
-   * with the new small mip levels, the new colour texture, and the design's other helmet textures as the game has them.
+   * A finished texture (RGBA, 2048 x 1024, rows top to bottom) as a zip named after the helmet:
+   *  - 'addon': a SWOFTY addon that puts it on the chosen design (a Lewis Hamilton replica), picked in the game as that helmet;
+   *  - 'hx': a player design for the Helmet Exchange addon (its own helmet, where its Helmets tab works in the game build).
    */
-  function exportMod(rgba, name) {
+  function exportMod(rgba, name, kind = 'addon') {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); if (px.length !== W * H * 4) return { ok: false, error: 'The texture is the wrong size.' };
     const safe = String(name || 'Helmet').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'Helmet';
     const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true }); // (zipped below, then removed)
     const levels = []; let cur = px, w = W, h = H; for (let k = 0; k < 9; k++) { levels.push(bc1Encode(cur, w, h)); if (k < 8) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
-    const small = Buffer.concat(levels.slice(3)); if (small.length !== SMALL) return { ok: false, error: 'Unexpected mip sizes.' };
-    const td = path.join(out, 'livery_package_shared', 'unassigned', DESIGN, 'textures'); fs.mkdirSync(td, { recursive: true });
-    fs.writeFileSync(path.join(td, `${DESIGN}_helmet_d.tif.mipmaps`), Buffer.concat(levels.slice(0, 3).map(lz4Literal)));
-    for (const f of fs.readdirSync(texDir(game))) if (/_(helmet|visor_attachments)/.test(f) && !f.endsWith('_helmet_d.tif.mipmaps')) fs.copyFileSync(path.join(texDir(game), f), path.join(td, f));
-    const b = Buffer.from(fs.readFileSync(erpPath(game))); const E = readErp(b);
-    const R = E.res.find(x => x.id.endsWith(`/${DESIGN}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL) return { ok: false, error: 'The game’s helmet archive isn’t laid out as expected.' };
-    const packed = zstdWrite(small); b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
-    const ed = path.join(out, '2025_asset_groups', 'livery_package', 'unassigned', DESIGN); fs.mkdirSync(ed, { recursive: true });
-    fs.writeFileSync(path.join(ed, `${DESIGN}_helmet.erp`), Buffer.concat([b, packed]));
-    // read back: the texture and the small levels as the game will read them
-    const back = topLevel(fs.readFileSync(path.join(td, `${DESIGN}_helmet_d.tif.mipmaps`))); const b2 = fs.readFileSync(path.join(ed, `${DESIGN}_helmet.erp`)); const E2 = readErp(b2);
-    const F2 = E2.res.find(x => x.id.endsWith(`/${DESIGN}_helmet_d.tif.image`)).frags[1];
-    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small)) return { ok: false, error: 'The written files didn’t read back correctly.' };
-    fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a helmet made in Pitwall's editor.\r\n\r\nIn SWOFTY Launcher, open Helmets (the Helmet Exchange addon), press "Import file..." and pick this zip.\r\nSet "Who can pick it" to Any driver for a created driver, press Play, then in your career open\r\nTeam HQ > Driver Details > Helmets and equip it. It shows with (HX) after its name.\r\n`);
-    // the mod as one zip named after the helmet (SWOFTY imports zips best), the game's folders at its root
-    const zip = path.join(root(), 'exports', `${safe}.zip`);
-    try { zipFolder(out, zip); } catch (e) { return { ok: false, error: 'Couldn’t write the zip: ' + e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
-    return { ok: true, file: zip, dir: path.dirname(zip) };
+    const t = target(); const zip = path.join(root(), 'exports', kind === 'hx' ? `${safe} (Helmet Exchange).zip` : `${safe}.zip`);
+    try {
+      if (kind === 'hx') {
+        const d = HX_DESIGN; const files = writeTexture(game, d, levels, out);
+        // the design's other helmet textures as the game has them
+        const td = path.join(out, path.dirname(files[0])); for (const f of fs.readdirSync(texDir(game, d))) if (/_(helmet|visor_attachments)/.test(f) && !f.endsWith('_helmet_d.tif.mipmaps')) fs.copyFileSync(path.join(texDir(game, d), f), path.join(td, f));
+        fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a helmet made in Pitwall's editor, for the Helmet Exchange addon.\r\n\r\nIn SWOFTY Launcher, open Helmets, press "Import file..." and pick this zip. Set "Who can pick it" to Any driver,\r\npress Play, then in your career open Team HQ > Driver Details > Helmets and equip it ("(HX)" after its name).\r\nThis needs Helmet Exchange's Helmets tab to work in your game build.\r\n`);
+      } else {
+        // a SWOFTY addon: its manifest, and the two files under files/ copied onto the game's own
+        const files = writeTexture(game, t, levels, path.join(out, 'files'));
+        const slug = safe.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'helmet';
+        const manifest = { schema_version: 1, id: `pitwall.helmet-${slug}`, name: `${safe} (Pitwall helmet)`, version: '1.0.0', author: 'Pitwall', category: 'helmets', kind: ['files'], compat: { game: 'f1_25' },
+          description: `Puts "${safe}", made in Pitwall's helmet editor, on ${t.name}. Pick that helmet for your driver in the game. Turn this addon off to get the original back.`,
+          operations: { files: files.map(f => ({ source: `files/${f}`, target: f })) } };
+        fs.writeFileSync(path.join(out, 'swofty.json'), JSON.stringify(manifest, null, 2));
+        fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a helmet made in Pitwall's editor, as a SWOFTY addon.\r\n\r\nIt replaces ${t.name}. Install it in SWOFTY Launcher, turn it on in your profile and press Play,\r\nthen pick ${t.name} for your driver in the game. Turn the addon off to get the original back.\r\n`);
+      }
+      zipFolder(out, zip);
+    } catch (e) { return { ok: false, error: e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
+    return { ok: true, file: zip, dir: path.dirname(zip), kind, target: t.name };
   }
   // ---- designs, one file each (images inside can be big, so they stay out of the career data)
   const designsDir = () => path.join(root(), 'designs');
@@ -206,5 +230,5 @@ module.exports = function createHelmetEditor({ dataDir }) {
   function save(d) { if (!d || !okId(d.id)) return { ok: false }; fs.mkdirSync(designsDir(), { recursive: true }); const f = path.join(designsDir(), d.id + '.json'); fs.writeFileSync(f + '.tmp', JSON.stringify(d)); fs.renameSync(f + '.tmp', f); return { ok: true }; }
   function open(id) { if (!okId(id)) return null; try { return JSON.parse(fs.readFileSync(path.join(designsDir(), id + '.json'), 'utf8')); } catch { return null; } }
   function remove(id) { if (!okId(id)) return false; try { fs.rmSync(path.join(designsDir(), id + '.json'), { force: true }); return true; } catch { return false; } }
-  return { load, findGame, setGame, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
+  return { load, findGame, setGame, setTarget, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
 };

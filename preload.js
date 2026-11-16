@@ -53,7 +53,8 @@ contextBridge.exposeInMainWorld('api', {
   editor: {
     load: () => ipcRenderer.invoke('editor:load'),
     pickGame: () => ipcRenderer.invoke('editor:pick-game'),
-    exportMod: (rgba, name) => ipcRenderer.invoke('editor:export', rgba, name),
+    exportMod: (rgba, name, kind) => ipcRenderer.invoke('editor:export', rgba, name, kind),
+    setTarget: (id) => ipcRenderer.invoke('editor:target', id),
     show: (dir) => ipcRenderer.invoke('editor:show', dir),
     savePng: (bytes, name) => ipcRenderer.invoke('editor:save-png', bytes, name),
     list: () => ipcRenderer.invoke('editor:list'),
