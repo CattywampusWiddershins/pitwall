@@ -1658,3 +1658,4 @@ button.tset { cursor: pointer; padding: 0; color: inherit; font: inherit; }
 #ed-layers { flex: 0 0 auto !important; min-height: 96px; }
 .he-seg button { font-size: 12px; padding: 4px 3px; min-width: 0; }
 .he-target { margin-top: -4px; }
+circle.he-gside { cursor: move; fill: #9fd0ff; }

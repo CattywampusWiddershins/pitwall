@@ -357,8 +357,7 @@ function edProps() {
   const range = (k, label, min, max, step, v, show) => `<div class="he-prow"><span>${label}</span><input type="range" data-lp="${k}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="v">${show}</span></div>`;
   const shape = ED_SHAPES.find(s => s.id === L.shape);
   el.innerHTML = `
-    ${L.mode === 'uv' ? '' : range('size', 'Size', 0.01, 0.32, 0.002, L.size, Math.round(L.size * 1000) + ' mm')}
-    ${L.mode === 'uv' ? '' : range('stretch', 'Stretch', 0.2, 4, 0.01, L.stretch || 1, Math.round((L.stretch || 1) * 100) + '%')}
+    ${L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
     ${L.mode === 'uv' ? '' : range('rot', 'Rotation', -180, 180, 1, L.rot || 0, Math.round(L.rot || 0) + '°')}
     ${range('opacity', 'Opacity', 0, 1, 0.01, L.opacity ?? 1, Math.round((L.opacity ?? 1) * 100) + '%')}
     ${L.kind === 'shape' && !shape?.fixed ? `<div class="label">Colour</div>${edSw(L.colors[0], 'data-lc="0"')}${/="[OA]"/.test(shape?.svg || '') ? `<div class="label">Second colour</div>${edSw(/="A"/.test(shape.svg) ? L.colors[2] : L.colors[1], `data-lc="${/="A"/.test(shape.svg) ? 2 : 1}"`)}` : ''}` : ''}
@@ -496,9 +495,16 @@ function edInput(e) {
   if (t.dataset.lc && L) { if (e.type !== 'change') return; edCommit(() => { L.colors[+t.dataset.lc] = t.value; }); return; }
   if (t.dataset.lb && L) { edCommit(() => { if (t.dataset.lb === 'mirror') L.mirror = t.checked; else { const was = L.mode; L.mode = t.checked ? 'wrap' : 'stick'; if (L.mode === 'wrap' && was !== 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; } else if (L.mode === 'stick' && was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); } } }); return; }
   if (t.dataset.lp && L) {
-    // sliders: one undo step for a whole drag
-    if (e.type === 'input') { if (ED.sliding !== t) { ED.undo.push(edSnap()); ED.redo = []; ED.sliding = t; } L[t.dataset.lp] = +t.value; const v = t.parentElement.querySelector('.v'); const k = t.dataset.lp; if (v) v.textContent = k === 'size' ? Math.round(L.size * 1000) + ' mm' : k === 'rot' ? Math.round(L.rot) + '°' : Math.round(+t.value * 100) + '%'; edChanged(true, false); }
-    else ED.sliding = null;
+    // sliders: one undo step for a whole drag. Size scales both ways from where the drag began (the slider springs
+    // back to the middle after); width and length change one way, the other staying as it is.
+    const k = t.dataset.lp, v = +t.value;
+    if (e.type === 'input') {
+      if (ED.sliding !== t) { ED.undo.push(edSnap()); ED.redo = []; ED.sliding = t; ED.slideFrom = { size: L.size, stretch: L.stretch || 1 }; }
+      if (k === 'scale') L.size = Math.max(0.005, Math.min(0.9, ED.slideFrom.size * v));
+      else if (k === 'w') edSetDims(L, v, null); else if (k === 'len') edSetDims(L, null, v); else L[k] = v;
+      edDimLabels(L); const lab = t.parentElement.querySelector('.v'); if (lab && k === 'rot') lab.textContent = Math.round(L.rot) + '°'; else if (lab && k === 'opacity') lab.textContent = Math.round(v * 100) + '%';
+      edChanged(true, false);
+    } else { ED.sliding = null; if (k === 'scale') { t.value = 1; edProps(); } }
   }
 }
 function edKey(e) {
@@ -549,9 +555,15 @@ function edMove(e) {
     else { const p = h.p.clone(), n = h.n.clone(); if (P.mirror) { p.x = 2 * ED.three.C.x - p.x; n.x = -n.x; } L.p = p.toArray(); L.n = n.toArray(); }
     edChanged(true, false); return;
   }
+  if (P.kind === 'w' || P.kind === 'len') {
+    // a side handle: how far along its own direction from the middle the pointer is, against where it started
+    const along = (e.clientX - P.cx) * P.ax[0] + (e.clientY - P.cy) * P.ax[1]; const k = Math.max(0.05, along / Math.max(4, P.d0));
+    if (P.kind === 'w') edSetDims(P.L, P.dims[0] * k, P.dims[1]); else edSetDims(P.L, P.dims[0], P.dims[1] * k);
+    edChanged(true, false); return;
+  }
   if (P.kind === 'size' || P.kind === 'turn') {
     const d = Math.hypot(e.clientX - P.cx, e.clientY - P.cy); const ang = Math.atan2(e.clientY - P.cy, e.clientX - P.cx);
-    if (P.kind === 'size') P.L.size = Math.max(0.01, Math.min(0.32, P.size * d / Math.max(4, P.d0)));
+    if (P.kind === 'size') P.L.size = Math.max(0.005, Math.min(0.32, P.size * d / Math.max(4, P.d0)));
     else { let r = P.rot - (ang - P.a0) * 180 / Math.PI * P.sign; r = ((r + 540) % 360) - 180; P.L.rot = e.shiftKey ? Math.round(r / 15) * 15 : r; }
     edChanged(true, false);
   }
@@ -577,12 +589,24 @@ function edGizmo() {
   // (a long wrapped stripe gets a box round the part near its middle, so its handles stay on the side being looked at)
   const hv = F.mode === 1 ? Math.min(0.5, 0.06 / F.h) : 0.5;
   const pts = [[-0.5, -hv], [0.5, -hv], [0.5, hv], [-0.5, hv]].map(([u, v]) => scr(toWorld(u, v))); const top = scr(toWorld(0, hv)), rotH = scr(toWorld(0, hv + 0.18 * Math.max(1, 0.04 / F.h))); const ctr = scr(mid);
-  ED.giz = { ctr, pts, rotH };
+  // the side handles: width on the left and right edges, length on the top and bottom ones
+  const sides = [['w', 0.5, 0], ['w', -0.5, 0], ['len', 0, hv], ['len', 0, -hv]].map(([h, u, v]) => [h, scr(toWorld(u, v))]);
+  ED.giz = { ctr, pts, rotH, sides };
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = `<polygon points="${pts.map(p => p.slice(0, 2).join(',')).join(' ')}" class="he-gbox"/><line x1="${top[0]}" y1="${top[1]}" x2="${rotH[0]}" y2="${rotH[1]}" class="he-gline"/>
-    ${pts.map((p, k) => `<rect data-h="size" data-k="${k}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12" rx="2" class="he-gh"/>`).join('')}<circle data-h="turn" cx="${rotH[0]}" cy="${rotH[1]}" r="7" class="he-gh"/>
+    ${pts.map((p, k) => `<rect data-h="size" data-k="${k}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12" rx="2" class="he-gh"/>`).join('')}
+    ${sides.map(([h, p], k) => `<circle data-h="${h}" data-k="${k}" cx="${p[0]}" cy="${p[1]}" r="5" class="he-gh he-gside"/>`).join('')}<circle data-h="turn" cx="${rotH[0]}" cy="${rotH[1]}" r="7" class="he-gh"/>
     <text x="${Math.min(...pts.map(p => p[0]))}" y="${Math.max(...pts.map(p => p[1])) + 20}" class="he-glbl">${edEsc(L.name)}${L.mirror ? ' · mirrored' : ''}</text>`;
 }
+/** A sticker's width and length in metres (its picture's own shape, times the stretch). */
+function edDims(L) { const s = ED.three?.tex.get(L.id); const a = s?.aspect || 1; return [L.size, L.size * a * (L.stretch || 1)]; }
+/** Sets a sticker's width and/or length (null keeps it), in metres. */
+function edSetDims(L, w, h) {
+  const s = ED.three?.tex.get(L.id); const a = s?.aspect || 1; const [w0, h0] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32;
+  const nw = Math.max(0.005, Math.min(0.32, w ?? w0)), nh = Math.max(0.005, Math.min(mx, h ?? h0));
+  L.size = nw; L.stretch = nh / (nw * a);
+}
+function edDimLabels(L) { const [w, h] = edDims(L); const set = (k, v) => { const el = ED.root.querySelector(`#ed-props [data-lp="${k}"]`); if (!el) return; if (ED.sliding !== el) el.value = v; const lab = el.parentElement.querySelector('.v'); if (lab) lab.textContent = Math.round(v * 1000) + ' mm'; }; set('w', w); set('len', h); }
 function edRadiusAt(th) { const T = ED.three; const h = edSurfaceNear(new THREE.Vector3(T.C.x, T.C.y + Math.cos(th) * T.RAD, T.C.z + Math.sin(th) * T.RAD)); return h.p.clone().sub(T.C).setX(0).length(); }
 document.addEventListener('pointerdown', (e) => {
   const h = e.target.closest?.('#ed-gizmo [data-h]'); if (!h || !ED.giz) return; e.preventDefault(); e.stopPropagation();
@@ -591,6 +615,7 @@ document.addEventListener('pointerdown', (e) => {
   // which way round a turn goes on screen: the box's own corners say whether it's seen from the front or mirrored
   const [a, b, c2] = ED.giz.pts; const cross = (b[0] - a[0]) * (c2[1] - a[1]) - (b[1] - a[1]) * (c2[0] - a[0]);
   ED.ptr = { kind: h.dataset.h, L, cx, cy, size: L.size, d0: Math.hypot(e.clientX - cx, e.clientY - cy), rot: L.rot || 0, a0: Math.atan2(e.clientY - cy, e.clientX - cx), sign: cross < 0 ? 1 : -1 };
+  if (h.dataset.h === 'w' || h.dataset.h === 'len') { const s = ED.giz.sides[+h.dataset.k][1]; const dx = s[0] - ED.giz.ctr[0], dy = s[1] - ED.giz.ctr[1]; const d = Math.hypot(dx, dy) || 1; Object.assign(ED.ptr, { ax: [dx / d, dy / d], d0: d, dims: edDims(L) }); }
   const up = (ev) => { edUp(ev); document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); }; const mv = (ev) => edMove(ev);
   document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
 }, true);
