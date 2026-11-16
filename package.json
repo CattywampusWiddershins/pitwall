@@ -32,6 +32,7 @@
       "replays.js",
       "engineer.js",
       "helmet-editor.js",
+      "vendor-fzstd.js",
       "overlay-preload.js",
       "src/**/*",
       "!src/_test*",

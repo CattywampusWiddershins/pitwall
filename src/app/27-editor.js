@@ -611,9 +611,9 @@ async function edExport() {
   if (!ED.three) return; await edBakeDone(); edStatus('Exporting…');
   const r = await edApi().exportMod(edPixels(), ED.design.name); edStatus();
   if (!r?.ok) { toast('Export failed: ' + (r?.error || 'unknown error')); return; }
-  edModal(`<h3>Exported</h3><p class="muted">The helmet is ready for SWOFTY:</p><code class="he-path">${edEsc(r.dir)}</code>
-    <ol class="he-steps"><li>In SWOFTY Launcher, open <b>Helmets</b> (the Helmet Exchange addon) and press <b>Import folder…</b>, then pick that folder.</li><li>Set <b>Who can pick it</b> to <b>Any driver</b> (your driver is a created one).</li><li>Press <b>Play</b>. In your Driver Career, open <b>Team HQ › Driver Details › Helmets</b> and equip it. It shows with "(HX)" after its name.</li></ol>
-    <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.dir)}">Open the folder</button></div>`);
+  edModal(`<h3>Exported</h3><p class="muted">The helmet is ready for SWOFTY, zipped:</p><code class="he-path">${edEsc(r.file)}</code>
+    <ol class="he-steps"><li>In SWOFTY Launcher, open <b>Helmets</b> (the Helmet Exchange addon) and press <b>Import file…</b>, then pick that zip.</li><li>Set <b>Who can pick it</b> to <b>Any driver</b> (your driver is a created one).</li><li>Press <b>Play</b>. In your Driver Career, open <b>Team HQ › Driver Details › Helmets</b> and equip it. It shows with "(HX)" after its name.</li></ol>
+    <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.file)}">Show the zip</button></div>`);
 }
 function edModal(html) { const m = ED.root.querySelector('#ed-modal'); m.innerHTML = html ? `<div class="he-mbox">${html}</div>` : ''; m.classList.toggle('on', !!html); }
 // close / open-folder buttons in the dialog

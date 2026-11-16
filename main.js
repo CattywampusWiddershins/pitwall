@@ -324,7 +324,7 @@ const devGate = (fn) => (...a) => devMode() ? fn(...a) : null;
 ipcMain.handle('editor:load', devGate(() => helmetEd.load()));
 ipcMain.handle('editor:pick-game', devGate(async () => { const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Pick the F1 25 folder (the one with F1_25.exe)', properties: ['openDirectory'] }); return canceled ? { ok: false, canceled: true } : helmetEd.setGame(filePaths[0]); }));
 ipcMain.handle('editor:export', devGate((_e, rgba, name) => helmetEd.exportMod(rgba, name)));
-ipcMain.handle('editor:show', devGate((_e, dir) => { if (typeof dir === 'string' && dir.startsWith(path.join(dataDir(), 'editor'))) shell.openPath(dir); return true; }));
+ipcMain.handle('editor:show', devGate((_e, file) => { if (typeof file === 'string' && path.resolve(file).startsWith(path.join(dataDir(), 'editor'))) shell.showItemInFolder(path.resolve(file)); return true; }));
 ipcMain.handle('editor:save-png', devGate(async (_e, bytes, name) => { const { canceled, filePath } = await dialog.showSaveDialog({ title: 'Save the helmet texture', defaultPath: (String(name || 'helmet').replace(/[^\w\- ]+/g, '') || 'helmet') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] }); if (canceled) return false; fs.writeFileSync(filePath, Buffer.from(bytes)); return true; }));
 ipcMain.handle('editor:list', devGate(() => helmetEd.list()));
 ipcMain.handle('editor:save', devGate((_e, d) => helmetEd.save(d)));

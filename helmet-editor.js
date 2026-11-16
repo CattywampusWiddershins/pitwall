@@ -31,7 +31,34 @@ function readErp(b) {
   }
   return { dataOff, res };
 }
-const fragOf = (b, E, f) => { const raw = b.subarray(E.dataOff + f.off, E.dataOff + f.off + f.packed); return f.packed === f.size ? raw : zlib.zstdDecompressSync(raw); };
+// zstd: Node's own where it has it (Node 22.15 and later), else fzstd (Electron 33's Node 20 has none). Written as
+// stored blocks (no compression, a valid zstd frame any reader takes): the game's small mips are only 21840 bytes.
+function zstdRead(buf) { if (zlib.zstdDecompressSync) return zlib.zstdDecompressSync(buf); return Buffer.from(require('./vendor-fzstd').decompress(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength))); }
+function zstdWrite(data) {
+  // frame: magic, a descriptor (single segment, 4-byte content size), the size, then blocks of up to 128 KB (raw)
+  const parts = [Buffer.from([0x28, 0xB5, 0x2F, 0xFD, 0xA0]), Buffer.alloc(4)]; parts[1].writeUInt32LE(data.length);
+  for (let o = 0; o < data.length || o === 0; o += 131072) { const n = Math.min(131072, data.length - o); const last = o + n >= data.length ? 1 : 0; const h = (n << 3) | last; parts.push(Buffer.from([h & 255, (h >> 8) & 255, (h >> 16) & 255]), data.subarray(o, o + n)); if (!data.length) break; }
+  return Buffer.concat(parts);
+}
+// ---- a zip of a folder (deflated; CRC-32 worked out here, as Node 20 has no zlib.crc32)
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (b) => { let c = ~0; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return (~c) >>> 0; };
+/** Writes a zip of everything in `dir` (paths inside it, with forward slashes) to `file`. */
+function zipFolder(dir, file) {
+  const files = []; const walk = (d, rel) => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f), r = rel ? rel + '/' + f : f; if (fs.statSync(p).isDirectory()) walk(p, r); else files.push([p, r]); } }; walk(dir, '');
+  const local = [], central = []; let off = 0; const now = new Date();
+  const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xffff, dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xffff;
+  for (const [p, r] of files) {
+    const data = fs.readFileSync(p); const comp = zlib.deflateRawSync(data, { level: 6 }); const name = Buffer.from(r, 'utf8'); const crc = crc32(data);
+    const h = Buffer.alloc(30); h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0800, 6); h.writeUInt16LE(8, 8); h.writeUInt16LE(dosTime, 10); h.writeUInt16LE(dosDate, 12); h.writeUInt32LE(crc, 14); h.writeUInt32LE(comp.length, 18); h.writeUInt32LE(data.length, 22); h.writeUInt16LE(name.length, 26); h.writeUInt16LE(0, 28);
+    const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x0800, 8); c.writeUInt16LE(8, 10); c.writeUInt16LE(dosTime, 12); c.writeUInt16LE(dosDate, 14); c.writeUInt32LE(crc, 16); c.writeUInt32LE(comp.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(name.length, 28); c.writeUInt32LE(off, 42);
+    local.push(h, name, comp); central.push(c, name); off += 30 + name.length + comp.length;
+  }
+  const cd = Buffer.concat(central); const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16);
+  fs.writeFileSync(file + '.tmp', Buffer.concat([...local, cd, end])); fs.renameSync(file + '.tmp', file);
+  return files.length;
+}
+const fragOf = (b, E, f) => { const raw = b.subarray(E.dataOff + f.off, E.dataOff + f.off + f.packed); return f.packed === f.size ? raw : zstdRead(raw); };
 
 // ---- LZ4 (one block per mip level) and BC1
 function lz4Block(src, i0, want) {
@@ -151,7 +178,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); if (px.length !== W * H * 4) return { ok: false, error: 'The texture is the wrong size.' };
     const safe = String(name || 'Helmet').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'Helmet';
-    const out = path.join(root(), 'exports', safe); fs.rmSync(out, { recursive: true, force: true });
+    const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true }); // (zipped below, then removed)
     const levels = []; let cur = px, w = W, h = H; for (let k = 0; k < 9; k++) { levels.push(bc1Encode(cur, w, h)); if (k < 8) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
     const small = Buffer.concat(levels.slice(3)); if (small.length !== SMALL) return { ok: false, error: 'Unexpected mip sizes.' };
     const td = path.join(out, 'livery_package_shared', 'unassigned', DESIGN, 'textures'); fs.mkdirSync(td, { recursive: true });
@@ -159,15 +186,18 @@ module.exports = function createHelmetEditor({ dataDir }) {
     for (const f of fs.readdirSync(texDir(game))) if (/_(helmet|visor_attachments)/.test(f) && !f.endsWith('_helmet_d.tif.mipmaps')) fs.copyFileSync(path.join(texDir(game), f), path.join(td, f));
     const b = Buffer.from(fs.readFileSync(erpPath(game))); const E = readErp(b);
     const R = E.res.find(x => x.id.endsWith(`/${DESIGN}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL) return { ok: false, error: 'The game’s helmet archive isn’t laid out as expected.' };
-    const packed = zlib.zstdCompressSync(small); b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
+    const packed = zstdWrite(small); b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
     const ed = path.join(out, '2025_asset_groups', 'livery_package', 'unassigned', DESIGN); fs.mkdirSync(ed, { recursive: true });
     fs.writeFileSync(path.join(ed, `${DESIGN}_helmet.erp`), Buffer.concat([b, packed]));
     // read back: the texture and the small levels as the game will read them
     const back = topLevel(fs.readFileSync(path.join(td, `${DESIGN}_helmet_d.tif.mipmaps`))); const b2 = fs.readFileSync(path.join(ed, `${DESIGN}_helmet.erp`)); const E2 = readErp(b2);
     const F2 = E2.res.find(x => x.id.endsWith(`/${DESIGN}_helmet_d.tif.image`)).frags[1];
     if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small)) return { ok: false, error: 'The written files didn’t read back correctly.' };
-    fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a helmet made in Pitwall's editor.\r\n\r\nIn SWOFTY Launcher, open Helmets (the Helmet Exchange addon), press "Import folder..." and pick this folder.\r\nSet "Who can pick it" to Any driver for a created driver, press Play, then in your career open\r\nTeam HQ > Driver Details > Helmets and equip it. It shows with (HX) after its name.\r\n`);
-    return { ok: true, dir: out };
+    fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a helmet made in Pitwall's editor.\r\n\r\nIn SWOFTY Launcher, open Helmets (the Helmet Exchange addon), press "Import file..." and pick this zip.\r\nSet "Who can pick it" to Any driver for a created driver, press Play, then in your career open\r\nTeam HQ > Driver Details > Helmets and equip it. It shows with (HX) after its name.\r\n`);
+    // the mod as one zip named after the helmet (SWOFTY imports zips best), the game's folders at its root
+    const zip = path.join(root(), 'exports', `${safe}.zip`);
+    try { zipFolder(out, zip); } catch (e) { return { ok: false, error: 'Couldn’t write the zip: ' + e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
+    return { ok: true, file: zip, dir: path.dirname(zip) };
   }
   // ---- designs, one file each (images inside can be big, so they stay out of the career data)
   const designsDir = () => path.join(root(), 'designs');
