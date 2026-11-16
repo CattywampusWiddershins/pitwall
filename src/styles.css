@@ -1676,8 +1676,14 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
   body.rail-auto .shell { grid-template-columns: 64px 1fr; }
   body.rail-auto .rail { width: 64px; position: relative; z-index: 40; overflow-x: hidden; transition: width .16s ease, box-shadow .16s ease; padding-left: 10px; padding-right: 10px; }
   body.rail-auto .rail:hover { width: 232px; box-shadow: 12px 0 32px rgba(0,0,0,.45); }
-  body.rail-auto .rail:not(:hover) .brand-name, body.rail-auto .rail:not(:hover) .rail-pin, body.rail-auto .rail:not(:hover) .career-pill, body.rail-auto .rail:not(:hover) .rail-foot, body.rail-auto .rail:not(:hover) .nav button span { display: none; }
-  body.rail-auto .rail:not(:hover) .nav button { justify-content: center; padding-left: 0; padding-right: 0; }
+  /* nothing moves when it opens: the driver card keeps its place (hidden, not removed), and the icons sit where they
+     are in both states (the buttons only get wider) */
+  body.rail-auto .rail .career-pill, body.rail-auto .rail .rail-foot { width: 212px; box-sizing: border-box; flex: none; }
+  body.rail-auto .rail:not(:hover) .brand-name, body.rail-auto .rail:not(:hover) .rail-pin, body.rail-auto .rail:not(:hover) .career-pill, body.rail-auto .rail:not(:hover) .rail-foot { visibility: hidden; }
+  body.rail-auto .rail .nav button { padding-left: 13px; padding-right: 13px; width: 212px; box-sizing: border-box; white-space: nowrap; overflow: hidden; transition: width .16s ease; }
+  body.rail-auto .rail:not(:hover) .nav button { width: 44px; }
+  body.rail-auto .rail .nav button span { white-space: nowrap; }
+  body.rail-auto .rail:not(:hover) .nav button span { opacity: 0; }
 }
 .he-view > canvas.he-stkcv { z-index: 2; cursor: default; background: #10151f; }
 

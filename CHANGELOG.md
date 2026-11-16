@@ -2,6 +2,17 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.1.0
+
+- **Editor: 65 more shapes (BETA).**
+  - Lines: a thin line, double and tapered stripes, a wave, an arc, dashes, hazard stripes, fading bars, a corner swoop and a double slash.
+  - Basics: half and quarter circles, an oval, hexagon, pentagon, octagon, plus, cross, crescent, parallelogram, trapezoid, six-point star, starburst, drop and shield, plus square, triangle and hexagon outlines.
+  - Racing: a roundel, a tyre, chevrons, shark teeth, a shooting star, a crown, a laurel, a blade, a crosshair and a chequer strip.
+  - A new Patterns group: dots, carbon weave, honeycomb, diagonal stripes, camouflage and triangles.
+  - 21 more flags: Belgium, Austria, Hungary, Finland, Denmark, Sweden, Switzerland, Canada, Mexico, China, Thailand, Argentina, Poland, Ireland, Portugal, the United Arab Emirates, Qatar, Bahrain, Azerbaijan, Singapore and New Zealand.
+- **Editor: the Stamp buttons work.** Clicking Stamp next to 3D/Flat, or a sticker's Projection buttons (Follow surface, Stamp from view, Wrap round), did nothing in 7.0.0.
+- **The folded sidebar keeps its icons in place.** When it opened as you pointed at it, the driver card appeared and pushed every icon down, so you could miss the one you were going for. The icons now stay exactly where they are, and only the labels and the driver card appear.
+
 ## 7.0.0
 
 - **New: the Editor (BETA).** A new tab where you design your own F1 25 helmet on a 3D model and put it in the game with SWOFTY Launcher.
