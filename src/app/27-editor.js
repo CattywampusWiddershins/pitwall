@@ -68,7 +68,7 @@ const ED_SWATCH = ['#f4f4f1', '#111111', '#E10600', '#C8102E', '#001E6E', '#0055
 const edApi = () => window.api?.editor || window.__edStub || null; // (__edStub: the browser copy's stand-in, for testing)
 const edUid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const edEsc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const edNew = () => ({ id: edUid(), name: 'New helmet', at: new Date().toISOString(), base: { color: '#f4f4f1', color2: '#001E6E', fade: false, dir: 'tb' }, layers: [], images: {} });
+const edNew = () => ({ id: edUid(), name: 'New helmet', at: new Date().toISOString(), base: { color: '#f4f4f1', color2: '#001E6E', fade: false, dir: 'tb' }, layers: [], groups: {}, images: {} });
 
 /** The page: a slot for the editor (kept alive across redraws), or why it can't open. */
 function renderEditor() {
@@ -227,15 +227,70 @@ function edFrame() {
 // ---- layers as textures
 const edHex = (h) => new THREE.Color(h);
 function edShapeSvg(L) { const S = ED_SHAPES.find(s => s.id === L.shape); if (!S) return null; const [w, h] = S.vb || [100, 100]; const c = L.colors || []; return { w, h, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w * 6}" height="${h * 6}">${S.svg.replace(/="F"/g, `="${c[0] || '#ffffff'}"`).replace(/="O"/g, `="${c[1] || '#111111'}"`).replace(/="A"/g, `="${c[2] || '#E10600'}"`)}</svg>` }; }
-/** A layer's picture as a canvas (made again only when what it shows changes). */
-function edSource(L) {
-  const key = JSON.stringify([L.kind, L.shape, L.colors, L.text, L.image]);
-  const T = ED.three; const hit = T.tex.get(L.id); if (hit && hit.key === key) return Promise.resolve(hit);
-  const done = (cv) => { const t = new THREE.CanvasTexture(cv); t.encoding = THREE.LinearEncoding; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; const old = T.tex.get(L.id); if (old) old.tex.dispose(); const o = { key, cv, tex: t, data: cv.getContext('2d').getImageData(0, 0, cv.width, cv.height), aspect: cv.height / cv.width }; T.tex.set(L.id, o); return o; };
-  if (L.kind === 'text') return Promise.resolve(done(edTextCanvas(L.text)));
+/*
+  A layer's picture, made again only when what it shows changes:
+   1. the content (a shape, the text, the image), on a canvas cut to fit;
+   2. its colour: as it is ("original"), one solid colour, or a gradient (images too);
+   3. its auto-mask, if it has one (frozen: the parts the layers above covered when it was made);
+   4. its effects, on a bigger canvas with room round it: the shadow, the glow and the outside stroke behind, the
+      inside stroke on top. Sizes are in % of the sticker's width, so they scale with it.
+  { cv (with the room), cw, ch (the content's size in it), ex, ey (the whole canvas against the content: for drawing),
+    aspect (the content's height against its width), data (pixels, for picking), tex }
+*/
+const ED_LOOK = { fill: { mode: 'original', c1: '#E10600', c2: '#001E6E', angle: 0 }, stroke: { on: false, side: 'outside', w: 3, color: '#ffffff' }, glow: { on: false, color: '#FFB81C', size: 6, spread: 1, opacity: 0.8 }, shadow: { on: false, color: '#000000', opacity: 0.6, angle: 45, dist: 3, blur: 3 } };
+const edLook = (L) => { const o = L.look || {}; return { fill: { ...ED_LOOK.fill, ...o.fill }, stroke: { ...ED_LOOK.stroke, ...o.stroke }, glow: { ...ED_LOOK.glow, ...o.glow }, shadow: { ...ED_LOOK.shadow, ...o.shadow } }; };
+const edCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
+const edImg = (src) => new Promise(ok => { if (!src) return ok(null); const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = src; });
+/** The content alone (no colour change, mask or effects). */
+async function edRaw(L) {
+  if (L.kind === 'text') return edTextCanvas(L.text);
   const src = L.kind === 'shape' ? (() => { const s = edShapeSvg(L); return s && 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s.svg); })() : ED.design.images[L.image];
-  if (!src) return Promise.resolve(null);
-  return new Promise((ok) => { const im = new Image(); im.onload = () => { const k = Math.min(1, 1024 / Math.max(im.naturalWidth, im.naturalHeight)) * (L.kind === 'shape' ? 1 : 1); const cv = document.createElement('canvas'); cv.width = Math.max(4, Math.round(im.naturalWidth * k)); cv.height = Math.max(4, Math.round(im.naturalHeight * k)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); ok(done(cv)); }; im.onerror = () => ok(null); im.src = src; });
+  const im = await edImg(src); if (!im) return null;
+  const k = Math.min(1, 1024 / Math.max(im.naturalWidth, im.naturalHeight)); const cv = edCanvas(Math.max(4, im.naturalWidth * k), Math.max(4, im.naturalHeight * k)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv;
+}
+/** A copy of a picture in one colour (or a gradient), keeping its see-through parts. */
+function edPaint(src, fill) {
+  const c = edCanvas(src.width, src.height), g = c.getContext('2d');
+  if (fill.mode === 'gradient') { const a = (fill.angle || 0) * Math.PI / 180, cx = c.width / 2, cy = c.height / 2, r = Math.abs(Math.cos(a)) * c.width / 2 + Math.abs(Math.sin(a)) * c.height / 2;
+    const gr = g.createLinearGradient(cx - Math.cos(a) * r, cy - Math.sin(a) * r, cx + Math.cos(a) * r, cy + Math.sin(a) * r); gr.addColorStop(0, fill.c1); gr.addColorStop(1, fill.c2); g.fillStyle = gr; }
+  else g.fillStyle = fill.c1;
+  g.fillRect(0, 0, c.width, c.height); g.globalCompositeOperation = 'destination-in'; g.drawImage(src, 0, 0); return c;
+}
+/** A picture grown by r pixels all round (copies of it round circles out to r), on a canvas the same size. */
+function edGrow(src, r) {
+  const c = edCanvas(src.width, src.height), g = c.getContext('2d'); g.drawImage(src, 0, 0); if (r < 0.5) return c;
+  for (let rr = r; rr > 0.4; rr -= Math.max(1, r / 3)) { const n = Math.min(64, Math.max(12, Math.ceil(2 * Math.PI * rr / 1.5))); for (let k = 0; k < n; k++) { const a = k / n * 2 * Math.PI; g.drawImage(src, Math.cos(a) * rr, Math.sin(a) * rr); } }
+  return c;
+}
+async function edSource(L) {
+  const look = edLook(L); const key = JSON.stringify([L.kind, L.shape, L.colors, L.text, L.image, L.look, L.mask]);
+  const T = ED.three; const hit = T.tex.get(L.id); if (hit && hit.key === key) return hit;
+  let raw = await edRaw(L); if (!raw) return null;
+  const cw = raw.width, ch = raw.height;
+  // 2: colour
+  if (look.fill.mode === 'solid' || look.fill.mode === 'gradient') raw = edPaint(raw, look.fill);
+  // 3: the frozen auto-mask (kept at the content's size it was made at, stretched to fit if that changed)
+  if (L.mask) { const m = await edImg(L.mask); if (m) { const c = edCanvas(cw, ch), g = c.getContext('2d'); g.drawImage(raw, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(m, 0, 0, cw, ch); raw = c; } }
+  // 4: effects
+  const u = cw / 100; const st = look.stroke, gl = look.glow, sh = look.shadow;
+  const sOut = st.on && st.side !== 'inside' ? st.w * u : 0, sIn = st.on && st.side !== 'outside' ? st.w * u : 0;
+  const room = Math.ceil(Math.max(sOut, gl.on ? (gl.size + gl.spread) * u * 1.6 : 0, sh.on ? (sh.dist + sh.blur * 1.6) * u : 0)) + (st.on || gl.on || sh.on ? 3 : 0);
+  let cv = raw;
+  if (room) {
+    const W = cw + room * 2, H = ch + room * 2; const big = edCanvas(W, H); const put = edCanvas(W, H); put.getContext('2d').drawImage(raw, room, room);
+    const g = big.getContext('2d');
+    if (sh.on) { const a = sh.angle * Math.PI / 180; g.save(); g.filter = sh.blur > 0 ? `blur(${sh.blur * u}px)` : 'none'; g.globalAlpha = sh.opacity; g.drawImage(edPaint(put, { mode: 'solid', c1: sh.color }), Math.cos(a) * sh.dist * u, Math.sin(a) * sh.dist * u); g.restore(); }
+    if (gl.on) { g.save(); g.filter = gl.size > 0 ? `blur(${gl.size * u}px)` : 'none'; g.globalAlpha = gl.opacity; const sil = edPaint(edGrow(put, gl.spread * u), { mode: 'solid', c1: gl.color }); g.drawImage(sil, 0, 0); if (gl.opacity > 0.5) { g.globalAlpha = gl.opacity - 0.5; g.drawImage(sil, 0, 0); } g.restore(); }
+    if (sOut) g.drawImage(edPaint(edGrow(put, sOut), { mode: 'solid', c1: st.color }), 0, 0);
+    g.drawImage(put, 0, 0);
+    if (sIn) { const inv = edCanvas(W, H), ig = inv.getContext('2d'); ig.fillStyle = st.color; ig.fillRect(0, 0, W, H); ig.globalCompositeOperation = 'destination-out'; ig.drawImage(put, 0, 0);
+      const band = edGrow(inv, sIn), bg2 = band.getContext('2d'); bg2.globalCompositeOperation = 'destination-in'; bg2.drawImage(put, 0, 0); g.drawImage(band, 0, 0); }
+    cv = big;
+  }
+  const t = new THREE.CanvasTexture(cv); t.encoding = THREE.LinearEncoding; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
+  const old = T.tex.get(L.id); if (old) old.tex.dispose();
+  const o = { key, cv, cw, ch, room, ex: cv.width / cw, ey: cv.height / ch, tex: t, data: cv.getContext('2d').getImageData(0, 0, cv.width, cv.height), aspect: ch / cw };
+  T.tex.set(L.id, o); return o;
 }
 /** A text sticker: the words in their font, with spacing, slant and an outline, on a canvas cut to fit. */
 function edTextCanvas(t) {
@@ -265,7 +320,8 @@ async function edBake() {
   T.bakeMesh.material = T.layerMat; const U = T.layerMat.uniforms;
   D.layers.forEach((L, k) => {
     const s = srcs[k]; if (!s) return;
-    const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w, F.h); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; R.render(T.bakeScene, T.bakeCam); };
+    // (the picture's room for effects makes it bigger than the sticker itself: drawn that much bigger, same middle)
+    const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; R.render(T.bakeScene, T.bakeCam); };
     draw(false); if (L.mirror && L.mode !== 'uv') draw(true);
   });
   // the trim
@@ -273,6 +329,44 @@ async function edBake() {
   R.autoClear = true; R.setRenderTarget(null);
   edBaking = false; ED.bakeGen = (ED.bakeGen || 0) + 1; edDraw();
   if (edBakeAgain) { edBakeAgain = false; edBake(); }
+}
+/*
+  Auto-mask: the parts of a layer that the layers above it cover, hidden, frozen as they are now.
+   1. The layers above (and their mirrors) are drawn into a coverage map in the texture's layout.
+   2. The shell is drawn again with each point placed where it falls in this sticker's own picture (the sticker's
+      mapping run backwards), reading the coverage there: the coverage seen from the sticker.
+   3. The mask is the inverse of that, at the size of the sticker's content, kept with the layer (L.mask).
+  Making it again works it out afresh; the old one plays no part.
+*/
+async function edAutoMask(L) {
+  const T = ED.three; const D = ED.design; const k = D.layers.indexOf(L); if (k < 0 || L.mode === 'uv') return;
+  edStatus('Masking…'); const before = L.mask; delete L.mask; await edSource(L); // (the content's size, without the old mask)
+  const s = await edSource(L); if (!s) { L.mask = before; edStatus(); return; }
+  const above = D.layers.slice(k + 1).filter(l => l.visible !== false); const srcs = await Promise.all(above.map(edSource));
+  const R = T.R; T.coverRT ||= new THREE.WebGLRenderTarget(ED_W, ED_H, { depthBuffer: false, stencilBuffer: false });
+  R.setRenderTarget(T.coverRT); R.setClearColor(0x000000, 0); R.clear(); R.autoClear = false;
+  T.quad.visible = false; T.bakeMesh.visible = true; T.bakeMesh.material = T.layerMat; const U = T.layerMat.uniforms;
+  above.forEach((l, i) => { const so = srcs[i]; if (!so) return; const draw = (mirror) => { const F = edFrameOf(l, mirror, so.aspect); U.uTex.value = so.tex; U.uMode.value = F.mode; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * so.ex, F.h * so.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = 1; R.render(T.bakeScene, T.bakeCam); }; draw(false); if (l.mirror && l.mode !== 'uv') draw(true); });
+  // 2: the coverage as seen in this sticker's picture (its content's own box, no effects room)
+  T.invMat ||= new THREE.ShaderMaterial({ side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: false,
+    uniforms: { uCover: { value: null }, uC: { value: T.C }, uR: { value: T.RAD }, uSide: { value: T.side }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2() }, uRot: { value: new THREE.Vector2() }, uFlip: { value: new THREE.Vector2() }, uW: { value: new THREE.Vector2() } },
+    vertexShader: `uniform vec3 uC; uniform float uR; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; varying vec2 vUv; varying float vFace; varying float vDepth;
+      void main(){ vUv = uv; vec2 q; vec3 d = position - uP;
+        if (uMode < 0.5) { q = vec2(dot(d, uT), dot(d, uU)); vFace = dot(normal, uN); vDepth = abs(dot(d, uN)); }
+        else { float th = atan(position.z - uC.z, position.y - uC.y); q = vec2(position.x - uC.x, -th * uR) - uW; vFace = 1.0; vDepth = 0.0; }
+        q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y); vec2 t = q / uSize * uFlip + 0.5; gl_Position = vec4(t * 2.0 - 1.0, 0.0, 1.0); }`,
+    fragmentShader: `uniform sampler2D uCover; uniform float uSide; varying vec2 vUv; varying float vFace; varying float vDepth; void main(){ if (vFace * uSide < 0.15 || vDepth > 0.07) discard; gl_FragColor = vec4(texture2D(uCover, vUv).a, 0.0, 0.0, 1.0); }` });
+  const M = T.invMat.uniforms; const F = edFrameOf(L, false, s.aspect);
+  M.uCover.value = T.coverRT.texture; M.uMode.value = F.mode; M.uP.value.copy(F.P); M.uN.value.copy(F.N); M.uT.value.copy(F.T); M.uU.value.copy(F.U); M.uSize.value.set(F.w, F.h); M.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); M.uFlip.value.set(F.fx, F.fy); M.uW.value.set(F.wx, F.wy);
+  const rt = new THREE.WebGLRenderTarget(s.cw, s.ch, { depthBuffer: false, stencilBuffer: false });
+  R.setRenderTarget(rt); R.setClearColor(0x000000, 0); R.clear(); T.bakeMesh.material = T.invMat; R.render(T.bakeScene, T.bakeCam);
+  const px = new Uint8Array(s.cw * s.ch * 4); R.readRenderTargetPixels(rt, 0, 0, s.cw, s.ch, px); rt.dispose();
+  R.autoClear = true; R.setRenderTarget(null); R.setClearColor(0x000000, 1);
+  // 3: the mask (rows from the top: the render target's start at the bottom)
+  const cv = edCanvas(s.cw, s.ch), g = cv.getContext('2d'), img = g.createImageData(s.cw, s.ch);
+  for (let y = 0; y < s.ch; y++) for (let x = 0; x < s.cw; x++) { const src = ((s.ch - 1 - y) * s.cw + x) * 4, dst = (y * s.cw + x) * 4; img.data[dst] = img.data[dst + 1] = img.data[dst + 2] = 255; img.data[dst + 3] = 255 - px[src]; }
+  g.putImageData(img, 0, 0); const mask = cv.toDataURL('image/png');
+  L.mask = before; edCommit(() => { L.mask = mask; }); edStatus();
 }
 /**
  * Where a layer sits: { mode 0 stick / 1 wrap / 2 uv, P (point on the shell), N (the way it faces), T and U (its right
@@ -328,7 +422,7 @@ function edTextForm(t, p) {
     <div class="he-prow"><span>Slant</span><input type="range" data-tf="sl" min="-20" max="25" value="${t.sl}"><span class="v">${t.sl}°</span></div>
     <div class="he-row"><button class="btn sm ${t.bold ? 'on' : ''}" data-tf="bold">B</button><button class="btn sm ${t.italic ? 'on' : ''}" data-tf="italic" style="font-style:italic">I</button></div>`;
 }
-const edSw = (cur, attr) => `<div class="he-sw">${ED_SWATCH.map(c => `<b class="${String(cur).toLowerCase() === c.toLowerCase() ? 'on' : ''}" style="background:${c}" ${attr} data-v="${c}"></b>`).join('')}<label class="he-any" title="Any colour" style="background:${edEsc(cur)}"><input type="color" ${attr} value="${edEsc(cur)}"></label></div>`;
+const edSw = (cur, attr) => `<div class="he-sw">${ED_SWATCH.map(c => `<b class="${String(cur).toLowerCase() === c.toLowerCase() ? 'on' : ''}" style="background:${c}" ${attr} data-v="${c}"></b>`).join('')}<label class="he-any" title="Any colour" style="background:${edEsc(cur)}"><input type="color" ${attr} value="${edEsc(cur)}"></label><input class="he-hex" ${attr} data-hex="1" value="${edEsc(String(cur).toUpperCase())}" maxlength="7" spellcheck="false" title="Hex colour code"></div>`;
 function edTextPreview() {
   for (const p of ['tt', 'tl']) { const cv = ED.root.querySelector('#ed-tprev-' + p); if (!cv) continue; const t = p === 'tt' ? ED.text : ED.design.layers.find(l => l.id === ED.sel)?.text; if (!t) continue;
     const src = edTextCanvas(t); const box = cv.parentElement; const W = box.clientWidth || 220, H = box.clientHeight || 70; cv.width = W * 2; cv.height = H * 2; const g = cv.getContext('2d'); const k = Math.min(cv.width / src.width, cv.height / src.height) * 0.92; g.drawImage(src, (cv.width - src.width * k) / 2, (cv.height - src.height * k) / 2, src.width * k, src.height * k); }
@@ -343,9 +437,16 @@ function edBasePanel() {
 function edLayers() {
   const el = ED.root.querySelector('#ed-layers'); if (!el) return; const L = ED.design.layers;
   if (!L.length) { el.innerHTML = '<div class="muted he-small" style="padding:6px 2px">No layers yet. Add a shape, text or an image.</div>'; return; }
-  el.innerHTML = `<div class="he-layers">${L.slice().reverse().map(l => `<div class="he-ly ${l.id === ED.sel ? 'sel' : ''} ${l.visible === false ? 'hid' : ''}" data-layer="${l.id}">
+  // top of the list is drawn on top; a group's layers sit together under its own row
+  const G = ED.design.groups || {}; const seen = new Set(); const multi = ED.multi || new Set(); let html = '';
+  for (const l of L.slice().reverse()) {
+    if (l.group && G[l.group] && !seen.has(l.group)) { seen.add(l.group); const n = L.filter(x => x.group === l.group).length;
+      html += `<div class="he-ly he-gh-row ${ED.selGroup === l.group ? 'sel' : ''}" data-gsel="${l.group}"><span class="he-th he-gico">▤</span><span class="he-nm">${edEsc(G[l.group].name)}<small>Group · ${n} layers</small></span><span></span></div>`; }
+    html += `<div class="he-ly ${l.group && G[l.group] ? 'grp' : ''} ${l.id === ED.sel || multi.has(l.id) ? 'sel' : ''} ${l.visible === false ? 'hid' : ''}" data-layer="${l.id}">
     <span class="he-th">${edThumb(l)}</span><span class="he-nm">${edEsc(l.name)}<small>${edEsc(edKindLine(l))}</small></span>
-    <span class="he-ic"><button data-vis="${l.id}" title="${l.visible === false ? 'Show' : 'Hide'}">${l.visible === false ? '◌' : '●'}</button><button data-lock="${l.id}" title="${l.locked ? 'Unlock' : 'Lock'}">${l.locked ? '🔒' : '◦'}</button></span></div>`).join('')}</div>`;
+    <span class="he-ic"><button data-vis="${l.id}" title="${l.visible === false ? 'Show' : 'Hide'}">${l.visible === false ? '◌' : '●'}</button><button data-lock="${l.id}" title="${l.locked ? 'Unlock' : 'Lock'}">${l.locked ? '🔒' : '◦'}</button></span></div>`;
+  }
+  el.innerHTML = `<div class="he-layers">${html}</div>`;
 }
 const edKindLine = (l) => [l.kind === 'shape' ? 'Shape' : l.kind === 'text' ? `Text · ${l.text.font}` : l.mode === 'uv' ? 'Whole texture' : 'Image', l.mode === 'wrap' ? 'wraps' : '', l.mirror ? 'mirrored' : ''].filter(Boolean).join(' · ');
 function edThumb(l) {
@@ -353,19 +454,44 @@ function edThumb(l) {
   if (l.kind === 'image') return `<img src="${ED.design.images[l.image] || ''}" alt="">`;
   return `<span style="font-family:'${edEsc(l.text.font)}';font-weight:${l.text.bold ? 700 : 400};color:${edEsc(l.text.fill)};font-size:10px;white-space:nowrap">${edEsc(l.text.str.slice(0, 8))}</span>`;
 }
+/** The colour and effects settings (one layer's, or a group's, which apply to every layer in it). */
+function edLookUI(look, L) {
+  const f = look.fill, st = look.stroke, gl = look.glow, sh = look.shadow;
+  const r = (path, label, min, max, step, v, show) => `<div class="he-prow"><span>${label}</span><input type="range" data-look="${path}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="v">${show}</span></div>`;
+  const seg = (path, cur, opts) => `<div class="seg he-seg">${opts.map(([v, t]) => `<button data-look="${path}" data-v="${v}" class="${cur === v ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  const on = (path, v, label) => `<label class="he-chk he-fxh"><input type="checkbox" data-look="${path}" ${v ? 'checked' : ''}> ${label}</label>`;
+  const shape = L && ED_SHAPES.find(s => s.id === L.shape);
+  const own = L?.kind === 'shape' && !shape?.fixed && f.mode === 'original' ? `${edSw(L.colors[0], 'data-lc="0"')}${/="[OA]"/.test(shape?.svg || '') ? `<div class="label">Second colour</div>${edSw(/="A"/.test(shape.svg) ? L.colors[2] : L.colors[1], `data-lc="${/="A"/.test(shape.svg) ? 2 : 1}"`)}` : ''}` : '';
+  return `<div class="he-fx"><div class="label">Colour</div>${seg('fill.mode', f.mode, [['original', L?.kind === 'image' ? 'Original' : 'Own'], ['solid', 'Solid'], ['gradient', 'Gradient']])}
+      ${f.mode === 'original' ? own : edSw(f.c1, 'data-look="fill.c1"')}
+      ${f.mode === 'gradient' ? `${edSw(f.c2, 'data-look="fill.c2"')}<div class="he-ramp" style="background:linear-gradient(${90 + (f.angle || 0)}deg, ${f.c1}, ${f.c2})"></div>${r('fill.angle', 'Angle', 0, 359, 1, f.angle || 0, (f.angle || 0) + '°')}` : ''}</div>
+    <div class="he-fx">${on('stroke.on', st.on, 'Stroke')}${st.on ? `${seg('stroke.side', st.side, [['outside', 'Outside'], ['inside', 'Inside'], ['both', 'Both']])}${r('stroke.w', 'Width', 0.5, 20, 0.5, st.w, st.w + '%')}${edSw(st.color, 'data-look="stroke.color"')}` : ''}</div>
+    <div class="he-fx">${on('glow.on', gl.on, 'Glow')}${gl.on ? `${edSw(gl.color, 'data-look="glow.color"')}${r('glow.size', 'Softness', 0, 25, 0.5, gl.size, gl.size + '%')}${r('glow.spread', 'Spread', 0, 12, 0.5, gl.spread, gl.spread + '%')}${r('glow.opacity', 'Opacity', 0, 1, 0.01, gl.opacity, Math.round(gl.opacity * 100) + '%')}` : ''}</div>
+    <div class="he-fx">${on('shadow.on', sh.on, 'Shadow')}${sh.on ? `${edSw(sh.color, 'data-look="shadow.color"')}${r('shadow.opacity', 'Opacity', 0, 1, 0.01, sh.opacity, Math.round(sh.opacity * 100) + '%')}${r('shadow.angle', 'Direction', 0, 359, 1, sh.angle, sh.angle + '°')}${r('shadow.dist', 'Distance', 0, 20, 0.5, sh.dist, sh.dist + '%')}${r('shadow.blur', 'Softness', 0, 20, 0.5, sh.blur, sh.blur + '%')}` : ''}</div>`;
+}
+const edGroupOf = (gid) => ED.design.layers.filter(l => l.group === gid);
 function edProps() {
   const el = ED.root.querySelector('#ed-props'); if (!el) return; const L = ED.design.layers.find(l => l.id === ED.sel);
-  ED.root.querySelector('#ed-ptitle').textContent = L ? L.name : 'Layer'; ED.root.querySelector('#ed-pkind').textContent = L ? edKindLine(L) : '';
-  if (!L) { el.innerHTML = '<div class="muted he-small">Select a layer to change it. Click a sticker on the helmet, or a layer in the list.</div>'; return; }
+  const G = ED.selGroup && (ED.design.groups || {})[ED.selGroup]; const members = G ? edGroupOf(ED.selGroup) : [];
+  ED.root.querySelector('#ed-ptitle').innerHTML = L ? `<input class="he-lname" id="ed-lname" value="${edEsc(L.name)}" maxlength="40" title="Rename the layer">` : G ? `<input class="he-lname" id="ed-gname" value="${edEsc(G.name)}" maxlength="40" title="Rename the group">` : ED.multi?.size > 1 ? `${ED.multi.size} layers` : 'Layer';
+  ED.root.querySelector('#ed-pkind').textContent = L ? edKindLine(L) : G ? `Group · ${members.length} layers` : '';
+  if (!L && G) {
+    el.innerHTML = `<div class="muted he-small">Moving a layer in the group moves them all. Settings here apply to every layer in it.</div>
+      <label class="he-chk"><input type="checkbox" data-gb="mirror" ${members.every(m => m.mirror) ? 'checked' : ''}> Mirror the group on the other side</label>
+      <div class="he-row"><button class="btn sm" data-ed="gdup">Duplicate group</button><button class="btn sm" data-ed="ungroup">Ungroup</button><button class="btn sm" data-ed="gdel">Delete group</button></div>
+      ${edLookUI(edLook(members[0] || {}), null)}`;
+    return;
+  }
+  if (!L) { el.innerHTML = ED.multi?.size > 1 ? `<div class="muted he-small">${ED.multi.size} layers selected.</div><button class="btn sm he-wide" data-ed="group">Group them</button>` : '<div class="muted he-small">Select a layer to change it. Click a sticker on the helmet, or a layer in the list (Ctrl+click to pick several, then group them).</div>'; return; }
   const range = (k, label, min, max, step, v, show) => `<div class="he-prow"><span>${label}</span><input type="range" data-lp="${k}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="v">${show}</span></div>`;
-  const shape = ED_SHAPES.find(s => s.id === L.shape);
   el.innerHTML = `
     ${L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
     ${L.mode === 'uv' ? '' : range('rot', 'Rotation', -180, 180, 1, L.rot || 0, Math.round(L.rot || 0) + '°')}
     ${range('opacity', 'Opacity', 0, 1, 0.01, L.opacity ?? 1, Math.round((L.opacity ?? 1) * 100) + '%')}
-    ${L.kind === 'shape' && !shape?.fixed ? `<div class="label">Colour</div>${edSw(L.colors[0], 'data-lc="0"')}${/="[OA]"/.test(shape?.svg || '') ? `<div class="label">Second colour</div>${edSw(/="A"/.test(shape.svg) ? L.colors[2] : L.colors[1], `data-lc="${/="A"/.test(shape.svg) ? 2 : 1}"`)}` : ''}` : ''}
     ${L.kind === 'text' ? `<div class="he-tc">${edTextForm(L.text, 'tl')}</div>` : ''}
     ${L.kind === 'image' && L.mode !== 'uv' ? `<button class="btn sm he-wide" data-ed="bg">Remove background…</button>` : ''}
+    ${L.mode === 'uv' ? '' : edLookUI(edLook(L), L)}
+    ${L.mode === 'uv' ? '' : `<div class="he-fx"><div class="label">Auto-mask</div>${L.mask ? `<div class="muted he-small">On: the parts the layers above covered when it was made are hidden. It stays as it is until you update or remove it.</div><div class="he-row"><button class="btn sm" data-ed="mask">Update mask</button><button class="btn sm" data-ed="unmask">Remove mask</button></div>` : `<button class="btn sm he-wide" data-ed="mask" title="Hide the parts of this layer that the layers above it cover (frozen as it is now)">Mask to what's visible</button>`}</div>`}
     ${L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
     ${L.mirror ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
     <button class="btn sm he-wide" data-ed="detach" title="The mirror becomes a layer of its own, in the same place: change its colour or anything else separately">Make the mirror its own layer</button>` : ''}
@@ -376,13 +502,13 @@ function edProps() {
 function edStatus(msg) { const s = ED.root?.querySelector('#ed-status'); if (!s) return; s.textContent = msg || `${ED.design.layers.length} layer${ED.design.layers.length === 1 ? '' : 's'}${ED.dirty ? ' · not saved yet' : ED.savedAt ? ' · saved' : ''}`; }
 
 // ---- changes (each one undoable), saved a moment after the last
-function edSnap() { return JSON.stringify({ name: ED.design.name, base: ED.design.base, layers: ED.design.layers }); }
+function edSnap() { return JSON.stringify({ name: ED.design.name, base: ED.design.base, layers: ED.design.layers, groups: ED.design.groups || {} }); }
 function edCommit(fn, { bake = true, panels = true } = {}) {
   ED.undo.push(edSnap()); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; ED.textEdit = null;
   fn(); edChanged(bake, panels);
 }
 function edChanged(bake = true, panels = true) { ED.dirty = true; if (bake) edBake(); if (panels) edPanels(); else edStatus(); clearTimeout(ED.saveT); ED.saveT = setTimeout(edSave, 2500); }
-function edRestore(s) { const o = JSON.parse(s); ED.design.name = o.name; ED.design.base = o.base; ED.design.layers = o.layers; if (!ED.design.layers.some(l => l.id === ED.sel)) ED.sel = null; edChanged(); }
+function edRestore(s) { const o = JSON.parse(s); ED.design.name = o.name; ED.design.base = o.base; ED.design.layers = o.layers; ED.design.groups = o.groups || {}; if (!ED.design.layers.some(l => l.id === ED.sel)) ED.sel = null; if (ED.selGroup && !ED.design.groups[ED.selGroup]) ED.selGroup = null; edChanged(); }
 function edUndo() { if (!ED.undo.length) return; ED.redo.push(edSnap()); edRestore(ED.undo.pop()); }
 function edRedo() { if (!ED.redo.length) return; ED.undo.push(edSnap()); edRestore(ED.redo.pop()); }
 async function edSave(silent) {
@@ -431,15 +557,20 @@ function edImportTexture(e) {
 
 // ---- clicks and edits in the editor
 function edClick(e) {
-  const t = e.target.closest('[data-ed],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
+  const t = e.target.closest('[data-ed],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
+  if (t.matches('input, select, label')) return; // (inputs are handled as input events)
   const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
+  // colour and effects: swatches and the Own / Solid / Gradient and stroke side buttons
+  if (t.dataset.look && t.dataset.v != null) { const v = t.dataset.v; edCommit(() => edSetLook(t.dataset.look, v)); return; }
+  if (t.dataset.gsel) { ED.selGroup = t.dataset.gsel; ED.sel = null; ED.multi = new Set(); edLayers(); edProps(); edDraw(); return; }
+  if (t.dataset.layer && (e.ctrlKey || e.metaKey || e.shiftKey)) { const m = ED.multi ||= new Set(); if (ED.sel) m.add(ED.sel); const id = t.dataset.layer; m.has(id) ? m.delete(id) : m.add(id); ED.sel = m.size === 1 ? [...m][0] : null; ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.lib) { ED.lib = t.dataset.lib; edLib(); return; }
   if (t.dataset.add) { if (t.dataset.add === 'shape') edAdd('shape', { shape: t.dataset.shape }); else edAdd('image', { image: t.dataset.image, name: 'Image' }); return; }
   if (t.dataset.cam) { const V = { front: [0, 0.05], left: [Math.PI / 2, 0.08], right: [-Math.PI / 2, 0.08], back: [Math.PI, 0.05], top: [0, 1.5] }[t.dataset.cam]; [ED.three.yaw, ED.three.pitch] = V; edDraw(); return; }
   if (t.dataset.mode) { ED.view = t.dataset.mode; ED.root.querySelectorAll('#ed-mode button').forEach(b => b.classList.toggle('on', b === t)); ED.root.querySelector('#ed-flat').style.display = ED.view === 'flat' ? 'block' : 'none'; edDraw(); return; }
   if (t.dataset.vis) { e.stopPropagation(); edCommit(() => { const l = D.layers.find(x => x.id === t.dataset.vis); l.visible = l.visible === false; }); return; }
   if (t.dataset.lock) { e.stopPropagation(); edCommit(() => { const l = D.layers.find(x => x.id === t.dataset.lock); l.locked = !l.locked; }, { bake: false }); return; }
-  if (t.dataset.layer) { ED.sel = t.dataset.layer; edLayers(); edProps(); edDraw(); return; }
+  if (t.dataset.layer) { ED.sel = t.dataset.layer; ED.multi = new Set(); ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.open) { edOpen(t.dataset.open); return; }
   if (t.dataset.delete) { e.stopPropagation(); if (confirm('Delete this design? This can’t be undone.')) edApi().remove(t.dataset.delete).then(edList).then(edMenu); return; }
   // swatches (the colour inputs are handled as input events)
@@ -449,7 +580,7 @@ function edClick(e) {
     if (t.dataset.tf) { edTextSet(t.dataset.tf, t.dataset.v, t); return; }
   }
   if (t.dataset.tf && t.tagName === 'BUTTON') { if (t.dataset.tf === 'font') edTextSet('font', t.dataset.v, t); else if (t.dataset.tf === 'bold' || t.dataset.tf === 'italic') edTextSet(t.dataset.tf, null, t); return; }
-  const a = t.dataset.ed;
+  let a = t.dataset.ed; if (ED.selGroup && !L) a = { del: 'gdel', dup: 'gdup' }[a] || a; // (the list's buttons act on a selected group)
   if (a === 'undo') edUndo(); else if (a === 'redo') edRedo();
   else if (a === 'pick-game') edApi().pickGame().then(r => { if (r?.ok) { ED.err = null; edLoad(); } else if (r?.error) toast(r.error); });
   else if (a === 'add-text') edAdd('text', { text: { ...ED.text } });
@@ -458,6 +589,28 @@ function edClick(e) {
   else if (a === 'dup' && L) edCommit(() => { const c = JSON.parse(JSON.stringify(L)); c.id = edUid(); c.name = L.name + ' copy'; if (c.p) { const n = new THREE.Vector3(...c.n); const { T } = edTangents(n); c.p = new THREE.Vector3(...c.p).addScaledVector(T, 0.01).toArray(); } if (c.mode === 'wrap') c.wx = (c.wx || 0) + 0.01; D.layers.splice(D.layers.indexOf(L) + 1, 0, c); ED.sel = c.id; });
   else if (a === 'del' && L) edCommit(() => { D.layers.splice(D.layers.indexOf(L), 1); ED.sel = null; });
   else if ((a === 'up' || a === 'down') && L) edCommit(() => { const i = D.layers.indexOf(L), j = i + (a === 'up' ? 1 : -1); if (j < 0 || j >= D.layers.length) return; D.layers.splice(i, 1); D.layers.splice(j, 0, L); });
+  else if (a === 'mask' && L) edAutoMask(L);
+  else if (a === 'unmask' && L) edCommit(() => { delete L.mask; });
+  else if (a === 'group' && ED.multi?.size > 1) edCommit(() => {
+    // the layers picked become a group, kept together in the list where the topmost of them was
+    const ids = ED.multi; const gid = edUid(); (D.groups ||= {})[gid] = { name: `Group ${Object.keys(D.groups).length + 1}` };
+    const picked = D.layers.filter(l => ids.has(l.id)); const at = Math.max(...picked.map(l => D.layers.indexOf(l)));
+    const rest = D.layers.filter(l => !ids.has(l.id)); const before = D.layers.slice(0, at + 1).filter(l => !ids.has(l.id)).length;
+    picked.forEach(l => { l.group = gid; }); D.layers = [...rest.slice(0, before), ...picked, ...rest.slice(before)];
+    ED.multi = new Set(); ED.sel = null; ED.selGroup = gid;
+  });
+  else if (a === 'ungroup' && ED.selGroup) edCommit(() => { edGroupOf(ED.selGroup).forEach(l => delete l.group); delete D.groups[ED.selGroup]; ED.selGroup = null; });
+  else if (a === 'gdel' && ED.selGroup) edCommit(() => { const g = ED.selGroup; D.layers = D.layers.filter(l => l.group !== g); delete D.groups[g]; ED.selGroup = null; });
+  else if (a === 'gdup' && ED.selGroup) edCommit(() => {
+    const g = ED.selGroup, ng = edUid(); D.groups[ng] = { name: D.groups[g].name + ' copy' }; const m = edGroupOf(g); const at = D.layers.indexOf(m[m.length - 1]);
+    const copies = m.map(l => { const c = JSON.parse(JSON.stringify(l)); c.id = edUid(); c.group = ng; if (c.p) { const { T } = edTangents(new THREE.Vector3(...c.n)); c.p = new THREE.Vector3(...c.p).addScaledVector(T, 0.012).toArray(); } if (c.mode === 'wrap') c.wx = (c.wx || 0) + 0.012; return c; });
+    D.layers.splice(at + 1, 0, ...copies); ED.selGroup = ng;
+  });
+  else if ((a === 'up' || a === 'down') && ED.selGroup) edCommit(() => {
+    // the whole group, past the next layer (or group) above or below it
+    const m = edGroupOf(ED.selGroup); const lo = D.layers.indexOf(m[0]), hi = D.layers.indexOf(m[m.length - 1]); const rest = D.layers.filter(l => l.group !== ED.selGroup);
+    let pos = a === 'up' ? lo + 1 : lo - 1; pos = Math.max(0, Math.min(rest.length, pos)); D.layers = [...rest.slice(0, pos), ...m, ...rest.slice(pos)]; void hi;
+  });
   else if (a === 'img-remove') { const id = t.dataset.img; if (!D.layers.some(l => l.image === id)) { delete D.images[id]; edLib(); edChanged(false, false); } }
   else if (a === 'detach' && L) edCommit(() => {
     // the mirror as a layer of its own, exactly where (and how) the mirror was drawn
@@ -497,13 +650,34 @@ function edTextSet(k, v, el) {
   apply(); if (k === 'str' || ['ow', 'sp', 'sl'].includes(k)) { edTextPreview(); const lab = el.closest('.he-prow')?.querySelector('.v'); if (lab) lab.textContent = k === 'sl' ? v + '°' : k === 'ow' ? (+v ? v : 'none') : v; if (k === 'str') ED.root.querySelectorAll('#ed-lib .he-font').forEach(b => { b.firstChild.textContent = t.str || 'Text'; }); if (k === 'ow' && (!!+v) !== !!el.dataset.had) { el.dataset.had = +v ? '1' : ''; edLib(); } return; }
   edLib();
 }
+/** Sets a colour or effect setting ("glow.size") on the selected layer, or on every layer of the selected group. */
+function edSetLook(path, v) {
+  const [a, b] = path.split('.'); const targets = ED.selGroup ? edGroupOf(ED.selGroup) : ED.design.layers.filter(l => l.id === ED.sel);
+  const num = ['angle', 'w', 'size', 'spread', 'opacity', 'dist', 'blur'].includes(b); const val = typeof v === 'boolean' ? v : num ? +v : v;
+  for (const L of targets) { L.look ||= {}; L.look[a] = { ...(L.look[a] || {}), [b]: val }; }
+}
 function edInput(e) {
   const t = e.target; const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
+  // a hex code box: on Enter or leaving it, as if that colour were picked
+  if (t.dataset.hex) { if (e.type !== 'change') return; let v = t.value.trim(); if (!v.startsWith('#')) v = '#' + v; if (/^#[0-9a-f]{3}$/i.test(v)) v = '#' + v.slice(1).split('').map(c => c + c).join(''); if (!/^#[0-9a-f]{6}$/i.test(v)) { toast('Use a hex colour code like #E10600.'); return; } t.value = v.toUpperCase(); }
+  if (t.id === 'ed-lname') { if (e.type === 'change' && L) edCommit(() => { L.name = t.value.trim() || L.name; }, { bake: false }); return; }
+  if (t.id === 'ed-gname') { if (e.type === 'change' && ED.selGroup) edCommit(() => { D.groups[ED.selGroup].name = t.value.trim() || D.groups[ED.selGroup].name; }, { bake: false }); return; }
+  if (t.dataset.gb && ED.selGroup) { edCommit(() => { edGroupOf(ED.selGroup).forEach(l => { l.mirror = t.checked; }); }); return; }
+  if (t.dataset.look) {
+    if (t.type === 'checkbox') { edCommit(() => edSetLook(t.dataset.look, t.checked)); return; }
+    if (t.type === 'range') {
+      // one undo step for a whole drag; the picture's made again as it goes
+      if (e.type === 'input') { if (ED.sliding !== t) { ED.undo.push(edSnap()); ED.redo = []; ED.sliding = t; } edSetLook(t.dataset.look, t.value); const lab = t.parentElement.querySelector('.v'); const k = t.dataset.look.split('.')[1]; if (lab) lab.textContent = k === 'opacity' ? Math.round(+t.value * 100) + '%' : k === 'angle' ? t.value + '°' : t.value + '%'; if (t.dataset.look === 'fill.angle') { const rp = ED.root.querySelector('.he-ramp'); const f = edLook(L || edGroupOf(ED.selGroup)[0] || {}).fill; if (rp) rp.style.background = `linear-gradient(${90 + +t.value}deg, ${f.c1}, ${f.c2})`; } edChanged(true, false); }
+      else ED.sliding = null; return;
+    }
+    if ((t.type === 'color' || t.dataset.hex) && e.type === 'change') { edCommit(() => edSetLook(t.dataset.look, t.value)); return; }
+    return;
+  }
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
   if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
   if (t.id === 'ed-name') { if (e.type === 'change') edCommit(() => { D.name = t.value.trim() || 'Helmet'; }, { bake: false, panels: false }); return; }
-  if (t.dataset.tf) { if (t.type === 'color' && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
-  if (t.dataset.base) { if (t.type === 'color' && e.type !== 'change') return; if (t.type === 'checkbox') { edCommit(() => { D.base.fade = t.checked; }); return; } edCommit(() => { D.base[t.dataset.base] = t.value; }); return; }
+  if (t.dataset.tf) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
+  if (t.dataset.base) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; if (t.type === 'checkbox') { edCommit(() => { D.base.fade = t.checked; }); return; } edCommit(() => { D.base[t.dataset.base] = t.value; }); return; }
   if (t.dataset.lc && L) { if (e.type !== 'change') return; edCommit(() => { L.colors[+t.dataset.lc] = t.value; }); return; }
   if (t.dataset.lb && L) { edCommit(() => { if (t.dataset.lb === 'mirror') L.mirror = t.checked; else if (t.dataset.lb === 'mirrorRot') L.mirrorRot = t.checked; else { const was = L.mode; L.mode = t.checked ? 'wrap' : 'stick'; if (L.mode === 'wrap' && was !== 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; } else if (L.mode === 'stick' && was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); } } }); return; }
   if (t.dataset.lp && L) {
@@ -523,6 +697,7 @@ function edKey(e) {
   if (!ED.root?.isConnected || ui.view !== 'editor') return; const a = document.activeElement; if (a && a.matches('input[type=text], input:not([type]), textarea, .he-text, .he-name, .he-search')) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? edRedo() : edUndo(); }
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); edRedo(); }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && ED.selGroup && !ED.sel) { e.preventDefault(); const g = ED.selGroup; edCommit(() => { ED.design.layers = ED.design.layers.filter(l => l.group !== g); delete ED.design.groups[g]; ED.selGroup = null; }); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && ED.sel) { e.preventDefault(); const L = ED.design.layers.find(l => l.id === ED.sel); if (L) edCommit(() => { ED.design.layers.splice(ED.design.layers.indexOf(L), 1); ED.sel = null; }); }
 }
 
@@ -542,7 +717,7 @@ function edPick(cx, cy) {
   for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false || L.mode === 'uv') continue; const s = T.tex.get(L.id); if (!s) continue;
     for (const mirror of L.mirror ? [false, true] : [false]) { const F = edFrameOf(L, mirror, s.aspect); let q;
       if (F.mode === 0) { const d = hit.p.clone().sub(F.P); if (Math.abs(d.dot(F.N)) > 0.07 || hit.n.dot(F.N) < 0.15) continue; q = [d.dot(F.T), d.dot(F.U)]; } else { const [x, y] = edWrapOf(hit.p); q = [x - F.wx, y - F.wy]; }
-      const c = Math.cos(F.rot), sn = Math.sin(F.rot); const r = [c * q[0] + sn * q[1], -sn * q[0] + c * q[1]]; const u = r[0] / F.w * F.fx + 0.5, v = r[1] / F.h * F.fy + 0.5;
+      const c = Math.cos(F.rot), sn = Math.sin(F.rot); const r = [c * q[0] + sn * q[1], -sn * q[0] + c * q[1]]; const u = r[0] / (F.w * s.ex) * F.fx + 0.5, v = r[1] / (F.h * s.ey) * F.fy + 0.5;
       if (u < 0 || v < 0 || u > 1 || v > 1) continue; const px = Math.min(s.cv.width - 1, Math.floor(u * s.cv.width)), py = Math.min(s.cv.height - 1, Math.floor((1 - v) * s.cv.height));
       if (s.data.data[(py * s.cv.width + px) * 4 + 3] > 20) return { L, mirror, hit }; }
   }
@@ -563,8 +738,15 @@ function edMove(e) {
   if (P.kind === 'orbit') { if (Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) > 3) P.click = false; ED.three.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.three.pitch = Math.max(-1.3, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
   if (P.kind === 'move') {
     const h = edHitAt(e.clientX, e.clientY); if (!h) return; const L = P.L;
+    // where it was (on the shell, and round it), for the rest of its group to follow by the same amount
+    const anchor = (l) => l.mode === 'wrap' ? { p: edSurfaceAtWrap(l.wx || 0, l.wy || 0).p, w: [l.wx || 0, l.wy || 0] } : { p: new THREE.Vector3(...l.p), w: edWrapOf(new THREE.Vector3(...l.p)) };
+    const was = L.group ? anchor(L) : null;
     if (L.mode === 'wrap') { const [x, y] = edWrapOf(h.p); let wx = x + P.off[0]; if (P.mirror) wx = -wx; L.wx = Math.abs(wx) < 0.004 ? 0 : wx; L.wy = y + P.off[1]; }
     else { const p = h.p.clone(), n = h.n.clone(); if (P.mirror) { p.x = 2 * ED.three.C.x - p.x; n.x = -n.x; } L.p = p.toArray(); L.n = n.toArray(); }
+    if (was) { const now = anchor(L); const d = now.p.clone().sub(was.p), dw = [now.w[0] - was.w[0], now.w[1] - was.w[1]];
+      for (const m of edGroupOf(L.group)) { if (m === L || m.locked) continue;
+        if (m.mode === 'wrap') { m.wx = (m.wx || 0) + dw[0]; m.wy = (m.wy || 0) + dw[1]; }
+        else if (m.p) { const s = edSurfaceNear(new THREE.Vector3(...m.p).add(d)); m.p = s.p.toArray(); m.n = s.n.toArray(); } } }
     edChanged(true, false); return;
   }
   if (P.kind === 'w' || P.kind === 'len') {
