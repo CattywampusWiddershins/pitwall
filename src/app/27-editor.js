@@ -277,13 +277,16 @@ async function edBake() {
 /**
  * Where a layer sits: { mode 0 stick / 1 wrap / 2 uv, P (point on the shell), N (the way it faces), T and U (its right
  * and up), w and h (metres), rot (radians), fx and fy (flips), wx and wy (its centre round the shell, for wrap) }.
- * The mirror copy sits at x reflected; shapes are reflected (a swoosh still points forwards), text and images read the right way.
+ * The mirror copy sits at x reflected. Shapes are reflected (a swoosh still points forwards); text and images read the
+ * right way. With "Mirror turns the other way" (on unless turned off), its turn is reversed too, so both sides match.
+ * (Both kinds of frame are seen from outside: a stick frame's right is the viewer's right on either side, a wrap
+ * frame's x is the same for both; so a reflection is a flip across and a reversed turn.)
  */
 function edFrameOf(L, mirror, aspect) {
   const w = L.size || 0.08, h = w * (aspect || 1) * (L.stretch || 1); const reflect = mirror && L.kind === 'shape' && L.reflect !== false;
-  const fx = (L.flipX ? -1 : 1) * (reflect ? -1 : 1), fy = L.flipY ? -1 : 1; const rot = (L.rot || 0) * Math.PI / 180 * (reflect ? -1 : 1);
+  const fx = (L.flipX ? -1 : 1) * (reflect ? -1 : 1), fy = L.flipY ? -1 : 1; const rot = (L.rot || 0) * Math.PI / 180 * (mirror && L.mirrorRot !== false ? -1 : 1);
   if (L.mode === 'uv') return { mode: 2, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w: 1, h: 1, rot: 0, fx: 1, fy: 1, wx: 0, wy: 0 };
-  if (L.mode === 'wrap') { const wx = (L.wx || 0) * (mirror ? -1 : 1); return { mode: 1, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w, h, rot: mirror ? -rot : rot, fx: mirror && L.kind !== 'shape' ? -fx : fx, fy, wx, wy: L.wy || 0 }; }
+  if (L.mode === 'wrap') { const wx = (L.wx || 0) * (mirror ? -1 : 1); return { mode: 1, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w, h, rot, fx, fy, wx, wy: L.wy || 0 }; }
   const P = new THREE.Vector3(...(L.p || [0, 0, 0])), N = new THREE.Vector3(...(L.n || [1, 0, 0])).normalize();
   if (mirror) { P.x = 2 * ED.three.C.x - P.x; N.x = -N.x; }
   const { T, U } = edTangents(N); return { mode: 0, P, N, T, U, w, h, rot, fx, fy, wx: 0, wy: 0 };
@@ -311,7 +314,7 @@ function edLib() {
   } else {
     const imgs = Object.entries(ED.design.images).filter(([, v]) => v);
     box.innerHTML = `<div class="he-tc"><button class="btn he-wide" data-ed="import-img">Import image…</button><div class="muted he-small">PNG, WebP or JPG. After adding one, "Remove background" in its settings clears a colour you click on.</div>
-      ${imgs.length ? `<div class="he-group"><span class="label">In this design</span></div><div class="he-grid">${imgs.map(([id, src]) => `<button class="he-tile he-img" draggable="true" data-add="image" data-image="${id}"><img src="${src}" alt=""></button>`).join('')}</div>` : ''}</div>`;
+      ${imgs.length ? `<div class="he-group"><span class="label">In this design</span></div><div class="he-grid">${imgs.map(([id, src]) => `<div class="he-imgwrap"><button class="he-tile he-img" draggable="true" data-add="image" data-image="${id}" title="Add it to the helmet"><img src="${src}" alt=""></button>${ED.design.layers.some(l => l.image === id) ? '' : `<button class="he-imgx" data-ed="img-remove" data-img="${id}" title="Remove it from this design">✕</button>`}</div>`).join('')}</div>` : ''}</div>`;
   }
 }
 function edTextForm(t, p) {
@@ -364,6 +367,8 @@ function edProps() {
     ${L.kind === 'text' ? `<div class="he-tc">${edTextForm(L.text, 'tl')}</div>` : ''}
     ${L.kind === 'image' && L.mode !== 'uv' ? `<button class="btn sm he-wide" data-ed="bg">Remove background…</button>` : ''}
     ${L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
+    ${L.mirror ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
+    <button class="btn sm he-wide" data-ed="detach" title="The mirror becomes a layer of its own, in the same place: change its colour or anything else separately">Make the mirror its own layer</button>` : ''}
     <label class="he-chk"><input type="checkbox" data-lb="wrap" ${L.mode === 'wrap' ? 'checked' : ''}> Wrap round the helmet (for stripes front to back)</label>
     <div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="On the middle line, front to back">Centre</button></div>`}`;
   edTextPreview();
@@ -382,8 +387,7 @@ function edUndo() { if (!ED.undo.length) return; ED.redo.push(edSnap()); edResto
 function edRedo() { if (!ED.redo.length) return; ED.undo.push(edSnap()); edRestore(ED.redo.pop()); }
 async function edSave(silent) {
   clearTimeout(ED.saveT); const D = ED.design; D.at = new Date().toISOString();
-  // drop images no layer uses any more
-  const used = new Set(D.layers.map(l => l.image).filter(Boolean)); for (const k of Object.keys(D.images)) if (!used.has(k)) delete D.images[k];
+  // (imported images stay in the design, in its Images tab, until removed there; undo can bring back a layer using one)
   let thumb = null; try { if (ED.three) { edFrame(); const c = ED.three.R.domElement; const t = document.createElement('canvas'); t.width = 160; t.height = 120; const k = Math.max(160 / c.width, 120 / c.height); t.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = t.toDataURL('image/jpeg', 0.8); } } catch { }
   const r = await edApi().save({ ...D, thumb }); if (r?.ok) { ED.dirty = false; ED.savedAt = Date.now(); edStatus(); if (!silent) edList(); }
 }
@@ -454,6 +458,14 @@ function edClick(e) {
   else if (a === 'dup' && L) edCommit(() => { const c = JSON.parse(JSON.stringify(L)); c.id = edUid(); c.name = L.name + ' copy'; if (c.p) { const n = new THREE.Vector3(...c.n); const { T } = edTangents(n); c.p = new THREE.Vector3(...c.p).addScaledVector(T, 0.01).toArray(); } if (c.mode === 'wrap') c.wx = (c.wx || 0) + 0.01; D.layers.splice(D.layers.indexOf(L) + 1, 0, c); ED.sel = c.id; });
   else if (a === 'del' && L) edCommit(() => { D.layers.splice(D.layers.indexOf(L), 1); ED.sel = null; });
   else if ((a === 'up' || a === 'down') && L) edCommit(() => { const i = D.layers.indexOf(L), j = i + (a === 'up' ? 1 : -1); if (j < 0 || j >= D.layers.length) return; D.layers.splice(i, 1); D.layers.splice(j, 0, L); });
+  else if (a === 'img-remove') { const id = t.dataset.img; if (!D.layers.some(l => l.image === id)) { delete D.images[id]; edLib(); edChanged(false, false); } }
+  else if (a === 'detach' && L) edCommit(() => {
+    // the mirror as a layer of its own, exactly where (and how) the mirror was drawn
+    const c = JSON.parse(JSON.stringify(L)); c.id = edUid(); c.name = `${L.name} (mirror)`; c.mirror = false; L.mirror = false;
+    if (L.kind === 'shape' && L.reflect !== false) c.flipX = !L.flipX; if (L.mirrorRot !== false) c.rot = -(L.rot || 0);
+    if (L.mode === 'wrap') c.wx = -(L.wx || 0); else { c.p = [2 * ED.three.C.x - L.p[0], L.p[1], L.p[2]]; c.n = [-L.n[0], L.n[1], L.n[2]]; }
+    D.layers.splice(D.layers.indexOf(L) + 1, 0, c); ED.sel = c.id;
+  });
   else if (a === 'flipx' && L) edCommit(() => { L.flipX = !L.flipX; });
   else if (a === 'flipy' && L) edCommit(() => { L.flipY = !L.flipY; });
   else if (a === 'centre' && L) edCommit(() => { if (L.mode === 'wrap') L.wx = 0; else { const p = new THREE.Vector3(...L.p); p.x = ED.three.C.x; const h = edSurfaceNear(p); L.p = h.p.toArray(); L.n = h.n.toArray(); } });
@@ -493,7 +505,7 @@ function edInput(e) {
   if (t.dataset.tf) { if (t.type === 'color' && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
   if (t.dataset.base) { if (t.type === 'color' && e.type !== 'change') return; if (t.type === 'checkbox') { edCommit(() => { D.base.fade = t.checked; }); return; } edCommit(() => { D.base[t.dataset.base] = t.value; }); return; }
   if (t.dataset.lc && L) { if (e.type !== 'change') return; edCommit(() => { L.colors[+t.dataset.lc] = t.value; }); return; }
-  if (t.dataset.lb && L) { edCommit(() => { if (t.dataset.lb === 'mirror') L.mirror = t.checked; else { const was = L.mode; L.mode = t.checked ? 'wrap' : 'stick'; if (L.mode === 'wrap' && was !== 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; } else if (L.mode === 'stick' && was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); } } }); return; }
+  if (t.dataset.lb && L) { edCommit(() => { if (t.dataset.lb === 'mirror') L.mirror = t.checked; else if (t.dataset.lb === 'mirrorRot') L.mirrorRot = t.checked; else { const was = L.mode; L.mode = t.checked ? 'wrap' : 'stick'; if (L.mode === 'wrap' && was !== 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; } else if (L.mode === 'stick' && was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); } } }); return; }
   if (t.dataset.lp && L) {
     // sliders: one undo step for a whole drag. Size scales both ways from where the drag began (the slider springs
     // back to the middle after); width and length change one way, the other staying as it is.

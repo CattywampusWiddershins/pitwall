@@ -23,7 +23,7 @@ const TARGETS = [
 // a player design, for the Helmet Exchange addon (it makes a helmet of its own from one)
 const HX_DESIGN = { id: 'unassigned_livery17', group: 'unassigned', name: 'player design 17' };
 const W = 2048, H = 1024, SMALL = 21840;
-const CACHE_V = 1;
+const CACHE_V = 2; // (2: the underside and strap masked, and which pixels the shell covers)
 
 // ---- archives
 function readErp(b) {
@@ -163,7 +163,26 @@ module.exports = function createHelmetEditor({ dataDir }) {
     for (let p = 0; p < W * H; p++) { let spread = 0; for (let c = 0; c < 3; c++) { let lo = 255, hi = 0; for (const im of imgs) { const v = im[p * 4 + c]; if (v < lo) lo = v; if (v > hi) hi = v; } spread = Math.max(spread, hi - lo); }
       if (imgs.length >= 4 && spread < 40) { trim[p] = 255; for (let c = 0; c < 3; c++) { let s = 0; for (const im of imgs) s += im[p * 4 + c]; trimCol[p * 4 + c] = s / imgs.length; } trimCol[p * 4 + 3] = 255; } }
     for (let p = 0; p < W * H; p++) if (trim[p]) trimCol.copy(base, p * 4, p * 4, p * 4 + 3);
-    const dir = cacheDir(); fs.mkdirSync(dir, { recursive: true });
+    // the underside (inside the bottom opening) and the strap: in the layout, everything below the bottom rubber edge.
+    // They keep the design's own colours, like the trim. (Per column: the band's last trim row, below 70% down.)
+    // (the band is the first run of at least 8 trim rows: the face seal's bottom and small marks above it are shorter)
+    for (let x = 0; x < W; x++) {
+      let y = Math.floor(H * 0.72), found = -1;
+      while (y < H) { if (trim[y * W + x]) { let e = y; while (e < H && trim[e * W + x]) e++; if (e - y >= 8) { found = e; break; } y = e; } else y++; }
+      if (found < 0) continue; for (y = found; y < H; y++) trim[y * W + x] = 255;
+    }
+    // which pixels the shell's pieces cover (the rest gets the pieces' own colours spread into it on export, so the
+    // game's filtering doesn't bring the edge colour in along the seams)
+    const cov = Buffer.alloc(W * H);
+    for (let k = 0; k < idx.length; k += 3) {
+      const tx = [0, 1, 2].map(j => uv[idx[k + j] * 2] * W), ty = [0, 1, 2].map(j => uv[idx[k + j] * 2 + 1] * H);
+      const x0 = Math.max(0, Math.floor(Math.min(...tx))), x1 = Math.min(W - 1, Math.ceil(Math.max(...tx))), y0 = Math.max(0, Math.floor(Math.min(...ty))), y1 = Math.min(H - 1, Math.ceil(Math.max(...ty)));
+      const den = (ty[1] - ty[2]) * (tx[0] - tx[2]) + (tx[2] - tx[1]) * (ty[0] - ty[2]); if (Math.abs(den) < 1e-9) continue;
+      for (let py = y0; py <= y1; py++) for (let px = x0; px <= x1; px++) { const sx = px + 0.5, sy = py + 0.5;
+        const a = ((ty[1] - ty[2]) * (sx - tx[2]) + (tx[2] - tx[1]) * (sy - ty[2])) / den, bb = ((ty[2] - ty[0]) * (sx - tx[2]) + (tx[0] - tx[2]) * (sy - ty[2])) / den;
+        if (a >= -0.02 && bb >= -0.02 && 1 - a - bb >= -0.02) cov[py * W + px] = 1; }
+    }
+    const dir = cacheDir(); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'cov.bin'), cov);
     fs.writeFileSync(path.join(dir, 'pos.bin'), Buffer.from(pos.buffer)); fs.writeFileSync(path.join(dir, 'uv.bin'), Buffer.from(uv.buffer)); fs.writeFileSync(path.join(dir, 'idx.bin'), Buffer.from(idx.buffer));
     fs.writeFileSync(path.join(dir, 'base.bin'), base); fs.writeFileSync(path.join(dir, 'trim.bin'), trim);
     fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ v: CACHE_V, game, design: t.id, designs: imgs.length, at: new Date().toISOString() }));
@@ -180,15 +199,26 @@ module.exports = function createHelmetEditor({ dataDir }) {
   function writeTexture(game, t, levels, out) {
     const small = Buffer.concat(levels.slice(3)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
     const texRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_d.tif.mipmaps`), erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
-    fs.mkdirSync(path.dirname(path.join(out, texRel)), { recursive: true }); fs.writeFileSync(path.join(out, texRel), Buffer.concat(levels.slice(0, 3).map(lz4Literal)));
+    const blocks = levels.slice(0, 3).map(lz4Literal);
+    fs.mkdirSync(path.dirname(path.join(out, texRel)), { recursive: true }); fs.writeFileSync(path.join(out, texRel), Buffer.concat(blocks));
     const b = Buffer.from(fs.readFileSync(erpPath(game, t))); const E = readErp(b);
-    const R = E.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL) throw new Error('The game’s helmet archive isn’t laid out as expected.');
-    const packed = zstdWrite(small); b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
-    fs.mkdirSync(path.dirname(path.join(out, erpRel)), { recursive: true }); fs.writeFileSync(path.join(out, erpRel), Buffer.concat([b, packed]));
+    const R = E.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL || !R.frags[2]) throw new Error('The game’s helmet archive isn’t laid out as expected.');
+    // the image's third fragment says where the .mipmaps file's blocks are: after the file's path, the number of
+    // levels, then per level (from byte 6, 26 bytes each) its compression (3: LZ4), offset, packed size and size.
+    // Without the new offsets and sizes the game can't read the file, and shows the small levels only (blurry).
+    const meta = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + meta[0]; if (meta[m0 + 1] !== 3) throw new Error('The texture’s mip record isn’t laid out as expected.');
+    let off = 0; blocks.forEach((blk, k) => { const e = m0 + 6 + 26 * k; if (meta[e] !== 3 || Number(meta.readBigUInt64LE(e + 17)) !== levels[k].length) throw new Error('The texture’s mip record isn’t laid out as expected.'); meta.writeBigUInt64LE(BigInt(off), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); off += blk.length; });
+    const packed = zstdWrite(small), packedMeta = zstdWrite(meta); const FM = R.frags[2];
+    b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
+    b.writeBigUInt64LE(BigInt(b.length + packed.length - E.dataOff), FM.at); b.writeBigUInt64LE(BigInt(packedMeta.length), FM.atPacked);
+    fs.mkdirSync(path.dirname(path.join(out, erpRel)), { recursive: true }); fs.writeFileSync(path.join(out, erpRel), Buffer.concat([b, packed, packedMeta]));
     // read back: the texture and the small levels as the game will read them
     const back = topLevel(fs.readFileSync(path.join(out, texRel))); const b2 = fs.readFileSync(path.join(out, erpRel)); const E2 = readErp(b2);
-    const F2 = E2.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)).frags[1];
-    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small)) throw new Error('The written files didn’t read back correctly.');
+    const R2 = E2.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F2 = R2.frags[1];
+    // ... and every block where the record says it is
+    const mm = fs.readFileSync(path.join(out, texRel)); const meta2 = fragOf(b2, E2, R2.frags[2]);
+    const recOk = blocks.every((blk, k) => { const e = m0 + 6 + 26 * k; const o = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(mm.subarray(o, o + n), 0, levels[k].length)[0].equals(levels[k]); } catch { return false; } });
+    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small) || !recOk) throw new Error('The written files didn’t read back correctly.');
     return [texRel, erpRel].map(p => p.split(path.sep).join('/'));
   }
   /**
@@ -201,6 +231,14 @@ module.exports = function createHelmetEditor({ dataDir }) {
     const px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); if (px.length !== W * H * 4) return { ok: false, error: 'The texture is the wrong size.' };
     const safe = String(name || 'Helmet').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'Helmet';
     const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true }); // (zipped below, then removed)
+    // the pieces' colours spread 12 pixels past their edges (each pass takes the nearest covered neighbour), so the
+    // smaller levels and the game's filtering don't bring the colour outside them in along the seams
+    { let cov = null; try { cov = new Uint8Array(fs.readFileSync(path.join(cacheDir(), 'cov.bin'))); } catch { }
+      if (cov && cov.length === W * H) { const nxt = new Uint8Array(cov);
+        for (let pass = 0; pass < 12; pass++) { let any = false;
+          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const p = y * W + x; if (cov[p]) continue;
+            for (const q of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, y > 0 ? p - W : -1, y < H - 1 ? p + W : -1]) if (q >= 0 && cov[q]) { px.copy(px, p * 4, q * 4, q * 4 + 4); nxt[p] = 1; any = true; break; } }
+          cov.set(nxt); if (!any) break; } } }
     const levels = []; let cur = px, w = W, h = H; for (let k = 0; k < 9; k++) { levels.push(bc1Encode(cur, w, h)); if (k < 8) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
     const t = target(); const zip = path.join(root(), 'exports', kind === 'hx' ? `${safe} (Helmet Exchange).zip` : `${safe}.zip`);
     try {
