@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.2.0
+
+- **Editor: stickers that follow the helmet wrap round its curve (BETA).** A sticker set to Follow surface is now measured along the helmet from its middle, like vinyl smoothed on by hand.
+  - It isn't cut off where the shell curves away towards the front or back: a long stripe or arrow along the side carries on round the back.
+  - It no longer jumps when you drag it across a curve.
+  - It can be bigger than before (up to 60 cm across).
+  - Stickers in your existing designs look as they did. Click Follow surface on one to switch it to the new wrap.
+
 ## 7.1.2
 
 - Behind the scenes: groundwork for a part of the Editor that's still being tested. Nothing changes for you yet.
