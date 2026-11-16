@@ -2,6 +2,20 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.0.0
+
+- **New: the Editor (BETA).** A new tab where you design your own F1 25 helmet on a 3D model and put it in the game with SWOFTY Launcher.
+  - **Stickers:** shapes (stripes, flags, racing graphics), text in any of your fonts, and your own images, each on its own layer. Layers can be resized as a whole or by width and length, turned, flipped, mirrored to the other side, renamed, hidden, locked and grouped. Groups move, mirror and duplicate together.
+  - **How a sticker goes on:** *Follow* bends it with the helmet's curve. *Stamp* puts it on straight from the angle you're looking from, so it keeps its exact shape there and straight lines stay straight. *Wrap round* runs it front to back, for stripes. A 3D/Flat switch shows the whole texture laid out.
+  - **Looks:** a base colour, or two fading into each other. Each layer can keep its own colours or take a solid colour or a gradient (images too), with hex codes on every colour. A layer can also get an inside or outside stroke, a glow and a shadow.
+  - **Auto-mask:** a layer can hide the parts the layers above cover. The mask stays as it was made until you update or remove it.
+  - **Background remover:** click the parts of an imported image to clear them.
+  - **Sticker maker:** a second tab with a flat see-through canvas and the same tools. Stickers saved there are in Add → Custom in every editor.
+  - **In the game:** "Export SWOFTY addon" makes a zip named after your helmet. It puts your design on Lewis Hamilton's 2008 (or 2014) replica helmet, so in the game you pick that helmet for your driver. Turn the addon off to get the original back. The texture goes to the game at 4K (twice the size of the game's own helmets) or at the game's own 2K. The underside and the strap are left as the game has them. Export PNG saves the flat texture, and Load texture… takes one made in Blender or Photoshop.
+  - The editor needs F1 25 installed: it reads the helmet from the game's files the first time.
+- **The interface keeps its size in bigger windows.** It used to grow as the window got wider. Settings → Look now has an **Interface size** choice instead.
+- **The sidebar can fold away to icons.** It opens when you point at it, and a click pins it open.
+
 ## 6.4.0
 
 - **Race engineer: he talks on his own now (BETA).** Since 3.30.0 the desktop app took itself for a phone following the computer's race, so the engineer never said anything unprompted: no drop zone, no clock, no fastest lap, no updates on the cars you follow. Now he does, in every session. The same mistake also stopped the setup notes closing when you made the change, Pitwall learning each track's pit-lane time loss, and the passing stats being kept. All of those work again.

@@ -177,7 +177,7 @@ const NAV = [
   ['hof', 'Hall of Fame', 'laurel'],
   ['records', 'Records', 'medal'],
   ['media', 'Media', 'mic'],
-  ['editor', 'Editor', 'brush'], // (dev mode only: the helmet editor, 27-editor.js)
+  ['editor', 'Editor', 'brush'], // (the desktop app: the helmet editor, 27-editor.js; its car livery tab in dev mode only)
   ['settings', 'Settings', 'gear'],
   ['help', 'Help', 'help'], // (dev mode only for now: it lists the race engineer's instructions)
 ];
@@ -197,7 +197,7 @@ function renderTopbar() {
 function renderRail() {
   const c = career();
   const s = curSeason();
-  const nav = NAV.filter(([id]) => id !== 'help' || !!window.api?.engineer).filter(([id]) => id !== 'editor' || (DEV_MODE && !!window.api?.editor)).filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
+  const nav = NAV.filter(([id]) => id !== 'help' || !!window.api?.engineer).filter(([id]) => id !== 'editor' || !!window.api?.editor).filter(([id]) => c?.realSeason ? REAL_VIEWS.includes(id) : !c?.single || id === 'now' || id === 'settings').map(([id, label, ic]) => [id, label, ICON[ic]]);
   return `
     <div class="brand">${gfxLogoUrl() ? '<span class="brand-logo" role="img" aria-label="Logo"></span>' : `<div class="brand-mark" style="color:var(--team-ink)">${ICON.logo}</div><div class="brand-name">PITWALL</div>`}<button class="icon-btn rail-pin ${state.prefs?.railPinned === false ? '' : 'on'}" data-act="rail-pin" title="${state.prefs?.railPinned === false ? 'Keep the sidebar open' : 'Fold the sidebar away (it opens when you point at it)'}" aria-label="Pin the sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6l-1 6 4 4H6l4-4z"/><path d="M12 13v8"/></svg></button></div>
     ${c ? `<div class="career-pill">

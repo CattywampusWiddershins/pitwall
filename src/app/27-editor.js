@@ -75,7 +75,7 @@ const edNew = () => ({ id: edUid(), name: 'New helmet', at: new Date().toISOStri
 
 /** The page: a slot for the editor (kept alive across redraws), or why it can't open. */
 function renderEditor() {
-  if (!DEV_MODE || !edApi()) return `<div class="page-head"><h1>Editor</h1></div><div class="panel"><div class="panel-b muted">The editor is a dev-mode feature of the desktop app.</div></div>`;
+  if (!edApi()) return `<div class="page-head"><h1>Editor</h1></div><div class="panel"><div class="panel-b muted">The editor is part of the desktop app.</div></div>`;
   return `<div id="ed-slot"></div>`;
 }
 /** After each redraw: the editor's element back into its slot (built the first time). */
@@ -93,7 +93,7 @@ function edBuild() {
       <div><h1>Editor <span class="tag beta">BETA</span> <span class="tag he-dev">DEV</span></h1><div class="muted">Design your own gear for F1 25: helmets, and stickers to use on them.</div></div>
       <div class="he-row"><div class="he-designs"><button class="btn ghost" data-ed="designs">My designs ▾</button><div class="he-menu" id="ed-menu"></div></div><button class="btn" data-ed="new" id="ed-newbtn">New helmet</button></div>
     </div>
-    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button><button class="he-tab" data-tab="car">Car livery</button><button class="he-tab" data-tab="sticker">Sticker maker</button></div>
+    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button>${DEV_MODE ? '<button class="he-tab" data-tab="car">Car livery</button>' : ''}<button class="he-tab" data-tab="sticker">Sticker maker</button></div>
     <div class="he-ed">
       <section class="panel he-panel">
         <div class="he-ph"><span class="label">Add</span></div>
@@ -936,6 +936,7 @@ const edViewEl = () => edIsStk() ? ED.root.querySelector('#ed-stk') : ED.three?.
 const edMaxW = (L) => L.mode === 'flat' ? 3 : 0.32;
 /** Switches between the helmet and the Sticker maker, each keeping its own design, undo and selection. */
 function edSwitchTab(tab) {
+  if (tab === 'car' && !DEV_MODE) return; // (the car livery: dev mode only for now)
   if (tab === ED.tab) return;
   if (ED.dirty) edSave(true);
   ED.tabs[ED.tab] = { design: ED.design, undo: ED.undo, redo: ED.redo, sel: ED.sel, selGroup: ED.selGroup, multi: ED.multi, dirty: false, savedAt: ED.savedAt };
