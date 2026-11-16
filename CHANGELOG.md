@@ -2,6 +2,23 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.3.0
+
+- **Editor: sharper helmets in the game.** The texture sent to the game is encoded more carefully, so gradients and glows come out smoother and closer to what you made. Exporting takes a few seconds longer.
+- **Editor: smaller exports.** The helmet's texture files inside the zip are compressed now. SWOFTY has less to copy and the game less to read.
+- **Editor: share and back up designs.** In My designs, the ⇩ button next to a design saves it as a `.pitwall-design` file with its images inside. "Open a design file…" at the bottom of the list reads one back in as a new design.
+- **Editor: lighter design files.** Imported images and auto-masks are stored once and shared between designs, so designs with photos save faster and take up less room. Older designs switch over the next time they're saved.
+- **Editor: keyboard.** The arrow keys nudge the selected sticker (2 mm on the helmet, staying on the shell; 1 pixel on the Sticker maker canvas). Hold Shift to move ten times as far. Ctrl+D duplicates and Ctrl+G groups the selected stickers.
+- **Editor: eyedropper.** Next to every colour there's an eyedropper that picks a colour from anywhere on screen: the helmet, an image you're copying, or another app.
+- **Editor: lining things up.**
+  - Dragging a sticker on the helmet snaps to the middle line. Hold Alt to place it freely.
+  - With several stickers selected (Ctrl+click), you can line up their left edges, middles, right edges, tops or bottoms, or spread three or more evenly across or down. On the helmet this follows its curve.
+- **Editor: blend modes.** Each layer has a Blend choice under its opacity:
+  - Multiply darkens: good for shading, tints and dirt.
+  - Screen lightens: good for highlights.
+  - Add adds light: good for glows.
+- **Editor: a nicer 3D view.** The helmet reflects a soft studio surround. You can choose the paint's Finish (Gloss, Satin, Matte) and the Lighting (Studio, Day, Night, Garage) to see how a design looks in different light. This is only how the editor shows it: the game lights helmets its own way.
+
 ## 7.2.0
 
 - **Editor: stickers that follow the helmet wrap round its curve (BETA).** A sticker set to Follow surface is now measured along the helmet from its middle, like vinyl smoothed on by hand.
