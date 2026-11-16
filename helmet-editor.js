@@ -34,7 +34,7 @@ function readErp(b) {
   for (let k = 0; k < nFiles; k++) {
     const start = o; const len = u32(); const idLen = u16(); const id = b.toString('latin1', o, o + idLen - 1); o += idLen; const type = b.toString('latin1', o, o + 16).replace(/\0.*$/, ''); o += 16; u32(); const nFrag = u8(); const frags = [];
     for (let f = 0; f < nFrag; f++) { o += 4; const at = o; const off = u64(), size = u64(); u32(); let comp = 0, packed = size, atPacked = null; if (version > 2) { comp = u8(); atPacked = o; packed = u64(); } frags.push({ off, size, comp, packed, at, atPacked }); }
-    res.push({ id, type, frags }); o = start + 4 + len;
+    res.push({ id, type, frags, entry: [start, 4 + len] }); o = start + 4 + len;
   }
   return { dataOff, res };
 }
@@ -261,6 +261,77 @@ module.exports = function createHelmetEditor({ dataDir }) {
     } catch (e) { return { ok: false, error: e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
     return { ok: true, file: zip, dir: path.dirname(zip), kind, target: t.name };
   }
+  /*
+    Car liveries (My Team): the editor works on the F1 75 replica livery's colour texture, 4096 x 4096 (BC1). It has no
+    team-colour mask (the tier liveries do), so what's painted is what shows. Its full-size levels are a loose file; its
+    smallest levels and the record saying where the loose file's blocks are sit in the car's archives, which are big
+    (25 MB each, seven of them for 2026). So the export carries the loose file and a small overlay archive holding that
+    one texture record, which SWOFTY lays over each of the car's archives ("overlay" operation).
+  */
+  const CAR = {
+    2026: { ref: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', erps: ['fom_car/wep/fom_car', 'myteam_audi/wep/myteam_audi', 'myteam_ferrari/wep/myteam_ferrari', 'myteam_honda/wep/myteam_honda', 'myteam_mercedes/wep/myteam_mercedes', 'myteam_redbull_ford/wep/myteam_redbull_ford', 'myteam_renault/wep/myteam_renault'].map(p => `2025_asset_groups/f1_2026_vehicle_package/teams/${p}.erp`) },
+    2025: { ref: 'f1_2025_vehicle_package/teams/common_fom.erp', erps: ['2025_asset_groups/f1_2025_vehicle_package/teams/common_fom.erp'] },
+  };
+  const LIVERY = 'livery_replica_f175_d';
+  /** The livery's texture record from the game: { b, E, R (the resource), meta, loose (the file's path), levels: [{ off, packed, size }] }. */
+  function carRecord(game, year) {
+    const c = CAR[year]; if (!c) throw new Error('No car for ' + year);
+    const b = fs.readFileSync(path.join(game, '2025_asset_groups', c.ref)); const E = readErp(b);
+    const R = E.res.find(x => x.id.endsWith(`/${LIVERY}.tif.image`)); if (!R || R.frags.length < 3) throw new Error('The livery isn’t in the car’s archive');
+    const meta = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + meta[0]; const loose = meta.toString('latin1', 1, m0); const n = meta[m0 + 1]; const levels = [];
+    for (let k = 0; k < n; k++) { const e = m0 + 6 + 26 * k; levels.push({ e, type: meta[e], off: Number(meta.readBigUInt64LE(e + 1)), packed: Number(meta.readBigUInt64LE(e + 9)), size: Number(meta.readBigUInt64LE(e + 17)) }); }
+    return { b, E, R, meta, m0, loose, levels };
+  }
+  /** The livery as it is, at 1024 x 1024 (a guide to paint over): { ok, year, guide (RGBA), w, h }. */
+  function carLoad(year = 2026) {
+    const game = findGame(); if (!game) return { ok: false, needGame: true, error: 'F1 25 wasn’t found.' };
+    try {
+      const r = carRecord(game, year); const mm = fs.readFileSync(path.join(game, r.loose));
+      const k = r.levels.findIndex(l => l.size === 1024 * 1024 / 2); if (k < 0) throw new Error('No 1024 level');
+      const L = r.levels[k]; const data = lz4Block(mm.subarray(L.off, L.off + L.packed), 0, L.size)[0];
+      return { ok: true, year, guide: bc1Decode(data, 1024, 1024), w: 4096, h: 4096 };
+    } catch (e) { return { ok: false, error: 'Couldn’t read the car livery from F1 25: ' + e.message }; }
+  }
+  /** An archive holding one resource (copied from another, its fragments replaced): for SWOFTY's overlay. */
+  function overlayErp(src, R, payloads) {
+    const ent = Buffer.from(src.subarray(R.entry[0], R.entry[0] + R.entry[1])); const infoSize = 8 + ent.length; const dataOff = 48 + infoSize;
+    let off = 0; R.frags.forEach((f, i) => { const p = payloads[i]; ent.writeBigUInt64LE(BigInt(off), f.at - R.entry[0]); if (f.atPacked != null) ent.writeBigUInt64LE(BigInt(p.length), f.atPacked - R.entry[0]); off += p.length; });
+    const head = Buffer.alloc(48); head.write('ERPK', 0, 'ascii'); head.writeUInt32LE(3, 4); head.writeBigUInt64LE(48n, 16); head.writeBigUInt64LE(BigInt(infoSize), 24); head.writeBigUInt64LE(BigInt(dataOff), 32);
+    const info = Buffer.alloc(8); info.writeUInt32LE(1, 0); info.writeUInt32LE(R.frags.length, 4);
+    return Buffer.concat([head, info, ent, ...payloads]);
+  }
+  /** A finished livery (RGBA 4096 x 4096, rows top to bottom) as a SWOFTY addon zip named after it, for the car of that year. */
+  function carExport(rgba, name, year = 2026) {
+    const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
+    const S = 4096; const px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); if (px.length !== S * S * 4) return { ok: false, error: 'The livery is the wrong size.' };
+    const safe = String(name || 'Livery').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'Livery';
+    let r; try { r = carRecord(game, year); } catch (e) { return { ok: false, error: e.message }; }
+    // every level, 4096 down to 4 x 4
+    const levels = []; let cur = px, w = S, h = S; while (true) { levels.push(bc1Encode(cur, w, h)); if (w <= 4) break; cur = halve(cur, w, h); w >>= 1; h >>= 1; }
+    const nLoose = r.levels.length; if (r.levels.some((l, k) => l.size !== levels[k].length)) return { ok: false, error: 'The livery’s levels aren’t as expected.' };
+    const blocks = levels.slice(0, nLoose).map(lz4Literal); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) return { ok: false, error: 'The livery’s small levels aren’t as expected.' };
+    let o = 0; const meta = Buffer.from(r.meta); blocks.forEach((blk, k) => { const e = r.levels[k].e; meta.writeBigUInt64LE(BigInt(o), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); o += blk.length; });
+    const head = fragOf(r.b, r.E, r.R.frags[0]); const payloads = [r.R.frags[0].packed === r.R.frags[0].size ? head : zstdWrite(head), zstdWrite(tail), zstdWrite(meta)];
+    const ov = overlayErp(r.b, r.R, payloads);
+    // read back: the overlay's record, and every block of the loose file where it says
+    const mm = Buffer.concat(blocks); const E2 = readErp(ov); const R2 = E2.res[0]; const meta2 = fragOf(ov, E2, R2.frags[2]);
+    const ok = R2.id === r.R.id && fragOf(ov, E2, R2.frags[1]).equals(tail) && blocks.every((blk, k) => { const e = r.levels[k].e; const s = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(mm.subarray(s, s + n), 0, levels[k].length)[0].equals(levels[k]); } catch { return false; } });
+    if (!ok) return { ok: false, error: 'The written files didn’t read back correctly.' };
+    const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true });
+    const zip = path.join(root(), 'exports', `${safe} (${year} car).zip`);
+    try {
+      fs.mkdirSync(path.join(out, 'files', path.dirname(r.loose)), { recursive: true }); fs.writeFileSync(path.join(out, 'files', r.loose), mm);
+      fs.mkdirSync(path.join(out, 'erp'), { recursive: true }); fs.writeFileSync(path.join(out, 'erp', 'livery.erp'), ov);
+      fs.mkdirSync(path.join(out, 'ops'), { recursive: true }); fs.writeFileSync(path.join(out, 'ops', 'erp.json'), JSON.stringify({ schema_version: 1, ops: [{ op: 'overlay', erps: CAR[year].erps, source: 'erp/livery.erp' }] }, null, 2));
+      const slug = safe.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'livery';
+      fs.writeFileSync(path.join(out, 'swofty.json'), JSON.stringify({ schema_version: 1, id: `pitwall.livery-${year}-${slug}`, name: `${safe} (Pitwall ${year} livery)`, version: '1.0.0', author: 'Pitwall', category: 'liveries', kind: ['files', 'erp'], compat: { game: 'f1_25' },
+        description: `Puts "${safe}", made in Pitwall's livery editor, on the F1 75 livery of the ${year} My Team car. Pick that livery for your team in the game. Turn this addon off to get the original back.`,
+        operations: { files: [{ source: `files/${r.loose}`, target: r.loose }], erp: ['ops/erp.json'] } }, null, 2));
+      fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a My Team livery made in Pitwall's editor, as a SWOFTY addon.\r\n\r\nIt replaces the F1 75 livery on the ${year} My Team car. Install it in SWOFTY Launcher, turn it on in your profile and press Play,\r\nthen pick the F1 75 livery for your team in the game. Turn the addon off to get the original back.\r\n`);
+      zipFolder(out, zip);
+    } catch (e) { return { ok: false, error: e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
+    return { ok: true, file: zip, dir: path.dirname(zip), year };
+  }
   // ---- designs, one file each (images inside can be big, so they stay out of the career data)
   const designsDir = () => path.join(root(), 'designs');
   const okId = (id) => /^[\w-]{1,64}$/.test(String(id));
@@ -268,5 +339,5 @@ module.exports = function createHelmetEditor({ dataDir }) {
   function save(d) { if (!d || !okId(d.id)) return { ok: false }; fs.mkdirSync(designsDir(), { recursive: true }); const f = path.join(designsDir(), d.id + '.json'); fs.writeFileSync(f + '.tmp', JSON.stringify(d)); fs.renameSync(f + '.tmp', f); return { ok: true }; }
   function open(id) { if (!okId(id)) return null; try { return JSON.parse(fs.readFileSync(path.join(designsDir(), id + '.json'), 'utf8')); } catch { return null; } }
   function remove(id) { if (!okId(id)) return false; try { fs.rmSync(path.join(designsDir(), id + '.json'), { force: true }); return true; } catch { return false; } }
-  return { load, findGame, setGame, setTarget, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
+  return { load, carLoad, carExport, findGame, setGame, setTarget, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
 };

@@ -84,13 +84,13 @@ function edMount() {
   edResize();
 }
 function edBuild() {
-  const el = document.createElement('div'); el.className = 'he'; el.id = 'ed-root';
+  const el = document.createElement('div'); el.className = 'he'; el.id = 'ed-root'; el.dataset.tab = 'helmet';
   el.innerHTML = `
     <div class="he-head">
       <div><h1>Editor <span class="tag beta">BETA</span> <span class="tag he-dev">DEV</span></h1><div class="muted">Design your own gear for F1 25: helmets, and stickers to use on them.</div></div>
       <div class="he-row"><div class="he-designs"><button class="btn ghost" data-ed="designs">My designs ▾</button><div class="he-menu" id="ed-menu"></div></div><button class="btn" data-ed="new" id="ed-newbtn">New helmet</button></div>
     </div>
-    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button><button class="he-tab off" title="Coming next">Car livery</button><button class="he-tab" data-tab="sticker">Sticker maker</button></div>
+    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button><button class="he-tab" data-tab="car">Car livery</button><button class="he-tab" data-tab="sticker">Sticker maker</button></div>
     <div class="he-ed">
       <section class="panel he-panel">
         <div class="he-ph"><span class="label">Add</span></div>
@@ -102,9 +102,10 @@ function edBuild() {
       <section class="panel he-view" id="ed-view">
         <canvas id="ed-canvas"></canvas>
         <canvas id="ed-flat" class="he-flat"></canvas>
-        <canvas id="ed-stk" class="he-stkcv only-sticker"></canvas>
+        <canvas id="ed-stk" class="he-stkcv only-flat"></canvas>
         <svg id="ed-gizmo" class="he-gizmo"></svg>
         <div class="he-vbar">
+          <div class="he-row only-car"><label class="he-chk he-guide"><input type="checkbox" id="ed-guide" checked> Guide</label><input type="range" id="ed-guideop" min="0.05" max="0.9" step="0.05" value="0.35" title="How strongly the original livery shows over yours (it's never exported)"></div>
           <div class="he-row only-sticker"><div class="seg he-seg" id="ed-stksize"><button data-stk="1024x1024">Square</button><button data-stk="2048x1024">Wide</button><button data-stk="1024x2048">Tall</button></div></div>
           <div class="he-row only-helmet"><button class="btn sm" data-cam="front">Front</button><button class="btn sm" data-cam="left">Left</button><button class="btn sm" data-cam="right">Right</button><button class="btn sm" data-cam="back">Back</button><button class="btn sm" data-cam="top">Top</button></div>
           <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
@@ -113,8 +114,8 @@ function edBuild() {
         <div class="he-foot"><span class="he-hint" id="ed-hint">Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet</span></div>
       </section>
       <section class="panel he-panel">
-        <div class="he-ph only-helmet"><span class="label">Helmet base</span><span class="muted he-small">under every layer</span></div>
-        <div class="he-pb he-props only-helmet" id="ed-base" style="flex:0 0 auto"></div>
+        <div class="he-ph not-sticker"><span class="label" id="ed-baselbl">Helmet base</span><span class="muted he-small">under every layer</span></div>
+        <div class="he-pb he-props not-sticker" id="ed-base" style="flex:0 0 auto"></div>
         <div class="he-ph he-bt"><span class="label">Layers</span><div class="he-row"><button class="btn sm ghost" data-ed="dup" title="Duplicate">⎘</button><button class="btn sm ghost" data-ed="up" title="Move up">▲</button><button class="btn sm ghost" data-ed="down" title="Move down">▼</button><button class="btn sm ghost" data-ed="del" title="Delete">✕</button></div></div>
         <div class="he-pb" id="ed-layers" style="flex:0 1 auto;max-height:260px"></div>
         <div class="he-ph he-bt"><span class="label" id="ed-ptitle">Layer</span><span class="muted he-small" id="ed-pkind"></span></div>
@@ -123,8 +124,9 @@ function edBuild() {
     </div>
     <div class="he-bottom">
       <div class="he-row"><input class="he-name" id="ed-name" maxlength="40" title="The helmet's name"><span class="muted he-small" id="ed-status"></span></div>
-      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button></div>
+      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button><button class="btn primary only-car" data-ed="car-export" title="Puts it on the F1 75 livery of the My Team car">Export SWOFTY addon</button></div>
     </div>
+    <div class="he-row he-target only-car"><span class="muted he-small">The addon puts it on the F1 75 livery of the</span><select class="he-mini" id="ed-caryear"><option value="2026">2026 My Team car</option><option value="2025">2025 My Team car</option></select><span class="muted he-small">(pick that livery for your team in the game)</span></div>
     <div class="he-row he-target only-helmet"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game)</span>
     </div>
     <div class="he-modal" id="ed-modal"></div>
@@ -442,7 +444,7 @@ function edTextPreview() {
   for (const p of ['tt', 'tl']) { const cv = ED.root.querySelector('#ed-tprev-' + p); if (!cv) continue; const t = p === 'tt' ? ED.text : ED.design.layers.find(l => l.id === ED.sel)?.text; if (!t) continue;
     const src = edTextCanvas(t); const box = cv.parentElement; const W = box.clientWidth || 220, H = box.clientHeight || 70; cv.width = W * 2; cv.height = H * 2; const g = cv.getContext('2d'); const k = Math.min(cv.width / src.width, cv.height / src.height) * 0.92; g.drawImage(src, (cv.width - src.width * k) / 2, (cv.height - src.height * k) / 2, src.width * k, src.height * k); }
 }
-function edPanels() { if (edIsStk()) ED.root.querySelectorAll('[data-stk]').forEach(b => b.classList.toggle('on', b.dataset.stk === `${ED.design.w || 1024}x${ED.design.h || 1024}`)); edBasePanel(); edLayers(); edProps(); const n = ED.root.querySelector('#ed-name'); if (n && document.activeElement !== n) n.value = ED.design.name; edStatus(); }
+function edPanels() { const cy = ED.root.querySelector('#ed-caryear'); if (cy && edIsCar()) cy.value = String(ED.design.year || 2026); if (ED.tab === 'sticker') ED.root.querySelectorAll('[data-stk]').forEach(b => b.classList.toggle('on', b.dataset.stk === `${ED.design.w || 1024}x${ED.design.h || 1024}`)); edBasePanel(); edLayers(); edProps(); const n = ED.root.querySelector('#ed-name'); if (n && document.activeElement !== n) n.value = ED.design.name; edStatus(); }
 function edBasePanel() {
   const b = ED.design.base; const el = ED.root.querySelector('#ed-base'); if (!el) return; if (!b) { el.innerHTML = ''; return; } // (a sticker has no base: its background is see-through)
   el.innerHTML = `<div class="he-baserow"><span class="he-chip" style="background:${b.fade ? `linear-gradient(${b.dir === 'fb' ? '90deg' : '180deg'}, ${b.color}, ${b.color2})` : b.color}"></span>${edSw(b.color, 'data-base="color"')}</div>
@@ -529,7 +531,8 @@ function edRedo() { if (!ED.redo.length) return; ED.undo.push(edSnap()); edResto
 async function edSave(silent) {
   clearTimeout(ED.saveT); const D = ED.design; D.at = new Date().toISOString();
   // (imported images stay in the design, in its Images tab, until removed there; undo can bring back a layer using one)
-  let thumb = null, png = null; if (edIsStk()) { const c = edStkPng(); if (c) { png = c.toDataURL('image/png'); const tc = edCanvas(160, 120), k = Math.min(150 / c.width, 110 / c.height); tc.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = tc.toDataURL('image/png'); } }
+  let thumb = null, png = null; if (edIsCar()) { if (ED.stkCv) { const tc = edCanvas(160, 120); tc.getContext('2d').drawImage(ED.stkCv, 20, 0, 120, 120); thumb = tc.toDataURL('image/jpeg', 0.8); } }
+  else if (edIsStk()) { const c = edStkPng(); if (c) { png = c.toDataURL('image/png'); const tc = edCanvas(160, 120), k = Math.min(150 / c.width, 110 / c.height); tc.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = tc.toDataURL('image/png'); } }
   else try { if (ED.three) { edFrame(); const c = ED.three.R.domElement; const t = document.createElement('canvas'); t.width = 160; t.height = 120; const k = Math.max(160 / c.width, 120 / c.height); t.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = t.toDataURL('image/jpeg', 0.8); } } catch { }
   const r = await edApi().save({ ...D, kind: D.kind || 'helmet', thumb, ...(png ? { png } : {}) }); if (r?.ok) { ED.dirty = false; ED.savedAt = Date.now(); edStatus(); if (!silent) edList(); }
 }
@@ -547,7 +550,7 @@ function edHitAt(cx, cy) {
 function edAdd(kind, opts, at) {
   if (edIsStk()) {
     const D = ED.design; const W = D.w || 1024, H = D.h || 1024; let x = 0.5, y = 0.5; if (at) { const [X, Y] = edStkAt(at[0], at[1]); if (X >= 0 && Y >= 0 && X <= W && Y <= H) { x = X / W; y = Y / H; } }
-    const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'flat', x, y, size: kind === 'text' ? 0.7 : 0.45, stretch: 1, rot: 0, opacity: 1, ...opts };
+    const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'flat', x, y, size: edIsCar() ? (kind === 'text' ? 0.3 : 0.18) : kind === 'text' ? 0.7 : 0.45, stretch: 1, rot: 0, opacity: 1, ...opts };
     if (kind === 'shape') { const S = ED_SHAPES.find(s => s.id === L.shape); L.name = S?.name || 'Shape'; L.colors ||= [S?.cat === 'Flags' ? '#ffffff' : '#E10600', '#111111', '#001E6E']; if (S && /stripe|pin/.test(S.id)) L.size = 0.1; }
     if (kind === 'text') L.name = opts.text.str || 'Text'; if (kind === 'image') L.name = opts.name || 'Image';
     edCommit(() => { D.layers.push(L); ED.sel = L.id; }); return;
@@ -656,16 +659,17 @@ function edClick(e) {
   else if (a === 'bg' && L) edBgOpen(L);
   else if (a === 'save') edSave().then(() => toast('Saved.'));
   else if (a === 'stk-save') edSave().then(() => { toast('Saved: it’s in Add › Custom, in every editor.'); edList().then(() => { if (ED.lib === 'custom') edLib(); }); });
-  else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edIsStk() ? edNewSticker() : edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
+  else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edIsCar() ? edNewCar() : edIsStk() ? edNewSticker() : edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
   else if (a === 'designs') { edList().then(edMenu); }
   else if (a === 'png') edExportPng();
   else if (a === 'export') edExport('addon');
+  else if (a === 'car-export') edCarExport();
   else if (a === 'export-hx') edExport('hx');
   else if (a?.startsWith('bg-')) edBgAction(a, t);
 }
 function edMenu() {
   const m = ED.root.querySelector('#ed-menu'); if (!m) return;
-  const kind = edIsStk() ? 'sticker' : 'helmet'; const list = ED.list.filter(d => (d.kind || 'helmet') === kind);
+  const kind = edIsCar() ? 'car' : edIsStk() ? 'sticker' : 'helmet'; const list = ED.list.filter(d => (d.kind || 'helmet') === kind);
   m.innerHTML = list.length ? list.map(d => `<div class="he-mi" data-open="${d.id}">${d.thumb ? `<img src="${d.thumb}" alt="">` : '<span class="he-noimg"></span>'}<span>${edEsc(d.name)}<small>${new Date(d.at).toLocaleString()}</small></span><button class="icon-btn" data-delete="${d.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted he-small" style="padding:10px">No saved designs yet.</div>';
   m.classList.add('on');
 }
@@ -708,6 +712,8 @@ function edInput(e) {
   }
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
   if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
+  if (t.id === 'ed-caryear') { if (e.type === 'change') { edCommit(() => { D.year = +t.value; }, { bake: false }); edCarGuide(); } return; }
+  if (t.id === 'ed-guide' || t.id === 'ed-guideop') { edDrawSticker(); return; }
   if (t.id === 'ed-name') { if (e.type === 'change') edCommit(() => { D.name = t.value.trim() || 'Helmet'; }, { bake: false, panels: false }); return; }
   if (t.dataset.tf) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
   if (t.dataset.base) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; if (t.type === 'checkbox') { edCommit(() => { D.base.fade = t.checked; }); return; } edCommit(() => { D.base[t.dataset.base] = t.value; }); return; }
@@ -895,7 +901,9 @@ document.addEventListener('click', (e) => { const t = e.target.closest?.('#ed-mo
 // canvas width), with the same stretch, turn, flips, colour, effects and auto-mask. Every saved sticker is in
 // Add > Custom, in every editor.
 const edNewSticker = () => ({ id: edUid(), kind: 'sticker', name: 'New sticker', at: new Date().toISOString(), w: 1024, h: 1024, layers: [], groups: {}, images: {} });
-const edIsStk = () => ED.tab === 'sticker';
+const edIsStk = () => ED.tab === 'sticker' || ED.tab === 'car'; // (the flat canvas: the Sticker maker and the car livery)
+const edIsCar = () => ED.tab === 'car';
+const edNewCar = () => ({ id: edUid(), kind: 'car', name: 'New livery', at: new Date().toISOString(), w: 4096, h: 4096, year: 2026, base: { color: '#1B1F2A', color2: '#E10600', fade: false, dir: 'tb' }, layers: [], groups: {}, images: {} });
 const edViewEl = () => edIsStk() ? ED.root.querySelector('#ed-stk') : ED.three?.R.domElement;
 const edMaxW = (L) => L.mode === 'flat' ? 3 : 0.32;
 /** Switches between the helmet and the Sticker maker, each keeping its own design, undo and selection. */
@@ -904,12 +912,13 @@ function edSwitchTab(tab) {
   if (ED.dirty) edSave(true);
   ED.tabs[ED.tab] = { design: ED.design, undo: ED.undo, redo: ED.redo, sel: ED.sel, selGroup: ED.selGroup, multi: ED.multi, dirty: false, savedAt: ED.savedAt };
   ED.tab = tab; const S = ED.tabs[tab];
-  Object.assign(ED, S || { design: tab === 'sticker' ? edNewSticker() : edNew(), undo: [], redo: [], sel: null, selGroup: null, multi: new Set(), dirty: false, savedAt: null });
-  ED.root.classList.toggle('he-sticker', tab === 'sticker'); ED.root.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  ED.root.querySelector('#ed-newbtn').textContent = tab === 'sticker' ? 'New sticker' : 'New helmet';
-  ED.root.querySelector('#ed-name').title = tab === 'sticker' ? 'The sticker’s name' : 'The helmet’s name';
-  ED.root.querySelector('#ed-hint').textContent = tab === 'sticker' ? 'Pick something from Add · drag it on the canvas · corners size it · the top handle turns it · Save to Custom Stickers to use it on a helmet' : 'Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet';
-  ED.root.querySelector('#ed-msg').style.visibility = tab === 'sticker' ? 'hidden' : '';
+  Object.assign(ED, S || { design: tab === 'sticker' ? edNewSticker() : tab === 'car' ? edNewCar() : edNew(), undo: [], redo: [], sel: null, selGroup: null, multi: new Set(), dirty: false, savedAt: null });
+  ED.root.dataset.tab = tab; if (tab === 'car') edCarGuide(); ED.root.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  ED.root.querySelector('#ed-newbtn').textContent = { sticker: 'New sticker', car: 'New livery' }[tab] || 'New helmet';
+  ED.root.querySelector('#ed-name').title = { sticker: 'The sticker’s name', car: 'The livery’s name' }[tab] || 'The helmet’s name';
+  ED.root.querySelector('#ed-baselbl').textContent = tab === 'car' ? 'Livery base' : 'Helmet base';
+  ED.root.querySelector('#ed-hint').textContent = tab === 'car' ? 'The livery as the game lays it out (the original shows faintly over it as a guide) · drag, size and turn like on the helmet' : tab === 'sticker' ? 'Pick something from Add · drag it on the canvas · corners size it · the top handle turns it · Save to Custom Stickers to use it on a helmet' : 'Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet';
+  ED.root.querySelector('#ed-msg').style.visibility = tab !== 'helmet' ? 'hidden' : '';
   edPanels(); edLib(); edBake(); edResize();
 }
 /** A flat layer's placing on the canvas: middle (px), turn (radians, as the helmet's: positive turns anticlockwise), scale of its picture. */
@@ -921,7 +930,8 @@ let edStkBusy = false, edStkAgain = false;
 async function edBakeSticker() {
   if (edStkBusy) { edStkAgain = true; return; } edStkBusy = true;
   const D = ED.design; const W = D.w || 1024, H = D.h || 1024; const srcs = await Promise.all(D.layers.map(L => L.visible === false ? null : edSource(L)));
-  const cv = ED.stkCv ||= document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'); g.clearRect(0, 0, W, H);
+  const cv = ED.stkCv ||= document.createElement('canvas'); if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H; const g = cv.getContext('2d'); g.clearRect(0, 0, W, H);
+  if (D.base) { if (D.base.fade) { const gr = D.base.dir === 'fb' ? g.createLinearGradient(0, 0, W, 0) : g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0.15, D.base.color); gr.addColorStop(0.85, D.base.color2); g.fillStyle = gr; } else g.fillStyle = D.base.color; g.fillRect(0, 0, W, H); }
   D.layers.forEach((L, k) => { const s = srcs[k]; if (!s) return; const X = edStkXf(L, s, W); g.save(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore(); });
   edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; edDrawSticker();
   if (edStkAgain) { edStkAgain = false; edBakeSticker(); }
@@ -934,6 +944,7 @@ function edDrawSticker() {
   ED.stkView = { k, ox, oy };
   const sq = 12; g.save(); g.beginPath(); g.rect(ox, oy, W * k, H * k); g.clip(); for (let y = 0; y < H * k; y += sq) for (let x = 0; x < W * k; x += sq) { g.fillStyle = ((x + y) / sq) % 2 ? '#2a3144' : '#343c52'; g.fillRect(ox + x, oy + y, sq, sq); } g.restore();
   if (ED.stkCv) { g.imageSmoothingQuality = 'high'; g.drawImage(ED.stkCv, ox, oy, W * k, H * k); }
+  if (edIsCar() && ED.carGuide && ED.root.querySelector('#ed-guide')?.checked) { g.save(); g.globalAlpha = +(ED.root.querySelector('#ed-guideop')?.value || 0.35); g.drawImage(ED.carGuide, ox, oy, W * k, H * k); g.restore(); }
   g.strokeStyle = 'rgba(255,255,255,.18)'; g.strokeRect(ox - 0.5, oy - 0.5, W * k + 1, H * k + 1);
   g.fillStyle = '#8B97AF'; g.font = '12px Segoe UI'; g.fillText(`${W} × ${H}`, ox, oy + H * k + 16);
   edStkGizmo();
@@ -994,6 +1005,23 @@ async function edAutoMaskFlat(L) {
   const X = edStkXf(L, s, W); const m = edCanvas(s.cw, s.ch), mg = m.getContext('2d'); mg.fillStyle = '#fff'; mg.fillRect(0, 0, s.cw, s.ch); mg.globalCompositeOperation = 'destination-out';
   mg.translate(s.cw / 2, s.ch / 2); mg.scale(1 / X.sx, 1 / X.sy); mg.rotate(X.rot); mg.translate(-X.cx, -X.cy); mg.drawImage(cover, 0, 0);
   const mask = m.toDataURL('image/png'); L.mask = before; edCommit(() => { L.mask = mask; });
+}
+/** The car's original F1 75 livery for its year, as a guide to paint over (1024 x 1024, shown over the canvas). */
+async function edCarGuide() {
+  const year = ED.design.year || 2026; if (ED.carGuideYear === year && ED.carGuide) return; ED.carGuide = null; ED.carGuideYear = year;
+  let r = null; try { r = await edApi().carLoad(year); } catch (e) { r = { ok: false, error: e.message }; }
+  if (!r?.ok) { toast(r?.error || 'Couldn’t read the car livery.'); return; }
+  const c = edCanvas(1024, 1024); c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(r.guide.buffer, r.guide.byteOffset, r.guide.byteLength), 1024, 1024), 0, 0); ED.carGuide = c; edDrawSticker();
+}
+/** The livery as a SWOFTY addon for the car of its year: the canvas, full size, without the guide. */
+async function edCarExport() {
+  await edBakeSticker(); const cv = ED.stkCv; if (!cv || cv.width !== 4096) return; edStatus('Exporting…');
+  const px = new Uint8Array(cv.getContext('2d').getImageData(0, 0, 4096, 4096).data.buffer); const year = ED.design.year || 2026;
+  const r = await edApi().carExport(px, ED.design.name, year); edStatus();
+  if (!r?.ok) { toast('Export failed: ' + (r?.error || 'unknown error')); return; }
+  edModal(`<h3>Exported</h3><p class="muted">A SWOFTY addon for the ${year} My Team car, zipped:</p><code class="he-path">${edEsc(r.file)}</code>
+    <ol class="he-steps"><li>Add the zip to SWOFTY Launcher as an addon, and turn it on in your profile.</li><li>Press <b>Play</b>, then pick the <b>F1 75</b> livery for your team in the game. Your design is on it.</li><li>Turn the addon off to get the original back.</li></ol>
+    <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.file)}">Show the zip</button></div>`);
 }
 /** The sticker as a PNG, cut to what's on it (see-through edges trimmed). */
 function edStkPng() {
