@@ -262,9 +262,10 @@ function edThree(r) {
     fragmentShader: `uniform float uFace; uniform float uDepth; uniform vec3 uC; uniform float uR; uniform float uSide; uniform sampler2D uTex; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; uniform float uOp; varying vec3 vP; varying vec3 vN; varying vec2 vUv;
       void main(){
         vec3 n = normalize(vN); if (dot(n, vP - uC) * uSide < 0.0) discard;
-        if (uMode > 1.5) { vec4 c = texture2D(uTex, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = vec4(c.rgb, c.a * uOp); return; }
+        if (uMode > 1.5 && uMode < 2.5) { vec4 c = texture2D(uTex, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = vec4(c.rgb, c.a * uOp); return; }
         vec2 q;
         if (uMode < 0.5) { vec3 d = vP - uP; if (dot(n, uN) * uSide < uFace || abs(dot(d, uN)) > uDepth) discard; q = vec2(dot(d, uT), dot(d, uU)); }
+        else if (uMode > 2.5) { vec3 dd = normalize(vP - uC); float cs = clamp(dot(dd, uN), -1.0, 1.0); float ang = acos(cs); if (ang > 2.4) discard; vec3 tg = dd - uN * cs; float tl = length(tg); q = tl > 1e-6 ? vec2(dot(tg, uT), dot(tg, uU)) / tl * ang * uR : vec2(0.0); }
         else { float th = atan(vP.z - uC.z, vP.y - uC.y); q = vec2(vP.x - uC.x, -th * uR) - uW; }
         q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y);
         vec2 t = q / uSize * uFlip + 0.5;
@@ -439,9 +440,10 @@ async function edAutoMask(L) {
     vertexShader: `uniform vec3 uC; uniform float uR; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; varying vec2 vUv; varying float vFace; varying float vDepth; varying float vSeam; varying float vOut;
       void main(){ vUv = uv; vec2 q; vec3 d = position - uP; vOut = dot(normal, position - uC);
         if (uMode < 0.5) { q = vec2(dot(d, uT), dot(d, uU)); vFace = dot(normal, uN); vDepth = abs(dot(d, uN)); vSeam = 1.0; }
+        else if (uMode > 2.5) { vec3 dd = normalize(position - uC); float cs = clamp(dot(dd, uN), -1.0, 1.0); float ang = acos(cs); vec3 tg = dd - uN * cs; float tl = length(tg); q = tl > 1e-6 ? vec2(dot(tg, uT), dot(tg, uU)) / tl * ang * uR : vec2(0.0); vFace = 1.0; vDepth = 0.0; vSeam = ang > 2.4 ? -1.0 : 1.0; }
         else { float th = atan(position.z - uC.z, position.y - uC.y); q = vec2(position.x - uC.x, -th * uR) - uW; vec3 rad = vec3(0.0, position.y - uC.y, position.z - uC.z); vFace = dot(normal, normalize(rad)); vDepth = 0.0; vSeam = cos(th); }
         q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y); vec2 t = q / uSize * uFlip + 0.5; gl_Position = vec4(t * 2.0 - 1.0, 0.0, 1.0); }`,
-    fragmentShader: `uniform sampler2D uCover; uniform float uSide; uniform float uMode; uniform float uFace; uniform float uDepth; varying vec2 vUv; varying float vFace; varying float vDepth; varying float vSeam; varying float vOut; void main(){ if (vOut * uSide < 0.0 || vSeam < -0.6) discard; if (uMode < 0.5 ? (vFace * uSide < uFace || vDepth > uDepth) : vFace * uSide < 0.0) discard; gl_FragColor = vec4(texture2D(uCover, vUv).a, 0.0, 0.0, 1.0); }` });
+    fragmentShader: `uniform sampler2D uCover; uniform float uSide; uniform float uMode; uniform float uFace; uniform float uDepth; varying vec2 vUv; varying float vFace; varying float vDepth; varying float vSeam; varying float vOut; void main(){ if (vOut * uSide < 0.0 || vSeam < -0.6) discard; if (uMode < 0.5 ? (vFace * uSide < uFace || vDepth > uDepth) : uMode > 2.5 ? false : vFace * uSide < 0.0) discard; gl_FragColor = vec4(texture2D(uCover, vUv).a, 0.0, 0.0, 1.0); }` });
   const M = T.invMat.uniforms; const F = edFrameOf(L, false, s.aspect);
   M.uCover.value = T.coverRT.texture; M.uMode.value = F.mode; M.uFace.value = F.face; M.uDepth.value = F.depth; M.uP.value.copy(F.P); M.uN.value.copy(F.N); M.uT.value.copy(F.T); M.uU.value.copy(F.U); M.uSize.value.set(F.w, F.h); M.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); M.uFlip.value.set(F.fx, F.fy); M.uW.value.set(F.wx, F.wy);
   const rt = new THREE.WebGLRenderTarget(s.cw, s.ch, { depthBuffer: false, stencilBuffer: false });
@@ -468,13 +470,13 @@ const edPlace = () => { if (!ED.place) { try { ED.place = localStorage.getItem('
 function edViewDir() { const T = ED.three; T.mesh.updateMatrixWorld(); const inv = new THREE.Matrix4().copy(T.mesh.matrixWorld).invert(); const a = T.cam.position.clone().applyMatrix4(inv), o = T.mesh.worldToLocal(new THREE.Vector3(0, 0, 0)); return a.sub(o).normalize(); }
 /** Changes how a layer is projected, keeping it where it is. */
 function edSetProj(L, mode) {
-  if (L.mode === mode || L.mode === 'uv' || L.mode === 'flat') return;
+  if ((L.mode === mode && !(mode === 'stick' && !L.curve)) || L.mode === 'uv' || L.mode === 'flat') return; // (Follow on an older stuck sticker turns on the wrap)
   edCommit(() => { const was = L.mode;
     if (mode === 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; }
     else if (was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); }
     if (mode === 'stamp') L.n = edViewDir().toArray();
     else if (mode === 'stick' && was === 'stamp') { const h = edSurfaceNear(new THREE.Vector3(...L.p)); L.p = h.p.toArray(); L.n = h.n.toArray(); }
-    L.mode = mode; });
+    if (mode === 'stick') L.curve = true; L.mode = mode; });
 }
 function edFrameOf(L, mirror, aspect) {
   const w = L.size || 0.08, h = w * (aspect || 1) * (L.stretch || 1); const reflect = mirror && L.kind === 'shape' && L.reflect !== false;
@@ -484,8 +486,13 @@ function edFrameOf(L, mirror, aspect) {
   if (L.mode === 'wrap') { const wx = (L.wx || 0) * (mirror ? -1 : 1); return { mode: 1, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w, h, rot, fx, fy, wx, wy: L.wy || 0, face, depth }; }
   const P = new THREE.Vector3(...(L.p || [0, 0, 0])), N = new THREE.Vector3(...(L.n || [1, 0, 0])).normalize();
   if (mirror) { P.x = 2 * ED.three.C.x - P.x; N.x = -N.x; }
+  if (L.mode === 'stick' && L.curve) { const D = P.clone().sub(ED.three.C).normalize(); const { T, U } = edTangents(D); return { mode: 3, P, N: D, T, U, w, h, rot, fx, fy, wx: 0, wy: 0, face, depth }; }
   const { T, U } = edTangents(N); return { mode: 0, P, N, T, U, w, h, rot, fx, fy, wx: 0, wy: 0, face, depth };
 }
+/** Where a point of the shell is in a wrapped sticker's own measure (round the curve from its middle), or null far round the back. */
+function edCurveQ(p, F) { const T = ED.three; const d = p.clone().sub(T.C).normalize(); const cs = Math.max(-1, Math.min(1, d.dot(F.N))); const ang = Math.acos(cs); if (ang > 2.4) return null; const tg = d.clone().addScaledVector(F.N, -cs); const tl = tg.length(); if (tl < 1e-6) return [0, 0]; return [tg.dot(F.T) / tl * ang * T.RAD, tg.dot(F.U) / tl * ang * T.RAD]; }
+/** The shell point at a wrapped sticker's own (x, y): that far round the curve from its middle, in that direction. */
+function edCurveAt(F, x, y) { const T = ED.three; const r = Math.hypot(x, y); const ang = r / T.RAD; const dir = F.N.clone().multiplyScalar(Math.cos(ang)); if (r > 1e-9) dir.addScaledVector(F.T, Math.sin(ang) * x / r).addScaledVector(F.U, Math.sin(ang) * y / r); return edSurfaceNear(T.C.clone().addScaledVector(dir.normalize(), T.RAD)).p; }
 /** A sticker's right and up on the surface, as seen from outside: up is as close to the world's up as the surface allows. */
 function edTangents(N) {
   let up = new THREE.Vector3(0, 1, 0); if (Math.abs(N.dot(up)) > 0.92) up = new THREE.Vector3(0, 0, -1).multiplyScalar(Math.sign(N.y) || 1);
@@ -592,7 +599,7 @@ function edProps() {
   if (!L) { el.innerHTML = ED.multi?.size > 1 ? `<div class="muted he-small">${ED.multi.size} layers selected.</div><button class="btn sm he-wide" data-ed="group">Group them</button>` : '<div class="muted he-small">Select a layer to change it. Click a sticker on the helmet, or a layer in the list (Ctrl+click to pick several, then group them).</div>'; return; }
   const range = (k, label, min, max, step, v, show) => `<div class="he-prow"><span>${label}</span><input type="range" data-lp="${k}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="v">${show}</span></div>`;
   el.innerHTML = `
-    ${L.mode === 'flat' ? (() => { const [w, h] = edDims(L); const W = ED.design.w || 1024; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.01, 3, 0.001, w, Math.round(w * W) + ' px') + range('len', 'Length', 0.01, 4, 0.001, Math.min(h, 4), Math.round(h * W) + ' px'); })() : L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
+    ${L.mode === 'flat' ? (() => { const [w, h] = edDims(L); const W = ED.design.w || 1024; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.01, 3, 0.001, w, Math.round(w * W) + ' px') + range('len', 'Length', 0.01, 4, 0.001, Math.min(h, 4), Math.round(h * W) + ' px'); })() : L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : L.curve && L.mode === 'stick' ? 0.6 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
     ${L.mode === 'uv' ? '' : range('rot', 'Rotation', -180, 180, 1, L.rot || 0, Math.round(L.rot || 0) + '°')}
     ${range('opacity', 'Opacity', 0, 1, 0.01, L.opacity ?? 1, Math.round((L.opacity ?? 1) * 100) + '%')}
     ${L.kind === 'text' ? `<div class="he-tc">${edTextForm(L.text, 'tl')}</div>` : ''}
@@ -602,7 +609,7 @@ function edProps() {
     ${L.mode === 'flat' ? `<div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="In the middle of the canvas">Centre</button></div>` : L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
     ${L.mirror ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
     <button class="btn sm he-wide" data-ed="detach" title="The mirror becomes a layer of its own, in the same place: change its colour or anything else separately">Make the mirror its own layer</button>` : ''}
-    <div class="he-row he-proj"><span class="muted he-small">Projection</span><div class="seg he-seg"><button data-proj="stick" class="${L.mode === 'stick' || !L.mode ? 'on' : ''}" title="Follows the surface where it sits (bends with the curve)">Follow surface</button><button data-proj="stamp" class="${L.mode === 'stamp' ? 'on' : ''}" title="Stamped straight on from the view it was aimed from: from there it looks exactly as drawn (lines stay straight)">Stamp from view</button><button data-proj="wrap" class="${L.mode === 'wrap' ? 'on' : ''}" title="Wraps round the helmet (for stripes front to back)">Wrap round</button></div>${L.mode === 'stamp' ? '<button class="btn sm" data-ed="aim" title="Stamps it from the way you are looking at the helmet now">Aim from this view</button>' : ''}</div>
+    ${edIsCar() ? '' : `<div class="he-row he-proj"><span class="muted he-small">Projection</span><div class="seg he-seg"><button data-proj="stick" class="${L.mode === 'stick' || !L.mode ? 'on' : ''}" title="Follows the surface where it sits (bends with the curve)">Follow surface</button><button data-proj="stamp" class="${L.mode === 'stamp' ? 'on' : ''}" title="Stamped straight on from the view it was aimed from: from there it looks exactly as drawn (lines stay straight)">Stamp from view</button><button data-proj="wrap" class="${L.mode === 'wrap' ? 'on' : ''}" title="Wraps round the helmet (for stripes front to back)">Wrap round</button></div>${L.mode === 'stamp' ? '<button class="btn sm" data-ed="aim" title="Stamps it from the way you are looking at the helmet now">Aim from this view</button>' : ''}</div>`}
     <div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="On the middle line, front to back">Centre</button></div>`}`;
   edTextPreview();
 }
@@ -638,6 +645,14 @@ function edHitAt(cx, cy) {
   return { p, n: n.normalize() };
 }
 function edAdd(kind, opts, at) {
+  if (edCar3dOn()) {
+    const r = ED.three.R.domElement.getBoundingClientRect(); const C = ED.car3; const h = (at && edCarHit(at[0], at[1])) || edCarHit(r.left + r.width / 2, r.top + r.height / 2);
+    const p = h ? h.p : (C.target || ED_CARMID).clone(); const n = C.cam.position.clone().sub(C.target || ED_CARMID).normalize();
+    const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'stamp', p: p.toArray(), n: n.toArray(), size: kind === 'text' ? 0.5 : 0.25, stretch: 1, rot: 0, opacity: 1, ...opts };
+    if (kind === 'shape') { const S = ED_SHAPES.find(s => s.id === L.shape); L.name = S?.name || 'Shape'; L.colors ||= [S?.cat === 'Flags' ? '#ffffff' : '#E10600', '#111111', '#001E6E']; }
+    if (kind === 'text') L.name = opts.text.str || 'Text'; if (kind === 'image') L.name = opts.name || 'Image';
+    edCommit(() => { ED.design.layers.push(L); ED.sel = L.id; }); return;
+  }
   if (edIsStk()) {
     const D = ED.design; const W = D.w || 1024, H = D.h || 1024; let x = 0.5, y = 0.5; if (!at && edCar3dOn()) { const r = ED.three.R.domElement.getBoundingClientRect(); at = [r.left + r.width / 2, r.top + r.height / 2]; } if (at) { const [X, Y] = edStkAt(at[0], at[1]); if (X >= 0 && Y >= 0 && X <= W && Y <= H) { x = X / W; y = Y / H; } }
     const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'flat', x, y, size: edIsCar() ? (kind === 'text' ? 0.3 : 0.18) : kind === 'text' ? 0.7 : 0.45, stretch: 1, rot: 0, opacity: 1, ...opts };
@@ -647,7 +662,7 @@ function edAdd(kind, opts, at) {
   }
   if (!ED.three) return; const r = ED.three.R.domElement.getBoundingClientRect();
   const hit = (at && edHitAt(at[0], at[1])) || edHitAt(r.left + r.width / 2, r.top + r.height / 2) || { p: ED.three.C.clone().add(new THREE.Vector3(0.11, 0.03, 0)), n: new THREE.Vector3(1, 0, 0) };
-  const stamp = edPlace() === 'stamp'; const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: stamp ? 'stamp' : 'stick', p: hit.p.toArray(), n: (stamp ? edViewDir() : hit.n).toArray(), size: 0.08, stretch: 1, rot: 0, opacity: 1, ...opts };
+  const stamp = edPlace() === 'stamp'; const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: stamp ? 'stamp' : 'stick', curve: !stamp, p: hit.p.toArray(), n: (stamp ? edViewDir() : hit.n).toArray(), size: 0.08, stretch: 1, rot: 0, opacity: 1, ...opts };
   if (kind === 'shape') { const S = ED_SHAPES.find(s => s.id === L.shape); L.name = S?.name || 'Shape'; L.colors ||= [S?.cat === 'Flags' ? '#ffffff' : '#E10600', '#111111', '#001E6E']; if (S && /stripe|pin/.test(S.id)) { L.mode = 'wrap'; const wy = edWrapOf(hit.p)[1]; L.wx = 0; L.wy = wy; L.size = S.id === 'stripe' ? 0.03 : 0.06; L.stretch = 8; } if (S?.cat === 'Flags') L.size = 0.07; }
   if (kind === 'text') { L.name = opts.text.str || 'Text'; L.size = 0.09; }
   if (kind === 'image') L.name = opts.name || 'Image';
@@ -743,13 +758,14 @@ function edClick(e) {
     // the mirror as a layer of its own, exactly where (and how) the mirror was drawn
     const c = JSON.parse(JSON.stringify(L)); c.id = edUid(); c.name = `${L.name} (mirror)`; c.mirror = false; L.mirror = false;
     if (L.kind === 'shape' && L.reflect !== false) c.flipX = !L.flipX; if (L.mirrorRot !== false) c.rot = -(L.rot || 0);
-    if (L.mode === 'wrap') c.wx = -(L.wx || 0); else { c.p = [2 * ED.three.C.x - L.p[0], L.p[1], L.p[2]]; c.n = [-L.n[0], L.n[1], L.n[2]]; }
+    if (L.mode === 'wrap') c.wx = -(L.wx || 0); else { const cx = edIsCar() ? 0 : ED.three.C.x; c.p = [2 * cx - L.p[0], L.p[1], L.p[2]]; c.n = [-L.n[0], L.n[1], L.n[2]]; } // (the car's middle line is x = 0)
     D.layers.splice(D.layers.indexOf(L) + 1, 0, c); ED.sel = c.id;
   });
   else if (a === 'flipx' && L) edCommit(() => { L.flipX = !L.flipX; });
   else if (a === 'flipy' && L) edCommit(() => { L.flipY = !L.flipY; });
   else if (a === 'centre' && L && L.mode === 'flat') edCommit(() => { L.x = 0.5; L.y = 0.5; });
   else if (a === 'aim' && L && L.mode === 'stamp') edCommit(() => { L.n = edViewDir().toArray(); });
+  else if (a === 'centre' && L && L.mode === 'stamp' && edIsCar()) edCommit(() => { L.p = [0, L.p[1], L.p[2]]; const n = new THREE.Vector3(...L.n); n.x = 0; if (n.lengthSq() > 1e-6) L.n = n.normalize().toArray(); });
   else if (a === 'centre' && L) edCommit(() => { if (L.mode === 'wrap') L.wx = 0; else { const p = new THREE.Vector3(...L.p); p.x = ED.three.C.x; const h = edSurfaceNear(p); L.p = h.p.toArray(); if (L.mode !== 'stamp') { L.n = h.n.toArray(); } else { const n = new THREE.Vector3(...L.n); n.x = 0; if (n.lengthSq() > 1e-6) L.n = n.normalize().toArray(); } } });
   else if (a === 'bg' && L) edBgOpen(L);
   else if (a === 'save') edSave().then(() => toast('Saved.'));
@@ -852,7 +868,7 @@ function edPick(cx, cy) {
   const hit = edHitAt(cx, cy); if (!hit) return null; const T = ED.three; const D = ED.design;
   for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false || L.mode === 'uv') continue; const s = ED.cache.get(L.id); if (!s) continue;
     for (const mirror of L.mirror ? [false, true] : [false]) { const F = edFrameOf(L, mirror, s.aspect); let q;
-      if (F.mode === 0) { const d = hit.p.clone().sub(F.P); if (Math.abs(d.dot(F.N)) > F.depth || hit.n.dot(F.N) < F.face) continue; q = [d.dot(F.T), d.dot(F.U)]; } else { const [x, y] = edWrapOf(hit.p); q = [x - F.wx, y - F.wy]; }
+      if (F.mode === 3) { q = edCurveQ(hit.p, F); if (!q) continue; } else if (F.mode === 0) { const d = hit.p.clone().sub(F.P); if (Math.abs(d.dot(F.N)) > F.depth || hit.n.dot(F.N) < F.face) continue; q = [d.dot(F.T), d.dot(F.U)]; } else { const [x, y] = edWrapOf(hit.p); q = [x - F.wx, y - F.wy]; }
       const c = Math.cos(F.rot), sn = Math.sin(F.rot); const r = [c * q[0] + sn * q[1], -sn * q[0] + c * q[1]]; const u = r[0] / (F.w * s.ex) * F.fx + 0.5, v = r[1] / (F.h * s.ey) * F.fy + 0.5;
       if (u < 0 || v < 0 || u > 1 || v > 1) continue; const px = Math.min(s.cv.width - 1, Math.floor(u * s.cv.width)), py = Math.min(s.cv.height - 1, Math.floor((1 - v) * s.cv.height));
       if (s.data.data[(py * s.cv.width + px) * 4 + 3] > 20) return { L, mirror, hit }; }
@@ -861,6 +877,7 @@ function edPick(cx, cy) {
 }
 function edDown(e) {
   if (edCar3dOn()) {
+    if (e.button === 0) { const pk = edCarPick3(e.clientX, e.clientY); if (pk) { const L = pk.L; if (ED.sel !== L.id) { ED.sel = L.id; ED.selGroup = null; ED.multi = new Set(); edLayers(); edProps(); } edDraw(); if (!L.locked) { e.currentTarget.setPointerCapture(e.pointerId); ED.undo.push(edSnap()); ED.redo = []; ED.ptr = { kind: 'c3move', L, off: new THREE.Vector3(...L.p).sub(pk.hit) }; } return; } }
     if (e.button === 0) { const [X, Y] = edStkAt(e.clientX, e.clientY); if (X > -1e5 && edStkPick(X, Y)) { edStkDown(e); edDraw(); return; } }
     e.currentTarget.setPointerCapture(e.pointerId); ED.ptr = { kind: 'corbit', x: e.clientX, y: e.clientY, yaw: ED.car3.yaw, pitch: ED.car3.pitch, click: e.button === 0 }; return; }
   if (ED.view === 'flat' || !ED.three) return; const cv = e.currentTarget; cv.setPointerCapture(e.pointerId);
@@ -874,6 +891,7 @@ function edDown(e) {
 }
 function edMove(e) {
   if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.car3.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.car3.pitch = Math.max(-1.2, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
+  if (ED.ptr?.kind === 'c3move') { const h = edCarHit(e.clientX, e.clientY); if (h) { ED.ptr.L.p = h.p.clone().add(ED.ptr.off).toArray(); edChanged(true, false); } return; }
   if (edCar3dOn() && (!ED.ptr || ED.ptr.kind === 'stkmove')) { if (ED.ptr) { const [X] = edStkAt(e.clientX, e.clientY); if (X > -1e5) edStkMove(e); } return; }
   const P = ED.ptr; if (!P) { if (ED.three && ED.view === '3d') { const pk = edPick(e.clientX, e.clientY); e.currentTarget.style.cursor = pk?.L && !pk.L.locked ? 'move' : 'grab'; } return; }
   if (P.kind === 'orbit') { if (Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) > 3) P.click = false; ED.three.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.three.pitch = Math.max(-1.3, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
@@ -905,6 +923,7 @@ function edMove(e) {
 }
 function edUp(e) {
   if (ED.ptr?.kind === 'stkmove') { edStkUp(); return; }
+  if (ED.ptr?.kind === 'c3move') { ED.ptr = null; if (ED.undo.length && ED.undo[ED.undo.length - 1] === edSnap()) ED.undo.pop(); edPanels(); return; }
   if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.ptr = null; if (P.click && Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) < 4 && ED.sel) { ED.sel = null; edLayers(); edProps(); edDraw(); } return; }
   const P = ED.ptr; ED.ptr = null; if (!P) return;
   if (P.kind === 'orbit' && P.click) { const pk = edPick(e.clientX, e.clientY); if (!pk?.L && ED.sel) { ED.sel = null; edLayers(); edProps(); edDraw(); } return; }
@@ -917,11 +936,12 @@ function edGizmo() {
   const F = edFrameOf(L, false, s.aspect); const r = T.R.domElement.getBoundingClientRect(); const W = r.width, H = r.height;
   const c = Math.cos(F.rot), sn = Math.sin(F.rot);
   const toWorld = (u, v) => { const q = [u * F.w * F.fx, v * F.h * F.fy]; const x = c * q[0] - sn * q[1], y = sn * q[0] + c * q[1];
+    if (F.mode === 3) return edCurveAt(F, x, y);
     if (F.mode === 0) return F.P.clone().addScaledVector(F.T, x).addScaledVector(F.U, y);
     const wx = F.wx + x, wy = F.wy + y; const th = -wy / T.RAD; const rr = edRadiusAt(th); return new THREE.Vector3(T.C.x + wx, T.C.y + Math.cos(th) * rr, T.C.z + Math.sin(th) * rr); };
   const scr = (p) => { const w = T.mesh.localToWorld(p.clone()).project(T.cam); return [(w.x + 1) / 2 * W, (1 - w.y) / 2 * H, w.z]; };
   // hidden when its middle faces away from the camera
-  const mid = toWorld(0, 0); const n = F.mode === 0 ? F.N : mid.clone().sub(T.C).setX(0).normalize(); const toCam = T.cam.position.clone().sub(T.mesh.localToWorld(mid.clone())).normalize();
+  const mid = toWorld(0, 0); const n = F.mode === 0 || F.mode === 3 ? F.N : mid.clone().sub(T.C).setX(0).normalize(); const toCam = T.cam.position.clone().sub(T.mesh.localToWorld(mid.clone())).normalize();
   if (n.dot(toCam) < 0.05) { svg.innerHTML = ''; return; }
   // (a long wrapped stripe gets a box round the part near its middle, so its handles stay on the side being looked at)
   const hv = F.mode === 1 ? Math.min(0.5, 0.06 / F.h) : 0.5;
@@ -939,7 +959,7 @@ function edGizmo() {
 function edDims(L) { const s = ED.cache.get(L.id); const a = s?.aspect || 1; return [L.size, L.size * a * (L.stretch || 1)]; }
 /** Sets a sticker's width and/or length (null keeps it), in metres. */
 function edSetDims(L, w, h) {
-  const s = ED.cache.get(L.id); const a = s?.aspect || 1; const [w0, h0] = edDims(L); const mx = L.mode === 'flat' ? 4 : L.mode === 'wrap' ? 0.9 : 0.32;
+  const s = ED.cache.get(L.id); const a = s?.aspect || 1; const [w0, h0] = edDims(L); const mx = L.mode === 'flat' || (L.mode === 'stamp' && edIsCar()) ? 4 : L.mode === 'wrap' || L.curve ? 0.9 : 0.32;
   const nw = Math.max(0.005, Math.min(edMaxW(L), w ?? w0)), nh = Math.max(0.005, Math.min(mx, h ?? h0));
   L.size = nw; L.stretch = nh / (nw * a);
 }
@@ -1009,7 +1029,7 @@ const edIsStk = () => ED.tab === 'sticker' || ED.tab === 'car'; // (the flat can
 const edIsCar = () => ED.tab === 'car';
 const edNewCar = () => ({ id: edUid(), kind: 'car', name: 'New livery', at: new Date().toISOString(), w: 4096, h: 4096, year: 2026, base: { color: '#1B1F2A', color2: '#E10600', fade: false, dir: 'tb' }, layers: [], groups: {}, images: {} });
 const edViewEl = () => edIsStk() ? ED.root.querySelector('#ed-stk') : ED.three?.R.domElement;
-const edMaxW = (L) => L.mode === 'flat' ? 3 : 0.32;
+const edMaxW = (L) => L.mode === 'flat' || (L.mode === 'stamp' && edIsCar()) ? 3 : L.curve && L.mode === 'stick' ? 0.6 : 0.32;
 /** Switches between the helmet and the Sticker maker, each keeping its own design, undo and selection. */
 function edSwitchTab(tab) {
   if (tab === 'car' && !DEV_MODE) return; // (the car livery: dev mode only for now)
@@ -1037,7 +1057,12 @@ async function edBakeSticker() {
   const D = ED.design; const W = D.w || 1024, H = D.h || 1024; const srcs = await Promise.all(D.layers.map(L => L.visible === false ? null : edSource(L)));
   const cv = ED.stkCv ||= document.createElement('canvas'); if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H; const g = cv.getContext('2d'); g.clearRect(0, 0, W, H);
   if (D.base) { if (D.base.fade) { const gr = D.base.dir === 'fb' ? g.createLinearGradient(0, 0, W, 0) : g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0.15, D.base.color); gr.addColorStop(0.85, D.base.color2); g.fillStyle = gr; } else g.fillStyle = D.base.color; g.fillRect(0, 0, W, H); }
-  D.layers.forEach((L, k) => { const s = srcs[k]; if (!s) return; const X = edStkXf(L, s, W); g.save(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore(); });
+  const car = edIsCar() && D.layers.some(L => L.mode === 'stamp' && L.visible !== false) ? await edEnsureCar(D.year || 2026) : null;
+  for (let k = 0; k < D.layers.length; k++) {
+    const L = D.layers[k], s = srcs[k]; if (!s) continue;
+    if (L.mode === 'stamp') { if (!car) continue; let e = k; while (e + 1 < D.layers.length && D.layers[e + 1].mode === 'stamp') e++; const run = []; for (let j = k; j <= e; j++) if (srcs[j]) run.push([D.layers[j], srcs[j]]); edCarPaint(car, run, g, W, H); k = e; continue; }
+    const X = edStkXf(L, s, W); g.save(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore();
+  }
   edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; if (ED.car3 && edIsCar()) { ED.car3.tex.needsUpdate = true; edDraw(); } edDrawSticker();
   if (edStkAgain) { edStkAgain = false; edBakeSticker(); }
 }
@@ -1056,6 +1081,91 @@ function edDrawSticker() {
   edStkGizmo();
 }
 /** Canvas pixels from a point on the screen. */
+/*
+  Stickers on the 3D car (mode 'stamp'): a point on the car (p), the way they face (n, towards where the view was when
+  put on), a size in metres. They're painted onto the livery in texture space: every painted triangle is drawn at its
+  texture position, and each pixel takes the sticker's colour where its point on the car falls inside the sticker seen
+  straight on from n. A depth picture of the whole car taken from that direction first means only the surfaces seen
+  from there are painted (not the far side of a wing, not what's behind it). Mirrored ones go on the other side too.
+*/
+async function edEnsureCar(year) {
+  ED.car3s ||= {}; if (ED.car3s[year]) return ED.car3s[year]; if (!ED.three) return null;
+  if (ED.carLoading?.[year]) return ED.carLoading[year];
+  ED.carLoading = { ...(ED.carLoading || {}), [year]: (async () => { let r = null; try { r = await edApi().carModel(year); } catch { } if (!r?.ok) return null; const was = ED.car3; edCar3Build(r); ED.car3s[year] = ED.car3; ED.car3 = was || ED.car3s[year]; return ED.car3s[year]; })() };
+  return ED.carLoading[year];
+}
+function edCarFrame(L, mirror, aspect) {
+  const w = L.size || 0.25, h = w * (aspect || 1) * (L.stretch || 1); const reflect = mirror && L.kind === 'shape' && L.reflect !== false;
+  const fx = (L.flipX ? -1 : 1) * (reflect ? -1 : 1), fy = L.flipY ? -1 : 1; const rot = (L.rot || 0) * Math.PI / 180 * (mirror && L.mirrorRot !== false ? -1 : 1);
+  const P = new THREE.Vector3(...L.p), N = new THREE.Vector3(...(L.n || [0, 1, 0])).normalize(); if (mirror) { P.x = -P.x; N.x = -N.x; }
+  const { T, U } = edTangents(N); return { P, N, T, U, w, h, rot, fx, fy };
+}
+function edCarPaint(car, run, g, W, H) {
+  const R3 = ED.three.R; const C = car;
+  if (!C.paint) {
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', C.liv.geometry.attributes.position); geo.setAttribute('uv', C.liv.geometry.attributes.uv); geo.setAttribute('normal', C.liv.geometry.attributes.normal); geo.setIndex(new THREE.BufferAttribute(C.liv.userData.full, 1));
+    const mat = new THREE.ShaderMaterial({ side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: true,
+      uniforms: { uTex: { value: null }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2() }, uRot: { value: new THREE.Vector2() }, uFlip: { value: new THREE.Vector2() }, uOp: { value: 1 }, uDepth: { value: null }, uVP: { value: new THREE.Matrix4() } },
+      vertexShader: `varying vec3 vP; varying vec3 vN; void main(){ vP = position; vN = normal; gl_Position = vec4(uv.x * 2.0 - 1.0, uv.y * 2.0 - 1.0, 0.0, 1.0); }`,
+      fragmentShader: `#include <packing>
+        uniform sampler2D uTex; uniform sampler2D uDepth; uniform mat4 uVP; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform float uOp; varying vec3 vP; varying vec3 vN;
+        void main(){
+          if (abs(dot(normalize(vN), uN)) < 0.03) discard;
+          vec4 c4 = uVP * vec4(vP, 1.0); vec3 sp = c4.xyz / c4.w * 0.5 + 0.5; if (sp.x < 0.0 || sp.y < 0.0 || sp.x > 1.0 || sp.y > 1.0) discard;
+          float seen = unpackRGBAToDepth(texture2D(uDepth, sp.xy)); if (sp.z > seen + 0.0015) discard;
+          vec3 d = vP - uP; vec2 q = vec2(dot(d, uT), dot(d, uU)); q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y);
+          vec2 t = q / uSize * uFlip + 0.5; if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) discard;
+          vec4 c = texture2D(uTex, t); if (c.a < 0.004) discard; gl_FragColor = vec4(c.rgb, c.a * uOp); }` });
+    mat.blending = THREE.CustomBlending; mat.blendSrc = THREE.SrcAlphaFactor; mat.blendDst = THREE.OneMinusSrcAlphaFactor; mat.blendSrcAlpha = THREE.OneFactor; mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+    const scene = new THREE.Scene(); scene.add(new THREE.Mesh(geo, mat));
+    // the depth picture: the whole car (every part) seen from the sticker's direction
+    const dgeo = (m) => { const gg = new THREE.BufferGeometry(); gg.setAttribute('position', m.geometry.attributes.position); gg.setIndex(new THREE.BufferAttribute(m.userData.full, 1)); return gg; };
+    const dmat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide }); const dscene = new THREE.Scene(); dscene.add(new THREE.Mesh(dgeo(C.liv), dmat)); dscene.add(new THREE.Mesh(dgeo(C.rest), dmat));
+    C.paint = { scene, mat, dscene, dcam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20), dRT: new THREE.WebGLRenderTarget(1024, 1024), cam: new THREE.Camera(), RT: null };
+  }
+  const Pn = C.paint; if (!Pn.RT || Pn.RT.width !== W) { Pn.RT?.dispose(); Pn.RT = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false, stencilBuffer: false }); }
+  const U = Pn.mat.uniforms; R3.setRenderTarget(Pn.RT); R3.setClearColor(0x000000, 0); R3.clear();
+  for (const [L, s] of run) for (const mirror of L.mirror ? [false, true] : [false]) {
+    const F = edCarFrame(L, mirror, s.aspect); const half = Math.max(F.w * s.ex, F.h * s.ey) * 0.75 + 0.02;
+    const dc = Pn.dcam; dc.left = -half; dc.right = half; dc.top = half; dc.bottom = -half; dc.near = 0.01; dc.far = 20; dc.position.copy(F.P).addScaledVector(F.N, 8); dc.up.copy(F.U); dc.lookAt(F.P); dc.updateProjectionMatrix(); dc.updateMatrixWorld();
+    R3.setRenderTarget(Pn.dRT); R3.setClearColor(0xffffff, 1); R3.clear(); R3.render(Pn.dscene, dc);
+    U.uDepth.value = Pn.dRT.texture; U.uVP.value.multiplyMatrices(dc.projectionMatrix, dc.matrixWorldInverse);
+    U.uTex.value = s.tex; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uOp.value = L.opacity ?? 1;
+    R3.setRenderTarget(Pn.RT); R3.autoClear = false; R3.render(Pn.scene, Pn.cam); R3.autoClear = true;
+  }
+  const px = new Uint8Array(W * H * 4); R3.readRenderTargetPixels(Pn.RT, 0, 0, W, H, px); R3.setRenderTarget(null); R3.setClearColor(0x000000, 1);
+  const tmp = edCanvas(W, H); tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), W, H), 0, 0); g.drawImage(tmp, 0, 0); // (rows from v = 0, as the canvas: no flip)
+}
+/** The car point under the pointer (any part), in the car's space. */
+function edCarHit(cx, cy) {
+  const C = ED.car3, T = ED.three; if (!C || !T) return null; const r = T.R.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2((cx - r.left) / r.width * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); C.ray ||= new THREE.Raycaster(); C.ray.setFromCamera(m, C.cam);
+  const h = C.ray.intersectObjects([C.liv, C.rest].filter(x => x.visible))[0]; return h ? { p: h.point.clone(), n: h.face ? h.face.normal.clone() : null } : null;
+}
+/** The top 3D sticker whose own pixels are under the pointer on the car. */
+function edCarPick3(cx, cy) {
+  const h = edCarHit(cx, cy); if (!h) return null; const D = ED.design;
+  for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.mode !== 'stamp' || L.visible === false) continue; const s = ED.cache.get(L.id); if (!s) continue;
+    for (const mirror of L.mirror ? [false, true] : [false]) { const F = edCarFrame(L, mirror, s.aspect); const d = h.p.clone().sub(F.P); let q = [d.dot(F.T), d.dot(F.U)]; q = [Math.cos(F.rot) * q[0] + Math.sin(F.rot) * q[1], -Math.sin(F.rot) * q[0] + Math.cos(F.rot) * q[1]];
+      const tx = q[0] / (F.w * s.ex) * F.fx + 0.5, ty = q[1] / (F.h * s.ey) * F.fy + 0.5; if (tx < 0 || ty < 0 || tx > 1 || ty > 1) continue;
+      const u = Math.floor(tx * s.cv.width), v = Math.floor((1 - ty) * s.cv.height); if (s.data && s.data.data[(v * s.cv.width + u) * 4 + 3] > 20) return { L, hit: h.p }; } }
+  return null;
+}
+/** A 3D sticker's box on screen: its corners on its own plane on the car. */
+function edCarGizmo3(svg, L, s) {
+  const C = ED.car3, T = ED.three; const F = edCarFrame(L, false, s.aspect); const view = ED.root.querySelector('#ed-view').getBoundingClientRect(), cr = T.R.domElement.getBoundingClientRect();
+  if (C.cam.position.clone().sub(F.P).normalize().dot(F.N) < 0.05) { svg.innerHTML = ''; ED.giz = null; return; }
+  const c = Math.cos(F.rot), sn = Math.sin(F.rot); const at = (u, v) => { const q = [u * F.w * F.fx, v * F.h * F.fy]; const x = c * q[0] - sn * q[1], y = sn * q[0] + c * q[1]; return F.P.clone().addScaledVector(F.T, x).addScaledVector(F.U, y); };
+  const scr = (p) => { const q = p.clone().project(C.cam); return [cr.left - view.left + (q.x + 1) / 2 * cr.width, cr.top - view.top + (1 - q.y) / 2 * cr.height]; };
+  const pts = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(q => scr(at(...q))); const top = scr(at(0, 0.5)), ctr = scr(F.P);
+  const tl = Math.hypot(top[0] - ctr[0], top[1] - ctr[1]) || 1; const rotH = [top[0] + (top[0] - ctr[0]) / tl * 24, top[1] + (top[1] - ctr[1]) / tl * 24];
+  const sides = [['w', 0.5, 0], ['w', -0.5, 0], ['len', 0, 0.5], ['len', 0, -0.5]].map(([hh, u, v]) => [hh, scr(at(u, v))]);
+  ED.giz = { ctr, pts, rotH, sides }; svg.setAttribute('viewBox', `0 0 ${view.width} ${view.height}`);
+  svg.innerHTML = `<polygon points="${pts.map(p => p.join(',')).join(' ')}" class="he-gbox"/><line x1="${top[0]}" y1="${top[1]}" x2="${rotH[0]}" y2="${rotH[1]}" class="he-gline"/>
+    ${pts.map((p, k) => `<rect data-h="size" data-k="${k}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12" rx="2" class="he-gh"/>`).join('')}
+    ${sides.map(([hh, p], k) => `<circle data-h="${hh}" data-k="${k}" cx="${p[0]}" cy="${p[1]}" r="5" class="he-gh he-gside"/>`).join('')}<circle data-h="turn" cx="${rotH[0]}" cy="${rotH[1]}" r="7" class="he-gh"/>
+    <text x="${Math.min(...pts.map(p => p[0]))}" y="${Math.max(...pts.map(p => p[1])) + 20}" class="he-glbl">${edEsc(L.name)}${L.mirror ? ' · mirrored' : ''}</text>`;
+}
 /** The livery's texture point (0 to 1) under the pointer on the 3D car, or null off the painted parts. */
 function edCarUv(cx, cy) {
   const C = ED.car3, T = ED.three; if (!C || !T) return null; const r = T.R.domElement.getBoundingClientRect();
@@ -1069,7 +1179,7 @@ function edStkAt(cx, cy) {
 /** The top layer whose own pixels (not its box) are under a canvas point. */
 function edStkPick(X, Y) {
   const D = ED.design; const W = D.w || 1024;
-  for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false) continue; const s = ED.cache.get(L.id); if (!s) continue;
+  for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false || L.mode === 'stamp') continue; const s = ED.cache.get(L.id); if (!s) continue;
     const T = edStkXf(L, s, W); const dx = X - T.cx, dy = Y - T.cy; const c = Math.cos(T.rot), sn = Math.sin(T.rot);
     const u = (dx * c - dy * sn) / T.sx + s.cv.width / 2, v = (dx * sn + dy * c) / T.sy + s.cv.height / 2;
     if (u < 0 || v < 0 || u >= s.cv.width || v >= s.cv.height) continue; if (s.data.data[((v | 0) * s.cv.width + (u | 0)) * 4 + 3] > 20) return L; }
@@ -1078,7 +1188,7 @@ function edStkPick(X, Y) {
 /** The selected layer's box on the canvas, with the same handles as on the helmet. */
 function edStkGizmo() {
   const svg = ED.root?.querySelector('#ed-gizmo'); if (!svg) return; const L = ED.design.layers.find(l => l.id === ED.sel); const s = L && ED.cache.get(L.id);
-  if (!L || !s || L.visible === false) { svg.innerHTML = ''; ED.giz = null; return; }
+  if (!L || !s || L.visible === false || L.mode === 'stamp') { svg.innerHTML = ''; ED.giz = null; return; } // (a sticker put on the 3D car is moved there)
   const V = ED.stkView; const T = edStkXf(L, s, ED.design.w || 1024); const c = Math.cos(-T.rot), sn = Math.sin(-T.rot); const v = ED.root.querySelector('#ed-view');
   // (u right, v up, in the content's own box, as on the helmet)
   const at = (u, w) => { const px = u * s.cw * T.sx, py = -w * s.ch * Math.abs(T.sy) * Math.sign(T.sy || 1); const x = T.cx + px * c - py * sn, y = T.cy + px * sn + py * c; return [V.ox + x * V.k, V.oy + y * V.k]; };
@@ -1217,6 +1327,7 @@ function edCarTriST(t, u, v) {
 function edCarGizmo() {
   const svg = ED.root?.querySelector('#ed-gizmo'); if (!svg) return; const C = ED.car3, T = ED.three; const D = ED.design; const L = D.layers.find(l => l.id === ED.sel); const s = L && ED.cache.get(L.id);
   const off = () => { svg.innerHTML = ''; ED.giz = null; }; if (!L || !s || L.visible === false) return off();
+  if (L.mode === 'stamp') return edCarGizmo3(svg, L, s);
   const W = D.w || 1024, H = D.h || 1024; const X = edStkXf(L, s, W); const c = Math.cos(-X.rot), sn = Math.sin(-X.rot);
   const at = (u, w) => { const px = u * s.cw * X.sx, py = -w * s.ch * Math.abs(X.sy) * Math.sign(X.sy || 1); return [(X.cx + px * c - py * sn) / W, (X.cy + px * sn + py * c) / H]; }; // (as on Flat, in texture space)
   const view = ED.root.querySelector('#ed-view').getBoundingClientRect(), cr = T.R.domElement.getBoundingClientRect(); const toCam = (p) => C.cam.position.clone().sub(p);
