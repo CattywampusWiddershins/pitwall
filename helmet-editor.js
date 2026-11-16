@@ -264,7 +264,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
   // ---- designs, one file each (images inside can be big, so they stay out of the career data)
   const designsDir = () => path.join(root(), 'designs');
   const okId = (id) => /^[\w-]{1,64}$/.test(String(id));
-  function list() { try { return fs.readdirSync(designsDir()).filter(f => f.endsWith('.json')).map(f => { try { const d = JSON.parse(fs.readFileSync(path.join(designsDir(), f), 'utf8')); return { id: d.id, name: d.name, at: d.at, thumb: d.thumb || null }; } catch { return null; } }).filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at))); } catch { return []; } }
+  function list() { try { return fs.readdirSync(designsDir()).filter(f => f.endsWith('.json')).map(f => { try { const d = JSON.parse(fs.readFileSync(path.join(designsDir(), f), 'utf8')); return { id: d.id, name: d.name, at: d.at, thumb: d.thumb || null, kind: d.kind || 'helmet' }; } catch { return null; } }).filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at))); } catch { return []; } }
   function save(d) { if (!d || !okId(d.id)) return { ok: false }; fs.mkdirSync(designsDir(), { recursive: true }); const f = path.join(designsDir(), d.id + '.json'); fs.writeFileSync(f + '.tmp', JSON.stringify(d)); fs.renameSync(f + '.tmp', f); return { ok: true }; }
   function open(id) { if (!okId(id)) return null; try { return JSON.parse(fs.readFileSync(path.join(designsDir(), id + '.json'), 'utf8')); } catch { return null; } }
   function remove(id) { if (!okId(id)) return false; try { fs.rmSync(path.join(designsDir(), id + '.json'), { force: true }); return true; } catch { return false; } }

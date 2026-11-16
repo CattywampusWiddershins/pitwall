@@ -1679,3 +1679,5 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
   body.rail-auto .rail:not(:hover) .brand-name, body.rail-auto .rail:not(:hover) .rail-pin, body.rail-auto .rail:not(:hover) .career-pill, body.rail-auto .rail:not(:hover) .rail-foot, body.rail-auto .rail:not(:hover) .nav button span { display: none; }
   body.rail-auto .rail:not(:hover) .nav button { justify-content: center; padding-left: 0; padding-right: 0; }
 }
+.he.he-sticker .only-helmet { display: none !important; } .he:not(.he-sticker) .only-sticker { display: none !important; }
+.he-view > canvas.he-stkcv { z-index: 2; cursor: default; background: #10151f; }

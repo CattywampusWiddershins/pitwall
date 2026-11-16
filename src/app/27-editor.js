@@ -17,7 +17,7 @@
   The editor's page is one element kept alive across Pitwall's redraws (render() replaces #main): renderEditor() leaves a
   slot and edMount() puts the element back into it, so the 3D view, its camera and the selection survive a redraw.
 */
-const ED = { root: null, ready: false, loading: false, err: null, needGame: false, three: null, design: null, sel: null, undo: [], redo: [], lib: 'shapes', view: '3d', dirty: false, saveT: null, list: [], text: null, bg: null };
+const ED = { cache: new Map(), tab: "helmet", tabs: {}, root: null, ready: false, loading: false, err: null, needGame: false, three: null, design: null, sel: null, undo: [], redo: [], lib: 'shapes', view: '3d', dirty: false, saveT: null, list: [], text: null, bg: null };
 const ED_W = 2048, ED_H = 1024;
 
 // ---- the library: shapes as SVG, F fill, O outline, A accent (viewBox 0 0 100 100 unless vb says otherwise)
@@ -87,32 +87,34 @@ function edBuild() {
   const el = document.createElement('div'); el.className = 'he'; el.id = 'ed-root';
   el.innerHTML = `
     <div class="he-head">
-      <div><h1>Editor <span class="tag beta">BETA</span> <span class="tag he-dev">DEV</span></h1><div class="muted">Design your own helmet for F1 25, exported for SWOFTY's Helmet Exchange.</div></div>
-      <div class="he-row"><div class="he-designs"><button class="btn ghost" data-ed="designs">My designs ▾</button><div class="he-menu" id="ed-menu"></div></div><button class="btn" data-ed="new">New helmet</button></div>
+      <div><h1>Editor <span class="tag beta">BETA</span> <span class="tag he-dev">DEV</span></h1><div class="muted">Design your own gear for F1 25: helmets, and stickers to use on them.</div></div>
+      <div class="he-row"><div class="he-designs"><button class="btn ghost" data-ed="designs">My designs ▾</button><div class="he-menu" id="ed-menu"></div></div><button class="btn" data-ed="new" id="ed-newbtn">New helmet</button></div>
     </div>
-    <div class="he-tabs"><button class="he-tab on">Helmet</button><button class="he-tab off" title="Coming later">Car livery</button></div>
+    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button><button class="he-tab off" title="Coming next">Car livery</button><button class="he-tab" data-tab="sticker">Sticker maker</button></div>
     <div class="he-ed">
       <section class="panel he-panel">
         <div class="he-ph"><span class="label">Add</span></div>
         <div class="he-pb">
-          <div class="seg he-seg" id="ed-libtabs"><button data-lib="shapes" class="on">Shapes</button><button data-lib="text">Text</button><button data-lib="images">Images</button></div>
+          <div class="seg he-seg" id="ed-libtabs"><button data-lib="shapes" class="on">Shapes</button><button data-lib="text">Text</button><button data-lib="images">Images</button><button data-lib="custom" title="Your stickers from the Sticker maker">Custom</button></div>
           <div id="ed-lib"></div>
         </div>
       </section>
       <section class="panel he-view" id="ed-view">
         <canvas id="ed-canvas"></canvas>
         <canvas id="ed-flat" class="he-flat"></canvas>
+        <canvas id="ed-stk" class="he-stkcv only-sticker"></canvas>
         <svg id="ed-gizmo" class="he-gizmo"></svg>
         <div class="he-vbar">
-          <div class="he-row"><button class="btn sm" data-cam="front">Front</button><button class="btn sm" data-cam="left">Left</button><button class="btn sm" data-cam="right">Right</button><button class="btn sm" data-cam="back">Back</button><button class="btn sm" data-cam="top">Top</button></div>
-          <div class="he-row"><div class="seg he-seg" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
+          <div class="he-row only-sticker"><div class="seg he-seg" id="ed-stksize"><button data-stk="1024x1024">Square</button><button data-stk="2048x1024">Wide</button><button data-stk="1024x2048">Tall</button></div></div>
+          <div class="he-row only-helmet"><button class="btn sm" data-cam="front">Front</button><button class="btn sm" data-cam="left">Left</button><button class="btn sm" data-cam="right">Right</button><button class="btn sm" data-cam="back">Back</button><button class="btn sm" data-cam="top">Top</button></div>
+          <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
         </div>
         <div class="he-msg" id="ed-msg"></div>
         <div class="he-foot"><span class="he-hint" id="ed-hint">Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet</span></div>
       </section>
       <section class="panel he-panel">
-        <div class="he-ph"><span class="label">Helmet base</span><span class="muted he-small">under every layer</span></div>
-        <div class="he-pb he-props" id="ed-base" style="flex:0 0 auto"></div>
+        <div class="he-ph only-helmet"><span class="label">Helmet base</span><span class="muted he-small">under every layer</span></div>
+        <div class="he-pb he-props only-helmet" id="ed-base" style="flex:0 0 auto"></div>
         <div class="he-ph he-bt"><span class="label">Layers</span><div class="he-row"><button class="btn sm ghost" data-ed="dup" title="Duplicate">⎘</button><button class="btn sm ghost" data-ed="up" title="Move up">▲</button><button class="btn sm ghost" data-ed="down" title="Move down">▼</button><button class="btn sm ghost" data-ed="del" title="Delete">✕</button></div></div>
         <div class="he-pb" id="ed-layers" style="flex:0 1 auto;max-height:260px"></div>
         <div class="he-ph he-bt"><span class="label" id="ed-ptitle">Layer</span><span class="muted he-small" id="ed-pkind"></span></div>
@@ -121,9 +123,9 @@ function edBuild() {
     </div>
     <div class="he-bottom">
       <div class="he-row"><input class="he-name" id="ed-name" maxlength="40" title="The helmet's name"><span class="muted he-small" id="ed-status"></span></div>
-      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary" data-ed="export">Export SWOFTY addon</button></div>
+      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button></div>
     </div>
-    <div class="he-row he-target"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game)</span>
+    <div class="he-row he-target only-helmet"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game)</span>
     </div>
     <div class="he-modal" id="ed-modal"></div>
     <input type="file" id="ed-file" accept="image/png,image/webp,image/jpeg" hidden>
@@ -134,6 +136,9 @@ function edBuild() {
   el.addEventListener('change', edInput);
   el.querySelector('#ed-file').addEventListener('change', edImportImage);
   el.querySelector('#ed-texfile').addEventListener('change', edImportTexture);
+  const stk = el.querySelector('#ed-stk'); stk.addEventListener('pointerdown', edStkDown); stk.addEventListener('pointermove', edStkMove); stk.addEventListener('pointerup', edStkUp); stk.addEventListener('pointercancel', edStkUp);
+  stk.addEventListener('dragover', (e) => e.preventDefault()); stk.addEventListener('drop', edDrop);
+  new ResizeObserver(() => edResize()).observe(el.querySelector('#ed-view'));
   document.addEventListener('keydown', edKey);
   if (!ED.design) ED.design = edNew();
   edLib(); edPanels();
@@ -211,12 +216,14 @@ function edThree(r) {
   edResize();
 }
 function edResize() {
+  if (edIsStk()) { edDrawSticker(); return; }
   const T = ED.three; if (!T) return; const v = ED.root.querySelector('#ed-view'); const w = v.clientWidth, h = v.clientHeight; if (!w || !h) return;
   T.R.setSize(w, h, false); T.cam.aspect = w / h; T.cam.updateProjectionMatrix(); edDraw();
 }
 let edRaf = 0;
 function edDraw() { if (edRaf) return; edRaf = requestAnimationFrame(() => { edRaf = 0; edFrame(); }); }
 function edFrame() {
+  if (edIsStk()) { edDrawSticker(); return; }
   const T = ED.three; if (!T) return;
   const { yaw, pitch, dist } = T; T.cam.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist); T.cam.lookAt(0, 0, 0);
   T.R.setRenderTarget(null); T.R.render(T.scene, T.cam);
@@ -264,7 +271,7 @@ function edGrow(src, r) {
 }
 async function edSource(L) {
   const look = edLook(L); const key = JSON.stringify([L.kind, L.shape, L.colors, L.text, L.image, L.look, L.mask]);
-  const T = ED.three; const hit = T.tex.get(L.id); if (hit && hit.key === key) return hit;
+  const T = { tex: ED.cache }; const hit = T.tex.get(L.id); if (hit && hit.key === key) return hit; // (the pictures cache: shared by the helmet and the Sticker Maker)
   let raw = await edRaw(L); if (!raw) return null;
   const cw = raw.width, ch = raw.height;
   // 2: colour
@@ -309,6 +316,7 @@ function edTextCanvas(t) {
 // ---- baking: base, layers (and their mirrors), trim
 let edBaking = false, edBakeAgain = false;
 async function edBake() {
+  if (edIsStk()) return edBakeSticker();
   const T = ED.three; if (!T) return; if (edBaking) { edBakeAgain = true; return; } edBaking = true;
   const D = ED.design; const srcs = await Promise.all(D.layers.map(L => L.visible === false ? null : edSource(L)));
   const R = T.R; R.setRenderTarget(T.RT); R.autoClear = false; R.clear();
@@ -339,6 +347,7 @@ async function edBake() {
   Making it again works it out afresh; the old one plays no part.
 */
 async function edAutoMask(L) {
+  if (L.mode === 'flat') return edAutoMaskFlat(L);
   const T = ED.three; const D = ED.design; const k = D.layers.indexOf(L); if (k < 0 || L.mode === 'uv') return;
   edStatus('Masking…'); const before = L.mask; delete L.mask; await edSource(L); // (the content's size, without the old mask)
   const s = await edSource(L); if (!s) { L.mask = before; edStatus(); return; }
@@ -405,6 +414,12 @@ function edLib() {
     const t = ED.text ||= { str: 'JORDAAN 21', font: 'Bahnschrift', fill: '#111111', outline: '#ffffff', ow: 0, sp: 2, sl: 0, bold: true, italic: false };
     box.innerHTML = `<div class="he-tc">${edTextForm(t, 'tt')}<button class="btn primary he-wide" data-ed="add-text">Add to helmet</button><div class="muted he-small">The text becomes one sticker: size it, turn it and mirror it like any other. Select it later to change the words or the font.</div></div>`;
     edTextPreview();
+  } else if (ED.lib === 'custom') {
+    // the stickers made in the Sticker maker (not the one being made now)
+    const list = (ED.list || []).filter(d => d.kind === 'sticker' && d.id !== ED.design.id);
+    box.innerHTML = `<div class="he-tc"><div class="muted he-small">Your stickers from the Sticker maker. Make one there and save it, and it shows here in every editor.</div>
+      ${list.length ? `<div class="he-grid">${list.map(d => `<button class="he-tile he-img" data-add="custom" data-id="${edEsc(d.id)}" title="${edEsc(d.name)}">${d.thumb ? `<img src="${d.thumb}" alt="">` : edEsc(d.name)}</button>`).join('')}</div>` : '<div class="muted he-small">No stickers yet.</div>'}
+      <button class="btn sm he-wide" data-tab="sticker">Open the Sticker maker</button></div>`;
   } else {
     const imgs = Object.entries(ED.design.images).filter(([, v]) => v);
     box.innerHTML = `<div class="he-tc"><button class="btn he-wide" data-ed="import-img">Import image…</button><div class="muted he-small">PNG, WebP or JPG. After adding one, "Remove background" in its settings clears a colour you click on.</div>
@@ -427,9 +442,9 @@ function edTextPreview() {
   for (const p of ['tt', 'tl']) { const cv = ED.root.querySelector('#ed-tprev-' + p); if (!cv) continue; const t = p === 'tt' ? ED.text : ED.design.layers.find(l => l.id === ED.sel)?.text; if (!t) continue;
     const src = edTextCanvas(t); const box = cv.parentElement; const W = box.clientWidth || 220, H = box.clientHeight || 70; cv.width = W * 2; cv.height = H * 2; const g = cv.getContext('2d'); const k = Math.min(cv.width / src.width, cv.height / src.height) * 0.92; g.drawImage(src, (cv.width - src.width * k) / 2, (cv.height - src.height * k) / 2, src.width * k, src.height * k); }
 }
-function edPanels() { edBasePanel(); edLayers(); edProps(); const n = ED.root.querySelector('#ed-name'); if (n && document.activeElement !== n) n.value = ED.design.name; edStatus(); }
+function edPanels() { if (edIsStk()) ED.root.querySelectorAll('[data-stk]').forEach(b => b.classList.toggle('on', b.dataset.stk === `${ED.design.w || 1024}x${ED.design.h || 1024}`)); edBasePanel(); edLayers(); edProps(); const n = ED.root.querySelector('#ed-name'); if (n && document.activeElement !== n) n.value = ED.design.name; edStatus(); }
 function edBasePanel() {
-  const b = ED.design.base; const el = ED.root.querySelector('#ed-base'); if (!el) return;
+  const b = ED.design.base; const el = ED.root.querySelector('#ed-base'); if (!el) return; if (!b) { el.innerHTML = ''; return; } // (a sticker has no base: its background is see-through)
   el.innerHTML = `<div class="he-baserow"><span class="he-chip" style="background:${b.fade ? `linear-gradient(${b.dir === 'fb' ? '90deg' : '180deg'}, ${b.color}, ${b.color2})` : b.color}"></span>${edSw(b.color, 'data-base="color"')}</div>
     <label class="he-chk"><input type="checkbox" data-base="fade" ${b.fade ? 'checked' : ''}> Fade to a second colour, <select class="he-mini" data-base="dir"><option value="tb" ${b.dir !== 'fb' ? 'selected' : ''}>top to bottom</option><option value="fb" ${b.dir === 'fb' ? 'selected' : ''}>front to back</option></select></label>
     ${b.fade ? `<div class="he-baserow"><span class="he-chip" style="background:${b.color2}"></span>${edSw(b.color2, 'data-base="color2"')}</div>` : ''}`;
@@ -485,14 +500,14 @@ function edProps() {
   if (!L) { el.innerHTML = ED.multi?.size > 1 ? `<div class="muted he-small">${ED.multi.size} layers selected.</div><button class="btn sm he-wide" data-ed="group">Group them</button>` : '<div class="muted he-small">Select a layer to change it. Click a sticker on the helmet, or a layer in the list (Ctrl+click to pick several, then group them).</div>'; return; }
   const range = (k, label, min, max, step, v, show) => `<div class="he-prow"><span>${label}</span><input type="range" data-lp="${k}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="v">${show}</span></div>`;
   el.innerHTML = `
-    ${L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
+    ${L.mode === 'flat' ? (() => { const [w, h] = edDims(L); const W = ED.design.w || 1024; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.01, 3, 0.001, w, Math.round(w * W) + ' px') + range('len', 'Length', 0.01, 4, 0.001, Math.min(h, 4), Math.round(h * W) + ' px'); })() : L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
     ${L.mode === 'uv' ? '' : range('rot', 'Rotation', -180, 180, 1, L.rot || 0, Math.round(L.rot || 0) + '°')}
     ${range('opacity', 'Opacity', 0, 1, 0.01, L.opacity ?? 1, Math.round((L.opacity ?? 1) * 100) + '%')}
     ${L.kind === 'text' ? `<div class="he-tc">${edTextForm(L.text, 'tl')}</div>` : ''}
     ${L.kind === 'image' && L.mode !== 'uv' ? `<button class="btn sm he-wide" data-ed="bg">Remove background…</button>` : ''}
     ${L.mode === 'uv' ? '' : edLookUI(edLook(L), L)}
     ${L.mode === 'uv' ? '' : `<div class="he-fx"><div class="label">Auto-mask</div>${L.mask ? `<div class="muted he-small">On: the parts the layers above covered when it was made are hidden. It stays as it is until you update or remove it.</div><div class="he-row"><button class="btn sm" data-ed="mask">Update mask</button><button class="btn sm" data-ed="unmask">Remove mask</button></div>` : `<button class="btn sm he-wide" data-ed="mask" title="Hide the parts of this layer that the layers above it cover (frozen as it is now)">Mask to what's visible</button>`}</div>`}
-    ${L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
+    ${L.mode === 'flat' ? `<div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="In the middle of the canvas">Centre</button></div>` : L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
     ${L.mirror ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
     <button class="btn sm he-wide" data-ed="detach" title="The mirror becomes a layer of its own, in the same place: change its colour or anything else separately">Make the mirror its own layer</button>` : ''}
     <label class="he-chk"><input type="checkbox" data-lb="wrap" ${L.mode === 'wrap' ? 'checked' : ''}> Wrap round the helmet (for stripes front to back)</label>
@@ -502,20 +517,21 @@ function edProps() {
 function edStatus(msg) { const s = ED.root?.querySelector('#ed-status'); if (!s) return; s.textContent = msg || `${ED.design.layers.length} layer${ED.design.layers.length === 1 ? '' : 's'}${ED.dirty ? ' · not saved yet' : ED.savedAt ? ' · saved' : ''}`; }
 
 // ---- changes (each one undoable), saved a moment after the last
-function edSnap() { return JSON.stringify({ name: ED.design.name, base: ED.design.base, layers: ED.design.layers, groups: ED.design.groups || {} }); }
+function edSnap() { return JSON.stringify({ name: ED.design.name, base: ED.design.base, layers: ED.design.layers, groups: ED.design.groups || {}, size: [ED.design.w, ED.design.h] }); }
 function edCommit(fn, { bake = true, panels = true } = {}) {
   ED.undo.push(edSnap()); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; ED.textEdit = null;
   fn(); edChanged(bake, panels);
 }
 function edChanged(bake = true, panels = true) { ED.dirty = true; if (bake) edBake(); if (panels) edPanels(); else edStatus(); clearTimeout(ED.saveT); ED.saveT = setTimeout(edSave, 2500); }
-function edRestore(s) { const o = JSON.parse(s); ED.design.name = o.name; ED.design.base = o.base; ED.design.layers = o.layers; ED.design.groups = o.groups || {}; if (!ED.design.layers.some(l => l.id === ED.sel)) ED.sel = null; if (ED.selGroup && !ED.design.groups[ED.selGroup]) ED.selGroup = null; edChanged(); }
+function edRestore(s) { const o = JSON.parse(s); ED.design.name = o.name; ED.design.base = o.base; ED.design.layers = o.layers; ED.design.groups = o.groups || {}; if (o.size?.[0]) [ED.design.w, ED.design.h] = o.size; if (!ED.design.layers.some(l => l.id === ED.sel)) ED.sel = null; if (ED.selGroup && !ED.design.groups[ED.selGroup]) ED.selGroup = null; edChanged(); }
 function edUndo() { if (!ED.undo.length) return; ED.redo.push(edSnap()); edRestore(ED.undo.pop()); }
 function edRedo() { if (!ED.redo.length) return; ED.undo.push(edSnap()); edRestore(ED.redo.pop()); }
 async function edSave(silent) {
   clearTimeout(ED.saveT); const D = ED.design; D.at = new Date().toISOString();
   // (imported images stay in the design, in its Images tab, until removed there; undo can bring back a layer using one)
-  let thumb = null; try { if (ED.three) { edFrame(); const c = ED.three.R.domElement; const t = document.createElement('canvas'); t.width = 160; t.height = 120; const k = Math.max(160 / c.width, 120 / c.height); t.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = t.toDataURL('image/jpeg', 0.8); } } catch { }
-  const r = await edApi().save({ ...D, thumb }); if (r?.ok) { ED.dirty = false; ED.savedAt = Date.now(); edStatus(); if (!silent) edList(); }
+  let thumb = null, png = null; if (edIsStk()) { const c = edStkPng(); if (c) { png = c.toDataURL('image/png'); const tc = edCanvas(160, 120), k = Math.min(150 / c.width, 110 / c.height); tc.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = tc.toDataURL('image/png'); } }
+  else try { if (ED.three) { edFrame(); const c = ED.three.R.domElement; const t = document.createElement('canvas'); t.width = 160; t.height = 120; const k = Math.max(160 / c.width, 120 / c.height); t.getContext('2d').drawImage(c, (160 - c.width * k) / 2, (120 - c.height * k) / 2, c.width * k, c.height * k); thumb = t.toDataURL('image/jpeg', 0.8); } } catch { }
+  const r = await edApi().save({ ...D, kind: D.kind || 'helmet', thumb, ...(png ? { png } : {}) }); if (r?.ok) { ED.dirty = false; ED.savedAt = Date.now(); edStatus(); if (!silent) edList(); }
 }
 async function edList() { try { ED.list = await edApi().list(); } catch { ED.list = []; } }
 
@@ -529,6 +545,13 @@ function edHitAt(cx, cy) {
   return { p, n: n.normalize() };
 }
 function edAdd(kind, opts, at) {
+  if (edIsStk()) {
+    const D = ED.design; const W = D.w || 1024, H = D.h || 1024; let x = 0.5, y = 0.5; if (at) { const [X, Y] = edStkAt(at[0], at[1]); if (X >= 0 && Y >= 0 && X <= W && Y <= H) { x = X / W; y = Y / H; } }
+    const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'flat', x, y, size: kind === 'text' ? 0.7 : 0.45, stretch: 1, rot: 0, opacity: 1, ...opts };
+    if (kind === 'shape') { const S = ED_SHAPES.find(s => s.id === L.shape); L.name = S?.name || 'Shape'; L.colors ||= [S?.cat === 'Flags' ? '#ffffff' : '#E10600', '#111111', '#001E6E']; if (S && /stripe|pin/.test(S.id)) L.size = 0.1; }
+    if (kind === 'text') L.name = opts.text.str || 'Text'; if (kind === 'image') L.name = opts.name || 'Image';
+    edCommit(() => { D.layers.push(L); ED.sel = L.id; }); return;
+  }
   if (!ED.three) return; const r = ED.three.R.domElement.getBoundingClientRect();
   const hit = (at && edHitAt(at[0], at[1])) || edHitAt(r.left + r.width / 2, r.top + r.height / 2) || { p: ED.three.C.clone().add(new THREE.Vector3(0.11, 0.03, 0)), n: new THREE.Vector3(1, 0, 0) };
   const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'stick', p: hit.p.toArray(), n: hit.n.toArray(), size: 0.08, stretch: 1, rot: 0, opacity: 1, ...opts };
@@ -536,6 +559,10 @@ function edAdd(kind, opts, at) {
   if (kind === 'text') { L.name = opts.text.str || 'Text'; L.size = 0.09; }
   if (kind === 'image') L.name = opts.name || 'Image';
   edCommit(() => { ED.design.layers.push(L); ED.sel = L.id; });
+}
+async function edAddCustom(id) {
+  const d = await edApi().open(id); if (!d?.png) { toast('That sticker has nothing on it yet.'); return; }
+  const key = 'stk-' + id; ED.design.images[key] = d.png; edAdd('image', { image: key, name: d.name || 'Sticker' });
 }
 function edDrop(e) { e.preventDefault(); const d = ED.drag; ED.drag = null; if (!d) return; if (d.add === 'shape') edAdd('shape', { shape: d.shape }, [e.clientX, e.clientY]); else if (d.add === 'image') edAdd('image', { image: d.image, name: 'Image' }, [e.clientX, e.clientY]); }
 function edImportImage(e) {
@@ -557,14 +584,17 @@ function edImportTexture(e) {
 
 // ---- clicks and edits in the editor
 function edClick(e) {
-  const t = e.target.closest('[data-ed],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
+  const t = e.target.closest('[data-ed],[data-tab],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
   if (t.matches('input, select, label')) return; // (inputs are handled as input events)
   const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
   // colour and effects: swatches and the Own / Solid / Gradient and stroke side buttons
   if (t.dataset.look && t.dataset.v != null) { const v = t.dataset.v; edCommit(() => edSetLook(t.dataset.look, v)); return; }
   if (t.dataset.gsel) { ED.selGroup = t.dataset.gsel; ED.sel = null; ED.multi = new Set(); edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.layer && (e.ctrlKey || e.metaKey || e.shiftKey)) { const m = ED.multi ||= new Set(); if (ED.sel) m.add(ED.sel); const id = t.dataset.layer; m.has(id) ? m.delete(id) : m.add(id); ED.sel = m.size === 1 ? [...m][0] : null; ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
-  if (t.dataset.lib) { ED.lib = t.dataset.lib; edLib(); return; }
+  if (t.dataset.tab) { edSwitchTab(t.dataset.tab); return; }
+  if (t.dataset.stk) { const [w, h] = t.dataset.stk.split('x').map(Number); edCommit(() => { D.w = w; D.h = h; }); return; }
+  if (t.dataset.lib) { ED.lib = t.dataset.lib; if (ED.lib === 'custom') edList().then(edLib); edLib(); return; }
+  if (t.dataset.add === 'custom') { edAddCustom(t.dataset.id); return; }
   if (t.dataset.add) { if (t.dataset.add === 'shape') edAdd('shape', { shape: t.dataset.shape }); else edAdd('image', { image: t.dataset.image, name: 'Image' }); return; }
   if (t.dataset.cam) { const V = { front: [0, 0.05], left: [Math.PI / 2, 0.08], right: [-Math.PI / 2, 0.08], back: [Math.PI, 0.05], top: [0, 1.5] }[t.dataset.cam]; [ED.three.yaw, ED.three.pitch] = V; edDraw(); return; }
   if (t.dataset.mode) { ED.view = t.dataset.mode; ED.root.querySelectorAll('#ed-mode button').forEach(b => b.classList.toggle('on', b === t)); ED.root.querySelector('#ed-flat').style.display = ED.view === 'flat' ? 'block' : 'none'; edDraw(); return; }
@@ -621,10 +651,12 @@ function edClick(e) {
   });
   else if (a === 'flipx' && L) edCommit(() => { L.flipX = !L.flipX; });
   else if (a === 'flipy' && L) edCommit(() => { L.flipY = !L.flipY; });
+  else if (a === 'centre' && L && L.mode === 'flat') edCommit(() => { L.x = 0.5; L.y = 0.5; });
   else if (a === 'centre' && L) edCommit(() => { if (L.mode === 'wrap') L.wx = 0; else { const p = new THREE.Vector3(...L.p); p.x = ED.three.C.x; const h = edSurfaceNear(p); L.p = h.p.toArray(); L.n = h.n.toArray(); } });
   else if (a === 'bg' && L) edBgOpen(L);
   else if (a === 'save') edSave().then(() => toast('Saved.'));
-  else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
+  else if (a === 'stk-save') edSave().then(() => { toast('Saved: it’s in Add › Custom, in every editor.'); edList().then(() => { if (ED.lib === 'custom') edLib(); }); });
+  else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edIsStk() ? edNewSticker() : edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
   else if (a === 'designs') { edList().then(edMenu); }
   else if (a === 'png') edExportPng();
   else if (a === 'export') edExport('addon');
@@ -633,7 +665,8 @@ function edClick(e) {
 }
 function edMenu() {
   const m = ED.root.querySelector('#ed-menu'); if (!m) return;
-  m.innerHTML = ED.list.length ? ED.list.map(d => `<div class="he-mi" data-open="${d.id}">${d.thumb ? `<img src="${d.thumb}" alt="">` : '<span class="he-noimg"></span>'}<span>${edEsc(d.name)}<small>${new Date(d.at).toLocaleString()}</small></span><button class="icon-btn" data-delete="${d.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted he-small" style="padding:10px">No saved designs yet.</div>';
+  const kind = edIsStk() ? 'sticker' : 'helmet'; const list = ED.list.filter(d => (d.kind || 'helmet') === kind);
+  m.innerHTML = list.length ? list.map(d => `<div class="he-mi" data-open="${d.id}">${d.thumb ? `<img src="${d.thumb}" alt="">` : '<span class="he-noimg"></span>'}<span>${edEsc(d.name)}<small>${new Date(d.at).toLocaleString()}</small></span><button class="icon-btn" data-delete="${d.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted he-small" style="padding:10px">No saved designs yet.</div>';
   m.classList.add('on');
 }
 async function edOpen(id) {
@@ -686,7 +719,7 @@ function edInput(e) {
     const k = t.dataset.lp, v = +t.value;
     if (e.type === 'input') {
       if (ED.sliding !== t) { ED.undo.push(edSnap()); ED.redo = []; ED.sliding = t; ED.slideFrom = { size: L.size, stretch: L.stretch || 1 }; }
-      if (k === 'scale') L.size = Math.max(0.005, Math.min(0.9, ED.slideFrom.size * v));
+      if (k === 'scale') L.size = Math.max(0.005, Math.min(L.mode === 'flat' ? 3 : 0.9, ED.slideFrom.size * v));
       else if (k === 'w') edSetDims(L, v, null); else if (k === 'len') edSetDims(L, null, v); else L[k] = v;
       edDimLabels(L); const lab = t.parentElement.querySelector('.v'); if (lab && k === 'rot') lab.textContent = Math.round(L.rot) + '°'; else if (lab && k === 'opacity') lab.textContent = Math.round(v * 100) + '%';
       edChanged(true, false);
@@ -714,7 +747,7 @@ function edSurfaceAtWrap(wx, wy) { const T = ED.three; const th = -wy / T.RAD; r
 function edPick(cx, cy) {
   // the top layer whose picture is under the pointer (its own pixels, not its box)
   const hit = edHitAt(cx, cy); if (!hit) return null; const T = ED.three; const D = ED.design;
-  for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false || L.mode === 'uv') continue; const s = T.tex.get(L.id); if (!s) continue;
+  for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false || L.mode === 'uv') continue; const s = ED.cache.get(L.id); if (!s) continue;
     for (const mirror of L.mirror ? [false, true] : [false]) { const F = edFrameOf(L, mirror, s.aspect); let q;
       if (F.mode === 0) { const d = hit.p.clone().sub(F.P); if (Math.abs(d.dot(F.N)) > 0.07 || hit.n.dot(F.N) < 0.15) continue; q = [d.dot(F.T), d.dot(F.U)]; } else { const [x, y] = edWrapOf(hit.p); q = [x - F.wx, y - F.wy]; }
       const c = Math.cos(F.rot), sn = Math.sin(F.rot); const r = [c * q[0] + sn * q[1], -sn * q[0] + c * q[1]]; const u = r[0] / (F.w * s.ex) * F.fx + 0.5, v = r[1] / (F.h * s.ey) * F.fy + 0.5;
@@ -757,7 +790,7 @@ function edMove(e) {
   }
   if (P.kind === 'size' || P.kind === 'turn') {
     const d = Math.hypot(e.clientX - P.cx, e.clientY - P.cy); const ang = Math.atan2(e.clientY - P.cy, e.clientX - P.cx);
-    if (P.kind === 'size') P.L.size = Math.max(0.005, Math.min(0.32, P.size * d / Math.max(4, P.d0)));
+    if (P.kind === 'size') P.L.size = Math.max(0.005, Math.min(edMaxW(P.L), P.size * d / Math.max(4, P.d0)));
     else { let r = P.rot - (ang - P.a0) * 180 / Math.PI * P.sign; r = ((r + 540) % 360) - 180; P.L.rot = e.shiftKey ? Math.round(r / 15) * 15 : r; }
     edChanged(true, false);
   }
@@ -770,7 +803,7 @@ function edUp(e) {
 /** The selected sticker's box on screen, with corner handles (size) and a top handle (turn). */
 function edGizmo() {
   const svg = ED.root?.querySelector('#ed-gizmo'); if (!svg) return; const T = ED.three; const L = ED.design.layers.find(l => l.id === ED.sel);
-  const s = L && T.tex.get(L.id); if (!L || !s || L.mode === 'uv' || L.visible === false || ED.view === 'flat') { svg.innerHTML = ''; return; }
+  const s = L && ED.cache.get(L.id); if (!L || !s || L.mode === 'uv' || L.visible === false || ED.view === 'flat') { svg.innerHTML = ''; return; }
   const F = edFrameOf(L, false, s.aspect); const r = T.R.domElement.getBoundingClientRect(); const W = r.width, H = r.height;
   const c = Math.cos(F.rot), sn = Math.sin(F.rot);
   const toWorld = (u, v) => { const q = [u * F.w * F.fx, v * F.h * F.fy]; const x = c * q[0] - sn * q[1], y = sn * q[0] + c * q[1];
@@ -793,19 +826,19 @@ function edGizmo() {
     <text x="${Math.min(...pts.map(p => p[0]))}" y="${Math.max(...pts.map(p => p[1])) + 20}" class="he-glbl">${edEsc(L.name)}${L.mirror ? ' · mirrored' : ''}</text>`;
 }
 /** A sticker's width and length in metres (its picture's own shape, times the stretch). */
-function edDims(L) { const s = ED.three?.tex.get(L.id); const a = s?.aspect || 1; return [L.size, L.size * a * (L.stretch || 1)]; }
+function edDims(L) { const s = ED.cache.get(L.id); const a = s?.aspect || 1; return [L.size, L.size * a * (L.stretch || 1)]; }
 /** Sets a sticker's width and/or length (null keeps it), in metres. */
 function edSetDims(L, w, h) {
-  const s = ED.three?.tex.get(L.id); const a = s?.aspect || 1; const [w0, h0] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : 0.32;
-  const nw = Math.max(0.005, Math.min(0.32, w ?? w0)), nh = Math.max(0.005, Math.min(mx, h ?? h0));
+  const s = ED.cache.get(L.id); const a = s?.aspect || 1; const [w0, h0] = edDims(L); const mx = L.mode === 'flat' ? 4 : L.mode === 'wrap' ? 0.9 : 0.32;
+  const nw = Math.max(0.005, Math.min(edMaxW(L), w ?? w0)), nh = Math.max(0.005, Math.min(mx, h ?? h0));
   L.size = nw; L.stretch = nh / (nw * a);
 }
-function edDimLabels(L) { const [w, h] = edDims(L); const set = (k, v) => { const el = ED.root.querySelector(`#ed-props [data-lp="${k}"]`); if (!el) return; if (ED.sliding !== el) el.value = v; const lab = el.parentElement.querySelector('.v'); if (lab) lab.textContent = Math.round(v * 1000) + ' mm'; }; set('w', w); set('len', h); }
+function edDimLabels(L) { const [w, h] = edDims(L); const W = ED.design.w || 1024; const set = (k, v) => { const el = ED.root.querySelector(`#ed-props [data-lp="${k}"]`); if (!el) return; if (ED.sliding !== el) el.value = v; const lab = el.parentElement.querySelector('.v'); if (lab) lab.textContent = L.mode === 'flat' ? Math.round(v * W) + ' px' : Math.round(v * 1000) + ' mm'; }; set('w', w); set('len', h); }
 function edRadiusAt(th) { const T = ED.three; const h = edSurfaceNear(new THREE.Vector3(T.C.x, T.C.y + Math.cos(th) * T.RAD, T.C.z + Math.sin(th) * T.RAD)); return h.p.clone().sub(T.C).setX(0).length(); }
 document.addEventListener('pointerdown', (e) => {
   const h = e.target.closest?.('#ed-gizmo [data-h]'); if (!h || !ED.giz) return; e.preventDefault(); e.stopPropagation();
   const L = ED.design.layers.find(l => l.id === ED.sel); if (!L || L.locked) return; ED.undo.push(edSnap()); ED.redo = [];
-  const r = ED.three.R.domElement.getBoundingClientRect(); const cx = r.left + ED.giz.ctr[0], cy = r.top + ED.giz.ctr[1];
+  const r = (edIsStk() ? ED.root.querySelector('#ed-view') : ED.three.R.domElement).getBoundingClientRect(); const cx = r.left + ED.giz.ctr[0], cy = r.top + ED.giz.ctr[1];
   // which way round a turn goes on screen: the box's own corners say whether it's seen from the front or mirrored
   const [a, b, c2] = ED.giz.pts; const cross = (b[0] - a[0]) * (c2[1] - a[1]) - (b[1] - a[1]) * (c2[0] - a[0]);
   ED.ptr = { kind: h.dataset.h, L, cx, cy, size: L.size, d0: Math.hypot(e.clientX - cx, e.clientY - cy), rot: L.rot || 0, a0: Math.atan2(e.clientY - cy, e.clientX - cx), sign: cross < 0 ? 1 : -1 };
@@ -856,6 +889,118 @@ function edTargetPicker(r) { const el = ED.root?.querySelector('#ed-target'); if
 function edModal(html) { const m = ED.root.querySelector('#ed-modal'); m.innerHTML = html ? `<div class="he-mbox">${html}</div>` : ''; m.classList.toggle('on', !!html); }
 // close / open-folder buttons in the dialog
 document.addEventListener('click', (e) => { const t = e.target.closest?.('#ed-modal [data-ed]'); if (!t) return; if (t.dataset.ed === 'close') edModal(''); else if (t.dataset.ed === 'show-dir') edApi().show(t.dataset.dir); });
+
+// ---- the Sticker maker: a flat canvas with a see-through background, with the same layers and tools as the helmet.
+// Its layers are "flat": x and y (where the middle is, as a share of the canvas), size (the width, as a share of the
+// canvas width), with the same stretch, turn, flips, colour, effects and auto-mask. Every saved sticker is in
+// Add > Custom, in every editor.
+const edNewSticker = () => ({ id: edUid(), kind: 'sticker', name: 'New sticker', at: new Date().toISOString(), w: 1024, h: 1024, layers: [], groups: {}, images: {} });
+const edIsStk = () => ED.tab === 'sticker';
+const edViewEl = () => edIsStk() ? ED.root.querySelector('#ed-stk') : ED.three?.R.domElement;
+const edMaxW = (L) => L.mode === 'flat' ? 3 : 0.32;
+/** Switches between the helmet and the Sticker maker, each keeping its own design, undo and selection. */
+function edSwitchTab(tab) {
+  if (tab === ED.tab) return;
+  if (ED.dirty) edSave(true);
+  ED.tabs[ED.tab] = { design: ED.design, undo: ED.undo, redo: ED.redo, sel: ED.sel, selGroup: ED.selGroup, multi: ED.multi, dirty: false, savedAt: ED.savedAt };
+  ED.tab = tab; const S = ED.tabs[tab];
+  Object.assign(ED, S || { design: tab === 'sticker' ? edNewSticker() : edNew(), undo: [], redo: [], sel: null, selGroup: null, multi: new Set(), dirty: false, savedAt: null });
+  ED.root.classList.toggle('he-sticker', tab === 'sticker'); ED.root.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  ED.root.querySelector('#ed-newbtn').textContent = tab === 'sticker' ? 'New sticker' : 'New helmet';
+  ED.root.querySelector('#ed-name').title = tab === 'sticker' ? 'The sticker’s name' : 'The helmet’s name';
+  ED.root.querySelector('#ed-hint').textContent = tab === 'sticker' ? 'Pick something from Add · drag it on the canvas · corners size it · the top handle turns it · Save to Custom Stickers to use it on a helmet' : 'Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet';
+  ED.root.querySelector('#ed-msg').style.visibility = tab === 'sticker' ? 'hidden' : '';
+  edPanels(); edLib(); edBake(); edResize();
+}
+/** A flat layer's placing on the canvas: middle (px), turn (radians, as the helmet's: positive turns anticlockwise), scale of its picture. */
+function edStkXf(L, s, W) {
+  const w = L.size * W, h = w * s.aspect * (L.stretch || 1);
+  return { cx: (L.x ?? 0.5) * W, cy: (L.y ?? 0.5) * (ED.design.h || W), rot: (L.rot || 0) * Math.PI / 180, sx: w / s.cw * (L.flipX ? -1 : 1), sy: h / s.ch * (L.flipY ? -1 : 1) };
+}
+let edStkBusy = false, edStkAgain = false;
+async function edBakeSticker() {
+  if (edStkBusy) { edStkAgain = true; return; } edStkBusy = true;
+  const D = ED.design; const W = D.w || 1024, H = D.h || 1024; const srcs = await Promise.all(D.layers.map(L => L.visible === false ? null : edSource(L)));
+  const cv = ED.stkCv ||= document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'); g.clearRect(0, 0, W, H);
+  D.layers.forEach((L, k) => { const s = srcs[k]; if (!s) return; const X = edStkXf(L, s, W); g.save(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore(); });
+  edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; edDrawSticker();
+  if (edStkAgain) { edStkAgain = false; edBakeSticker(); }
+}
+/** The canvas on screen: a chequered see-through background, the sticker fitted in the view. */
+function edDrawSticker() {
+  const el = ED.root?.querySelector('#ed-stk'); const v = ED.root?.querySelector('#ed-view'); if (!el || !v) return; const Wv = v.clientWidth, Hv = v.clientHeight; if (!Wv) return;
+  const dpr = window.devicePixelRatio || 1; el.width = Wv * dpr; el.height = Hv * dpr; const g = el.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#10151f'; g.fillRect(0, 0, Wv, Hv);
+  const D = ED.design; const W = D.w || 1024, H = D.h || 1024; const k = Math.min((Wv - 40) / W, (Hv - 110) / H); const ox = (Wv - W * k) / 2, oy = (Hv - H * k) / 2 + 10;
+  ED.stkView = { k, ox, oy };
+  const sq = 12; g.save(); g.beginPath(); g.rect(ox, oy, W * k, H * k); g.clip(); for (let y = 0; y < H * k; y += sq) for (let x = 0; x < W * k; x += sq) { g.fillStyle = ((x + y) / sq) % 2 ? '#2a3144' : '#343c52'; g.fillRect(ox + x, oy + y, sq, sq); } g.restore();
+  if (ED.stkCv) { g.imageSmoothingQuality = 'high'; g.drawImage(ED.stkCv, ox, oy, W * k, H * k); }
+  g.strokeStyle = 'rgba(255,255,255,.18)'; g.strokeRect(ox - 0.5, oy - 0.5, W * k + 1, H * k + 1);
+  g.fillStyle = '#8B97AF'; g.font = '12px Segoe UI'; g.fillText(`${W} × ${H}`, ox, oy + H * k + 16);
+  edStkGizmo();
+}
+/** Canvas pixels from a point on the screen. */
+function edStkAt(cx, cy) { const r = ED.root.querySelector('#ed-stk').getBoundingClientRect(); const V = ED.stkView || { k: 1, ox: 0, oy: 0 }; return [(cx - r.left - V.ox) / V.k, (cy - r.top - V.oy) / V.k]; }
+/** The top layer whose own pixels (not its box) are under a canvas point. */
+function edStkPick(X, Y) {
+  const D = ED.design; const W = D.w || 1024;
+  for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false) continue; const s = ED.cache.get(L.id); if (!s) continue;
+    const T = edStkXf(L, s, W); const dx = X - T.cx, dy = Y - T.cy; const c = Math.cos(T.rot), sn = Math.sin(T.rot);
+    const u = (dx * c - dy * sn) / T.sx + s.cv.width / 2, v = (dx * sn + dy * c) / T.sy + s.cv.height / 2;
+    if (u < 0 || v < 0 || u >= s.cv.width || v >= s.cv.height) continue; if (s.data.data[((v | 0) * s.cv.width + (u | 0)) * 4 + 3] > 20) return L; }
+  return null;
+}
+/** The selected layer's box on the canvas, with the same handles as on the helmet. */
+function edStkGizmo() {
+  const svg = ED.root?.querySelector('#ed-gizmo'); if (!svg) return; const L = ED.design.layers.find(l => l.id === ED.sel); const s = L && ED.cache.get(L.id);
+  if (!L || !s || L.visible === false) { svg.innerHTML = ''; ED.giz = null; return; }
+  const V = ED.stkView; const T = edStkXf(L, s, ED.design.w || 1024); const c = Math.cos(-T.rot), sn = Math.sin(-T.rot); const v = ED.root.querySelector('#ed-view');
+  // (u right, v up, in the content's own box, as on the helmet)
+  const at = (u, w) => { const px = u * s.cw * T.sx, py = -w * s.ch * Math.abs(T.sy) * Math.sign(T.sy || 1); const x = T.cx + px * c - py * sn, y = T.cy + px * sn + py * c; return [V.ox + x * V.k, V.oy + y * V.k]; };
+  const pts = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([u, w]) => at(u, w)); const top = at(0, 0.5); const ctr = at(0, 0);
+  const tl = Math.hypot(top[0] - ctr[0], top[1] - ctr[1]) || 1; const rotH = [top[0] + (top[0] - ctr[0]) / tl * 24, top[1] + (top[1] - ctr[1]) / tl * 24];
+  const sides = [['w', 0.5, 0], ['w', -0.5, 0], ['len', 0, 0.5], ['len', 0, -0.5]].map(([h, u, w]) => [h, at(u, w)]);
+  ED.giz = { ctr, pts, rotH, sides };
+  svg.setAttribute('viewBox', `0 0 ${v.clientWidth} ${v.clientHeight}`);
+  svg.innerHTML = `<polygon points="${pts.map(p => p.join(',')).join(' ')}" class="he-gbox"/><line x1="${top[0]}" y1="${top[1]}" x2="${rotH[0]}" y2="${rotH[1]}" class="he-gline"/>
+    ${pts.map((p, k) => `<rect data-h="size" data-k="${k}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12" rx="2" class="he-gh"/>`).join('')}
+    ${sides.map(([h, p], k) => `<circle data-h="${h}" data-k="${k}" cx="${p[0]}" cy="${p[1]}" r="5" class="he-gh he-gside"/>`).join('')}<circle data-h="turn" cx="${rotH[0]}" cy="${rotH[1]}" r="7" class="he-gh"/>
+    <text x="${Math.min(...pts.map(p => p[0]))}" y="${Math.max(...pts.map(p => p[1])) + 20}" class="he-glbl">${edEsc(L.name)}</text>`;
+}
+function edStkDown(e) {
+  const [X, Y] = edStkAt(e.clientX, e.clientY); const L = edStkPick(X, Y);
+  if (!L) { if (ED.sel) { ED.sel = null; edLayers(); edProps(); edDrawSticker(); } return; }
+  if (ED.sel !== L.id) { ED.sel = L.id; ED.selGroup = null; ED.multi = new Set(); edLayers(); edProps(); }
+  if (L.locked) return; e.currentTarget.setPointerCapture(e.pointerId);
+  ED.undo.push(edSnap()); ED.redo = []; const W = ED.design.w || 1024, H = ED.design.h || 1024;
+  ED.ptr = { kind: 'stkmove', L, off: [(L.x ?? 0.5) * W - X, (L.y ?? 0.5) * H - Y], last: [L.x ?? 0.5, L.y ?? 0.5] };
+}
+function edStkMove(e) {
+  const P = ED.ptr; if (!P) { const [X, Y] = edStkAt(e.clientX, e.clientY); e.currentTarget.style.cursor = edStkPick(X, Y) ? 'move' : 'default'; return; }
+  if (P.kind !== 'stkmove') return; const [X, Y] = edStkAt(e.clientX, e.clientY); const W = ED.design.w || 1024, H = ED.design.h || 1024; const L = P.L;
+  let nx = (X + P.off[0]) / W, ny = (Y + P.off[1]) / H; if (Math.abs(nx - 0.5) < 0.006) nx = 0.5; if (Math.abs(ny - 0.5) < 0.006) ny = 0.5; // (snaps to the middle)
+  const dx = nx - (L.x ?? 0.5), dy = ny - (L.y ?? 0.5); L.x = nx; L.y = ny;
+  if (L.group) for (const m of edGroupOf(L.group)) if (m !== L && !m.locked) { m.x = (m.x ?? 0.5) + dx; m.y = (m.y ?? 0.5) + dy; }
+  edChanged(true, false);
+}
+function edStkUp() { const P = ED.ptr; ED.ptr = null; if (P?.kind === 'stkmove') { if (ED.undo.length && ED.undo[ED.undo.length - 1] === edSnap()) ED.undo.pop(); edPanels(); } }
+/** Auto-mask on the canvas: the layers above, drawn back into this layer's own picture, cut out of it. */
+async function edAutoMaskFlat(L) {
+  const D = ED.design; const k = D.layers.indexOf(L); const W = D.w || 1024, H = D.h || 1024; const before = L.mask; delete L.mask;
+  const s = await edSource(L); if (!s) { L.mask = before; return; }
+  const above = D.layers.slice(k + 1).filter(l => l.visible !== false); const srcs = await Promise.all(above.map(edSource));
+  const cover = edCanvas(W, H), cg = cover.getContext('2d');
+  above.forEach((l, i) => { const so = srcs[i]; if (!so) return; const X = edStkXf(l, so, W); cg.save(); cg.translate(X.cx, X.cy); cg.rotate(-X.rot); cg.scale(X.sx, X.sy); cg.drawImage(so.cv, -so.cv.width / 2, -so.cv.height / 2); cg.restore(); });
+  // this layer's content box, from the canvas: the inverse of its placing (its picture's room left out)
+  const X = edStkXf(L, s, W); const m = edCanvas(s.cw, s.ch), mg = m.getContext('2d'); mg.fillStyle = '#fff'; mg.fillRect(0, 0, s.cw, s.ch); mg.globalCompositeOperation = 'destination-out';
+  mg.translate(s.cw / 2, s.ch / 2); mg.scale(1 / X.sx, 1 / X.sy); mg.rotate(X.rot); mg.translate(-X.cx, -X.cy); mg.drawImage(cover, 0, 0);
+  const mask = m.toDataURL('image/png'); L.mask = before; edCommit(() => { L.mask = mask; });
+}
+/** The sticker as a PNG, cut to what's on it (see-through edges trimmed). */
+function edStkPng() {
+  const cv = ED.stkCv; if (!cv) return null; const g = cv.getContext('2d'); const d = g.getImageData(0, 0, cv.width, cv.height).data; let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) if (d[(y * cv.width + x) * 4 + 3] > 2) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null; const out = edCanvas(x1 - x0 + 1, y1 - y0 + 1); out.getContext('2d').drawImage(cv, -x0, -y0); return out;
+}
 
 // ---- the background remover: click a colour on the picture to clear it (touching pixels only, or all of it)
 function edBgOpen(L) {
