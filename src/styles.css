@@ -1679,7 +1679,9 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
   /* nothing moves when it opens: the driver card keeps its place (hidden, not removed), and the icons sit where they
      are in both states (the buttons only get wider) */
   body.rail-auto .rail .career-pill, body.rail-auto .rail .rail-foot { width: 212px; box-sizing: border-box; flex: none; }
-  body.rail-auto .rail:not(:hover) .brand-name, body.rail-auto .rail:not(:hover) .rail-pin, body.rail-auto .rail:not(:hover) .career-pill, body.rail-auto .rail:not(:hover) .rail-foot { visibility: hidden; }
+  body.rail-auto .rail:not(:hover) .career-pill, body.rail-auto .rail:not(:hover) .rail-foot { visibility: hidden; }
+  /* the logo row as it was: the name and the pin out of the way, so the logo keeps its room (its height is fixed, so nothing below moves) */
+  body.rail-auto .rail:not(:hover) .brand-name, body.rail-auto .rail:not(:hover) .rail-pin { display: none; }
   body.rail-auto .rail .nav button { padding-left: 13px; padding-right: 13px; width: 212px; box-sizing: border-box; white-space: nowrap; overflow: hidden; transition: width .16s ease; }
   body.rail-auto .rail:not(:hover) .nav button { width: 44px; }
   body.rail-auto .rail .nav button span { white-space: nowrap; }

@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.1.1
+
+- **The folded sidebar's logo is back to its full size.** In 7.1.0 it shrank to a sliver while the sidebar was folded. The icons still stay where they are when it opens.
+
 ## 7.1.0
 
 - **Editor: 65 more shapes (BETA).**
