@@ -18,7 +18,10 @@
   slot and edMount() puts the element back into it, so the 3D view, its camera and the selection survive a redraw.
 */
 const ED = { cache: new Map(), tab: "helmet", tabs: {}, root: null, ready: false, loading: false, err: null, needGame: false, three: null, design: null, sel: null, undo: [], redo: [], lib: 'shapes', view: '3d', dirty: false, saveT: null, list: [], text: null, bg: null };
-const ED_W = 2048, ED_H = 1024;
+// the design is baked at twice the game's helmet texture (4096 x 2048): sharp in the editor, and the export can send it
+// to the game at that size (4K) or halved to the game's own (2K)
+const ED_W = 4096, ED_H = 2048;
+const edGameRes = () => { try { return localStorage.getItem('pitwall.editor.gameRes') === '2k' ? '2k' : '4k'; } catch { return '4k'; } };
 
 // ---- the library: shapes as SVG, F fill, O outline, A accent (viewBox 0 0 100 100 unless vb says otherwise)
 const ED_SHAPES = [
@@ -105,10 +108,10 @@ function edBuild() {
         <canvas id="ed-stk" class="he-stkcv only-flat"></canvas>
         <svg id="ed-gizmo" class="he-gizmo"></svg>
         <div class="he-vbar">
-          <div class="he-row only-car"><label class="he-chk he-guide"><input type="checkbox" id="ed-guide" checked> Guide</label><input type="range" id="ed-guideop" min="0.05" max="0.9" step="0.05" value="0.35" title="How strongly the original livery shows over yours (it's never exported)"></div>
+          <div class="he-row only-car"><div class="seg he-seg" id="ed-carview"><button data-carview="flat" class="on">Flat</button><button data-carview="3d" title="The 2026 car with your livery on it (a preview: edit on Flat)">3D</button></div><label class="he-chk he-guide"><input type="checkbox" id="ed-guide" checked> Guide</label><input type="range" id="ed-guideop" min="0.05" max="0.9" step="0.05" value="0.35" title="How strongly the original livery shows over yours (it's never exported)"></div>
           <div class="he-row only-sticker"><div class="seg he-seg" id="ed-stksize"><button data-stk="1024x1024">Square</button><button data-stk="2048x1024">Wide</button><button data-stk="1024x2048">Tall</button></div></div>
           <div class="he-row only-helmet"><button class="btn sm" data-cam="front">Front</button><button class="btn sm" data-cam="left">Left</button><button class="btn sm" data-cam="right">Right</button><button class="btn sm" data-cam="back">Back</button><button class="btn sm" data-cam="top">Top</button></div>
-          <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
+          <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><div class="seg he-seg only-helmet" id="ed-place" title="How new stickers go on"><button data-place="stick" class="${edPlace() === 'stick' ? 'on' : ''}" title="New stickers follow the surface">Follow</button><button data-place="stamp" class="${edPlace() === 'stamp' ? 'on' : ''}" title="New stickers are stamped straight on from your view (lines stay straight)">Stamp</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
         </div>
         <div class="he-msg" id="ed-msg"></div>
         <div class="he-foot"><span class="he-hint" id="ed-hint">Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet</span></div>
@@ -124,10 +127,10 @@ function edBuild() {
     </div>
     <div class="he-bottom">
       <div class="he-row"><input class="he-name" id="ed-name" maxlength="40" title="The helmet's name"><span class="muted he-small" id="ed-status"></span></div>
-      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button><button class="btn primary only-car" data-ed="car-export" title="Puts it on the F1 75 livery of the My Team car">Export SWOFTY addon</button></div>
+      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (4096 x 2048 or 2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button><button class="btn primary only-car" data-ed="car-export" title="Puts it on the F1 75 livery of the My Team car">Export SWOFTY addon</button></div>
     </div>
     <div class="he-row he-target only-car"><span class="muted he-small">The addon puts it on the F1 75 livery of the</span><select class="he-mini" id="ed-caryear"><option value="2026">2026 My Team car</option><option value="2025">2025 My Team car</option></select><span class="muted he-small">(pick that livery for your team in the game)</span></div>
-    <div class="he-row he-target only-helmet"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game)</span>
+    <div class="he-row he-target only-helmet"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game) at</span><select class="he-mini" id="ed-gres" title="The texture's size in the game. 4K is twice the game's own helmets, sharper up close; 2K is the size the game's own helmets are."><option value="4k">4K (4096 x 2048)</option><option value="2k">2K (the game's size)</option></select>
     </div>
     <div class="he-modal" id="ed-modal"></div>
     <input type="file" id="ed-file" accept="image/png,image/webp,image/jpeg" hidden>
@@ -165,9 +168,9 @@ function edThree(r) {
   // which way the normals point (most of the shell faces outwards)
   let side = 0; const P = g.attributes.position.array, N = g.attributes.normal.array; for (let i = 0; i < P.length; i += 21) side += Math.sign((P[i] - C.x) * N[i] + (P[i + 1] - C.y) * N[i + 1] + (P[i + 2] - C.z) * N[i + 2]); side = side >= 0 ? 1 : -1;
   // the game's own texture (the inside and the trim) and where the trim is
-  const baseTex = new THREE.DataTexture(new Uint8Array(r.base.buffer.slice(r.base.byteOffset, r.base.byteOffset + r.base.byteLength)), ED_W, ED_H, THREE.RGBAFormat); baseTex.needsUpdate = true; baseTex.flipY = false;
-  const trimRGBA = new Uint8Array(ED_W * ED_H * 4); const tr = new Uint8Array(r.trim.buffer.slice(r.trim.byteOffset, r.trim.byteOffset + r.trim.byteLength)); for (let p = 0; p < ED_W * ED_H; p++) trimRGBA[p * 4 + 3] = tr[p];
-  const trimTex = new THREE.DataTexture(trimRGBA, ED_W, ED_H, THREE.RGBAFormat); trimTex.needsUpdate = true; trimTex.flipY = false;
+  const baseTex = new THREE.DataTexture(new Uint8Array(r.base.buffer.slice(r.base.byteOffset, r.base.byteOffset + r.base.byteLength)), r.w || 2048, r.h || 1024, THREE.RGBAFormat); baseTex.needsUpdate = true; baseTex.flipY = false; baseTex.magFilter = baseTex.minFilter = THREE.LinearFilter;
+  const BW = r.w || 2048, BH = r.h || 1024; const trimRGBA = new Uint8Array(BW * BH * 4); const tr = new Uint8Array(r.trim.buffer.slice(r.trim.byteOffset, r.trim.byteOffset + r.trim.byteLength)); for (let p = 0; p < BW * BH; p++) trimRGBA[p * 4 + 3] = tr[p];
+  const trimTex = new THREE.DataTexture(trimRGBA, BW, BH, THREE.RGBAFormat); trimTex.needsUpdate = true; trimTex.flipY = false; trimTex.magFilter = trimTex.minFilter = THREE.LinearFilter;
   // the baked texture
   const RT = new THREE.WebGLRenderTarget(ED_W, ED_H, { depthBuffer: false, stencilBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
   RT.texture.encoding = THREE.sRGBEncoding; RT.texture.anisotropy = 8;
@@ -185,13 +188,13 @@ function edThree(r) {
         gl_FragColor = vec4(mix(uCol, uCol2, t * uFade), 1.0); }` });
   // 3: a layer
   const layerMat = new THREE.ShaderMaterial({ vertexShader: bakeVS, side: THREE.DoubleSide, transparent: true, depthTest: false, depthWrite: false,
-    uniforms: { ...common, uTex: { value: null }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2(0.1, 0.1) }, uRot: { value: new THREE.Vector2(1, 0) }, uFlip: { value: new THREE.Vector2(1, 1) }, uW: { value: new THREE.Vector2() }, uOp: { value: 1 } },
-    fragmentShader: `uniform vec3 uC; uniform float uR; uniform float uSide; uniform sampler2D uTex; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; uniform float uOp; varying vec3 vP; varying vec3 vN; varying vec2 vUv;
+    uniforms: { ...common, uFace: { value: 0.15 }, uDepth: { value: 0.07 }, uTex: { value: null }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2(0.1, 0.1) }, uRot: { value: new THREE.Vector2(1, 0) }, uFlip: { value: new THREE.Vector2(1, 1) }, uW: { value: new THREE.Vector2() }, uOp: { value: 1 } },
+    fragmentShader: `uniform float uFace; uniform float uDepth; uniform vec3 uC; uniform float uR; uniform float uSide; uniform sampler2D uTex; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; uniform float uOp; varying vec3 vP; varying vec3 vN; varying vec2 vUv;
       void main(){
         vec3 n = normalize(vN); if (dot(n, vP - uC) * uSide < 0.0) discard;
         if (uMode > 1.5) { vec4 c = texture2D(uTex, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = vec4(c.rgb, c.a * uOp); return; }
         vec2 q;
-        if (uMode < 0.5) { vec3 d = vP - uP; if (dot(n, uN) * uSide < 0.15 || abs(dot(d, uN)) > 0.07) discard; q = vec2(dot(d, uT), dot(d, uU)); }
+        if (uMode < 0.5) { vec3 d = vP - uP; if (dot(n, uN) * uSide < uFace || abs(dot(d, uN)) > uDepth) discard; q = vec2(dot(d, uT), dot(d, uU)); }
         else { float th = atan(vP.z - uC.z, vP.y - uC.y); q = vec2(vP.x - uC.x, -th * uR) - uW; }
         q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y);
         vec2 t = q / uSize * uFlip + 0.5;
@@ -212,12 +215,13 @@ function edThree(r) {
   const mesh = new THREE.Mesh(g, viewMat); mesh.position.copy(C).multiplyScalar(-1); scene.add(mesh);
   ED.three = { R, g, C, RAD, side, RT, fillMat, baseMat, layerMat, trimMat, quad, bakeMesh, bakeScene, bakeCam, scene, cam, mesh, yaw: Math.PI / 2, pitch: 0.08, dist: 0.9, tex: new Map(), ray: new THREE.Raycaster() };
   cv.addEventListener('pointerdown', edDown); cv.addEventListener('pointermove', edMove); cv.addEventListener('pointerup', edUp); cv.addEventListener('pointercancel', edUp);
-  cv.addEventListener('wheel', (e) => { e.preventDefault(); const T = ED.three; T.dist = Math.max(0.45, Math.min(1.8, T.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); }, { passive: false });
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); if (edCar3dOn()) { ED.car3.dist = Math.max(2.5, Math.min(14, ED.car3.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); return; } const T = ED.three; T.dist = Math.max(0.45, Math.min(1.8, T.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); }, { passive: false });
   cv.addEventListener('dragover', (e) => e.preventDefault()); cv.addEventListener('drop', edDrop);
   new ResizeObserver(() => edResize()).observe(ED.root.querySelector('#ed-view'));
   edResize();
 }
 function edResize() {
+  if (edCar3dOn()) { const T = ED.three, v = ED.root.querySelector('#ed-view'); if (T && v.clientWidth) { T.R.setSize(v.clientWidth, v.clientHeight, false); ED.car3.cam.aspect = v.clientWidth / v.clientHeight; ED.car3.cam.updateProjectionMatrix(); } edDraw(); return; }
   if (edIsStk()) { edDrawSticker(); return; }
   const T = ED.three; if (!T) return; const v = ED.root.querySelector('#ed-view'); const w = v.clientWidth, h = v.clientHeight; if (!w || !h) return;
   T.R.setSize(w, h, false); T.cam.aspect = w / h; T.cam.updateProjectionMatrix(); edDraw();
@@ -225,6 +229,7 @@ function edResize() {
 let edRaf = 0;
 function edDraw() { if (edRaf) return; edRaf = requestAnimationFrame(() => { edRaf = 0; edFrame(); }); }
 function edFrame() {
+  if (edCar3dOn()) { edFrameCar(); return; }
   if (edIsStk()) { edDrawSticker(); return; }
   const T = ED.three; if (!T) return;
   const { yaw, pitch, dist } = T; T.cam.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist); T.cam.lookAt(0, 0, 0);
@@ -235,7 +240,7 @@ function edFrame() {
 
 // ---- layers as textures
 const edHex = (h) => new THREE.Color(h);
-function edShapeSvg(L) { const S = ED_SHAPES.find(s => s.id === L.shape); if (!S) return null; const [w, h] = S.vb || [100, 100]; const c = L.colors || []; return { w, h, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w * 6}" height="${h * 6}">${S.svg.replace(/="F"/g, `="${c[0] || '#ffffff'}"`).replace(/="O"/g, `="${c[1] || '#111111'}"`).replace(/="A"/g, `="${c[2] || '#E10600'}"`)}</svg>` }; }
+function edShapeSvg(L) { const S = ED_SHAPES.find(s => s.id === L.shape); if (!S) return null; const [w, h] = S.vb || [100, 100]; const c = L.colors || []; return { w, h, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${Math.round(w * 2048 / Math.max(w, h))}" height="${Math.round(h * 2048 / Math.max(w, h))}">${S.svg.replace(/="F"/g, `="${c[0] || '#ffffff'}"`).replace(/="O"/g, `="${c[1] || '#111111'}"`).replace(/="A"/g, `="${c[2] || '#E10600'}"`)}</svg>` }; }
 /*
   A layer's picture, made again only when what it shows changes:
    1. the content (a shape, the text, the image), on a canvas cut to fit;
@@ -255,7 +260,7 @@ async function edRaw(L) {
   if (L.kind === 'text') return edTextCanvas(L.text);
   const src = L.kind === 'shape' ? (() => { const s = edShapeSvg(L); return s && 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s.svg); })() : ED.design.images[L.image];
   const im = await edImg(src); if (!im) return null;
-  const k = Math.min(1, 1024 / Math.max(im.naturalWidth, im.naturalHeight)); const cv = edCanvas(Math.max(4, im.naturalWidth * k), Math.max(4, im.naturalHeight * k)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv;
+  const k = Math.min(1, (L.mode === 'uv' ? 4096 : 2048) / Math.max(im.naturalWidth, im.naturalHeight)); const cv = edCanvas(Math.max(4, im.naturalWidth * k), Math.max(4, im.naturalHeight * k)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv;
 }
 /** A copy of a picture in one colour (or a gradient), keeping its see-through parts. */
 function edPaint(src, fill) {
@@ -303,12 +308,12 @@ async function edSource(L) {
 }
 /** A text sticker: the words in their font, with spacing, slant and an outline, on a canvas cut to fit. */
 function edTextCanvas(t) {
-  const px = 160; const font = `${t.italic ? 'italic ' : ''}${t.bold ? 700 : 400} ${px}px "${t.font}"`;
-  const m = document.createElement('canvas').getContext('2d'); m.font = font; m.letterSpacing = `${(t.sp || 0) * 4}px`;
-  const str = t.str || ' '; const tw = Math.ceil(m.measureText(str).width); const ow = (t.ow || 0) * 3; const slant = Math.tan((t.sl || 0) * Math.PI / 180);
-  const pad = 20 + ow; const w = Math.min(4096, tw + pad * 2 + Math.ceil(px * slant)), h = Math.ceil(px * 1.3) + pad * 2;
+  const S = 2, px = 160 * S; const font = `${t.italic ? 'italic ' : ''}${t.bold ? 700 : 400} ${px}px "${t.font}"`;
+  const m = document.createElement('canvas').getContext('2d'); m.font = font; m.letterSpacing = `${(t.sp || 0) * 4 * S}px`;
+  const str = t.str || ' '; const tw = Math.ceil(m.measureText(str).width); const ow = (t.ow || 0) * 3 * S; const slant = Math.tan((t.sl || 0) * Math.PI / 180);
+  const pad = 20 * S + ow; const w = Math.min(8192, tw + pad * 2 + Math.ceil(px * slant)), h = Math.ceil(px * 1.3) + pad * 2;
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d');
-  g.font = font; g.letterSpacing = `${(t.sp || 0) * 4}px`; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  g.font = font; g.letterSpacing = `${(t.sp || 0) * 4 * S}px`; g.textBaseline = 'middle'; g.lineJoin = 'round';
   g.setTransform(1, 0, -slant, 1, px * slant * 0.5, 0);
   if (ow) { g.strokeStyle = t.outline || '#ffffff'; g.lineWidth = ow * 2; g.strokeText(str, pad, h / 2); }
   g.fillStyle = t.fill || '#111111'; g.fillText(str, pad, h / 2);
@@ -331,7 +336,7 @@ async function edBake() {
   D.layers.forEach((L, k) => {
     const s = srcs[k]; if (!s) return;
     // (the picture's room for effects makes it bigger than the sticker itself: drawn that much bigger, same middle)
-    const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; R.render(T.bakeScene, T.bakeCam); };
+    const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uFace.value = F.face; U.uDepth.value = F.depth; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; R.render(T.bakeScene, T.bakeCam); };
     draw(false); if (L.mirror && L.mode !== 'uv') draw(true);
   });
   // the trim
@@ -357,18 +362,18 @@ async function edAutoMask(L) {
   const R = T.R; T.coverRT ||= new THREE.WebGLRenderTarget(ED_W, ED_H, { depthBuffer: false, stencilBuffer: false });
   R.setRenderTarget(T.coverRT); R.setClearColor(0x000000, 0); R.clear(); R.autoClear = false;
   T.quad.visible = false; T.bakeMesh.visible = true; T.bakeMesh.material = T.layerMat; const U = T.layerMat.uniforms;
-  above.forEach((l, i) => { const so = srcs[i]; if (!so) return; const draw = (mirror) => { const F = edFrameOf(l, mirror, so.aspect); U.uTex.value = so.tex; U.uMode.value = F.mode; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * so.ex, F.h * so.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = 1; R.render(T.bakeScene, T.bakeCam); }; draw(false); if (l.mirror && l.mode !== 'uv') draw(true); });
+  above.forEach((l, i) => { const so = srcs[i]; if (!so) return; const draw = (mirror) => { const F = edFrameOf(l, mirror, so.aspect); U.uTex.value = so.tex; U.uMode.value = F.mode; U.uFace.value = F.face; U.uDepth.value = F.depth; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * so.ex, F.h * so.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = 1; R.render(T.bakeScene, T.bakeCam); }; draw(false); if (l.mirror && l.mode !== 'uv') draw(true); });
   // 2: the coverage as seen in this sticker's picture (its content's own box, no effects room)
   T.invMat ||= new THREE.ShaderMaterial({ side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: false,
-    uniforms: { uCover: { value: null }, uC: { value: T.C }, uR: { value: T.RAD }, uSide: { value: T.side }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2() }, uRot: { value: new THREE.Vector2() }, uFlip: { value: new THREE.Vector2() }, uW: { value: new THREE.Vector2() } },
-    vertexShader: `uniform vec3 uC; uniform float uR; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; varying vec2 vUv; varying float vFace; varying float vDepth;
-      void main(){ vUv = uv; vec2 q; vec3 d = position - uP;
-        if (uMode < 0.5) { q = vec2(dot(d, uT), dot(d, uU)); vFace = dot(normal, uN); vDepth = abs(dot(d, uN)); }
-        else { float th = atan(position.z - uC.z, position.y - uC.y); q = vec2(position.x - uC.x, -th * uR) - uW; vFace = 1.0; vDepth = 0.0; }
+    uniforms: { uCover: { value: null }, uC: { value: T.C }, uR: { value: T.RAD }, uSide: { value: T.side }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2() }, uRot: { value: new THREE.Vector2() }, uFlip: { value: new THREE.Vector2() }, uW: { value: new THREE.Vector2() }, uFace: { value: 0.15 }, uDepth: { value: 0.07 } },
+    vertexShader: `uniform vec3 uC; uniform float uR; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; varying vec2 vUv; varying float vFace; varying float vDepth; varying float vSeam; varying float vOut;
+      void main(){ vUv = uv; vec2 q; vec3 d = position - uP; vOut = dot(normal, position - uC);
+        if (uMode < 0.5) { q = vec2(dot(d, uT), dot(d, uU)); vFace = dot(normal, uN); vDepth = abs(dot(d, uN)); vSeam = 1.0; }
+        else { float th = atan(position.z - uC.z, position.y - uC.y); q = vec2(position.x - uC.x, -th * uR) - uW; vec3 rad = vec3(0.0, position.y - uC.y, position.z - uC.z); vFace = dot(normal, normalize(rad)); vDepth = 0.0; vSeam = cos(th); }
         q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y); vec2 t = q / uSize * uFlip + 0.5; gl_Position = vec4(t * 2.0 - 1.0, 0.0, 1.0); }`,
-    fragmentShader: `uniform sampler2D uCover; uniform float uSide; varying vec2 vUv; varying float vFace; varying float vDepth; void main(){ if (vFace * uSide < 0.15 || vDepth > 0.07) discard; gl_FragColor = vec4(texture2D(uCover, vUv).a, 0.0, 0.0, 1.0); }` });
+    fragmentShader: `uniform sampler2D uCover; uniform float uSide; uniform float uMode; uniform float uFace; uniform float uDepth; varying vec2 vUv; varying float vFace; varying float vDepth; varying float vSeam; varying float vOut; void main(){ if (vOut * uSide < 0.0 || vSeam < -0.6) discard; if (uMode < 0.5 ? (vFace * uSide < uFace || vDepth > uDepth) : vFace * uSide < 0.0) discard; gl_FragColor = vec4(texture2D(uCover, vUv).a, 0.0, 0.0, 1.0); }` });
   const M = T.invMat.uniforms; const F = edFrameOf(L, false, s.aspect);
-  M.uCover.value = T.coverRT.texture; M.uMode.value = F.mode; M.uP.value.copy(F.P); M.uN.value.copy(F.N); M.uT.value.copy(F.T); M.uU.value.copy(F.U); M.uSize.value.set(F.w, F.h); M.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); M.uFlip.value.set(F.fx, F.fy); M.uW.value.set(F.wx, F.wy);
+  M.uCover.value = T.coverRT.texture; M.uMode.value = F.mode; M.uFace.value = F.face; M.uDepth.value = F.depth; M.uP.value.copy(F.P); M.uN.value.copy(F.N); M.uT.value.copy(F.T); M.uU.value.copy(F.U); M.uSize.value.set(F.w, F.h); M.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); M.uFlip.value.set(F.fx, F.fy); M.uW.value.set(F.wx, F.wy);
   const rt = new THREE.WebGLRenderTarget(s.cw, s.ch, { depthBuffer: false, stencilBuffer: false });
   R.setRenderTarget(rt); R.setClearColor(0x000000, 0); R.clear(); T.bakeMesh.material = T.invMat; R.render(T.bakeScene, T.bakeCam);
   const px = new Uint8Array(s.cw * s.ch * 4); R.readRenderTargetPixels(rt, 0, 0, s.cw, s.ch, px); rt.dispose();
@@ -387,14 +392,29 @@ async function edAutoMask(L) {
  * (Both kinds of frame are seen from outside: a stick frame's right is the viewer's right on either side, a wrap
  * frame's x is the same for both; so a reflection is a flip across and a reversed turn.)
  */
+/** How new stickers go on: 'stick' (follow the surface) or 'stamp' (from the view). */
+const edPlace = () => { if (!ED.place) { try { ED.place = localStorage.getItem('pitwall.editor.place') === 'stamp' ? 'stamp' : 'stick'; } catch { ED.place = 'stick'; } } return ED.place; };
+/** The direction from the helmet towards the camera, in the helmet's own space. */
+function edViewDir() { const T = ED.three; T.mesh.updateMatrixWorld(); const inv = new THREE.Matrix4().copy(T.mesh.matrixWorld).invert(); const a = T.cam.position.clone().applyMatrix4(inv), o = T.mesh.worldToLocal(new THREE.Vector3(0, 0, 0)); return a.sub(o).normalize(); }
+/** Changes how a layer is projected, keeping it where it is. */
+function edSetProj(L, mode) {
+  if (L.mode === mode || L.mode === 'uv' || L.mode === 'flat') return;
+  edCommit(() => { const was = L.mode;
+    if (mode === 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; }
+    else if (was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); }
+    if (mode === 'stamp') L.n = edViewDir().toArray();
+    else if (mode === 'stick' && was === 'stamp') { const h = edSurfaceNear(new THREE.Vector3(...L.p)); L.p = h.p.toArray(); L.n = h.n.toArray(); }
+    L.mode = mode; });
+}
 function edFrameOf(L, mirror, aspect) {
   const w = L.size || 0.08, h = w * (aspect || 1) * (L.stretch || 1); const reflect = mirror && L.kind === 'shape' && L.reflect !== false;
   const fx = (L.flipX ? -1 : 1) * (reflect ? -1 : 1), fy = L.flipY ? -1 : 1; const rot = (L.rot || 0) * Math.PI / 180 * (mirror && L.mirrorRot !== false ? -1 : 1);
-  if (L.mode === 'uv') return { mode: 2, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w: 1, h: 1, rot: 0, fx: 1, fy: 1, wx: 0, wy: 0 };
-  if (L.mode === 'wrap') { const wx = (L.wx || 0) * (mirror ? -1 : 1); return { mode: 1, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w, h, rot, fx, fy, wx, wy: L.wy || 0 }; }
+  const face = L.mode === 'stamp' ? 0.02 : 0.15, depth = L.mode === 'stamp' ? 10 : 0.07;
+  if (L.mode === 'uv') return { mode: 2, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w: 1, h: 1, rot: 0, fx: 1, fy: 1, wx: 0, wy: 0, face, depth };
+  if (L.mode === 'wrap') { const wx = (L.wx || 0) * (mirror ? -1 : 1); return { mode: 1, P: new THREE.Vector3(), N: new THREE.Vector3(), T: new THREE.Vector3(), U: new THREE.Vector3(), w, h, rot, fx, fy, wx, wy: L.wy || 0, face, depth }; }
   const P = new THREE.Vector3(...(L.p || [0, 0, 0])), N = new THREE.Vector3(...(L.n || [1, 0, 0])).normalize();
   if (mirror) { P.x = 2 * ED.three.C.x - P.x; N.x = -N.x; }
-  const { T, U } = edTangents(N); return { mode: 0, P, N, T, U, w, h, rot, fx, fy, wx: 0, wy: 0 };
+  const { T, U } = edTangents(N); return { mode: 0, P, N, T, U, w, h, rot, fx, fy, wx: 0, wy: 0, face, depth };
 }
 /** A sticker's right and up on the surface, as seen from outside: up is as close to the world's up as the surface allows. */
 function edTangents(N) {
@@ -512,7 +532,7 @@ function edProps() {
     ${L.mode === 'flat' ? `<div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="In the middle of the canvas">Centre</button></div>` : L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
     ${L.mirror ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
     <button class="btn sm he-wide" data-ed="detach" title="The mirror becomes a layer of its own, in the same place: change its colour or anything else separately">Make the mirror its own layer</button>` : ''}
-    <label class="he-chk"><input type="checkbox" data-lb="wrap" ${L.mode === 'wrap' ? 'checked' : ''}> Wrap round the helmet (for stripes front to back)</label>
+    <div class="he-row he-proj"><span class="muted he-small">Projection</span><div class="seg he-seg"><button data-proj="stick" class="${L.mode === 'stick' || !L.mode ? 'on' : ''}" title="Follows the surface where it sits (bends with the curve)">Follow surface</button><button data-proj="stamp" class="${L.mode === 'stamp' ? 'on' : ''}" title="Stamped straight on from the view it was aimed from: from there it looks exactly as drawn (lines stay straight)">Stamp from view</button><button data-proj="wrap" class="${L.mode === 'wrap' ? 'on' : ''}" title="Wraps round the helmet (for stripes front to back)">Wrap round</button></div>${L.mode === 'stamp' ? '<button class="btn sm" data-ed="aim" title="Stamps it from the way you are looking at the helmet now">Aim from this view</button>' : ''}</div>
     <div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="On the middle line, front to back">Centre</button></div>`}`;
   edTextPreview();
 }
@@ -557,7 +577,7 @@ function edAdd(kind, opts, at) {
   }
   if (!ED.three) return; const r = ED.three.R.domElement.getBoundingClientRect();
   const hit = (at && edHitAt(at[0], at[1])) || edHitAt(r.left + r.width / 2, r.top + r.height / 2) || { p: ED.three.C.clone().add(new THREE.Vector3(0.11, 0.03, 0)), n: new THREE.Vector3(1, 0, 0) };
-  const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: 'stick', p: hit.p.toArray(), n: hit.n.toArray(), size: 0.08, stretch: 1, rot: 0, opacity: 1, ...opts };
+  const stamp = edPlace() === 'stamp'; const L = { id: edUid(), kind, name: 'Layer', visible: true, locked: false, mirror: false, mode: stamp ? 'stamp' : 'stick', p: hit.p.toArray(), n: (stamp ? edViewDir() : hit.n).toArray(), size: 0.08, stretch: 1, rot: 0, opacity: 1, ...opts };
   if (kind === 'shape') { const S = ED_SHAPES.find(s => s.id === L.shape); L.name = S?.name || 'Shape'; L.colors ||= [S?.cat === 'Flags' ? '#ffffff' : '#E10600', '#111111', '#001E6E']; if (S && /stripe|pin/.test(S.id)) { L.mode = 'wrap'; const wy = edWrapOf(hit.p)[1]; L.wx = 0; L.wy = wy; L.size = S.id === 'stripe' ? 0.03 : 0.06; L.stretch = 8; } if (S?.cat === 'Flags') L.size = 0.07; }
   if (kind === 'text') { L.name = opts.text.str || 'Text'; L.size = 0.09; }
   if (kind === 'image') L.name = opts.name || 'Image';
@@ -579,7 +599,7 @@ function edImportImage(e) {
 function edImportTexture(e) {
   const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
   const rd = new FileReader(); rd.onload = () => { const im = new Image(); im.onload = () => {
-    if (im.naturalWidth !== ED_W || im.naturalHeight !== ED_H) { toast(`The texture must be ${ED_W} x ${ED_H} (this one is ${im.naturalWidth} x ${im.naturalHeight}).`); return; }
+    if (im.naturalWidth !== im.naturalHeight * 2 || im.naturalWidth < 1024) { toast(`The texture must be in the game's layout, 4096 x 2048 or 2048 x 1024 (this one is ${im.naturalWidth} x ${im.naturalHeight}).`); return; }
     const id = edUid(); ED.design.images[id] = rd.result;
     edCommit(() => { const L = { id: edUid(), kind: 'image', name: f.name.replace(/\.[^.]+$/, '').slice(0, 30) || 'Texture', visible: true, locked: false, mode: 'uv', image: id, opacity: 1, mirror: false }; ED.design.layers.unshift(L); ED.sel = L.id; });
   }; im.src = rd.result; }; rd.readAsDataURL(f);
@@ -587,7 +607,7 @@ function edImportTexture(e) {
 
 // ---- clicks and edits in the editor
 function edClick(e) {
-  const t = e.target.closest('[data-ed],[data-tab],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
+  const t = e.target.closest('[data-ed],[data-tab],[data-carview],[data-proj],[data-place],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
   if (t.matches('input, select, label')) return; // (inputs are handled as input events)
   const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
   // colour and effects: swatches and the Own / Solid / Gradient and stroke side buttons
@@ -595,6 +615,7 @@ function edClick(e) {
   if (t.dataset.gsel) { ED.selGroup = t.dataset.gsel; ED.sel = null; ED.multi = new Set(); edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.layer && (e.ctrlKey || e.metaKey || e.shiftKey)) { const m = ED.multi ||= new Set(); if (ED.sel) m.add(ED.sel); const id = t.dataset.layer; m.has(id) ? m.delete(id) : m.add(id); ED.sel = m.size === 1 ? [...m][0] : null; ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.tab) { edSwitchTab(t.dataset.tab); return; }
+  if (t.dataset.carview) { edCarView(t.dataset.carview); return; }
   if (t.dataset.stk) { const [w, h] = t.dataset.stk.split('x').map(Number); edCommit(() => { D.w = w; D.h = h; }); return; }
   if (t.dataset.lib) { ED.lib = t.dataset.lib; if (ED.lib === 'custom') edList().then(edLib); edLib(); return; }
   if (t.dataset.add === 'custom') { edAddCustom(t.dataset.id); return; }
@@ -655,7 +676,8 @@ function edClick(e) {
   else if (a === 'flipx' && L) edCommit(() => { L.flipX = !L.flipX; });
   else if (a === 'flipy' && L) edCommit(() => { L.flipY = !L.flipY; });
   else if (a === 'centre' && L && L.mode === 'flat') edCommit(() => { L.x = 0.5; L.y = 0.5; });
-  else if (a === 'centre' && L) edCommit(() => { if (L.mode === 'wrap') L.wx = 0; else { const p = new THREE.Vector3(...L.p); p.x = ED.three.C.x; const h = edSurfaceNear(p); L.p = h.p.toArray(); L.n = h.n.toArray(); } });
+  else if (a === 'aim' && L && L.mode === 'stamp') edCommit(() => { L.n = edViewDir().toArray(); });
+  else if (a === 'centre' && L) edCommit(() => { if (L.mode === 'wrap') L.wx = 0; else { const p = new THREE.Vector3(...L.p); p.x = ED.three.C.x; const h = edSurfaceNear(p); L.p = h.p.toArray(); if (L.mode !== 'stamp') { L.n = h.n.toArray(); } else { const n = new THREE.Vector3(...L.n); n.x = 0; if (n.lengthSq() > 1e-6) L.n = n.normalize().toArray(); } } });
   else if (a === 'bg' && L) edBgOpen(L);
   else if (a === 'save') edSave().then(() => toast('Saved.'));
   else if (a === 'stk-save') edSave().then(() => { toast('Saved: it’s in Add › Custom, in every editor.'); edList().then(() => { if (ED.lib === 'custom') edLib(); }); });
@@ -712,12 +734,15 @@ function edInput(e) {
   }
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
   if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
+  if (t.id === 'ed-gres') { if (e.type === 'change') { try { localStorage.setItem('pitwall.editor.gameRes', t.value); } catch { } } return; }
   if (t.id === 'ed-caryear') { if (e.type === 'change') { edCommit(() => { D.year = +t.value; }, { bake: false }); edCarGuide(); } return; }
   if (t.id === 'ed-guide' || t.id === 'ed-guideop') { edDrawSticker(); return; }
   if (t.id === 'ed-name') { if (e.type === 'change') edCommit(() => { D.name = t.value.trim() || 'Helmet'; }, { bake: false, panels: false }); return; }
   if (t.dataset.tf) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; edTextSet(t.dataset.tf, t.value, t); return; }
   if (t.dataset.base) { if ((t.type === 'color' || t.dataset.hex) && e.type !== 'change') return; if (t.type === 'checkbox') { edCommit(() => { D.base.fade = t.checked; }); return; } edCommit(() => { D.base[t.dataset.base] = t.value; }); return; }
   if (t.dataset.lc && L) { if (e.type !== 'change') return; edCommit(() => { L.colors[+t.dataset.lc] = t.value; }); return; }
+  if (t.dataset.proj && L) { edSetProj(L, t.dataset.proj); return; }
+  if (t.dataset.place) { ED.place = t.dataset.place; try { localStorage.setItem('pitwall.editor.place', ED.place); } catch { } ED.root.querySelectorAll('[data-place]').forEach(b => b.classList.toggle('on', b.dataset.place === ED.place)); return; }
   if (t.dataset.lb && L) { edCommit(() => { if (t.dataset.lb === 'mirror') L.mirror = t.checked; else if (t.dataset.lb === 'mirrorRot') L.mirrorRot = t.checked; else { const was = L.mode; L.mode = t.checked ? 'wrap' : 'stick'; if (L.mode === 'wrap' && was !== 'wrap') { const [wx, wy] = edWrapOf(new THREE.Vector3(...L.p)); L.wx = wx; L.wy = wy; } else if (L.mode === 'stick' && was === 'wrap') { const h = edSurfaceAtWrap(L.wx || 0, L.wy || 0); L.p = h.p.toArray(); L.n = h.n.toArray(); } } }); return; }
   if (t.dataset.lp && L) {
     // sliders: one undo step for a whole drag. Size scales both ways from where the drag began (the slider springs
@@ -755,7 +780,7 @@ function edPick(cx, cy) {
   const hit = edHitAt(cx, cy); if (!hit) return null; const T = ED.three; const D = ED.design;
   for (let k = D.layers.length - 1; k >= 0; k--) { const L = D.layers[k]; if (L.visible === false || L.mode === 'uv') continue; const s = ED.cache.get(L.id); if (!s) continue;
     for (const mirror of L.mirror ? [false, true] : [false]) { const F = edFrameOf(L, mirror, s.aspect); let q;
-      if (F.mode === 0) { const d = hit.p.clone().sub(F.P); if (Math.abs(d.dot(F.N)) > 0.07 || hit.n.dot(F.N) < 0.15) continue; q = [d.dot(F.T), d.dot(F.U)]; } else { const [x, y] = edWrapOf(hit.p); q = [x - F.wx, y - F.wy]; }
+      if (F.mode === 0) { const d = hit.p.clone().sub(F.P); if (Math.abs(d.dot(F.N)) > F.depth || hit.n.dot(F.N) < F.face) continue; q = [d.dot(F.T), d.dot(F.U)]; } else { const [x, y] = edWrapOf(hit.p); q = [x - F.wx, y - F.wy]; }
       const c = Math.cos(F.rot), sn = Math.sin(F.rot); const r = [c * q[0] + sn * q[1], -sn * q[0] + c * q[1]]; const u = r[0] / (F.w * s.ex) * F.fx + 0.5, v = r[1] / (F.h * s.ey) * F.fy + 0.5;
       if (u < 0 || v < 0 || u > 1 || v > 1) continue; const px = Math.min(s.cv.width - 1, Math.floor(u * s.cv.width)), py = Math.min(s.cv.height - 1, Math.floor((1 - v) * s.cv.height));
       if (s.data.data[(py * s.cv.width + px) * 4 + 3] > 20) return { L, mirror, hit }; }
@@ -763,6 +788,7 @@ function edPick(cx, cy) {
   return { L: null, hit };
 }
 function edDown(e) {
+  if (edCar3dOn()) { e.currentTarget.setPointerCapture(e.pointerId); ED.ptr = { kind: 'corbit', x: e.clientX, y: e.clientY, yaw: ED.car3.yaw, pitch: ED.car3.pitch }; return; }
   if (ED.view === 'flat' || !ED.three) return; const cv = e.currentTarget; cv.setPointerCapture(e.pointerId);
   if (e.button === 2 || e.button === 1) { ED.ptr = { kind: 'orbit', x: e.clientX, y: e.clientY, yaw: ED.three.yaw, pitch: ED.three.pitch }; return; }
   const pick = edPick(e.clientX, e.clientY);
@@ -773,6 +799,8 @@ function edDown(e) {
   ED.ptr = { kind: 'orbit', x: e.clientX, y: e.clientY, yaw: ED.three.yaw, pitch: ED.three.pitch, click: true };
 }
 function edMove(e) {
+  if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.car3.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.car3.pitch = Math.max(-1.2, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
+  if (edCar3dOn()) return;
   const P = ED.ptr; if (!P) { if (ED.three && ED.view === '3d') { const pk = edPick(e.clientX, e.clientY); e.currentTarget.style.cursor = pk?.L && !pk.L.locked ? 'move' : 'grab'; } return; }
   if (P.kind === 'orbit') { if (Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) > 3) P.click = false; ED.three.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.three.pitch = Math.max(-1.3, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
   if (P.kind === 'move') {
@@ -781,11 +809,11 @@ function edMove(e) {
     const anchor = (l) => l.mode === 'wrap' ? { p: edSurfaceAtWrap(l.wx || 0, l.wy || 0).p, w: [l.wx || 0, l.wy || 0] } : { p: new THREE.Vector3(...l.p), w: edWrapOf(new THREE.Vector3(...l.p)) };
     const was = L.group ? anchor(L) : null;
     if (L.mode === 'wrap') { const [x, y] = edWrapOf(h.p); let wx = x + P.off[0]; if (P.mirror) wx = -wx; L.wx = Math.abs(wx) < 0.004 ? 0 : wx; L.wy = y + P.off[1]; }
-    else { const p = h.p.clone(), n = h.n.clone(); if (P.mirror) { p.x = 2 * ED.three.C.x - p.x; n.x = -n.x; } L.p = p.toArray(); L.n = n.toArray(); }
+    else { const p = h.p.clone(), n = h.n.clone(); if (P.mirror) { p.x = 2 * ED.three.C.x - p.x; n.x = -n.x; } L.p = p.toArray(); if (L.mode !== 'stamp') L.n = n.toArray(); }
     if (was) { const now = anchor(L); const d = now.p.clone().sub(was.p), dw = [now.w[0] - was.w[0], now.w[1] - was.w[1]];
       for (const m of edGroupOf(L.group)) { if (m === L || m.locked) continue;
         if (m.mode === 'wrap') { m.wx = (m.wx || 0) + dw[0]; m.wy = (m.wy || 0) + dw[1]; }
-        else if (m.p) { const s = edSurfaceNear(new THREE.Vector3(...m.p).add(d)); m.p = s.p.toArray(); m.n = s.n.toArray(); } } }
+        else if (m.p) { const s = edSurfaceNear(new THREE.Vector3(...m.p).add(d)); m.p = s.p.toArray(); if (m.mode !== 'stamp') m.n = s.n.toArray(); } } }
     edChanged(true, false); return;
   }
   if (P.kind === 'w' || P.kind === 'len') {
@@ -875,7 +903,7 @@ const edBakeDone = () => new Promise(ok => { const w = () => edBaking ? setTimeo
  */
 async function edExport(kind = 'addon') {
   if (!ED.three) return; await edBakeDone(); edStatus('Exporting…');
-  const r = await edApi().exportMod(edPixels(), ED.design.name, kind); edStatus();
+  const r = await edApi().exportMod(edPixels(), ED.design.name, kind, edGameRes()); edStatus();
   if (!r?.ok) { toast('Export failed: ' + (r?.error || 'unknown error')); return; }
   const steps = kind === 'hx'
     ? `<li>In SWOFTY Launcher, open <b>Helmets</b> (the Helmet Exchange addon) and press <b>Import file…</b>, then pick that zip.</li><li>Set <b>Who can pick it</b> to <b>Any driver</b>.</li><li>Press <b>Play</b>. In your Driver Career, open <b>Team HQ › Driver Details › Helmets</b> and equip it ("(HX)" after its name). This needs Helmet Exchange's Helmets tab to work in your game build.</li>`
@@ -913,7 +941,7 @@ function edSwitchTab(tab) {
   ED.tabs[ED.tab] = { design: ED.design, undo: ED.undo, redo: ED.redo, sel: ED.sel, selGroup: ED.selGroup, multi: ED.multi, dirty: false, savedAt: ED.savedAt };
   ED.tab = tab; const S = ED.tabs[tab];
   Object.assign(ED, S || { design: tab === 'sticker' ? edNewSticker() : tab === 'car' ? edNewCar() : edNew(), undo: [], redo: [], sel: null, selGroup: null, multi: new Set(), dirty: false, savedAt: null });
-  ED.root.dataset.tab = tab; if (tab === 'car') edCarGuide(); ED.root.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  ED.root.dataset.tab = tab; ED.root.classList.toggle('car3d', tab === 'car' && ED.carView === '3d'); if (tab === 'car') edCarGuide(); ED.root.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   ED.root.querySelector('#ed-newbtn').textContent = { sticker: 'New sticker', car: 'New livery' }[tab] || 'New helmet';
   ED.root.querySelector('#ed-name').title = { sticker: 'The sticker’s name', car: 'The livery’s name' }[tab] || 'The helmet’s name';
   ED.root.querySelector('#ed-baselbl').textContent = tab === 'car' ? 'Livery base' : 'Helmet base';
@@ -933,7 +961,7 @@ async function edBakeSticker() {
   const cv = ED.stkCv ||= document.createElement('canvas'); if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H; const g = cv.getContext('2d'); g.clearRect(0, 0, W, H);
   if (D.base) { if (D.base.fade) { const gr = D.base.dir === 'fb' ? g.createLinearGradient(0, 0, W, 0) : g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0.15, D.base.color); gr.addColorStop(0.85, D.base.color2); g.fillStyle = gr; } else g.fillStyle = D.base.color; g.fillRect(0, 0, W, H); }
   D.layers.forEach((L, k) => { const s = srcs[k]; if (!s) return; const X = edStkXf(L, s, W); g.save(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore(); });
-  edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; edDrawSticker();
+  edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; if (ED.car3 && edIsCar()) { ED.car3.tex.needsUpdate = true; edDraw(); } edDrawSticker();
   if (edStkAgain) { edStkAgain = false; edBakeSticker(); }
 }
 /** The canvas on screen: a chequered see-through background, the sticker fitted in the view. */
@@ -1022,6 +1050,38 @@ async function edCarExport() {
   edModal(`<h3>Exported</h3><p class="muted">A SWOFTY addon for the ${year} My Team car, zipped:</p><code class="he-path">${edEsc(r.file)}</code>
     <ol class="he-steps"><li>Add the zip to SWOFTY Launcher as an addon, and turn it on in your profile.</li><li>Press <b>Play</b>, then pick the <b>F1 75</b> livery for your team in the game. Your design is on it.</li><li>Turn the addon off to get the original back.</li></ol>
     <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.file)}">Show the zip</button></div>`);
+}
+/*
+  The car in 3D: the 2026 car's body (from the game), the livery parts showing the canvas as their texture, the rest in
+  dark grey for the shape. It uses the helmet's renderer (so the helmet has to have been read from the game), with a
+  scene and camera of its own. A preview: stickers are placed on the flat canvas.
+*/
+const edCar3dOn = () => edIsCar() && ED.carView === '3d' && !!ED.car3;
+async function edCarView(v) {
+  ED.root.querySelectorAll('[data-carview]').forEach(b => b.classList.toggle('on', b.dataset.carview === v));
+  if (v === '3d') {
+    if (!ED.three) { toast('The 3D car needs F1 25 read first (open the Helmet tab once).'); ED.root.querySelectorAll('[data-carview]').forEach(b => b.classList.toggle('on', b.dataset.carview === 'flat')); return; }
+    if ((ED.design.year || 2026) !== 2026) { toast('The 3D car is the 2026 one for now. The 2025 livery can be edited flat.'); }
+    if (!ED.car3) { edStatus('Reading the car from F1 25…'); let r = null; try { r = await edApi().carModel(2026); } catch (e) { r = { ok: false, error: e.message }; } edStatus();
+      if (!r?.ok) { toast(r?.error || 'Couldn’t read the car.'); return; } edCar3Build(r); }
+  }
+  ED.carView = v; ED.root.classList.toggle('car3d', v === '3d'); ED.root.querySelector('#ed-gizmo').innerHTML = ''; edResize();
+}
+function edCar3Build(r) {
+  const buf = (b, T) => new T(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x10151f);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.9)); const k1 = new THREE.DirectionalLight(0xffffff, 0.7); k1.position.set(3, 5, 4); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-4, 2, -3); scene.add(k2);
+  const tex = new THREE.CanvasTexture(ED.stkCv || edCanvas(16, 16)); tex.flipY = false; tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 8; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const mk = (part, mat) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(buf(part.pos, Float32Array), 3)); if (part.uv) g.setAttribute('uv', new THREE.BufferAttribute(buf(part.uv, Float32Array), 2)); g.setIndex(new THREE.BufferAttribute(buf(part.idx, Uint32Array), 1)); g.computeVertexNormals(); const m = new THREE.Mesh(g, mat); scene.add(m); return m; };
+  mk(r.liv, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide }));
+  mk(r.rest, new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide }));
+  const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60);
+  ED.car3 = { scene, cam, tex, yaw: 0.9, pitch: 0.3, dist: 7.5 };
+}
+function edFrameCar() {
+  const C = ED.car3, T = ED.three; if (!C || !T) return; C.tex.image = ED.stkCv || C.tex.image;
+  C.cam.position.set(Math.sin(C.yaw) * Math.cos(C.pitch) * C.dist, 0.1 + Math.sin(C.pitch) * C.dist, 0.25 + Math.cos(C.yaw) * Math.cos(C.pitch) * C.dist); C.cam.lookAt(0, 0.15, 0.25);
+  T.R.setRenderTarget(null); T.R.render(C.scene, C.cam); ED.root.querySelector('#ed-gizmo').innerHTML = '';
 }
 /** The sticker as a PNG, cut to what's on it (see-through edges trimmed). */
 function edStkPng() {

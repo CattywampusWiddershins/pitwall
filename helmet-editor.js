@@ -78,8 +78,8 @@ function lz4Block(src, i0, want) {
   }
   return [o, i];
 }
-/** The top mip level of a BC1 2048 x 1024 .mipmaps file, or null if it isn't one. */
-function topLevel(buf) { try { return lz4Block(buf, 0, W * H / 2)[0]; } catch { return null; } }
+/** The top mip level of a BC1 .mipmaps file (2048 x 1024 unless said), or null if it isn't one. */
+function topLevel(buf, size = W * H / 2) { try { return lz4Block(buf, 0, size)[0]; } catch { return null; } }
 // an LZ4 block that's all literals: valid for any LZ4 reader
 function lz4Literal(data) { const n = data.length; const ext = []; if (n >= 15) { let r = n - 15; while (r >= 255) { ext.push(255); r -= 255; } ext.push(r); } return Buffer.concat([Buffer.from([Math.min(n, 15) << 4]), Buffer.from(ext), data]); }
 const c565 = (v) => [((v >> 11) & 31) * 255 / 31 | 0, ((v >> 5) & 63) * 255 / 63 | 0, (v & 31) * 255 / 31 | 0];
@@ -196,50 +196,63 @@ module.exports = function createHelmetEditor({ dataDir }) {
     return { ok: true, game, target: t.id, targets: TARGETS.map(x => ({ id: x.id, name: x.name })), pos: r('pos.bin'), uv: r('uv.bin'), idx: r('idx.bin'), base: r('base.bin'), trim: r('trim.bin'), w: W, h: H };
   }
   /** The two files that carry a design's colour texture: the full-size .mipmaps and the archive with the small levels. Written under `out` at their game paths. */
+  //  The game's own are 2048 x 1024 (three loose levels). A 4096 x 2048 one has a fourth loose level in front: the
+  //  archive's header only describes the small levels (256 x 128 and down), and the full size follows from how many
+  //  loose levels the record lists, so the record gets one more entry and nothing else changes (the cars' 4096
+  //  liveries are laid out the same way, with more loose levels).
   function writeTexture(game, t, levels, out) {
-    const small = Buffer.concat(levels.slice(3)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
+    const nLoose = levels.length - 6; if (nLoose !== 3 && nLoose !== 4) throw new Error('Unexpected mip count.');
+    const small = Buffer.concat(levels.slice(nLoose)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
     const texRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_d.tif.mipmaps`), erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
-    const blocks = levels.slice(0, 3).map(lz4Literal);
+    const blocks = levels.slice(0, nLoose).map(lz4Literal);
     fs.mkdirSync(path.dirname(path.join(out, texRel)), { recursive: true }); fs.writeFileSync(path.join(out, texRel), Buffer.concat(blocks));
     const b = Buffer.from(fs.readFileSync(erpPath(game, t))); const E = readErp(b);
     const R = E.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL || !R.frags[2]) throw new Error('The game’s helmet archive isn’t laid out as expected.');
     // the image's third fragment says where the .mipmaps file's blocks are: after the file's path, the number of
     // levels, then per level (from byte 6, 26 bytes each) its compression (3: LZ4), offset, packed size and size.
     // Without the new offsets and sizes the game can't read the file, and shows the small levels only (blurry).
-    const meta = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + meta[0]; if (meta[m0 + 1] !== 3) throw new Error('The texture’s mip record isn’t laid out as expected.');
-    let off = 0; blocks.forEach((blk, k) => { const e = m0 + 6 + 26 * k; if (meta[e] !== 3 || Number(meta.readBigUInt64LE(e + 17)) !== levels[k].length) throw new Error('The texture’s mip record isn’t laid out as expected.'); meta.writeBigUInt64LE(BigInt(off), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); off += blk.length; });
+    const orig = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + orig[0]; if (orig[m0 + 1] !== 3) throw new Error('The texture’s mip record isn’t laid out as expected.');
+    for (let k = 0; k < 3; k++) { const e = m0 + 6 + 26 * k; if (orig[e] !== 3 || Number(orig.readBigUInt64LE(e + 17)) !== levels[nLoose - 3 + k].length) throw new Error('The texture’s mip record isn’t laid out as expected.'); }
+    const entries = Buffer.alloc(26 * nLoose); let off = 0;
+    blocks.forEach((blk, k) => { const e = 26 * k; entries[e] = 3; entries.writeBigUInt64LE(BigInt(off), e + 1); entries.writeBigUInt64LE(BigInt(blk.length), e + 9); entries.writeBigUInt64LE(BigInt(levels[k].length), e + 17); off += blk.length; });
+    const head = Buffer.from(orig.subarray(0, m0 + 6)); head[m0 + 1] = nLoose;
+    const meta = Buffer.concat([head, entries, orig.subarray(m0 + 6 + 26 * 3)]);
     const packed = zstdWrite(small), packedMeta = zstdWrite(meta); const FM = R.frags[2];
     b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
-    b.writeBigUInt64LE(BigInt(b.length + packed.length - E.dataOff), FM.at); b.writeBigUInt64LE(BigInt(packedMeta.length), FM.atPacked);
+    b.writeBigUInt64LE(BigInt(b.length + packed.length - E.dataOff), FM.at); b.writeBigUInt64LE(BigInt(meta.length), FM.at + 8); b.writeBigUInt64LE(BigInt(packedMeta.length), FM.atPacked);
     fs.mkdirSync(path.dirname(path.join(out, erpRel)), { recursive: true }); fs.writeFileSync(path.join(out, erpRel), Buffer.concat([b, packed, packedMeta]));
     // read back: the texture and the small levels as the game will read them
-    const back = topLevel(fs.readFileSync(path.join(out, texRel))); const b2 = fs.readFileSync(path.join(out, erpRel)); const E2 = readErp(b2);
+    const back = topLevel(fs.readFileSync(path.join(out, texRel)), levels[0].length); const b2 = fs.readFileSync(path.join(out, erpRel)); const E2 = readErp(b2);
     const R2 = E2.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F2 = R2.frags[1];
     // ... and every block where the record says it is
     const mm = fs.readFileSync(path.join(out, texRel)); const meta2 = fragOf(b2, E2, R2.frags[2]);
     const recOk = blocks.every((blk, k) => { const e = m0 + 6 + 26 * k; const o = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(mm.subarray(o, o + n), 0, levels[k].length)[0].equals(levels[k]); } catch { return false; } });
-    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small) || !recOk) throw new Error('The written files didn’t read back correctly.');
+    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small) || !recOk || meta2[m0 + 1] !== nLoose || !meta2.equals(meta)) throw new Error('The written files didn’t read back correctly.');
     return [texRel, erpRel].map(p => p.split(path.sep).join('/'));
   }
   /**
-   * A finished texture (RGBA, 2048 x 1024, rows top to bottom) as a zip named after the helmet:
+   * A finished texture (RGBA, 4096 x 2048 or 2048 x 1024, rows top to bottom) as a zip named after the helmet, at 4K
+   * (4096 x 2048) or 2K (the game's own size; a 4K one is halved):
    *  - 'addon': a SWOFTY addon that puts it on the chosen design (a Lewis Hamilton replica), picked in the game as that helmet;
    *  - 'hx': a player design for the Helmet Exchange addon (its own helmet, where its Helmets tab works in the game build).
    */
-  function exportMod(rgba, name, kind = 'addon') {
+  function exportMod(rgba, name, kind = 'addon', res = '4k') {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
-    const px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); if (px.length !== W * H * 4) return { ok: false, error: 'The texture is the wrong size.' };
+    let px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); let TW, TH;
+    if (px.length === W * H * 16) { TW = W * 2; TH = H * 2; if (res === '2k') { px = halve(px, TW, TH); TW = W; TH = H; } }
+    else if (px.length === W * H * 4) { TW = W; TH = H; } else return { ok: false, error: 'The texture is the wrong size.' };
+    const up = TW / W; // the coverage map is at the game's size
     const safe = String(name || 'Helmet').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'Helmet';
     const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true }); // (zipped below, then removed)
-    // the pieces' colours spread 12 pixels past their edges (each pass takes the nearest covered neighbour), so the
+    // the pieces' colours spread 12 pixels (at 2K; 24 at 4K) past their edges (each pass takes the nearest covered neighbour), so the
     // smaller levels and the game's filtering don't bring the colour outside them in along the seams
     { let cov = null; try { cov = new Uint8Array(fs.readFileSync(path.join(cacheDir(), 'cov.bin'))); } catch { }
-      if (cov && cov.length === W * H) { const nxt = new Uint8Array(cov);
-        for (let pass = 0; pass < 12; pass++) { let any = false;
-          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const p = y * W + x; if (cov[p]) continue;
-            for (const q of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, y > 0 ? p - W : -1, y < H - 1 ? p + W : -1]) if (q >= 0 && cov[q]) { px.copy(px, p * 4, q * 4, q * 4 + 4); nxt[p] = 1; any = true; break; } }
+      if (cov && cov.length === W * H) { if (up > 1) { const c2 = new Uint8Array(TW * TH); for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) c2[y * TW + x] = cov[(y / up | 0) * W + (x / up | 0)]; cov = c2; } const nxt = new Uint8Array(cov);
+        for (let pass = 0; pass < 12 * up; pass++) { let any = false;
+          for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) { const p = y * TW + x; if (cov[p]) continue;
+            for (const q of [x > 0 ? p - 1 : -1, x < TW - 1 ? p + 1 : -1, y > 0 ? p - TW : -1, y < TH - 1 ? p + TW : -1]) if (q >= 0 && cov[q]) { px.copy(px, p * 4, q * 4, q * 4 + 4); nxt[p] = 1; any = true; break; } }
           cov.set(nxt); if (!any) break; } } }
-    const levels = []; let cur = px, w = W, h = H; for (let k = 0; k < 9; k++) { levels.push(bc1Encode(cur, w, h)); if (k < 8) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
+    const nLev = up > 1 ? 10 : 9; const levels = []; let cur = px, w = TW, h = TH; for (let k = 0; k < nLev; k++) { levels.push(bc1Encode(cur, w, h)); if (k < nLev - 1) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
     const t = target(); const zip = path.join(root(), 'exports', kind === 'hx' ? `${safe} (Helmet Exchange).zip` : `${safe}.zip`);
     try {
       if (kind === 'hx') {
@@ -259,7 +272,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
       }
       zipFolder(out, zip);
     } catch (e) { return { ok: false, error: e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
-    return { ok: true, file: zip, dir: path.dirname(zip), kind, target: t.name };
+    return { ok: true, file: zip, dir: path.dirname(zip), kind, target: t.name, size: `${TW} x ${TH}` };
   }
   /*
     Car liveries (My Team): the editor works on the F1 75 replica livery's colour texture, 4096 x 4096 (BC1). It has no
@@ -291,6 +304,37 @@ module.exports = function createHelmetEditor({ dataDir }) {
       const L = r.levels[k]; const data = lz4Block(mm.subarray(L.off, L.off + L.packed), 0, L.size)[0];
       return { ok: true, year, guide: bc1Decode(data, 1024, 1024), w: 4096, h: 4096 };
     } catch (e) { return { ok: false, error: 'Couldn’t read the car livery from F1 25: ' + e.message }; }
+  }
+  /*
+    The 2026 car in 3D (a preview of the livery on it): the body's lod 0 draw calls. Its parts are stored in the car's
+    own space (no transforms needed). Three draw calls carry the livery, each in its own buffer set with the livery's
+    texture coordinates in a different stream: the 1st (set from vb0, layout in vb4.xy), the 5th (vb11, vb15.xy) and the
+    14th (vb22, vb26.xy). The rest (carbon, cockpit, wheels' hubs, details) is shown plain, for the shape.
+    A draw call (88 bytes from byte 76 of the mesh record): [streams][4][2][index start][count][base vertex]
+    [bounding sphere x4][slot*8][1][layout][0][buffers (indices into the mesh's own buffer list)].
+  */
+  const CAR3D = { 2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', livery: { 0: [4, 0], 4: [15, 0], 13: [26, 0] } } };
+  function carModel(year = 2026) {
+    const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
+    const c = CAR3D[year]; if (!c) return { ok: false, error: `The ${year} car can only be edited flat for now.` };
+    try {
+      const b = fs.readFileSync(path.join(game, '2025_asset_groups', c.erp)); const E = readErp(b);
+      const res = (key) => { const r = E.res.find(x => x.id.endsWith(key)); if (!r) throw new Error('Missing ' + key); return r; };
+      const vbs = {}; const vb = (k) => vbs[k] ||= (() => { const r = res(`fom_car.idf?lod=all&vb=${k}`); const h = fragOf(b, E, r.frags[0]); return { st: h.readUInt32LE(4), d: fragOf(b, E, r.frags[1]) }; })();
+      const ib = fragOf(b, E, res('fom_car.idf?lod=all&ib=0').frags[1]);
+      const m = fragOf(b, E, res('fom_car.idf?lod=0&mesh').frags[0]); const n = m.readUInt32LE(0);
+      const list = (m.toString('latin1').match(/eaid:\/\/[^\0]+/g) || []).map(s => +((s.match(/vb=(\d+)/) || [])[1] ?? -1));
+      const liv = { pos: [], uv: [], idx: [] }, rest = { pos: [], idx: [] };
+      for (let k = 0; k < n; k++) {
+        const o = 76 + k * 88; if (o + 88 > m.length) break; const u = (i) => m.readUInt32LE(o + i * 4);
+        const ns = u(0), start = u(3), count = u(4), base = u(5); if (count < 30) continue; const bufs = [...Array(ns)].map((_, i) => list[u(14 + i)]);
+        const P = vb(bufs[0]); if (P.st !== 12) continue; const L = c.livery[k]; const into = L ? liv : rest; const UV = L ? vb(L[0]) : null;
+        const map = new Map(); const first = into.pos.length / 3;
+        for (let i = 0; i < count; i++) { const v = ib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); into.pos.push(P.d.readFloatLE(v * 12), P.d.readFloatLE(v * 12 + 4), P.d.readFloatLE(v * 12 + 8)); if (UV) { const q = v * UV.st + L[1] * 4; into.uv.push(half2float(UV.d.readUInt16LE(q)), half2float(UV.d.readUInt16LE(q + 2))); } } into.idx.push(first + j); }
+      }
+      const f32 = (a) => Buffer.from(new Float32Array(a).buffer), u32 = (a) => Buffer.from(new Uint32Array(a).buffer);
+      return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx) }, rest: { pos: f32(rest.pos), idx: u32(rest.idx) } };
+    } catch (e) { return { ok: false, error: 'Couldn’t read the car from F1 25: ' + e.message }; }
   }
   /** An archive holding one resource (copied from another, its fragments replaced): for SWOFTY's overlay. */
   function overlayErp(src, R, payloads) {
@@ -339,5 +383,5 @@ module.exports = function createHelmetEditor({ dataDir }) {
   function save(d) { if (!d || !okId(d.id)) return { ok: false }; fs.mkdirSync(designsDir(), { recursive: true }); const f = path.join(designsDir(), d.id + '.json'); fs.writeFileSync(f + '.tmp', JSON.stringify(d)); fs.renameSync(f + '.tmp', f); return { ok: true }; }
   function open(id) { if (!okId(id)) return null; try { return JSON.parse(fs.readFileSync(path.join(designsDir(), id + '.json'), 'utf8')); } catch { return null; } }
   function remove(id) { if (!okId(id)) return false; try { fs.rmSync(path.join(designsDir(), id + '.json'), { force: true }); return true; } catch { return false; } }
-  return { load, carLoad, carExport, findGame, setGame, setTarget, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
+  return { load, carLoad, carModel, carExport, findGame, setGame, setTarget, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
 };

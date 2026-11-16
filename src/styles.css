@@ -1683,3 +1683,5 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
 
 .he:not([data-tab="sticker"]) .only-sticker, .he:not([data-tab="car"]) .only-car, .he[data-tab="sticker"] .not-sticker, .he[data-tab="helmet"] .only-flat, .he[data-tab]:not([data-tab="helmet"]) .only-helmet { display: none !important; }
 .he-guide { font-size: 12px; } #ed-guideop { width: 110px; accent-color: var(--team); }
+
+.he.car3d .he-view > canvas.he-stkcv { display: none !important; }
