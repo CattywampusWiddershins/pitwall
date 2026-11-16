@@ -80,6 +80,29 @@ function lz4Block(src, i0, want) {
 }
 /** The top mip level of a BC1 .mipmaps file (2048 x 1024 unless said), or null if it isn't one. */
 function topLevel(buf, size = W * H / 2) { try { return lz4Block(buf, 0, size)[0]; } catch { return null; } }
+/**
+ * An LZ4 block, compressed: greedy matching on 4-byte sequences (a hash table of where each was last seen), with the
+ * format's rules kept (the last 5 bytes are literals; no match starts in the last 12). Textures with flat colours
+ * shrink a lot; anything LZ4 reads, the game reads.
+ */
+function lz4Compress(src) {
+  const n = src.length; if (n < 13) return lz4Literal(src);
+  const out = Buffer.alloc(n + Math.ceil(n / 255) + 32); let op = 0; const HB = 16, table = new Int32Array(1 << HB).fill(-1);
+  const hash = (i) => ((Math.imul(src.readUInt32LE(i), 2654435761) >>> 0) >>> (32 - HB));
+  const len = (v) => { while (v >= 255) { out[op++] = 255; v -= 255; } out[op++] = v; };
+  let anchor = 0, i = 0; const limit = n - 12;
+  while (i < limit) {
+    const h = hash(i); const ref = table[h]; table[h] = i;
+    if (ref < 0 || i - ref > 65535 || src.readUInt32LE(ref) !== src.readUInt32LE(i)) { i++; continue; }
+    let m = 4; const maxM = n - 5 - i; while (m < maxM && src[ref + m] === src[i + m]) m++;
+    const lit = i - anchor; const tok = op++; out[tok] = (Math.min(lit, 15) << 4) | Math.min(m - 4, 15); if (lit >= 15) len(lit - 15);
+    src.copy(out, op, anchor, i); op += lit; out[op++] = (i - ref) & 255; out[op++] = (i - ref) >> 8; if (m - 4 >= 15) len(m - 4 - 15);
+    for (let k = i + 1; k < i + m && k < limit; k += 2) table[hash(k)] = k; // (a few of the matched spots, for later matches)
+    i += m; anchor = i;
+  }
+  const lit = n - anchor; out[op++] = Math.min(lit, 15) << 4; if (lit >= 15) len(lit - 15); src.copy(out, op, anchor, n); op += lit;
+  return out.subarray(0, op);
+}
 // an LZ4 block that's all literals: valid for any LZ4 reader
 function lz4Literal(data) { const n = data.length; const ext = []; if (n >= 15) { let r = n - 15; while (r >= 255) { ext.push(255); r -= 255; } ext.push(r); } return Buffer.concat([Buffer.from([Math.min(n, 15) << 4]), Buffer.from(ext), data]); }
 const c565 = (v) => [((v >> 11) & 31) * 255 / 31 | 0, ((v >> 5) & 63) * 255 / 63 | 0, (v & 31) * 255 / 31 | 0];
@@ -94,6 +117,23 @@ function bc1Decode(src, w, h) {
 }
 const to565 = (r, g, b) => ((Math.round(r * 31 / 255) & 31) << 11) | ((Math.round(g * 63 / 255) & 63) << 5) | (Math.round(b * 31 / 255) & 31);
 /** BC1, each 4 x 4 block's end colours along its main colour axis (good for flat colours and hard edges). */
+// a block's palette (4 colours when c0 > c1; else 3, the 4th being black, which is never picked) and each pixel's nearest
+function bc1Pick(blk, c0, c1) {
+  const A = c565(c0), B = c565(c1); const four = c0 > c1;
+  const P = four ? [A, B, A.map((v, i) => (2 * v + B[i]) / 3), A.map((v, i) => (v + 2 * B[i]) / 3)] : [A, B, A.map((v, i) => (v + B[i]) / 2)];
+  let bits = 0, err = 0; const sel = new Uint8Array(16);
+  for (let k = 0; k < 16; k++) { let bj = 0, bd = 1e12; for (let j = 0; j < P.length; j++) { const d = (blk[k * 3] - P[j][0]) ** 2 + (blk[k * 3 + 1] - P[j][1]) ** 2 + (blk[k * 3 + 2] - P[j][2]) ** 2; if (d < bd) { bd = d; bj = j; } } bits |= bj << (2 * k); err += bd; sel[k] = bj; }
+  if (c0 === c1) { bits = 0; err = 0; for (let k = 0; k < 16; k++) err += (blk[k * 3] - A[0]) ** 2 + (blk[k * 3 + 1] - A[1]) ** 2 + (blk[k * 3 + 2] - A[2]) ** 2; }
+  return { c0, c1, bits, err, sel };
+}
+// the two end colours that best make the pixels from their palette places (least squares), or null if they can't be told apart
+function bc1Fit(blk, sel, four) {
+  const Wt = four ? [[1, 0], [0, 1], [2 / 3, 1 / 3], [1 / 3, 2 / 3]] : [[1, 0], [0, 1], [0.5, 0.5]];
+  let aa = 0, ab = 0, bb = 0; const ax = [0, 0, 0], bx = [0, 0, 0];
+  for (let k = 0; k < 16; k++) { const [a, b] = Wt[sel[k]]; aa += a * a; ab += a * b; bb += b * b; for (let c = 0; c < 3; c++) { ax[c] += a * blk[k * 3 + c]; bx[c] += b * blk[k * 3 + c]; } }
+  const det = aa * bb - ab * ab; if (Math.abs(det) < 1e-6) return null; const cl = (v) => Math.max(0, Math.min(255, v));
+  return [[0, 1, 2].map(c => cl((bb * ax[c] - ab * bx[c]) / det)), [0, 1, 2].map(c => cl((aa * bx[c] - ab * ax[c]) / det))];
+}
 function bc1Encode(px, w, h) {
   const bw = Math.max(1, w / 4), bh = Math.max(1, h / 4); const out = Buffer.alloc(bw * bh * 8); let o = 0; const blk = new Float32Array(48);
   for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
@@ -106,14 +146,31 @@ function bc1Encode(px, w, h) {
     for (let it = 0; it < 6; it++) { const nx = cxx * ax[0] + cxy * ax[1] + cxz * ax[2], ny = cxy * ax[0] + cyy * ax[1] + cyz * ax[2], nz = cxz * ax[0] + cyz * ax[1] + czz * ax[2]; const L = Math.hypot(nx, ny, nz); if (L < 1e-6) break; ax = [nx / L, ny / L, nz / L]; }
     let lo = 1e9, hi = -1e9; for (let k = 0; k < 16; k++) { const t = (blk[k * 3] - mr) * ax[0] + (blk[k * 3 + 1] - mg) * ax[1] + (blk[k * 3 + 2] - mb) * ax[2]; if (t < lo) lo = t; if (t > hi) hi = t; }
     const cl = (v) => Math.max(0, Math.min(255, v));
-    let c0 = to565(cl(mr + ax[0] * hi), cl(mg + ax[1] * hi), cl(mb + ax[2] * hi)), c1 = to565(cl(mr + ax[0] * lo), cl(mg + ax[1] * lo), cl(mb + ax[2] * lo));
-    if (c0 < c1) [c0, c1] = [c1, c0];
-    let bits = 0;
-    if (c0 !== c1) {
-      const A = c565(c0), B = c565(c1); const P = [A, B, A.map((v, i) => (2 * v + B[i]) / 3), A.map((v, i) => (v + 2 * B[i]) / 3)];
-      for (let k = 0; k < 16; k++) { let best = 0, bd = 1e12; for (let j = 0; j < 4; j++) { const d = (blk[k * 3] - P[j][0]) ** 2 + (blk[k * 3 + 1] - P[j][1]) ** 2 + (blk[k * 3 + 2] - P[j][2]) ** 2; if (d < bd) { bd = d; best = j; } } bits |= best << (2 * k); }
+    const e0 = [cl(mr + ax[0] * hi), cl(mg + ax[1] * hi), cl(mb + ax[2] * hi)], e1 = [cl(mr + ax[0] * lo), cl(mg + ax[1] * lo), cl(mb + ax[2] * lo)];
+    // the end colours from the main axis, then twice refitted to the pixels (least squares on the chosen palette
+    // places); both the 4-colour and the 3-colour palette tried, the closer kept
+    let best = null;
+    for (const three of [false, true]) {
+      let a = e0, b = e1;
+      for (let it = 0; it < 3; it++) {
+        let c0 = to565(a[0], a[1], a[2]), c1 = to565(b[0], b[1], b[2]);
+        if (three ? c0 > c1 : c0 < c1) [c0, c1] = [c1, c0];
+        const r = bc1Pick(blk, c0, c1); if (!best || r.err < best.err) best = r;
+        if (r.err === 0 || c0 === c1 || it === 2) break;
+        const fit = bc1Fit(blk, r.sel, c0 > c1); if (!fit) break; [a, b] = fit;
+      }
     }
-    out.writeUInt16LE(c0, o); out.writeUInt16LE(c1, o + 2); out.writeUInt32LE(bits >>> 0, o + 4); o += 8;
+    // then each end colour's red, green and blue nudged a step either way, kept when it gets closer (the 16-bit colours'
+    // rounding is most of what's left)
+    if (best.err > 0 && best.c0 !== best.c1) {
+      const sh = [[11, 31], [5, 63], [0, 31]];
+      for (let pass = 0, better = true; pass < 2 && better; pass++) { better = false;
+        for (const e of [0, 1]) for (const [s, mx] of sh) for (const dv of [-1, 1]) {
+          const c = e ? best.c1 : best.c0; const v = ((c >> s) & mx) + dv; if (v < 0 || v > mx) continue; const nc = (c & ~(mx << s)) | (v << s);
+          const c0 = e ? best.c0 : nc, c1 = e ? nc : best.c1; if (c0 === c1 || (c0 > c1) !== (best.c0 > best.c1)) continue;
+          const r = bc1Pick(blk, c0, c1); if (r.err < best.err) { best = r; better = true; } } }
+    }
+    out.writeUInt16LE(best.c0, o); out.writeUInt16LE(best.c1, o + 2); out.writeUInt32LE(best.bits >>> 0, o + 4); o += 8;
   }
   return out;
 }
@@ -204,7 +261,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
     const nLoose = levels.length - 6; if (nLoose !== 3 && nLoose !== 4) throw new Error('Unexpected mip count.');
     const small = Buffer.concat(levels.slice(nLoose)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
     const texRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_d.tif.mipmaps`), erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
-    const blocks = levels.slice(0, nLoose).map(lz4Literal);
+    const blocks = levels.slice(0, nLoose).map(lz4Compress);
     fs.mkdirSync(path.dirname(path.join(out, texRel)), { recursive: true }); fs.writeFileSync(path.join(out, texRel), Buffer.concat(blocks));
     const b = Buffer.from(fs.readFileSync(erpPath(game, t))); const E = readErp(b);
     const R = E.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL || !R.frags[2]) throw new Error('The game’s helmet archive isn’t laid out as expected.');
@@ -377,7 +434,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
     // every level, 4096 down to 4 x 4
     const levels = []; let cur = px, w = S, h = S; while (true) { levels.push(bc1Encode(cur, w, h)); if (w <= 4) break; cur = halve(cur, w, h); w >>= 1; h >>= 1; }
     const nLoose = r.levels.length; if (r.levels.some((l, k) => l.size !== levels[k].length)) return { ok: false, error: 'The livery’s levels aren’t as expected.' };
-    const blocks = levels.slice(0, nLoose).map(lz4Literal); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) return { ok: false, error: 'The livery’s small levels aren’t as expected.' };
+    const blocks = levels.slice(0, nLoose).map(lz4Compress); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) return { ok: false, error: 'The livery’s small levels aren’t as expected.' };
     let o = 0; const meta = Buffer.from(r.meta); blocks.forEach((blk, k) => { const e = r.levels[k].e; meta.writeBigUInt64LE(BigInt(o), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); o += blk.length; });
     const head = fragOf(r.b, r.E, r.R.frags[0]); const payloads = [r.R.frags[0].packed === r.R.frags[0].size ? head : zstdWrite(head), zstdWrite(tail), zstdWrite(meta)];
     const ov = overlayErp(r.b, r.R, payloads);
@@ -404,8 +461,29 @@ module.exports = function createHelmetEditor({ dataDir }) {
   const designsDir = () => path.join(root(), 'designs');
   const okId = (id) => /^[\w-]{1,64}$/.test(String(id));
   function list() { try { return fs.readdirSync(designsDir()).filter(f => f.endsWith('.json')).map(f => { try { const d = JSON.parse(fs.readFileSync(path.join(designsDir(), f), 'utf8')); return { id: d.id, name: d.name, at: d.at, thumb: d.thumb || null, kind: d.kind || 'helmet' }; } catch { return null; } }).filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at))); } catch { return []; } }
-  function save(d) { if (!d || !okId(d.id)) return { ok: false }; fs.mkdirSync(designsDir(), { recursive: true }); const f = path.join(designsDir(), d.id + '.json'); fs.writeFileSync(f + '.tmp', JSON.stringify(d)); fs.renameSync(f + '.tmp', f); return { ok: true }; }
-  function open(id) { if (!okId(id)) return null; try { return JSON.parse(fs.readFileSync(path.join(designsDir(), id + '.json'), 'utf8')); } catch { return null; } }
+  // pictures (imported images, auto-masks) are kept once each in images/, named after their contents, and a design
+  // holds "img:<name>" in their place: designs stay small and quick to save, and the same picture in ten designs is one
+  // file. Opening a design puts the pictures back, so the editor never sees the difference.
+  const imagesDir = () => path.join(root(), 'images');
+  const okImg = (h) => /^[0-9a-f]{40}$/.test(h);
+  function stash(url) {
+    if (typeof url !== 'string' || !url.startsWith('data:') || url.length < 2048) return url;
+    const h = require('crypto').createHash('sha1').update(url).digest('hex'); const f = path.join(imagesDir(), h + '.txt');
+    if (!fs.existsSync(f)) { fs.mkdirSync(imagesDir(), { recursive: true }); fs.writeFileSync(f + '.tmp', url); fs.renameSync(f + '.tmp', f); }
+    return 'img:' + h;
+  }
+  function unstash(v) { if (typeof v !== 'string' || !v.startsWith('img:') || !okImg(v.slice(4))) return v; try { return fs.readFileSync(path.join(imagesDir(), v.slice(4) + '.txt'), 'utf8'); } catch { return null; } }
+  const mapPics = (d, fn) => { const o = { ...d }; if (d.images) o.images = Object.fromEntries(Object.entries(d.images).map(([k, v]) => [k, fn(v)])); if (Array.isArray(d.layers)) o.layers = d.layers.map(L => L && L.mask ? { ...L, mask: fn(L.mask) } : L); return o; };
+  function save(d) { if (!d || !okId(d.id)) return { ok: false }; fs.mkdirSync(designsDir(), { recursive: true }); const f = path.join(designsDir(), d.id + '.json'); fs.writeFileSync(f + '.tmp', JSON.stringify(mapPics(d, stash))); fs.renameSync(f + '.tmp', f); return { ok: true }; }
+  function open(id) { if (!okId(id)) return null; try { return mapPics(JSON.parse(fs.readFileSync(path.join(designsDir(), id + '.json'), 'utf8')), unstash); } catch { return null; } }
+  // a design as one file to share or keep (its pictures inside), and one read back in as a new design
+  function exportDesign(id, file) { const d = open(id); if (!d) return { ok: false, error: 'Couldn’t open that design.' }; fs.writeFileSync(file, JSON.stringify({ pitwallDesign: 1, ...d })); return { ok: true, file }; }
+  function importDesign(file) {
+    let d; try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { ok: false, error: 'That isn’t a Pitwall design file.' }; }
+    if (!d || !d.pitwallDesign || !Array.isArray(d.layers)) return { ok: false, error: 'That isn’t a Pitwall design file.' };
+    delete d.pitwallDesign; d.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8); d.at = new Date().toISOString(); d.kind = ['helmet', 'car', 'sticker'].includes(d.kind) ? d.kind : 'helmet';
+    save(d); return { ok: true, id: d.id, kind: d.kind, name: d.name };
+  }
   function remove(id) { if (!okId(id)) return false; try { fs.rmSync(path.join(designsDir(), id + '.json'), { force: true }); return true; } catch { return false; } }
-  return { load, carLoad, carModel, carExport, findGame, setGame, setTarget, exportMod, list, save, open, remove, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
+  return { load, carLoad, carModel, carExport, findGame, setGame, setTarget, exportMod, list, save, open, remove, exportDesign, importDesign, _bc1Encode: bc1Encode, _bc1Decode: bc1Decode };
 };

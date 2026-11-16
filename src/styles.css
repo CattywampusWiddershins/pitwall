@@ -1697,3 +1697,7 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
 .he:not(.car3d) .only-car3d { display: none !important; }
 .he-car3dbar { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-right: 8px; }
 .he.car3d .he-guide, .he.car3d #ed-guideop { display: none !important; } /* (the guide is drawn on Flat only) */
+
+.he-drop { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; color: var(--muted); border: 1px solid var(--line); margin-left: 4px; }
+.he-drop:hover { color: var(--fg); background: var(--panel-2); }
+.he-lookpick { max-width: 92px; }

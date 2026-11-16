@@ -336,6 +336,8 @@ ipcMain.handle('editor:list', edOpen(() => helmetEd.list()));
 ipcMain.handle('editor:save', edOpen((_e, d) => helmetEd.save(d)));
 ipcMain.handle('editor:open', edOpen((_e, id) => helmetEd.open(id)));
 ipcMain.handle('editor:remove', edOpen((_e, id) => helmetEd.remove(id)));
+ipcMain.handle('editor:export-design', edOpen(async (_e, id, name) => { const { canceled, filePath } = await dialog.showSaveDialog({ title: 'Save the design as a file', defaultPath: (String(name || 'design').replace(/[^\w\- ]+/g, '') || 'design') + '.pitwall-design', filters: [{ name: 'Pitwall design', extensions: ['pitwall-design'] }] }); if (canceled) return { ok: false, canceled: true }; return helmetEd.exportDesign(id, filePath); }));
+ipcMain.handle('editor:import-design', edOpen(async () => { const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Open a Pitwall design file', properties: ['openFile'], filters: [{ name: 'Pitwall design', extensions: ['pitwall-design', 'json'] }] }); if (canceled || !filePaths[0]) return { ok: false, canceled: true }; return helmetEd.importDesign(filePaths[0]); }));
 
 // push to talk on a key: Windows hands it to Pitwall even while the game is in front (a press, not a hold)
 let pttKey = '';

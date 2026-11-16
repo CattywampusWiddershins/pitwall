@@ -66,6 +66,8 @@ contextBridge.exposeInMainWorld('api', {
     save: (d) => ipcRenderer.invoke('editor:save', d),
     open: (id) => ipcRenderer.invoke('editor:open', id),
     remove: (id) => ipcRenderer.invoke('editor:remove', id),
+    exportDesign: (id, name) => ipcRenderer.invoke('editor:export-design', id, name),
+    importDesign: () => ipcRenderer.invoke('editor:import-design'),
   },
   engineer: {
     status: () => ipcRenderer.invoke('engineer:status'),

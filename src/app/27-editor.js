@@ -181,7 +181,7 @@ function edBuild() {
           <div class="he-row only-car"><span class="only-car3d he-car3dbar"><button class="btn sm" data-ccam="front">Front</button><button class="btn sm" data-ccam="left">Left</button><button class="btn sm" data-ccam="right">Right</button><button class="btn sm" data-ccam="back">Back</button><button class="btn sm" data-ccam="top">Top</button><select class="he-mini" id="ed-carpart" title="Show one part alone, zoomed in">${ED_CARPARTS.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></span><div class="seg he-seg" id="ed-carview"><button data-carview="flat" class="on">Flat</button><button data-carview="3d" title="The 2026 car with your livery on it: drag a sticker on the car to move it, drag empty space to turn it (sizes and turns on Flat or in the panel)">3D</button></div><label class="he-chk he-guide"><input type="checkbox" id="ed-guide" checked> Guide</label><input type="range" id="ed-guideop" min="0.05" max="0.9" step="0.05" value="0.35" title="How strongly the original livery shows over yours (it's never exported)"></div>
           <div class="he-row only-sticker"><div class="seg he-seg" id="ed-stksize"><button data-stk="1024x1024">Square</button><button data-stk="2048x1024">Wide</button><button data-stk="1024x2048">Tall</button></div></div>
           <div class="he-row only-helmet"><button class="btn sm" data-cam="front">Front</button><button class="btn sm" data-cam="left">Left</button><button class="btn sm" data-cam="right">Right</button><button class="btn sm" data-cam="back">Back</button><button class="btn sm" data-cam="top">Top</button></div>
-          <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><div class="seg he-seg only-helmet" id="ed-place" title="How new stickers go on"><button data-place="stick" class="${edPlace() === 'stick' ? 'on' : ''}" title="New stickers follow the surface">Follow</button><button data-place="stamp" class="${edPlace() === 'stamp' ? 'on' : ''}" title="New stickers are stamped straight on from your view (lines stay straight)">Stamp</button></div><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
+          <div class="he-row"><div class="seg he-seg only-helmet" id="ed-mode"><button data-mode="3d" class="on">3D</button><button data-mode="flat">Flat</button></div><div class="seg he-seg only-helmet" id="ed-place" title="How new stickers go on"><button data-place="stick" class="${edPlace() === 'stick' ? 'on' : ''}" title="New stickers follow the surface">Follow</button><button data-place="stamp" class="${edPlace() === 'stamp' ? 'on' : ''}" title="New stickers are stamped straight on from your view (lines stay straight)">Stamp</button></div><select class="he-mini not-sticker he-lookpick" id="ed-light" title="Lighting in the 3D view (the look only: not exported)">${Object.entries(ED_LIGHTS).map(([k, v]) => `<option value="${k}" ${edLookPref().light === k ? 'selected' : ''}>${v.name}</option>`).join('')}</select><select class="he-mini not-sticker he-lookpick" id="ed-finish" title="The paint's finish in the 3D view (the look only: the game has its own)">${Object.entries(ED_FINISH).map(([k, v]) => `<option value="${k}" ${edLookPref().finish === k ? 'selected' : ''}>${v.name}</option>`).join('')}</select><button class="btn sm" data-ed="undo" title="Undo (Ctrl+Z)">↶</button><button class="btn sm" data-ed="redo" title="Redo (Ctrl+Y)">↷</button></div>
         </div>
         <div class="he-msg" id="ed-msg"></div>
         <div class="he-foot"><span class="he-hint" id="ed-hint">Pick something from Add · drag it on the helmet · corners size it · the top handle turns it · drag empty space to turn the helmet</span></div>
@@ -258,11 +258,12 @@ function edThree(r) {
         gl_FragColor = vec4(mix(uCol, uCol2, t * uFade), 1.0); }` });
   // 3: a layer
   const layerMat = new THREE.ShaderMaterial({ vertexShader: bakeVS, side: THREE.DoubleSide, transparent: true, depthTest: false, depthWrite: false,
-    uniforms: { ...common, uFace: { value: 0.15 }, uDepth: { value: 0.07 }, uTex: { value: null }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2(0.1, 0.1) }, uRot: { value: new THREE.Vector2(1, 0) }, uFlip: { value: new THREE.Vector2(1, 1) }, uW: { value: new THREE.Vector2() }, uOp: { value: 1 } },
+    uniforms: { ...common, uBlend: { value: 0 }, uFace: { value: 0.15 }, uDepth: { value: 0.07 }, uTex: { value: null }, uMode: { value: 0 }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2(0.1, 0.1) }, uRot: { value: new THREE.Vector2(1, 0) }, uFlip: { value: new THREE.Vector2(1, 1) }, uW: { value: new THREE.Vector2() }, uOp: { value: 1 } },
     fragmentShader: `uniform float uFace; uniform float uDepth; uniform vec3 uC; uniform float uR; uniform float uSide; uniform sampler2D uTex; uniform float uMode; uniform vec3 uP; uniform vec3 uN; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; uniform vec2 uW; uniform float uOp; varying vec3 vP; varying vec3 vN; varying vec2 vUv;
+      uniform float uBlend; vec4 edBlendOut(vec3 c, float a){ if (uBlend > 0.5 && uBlend < 1.5) return vec4(mix(vec3(1.0), c, a), a); if (uBlend > 1.5) return vec4(c * a, a); return vec4(c, a); }
       void main(){
         vec3 n = normalize(vN); if (dot(n, vP - uC) * uSide < 0.0) discard;
-        if (uMode > 1.5 && uMode < 2.5) { vec4 c = texture2D(uTex, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = vec4(c.rgb, c.a * uOp); return; }
+        if (uMode > 1.5 && uMode < 2.5) { vec4 c = texture2D(uTex, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = edBlendOut(c.rgb, c.a * uOp); return; }
         vec2 q;
         if (uMode < 0.5) { vec3 d = vP - uP; if (dot(n, uN) * uSide < uFace || abs(dot(d, uN)) > uDepth) discard; q = vec2(dot(d, uT), dot(d, uU)); }
         else if (uMode > 2.5) { vec3 dd = normalize(vP - uC); float cs = clamp(dot(dd, uN), -1.0, 1.0); float ang = acos(cs); if (ang > 2.4) discard; vec3 tg = dd - uN * cs; float tl = length(tg); q = tl > 1e-6 ? vec2(dot(tg, uT), dot(tg, uU)) / tl * ang * uR : vec2(0.0); }
@@ -271,7 +272,7 @@ function edThree(r) {
         vec2 t = q / uSize * uFlip + 0.5;
         if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) discard;
         vec4 c = texture2D(uTex, t); if (c.a < 0.004) discard;
-        gl_FragColor = vec4(c.rgb, c.a * uOp); }` });
+        gl_FragColor = edBlendOut(c.rgb, c.a * uOp); }` });
   layerMat.blending = THREE.CustomBlending; layerMat.blendSrc = THREE.SrcAlphaFactor; layerMat.blendDst = THREE.OneMinusSrcAlphaFactor; layerMat.blendSrcAlpha = THREE.OneFactor; layerMat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
   // 4: the trim on top of everything
   const trimMat = new THREE.ShaderMaterial({ vertexShader: quadVS, uniforms: { ...common }, transparent: true, depthTest: false, depthWrite: false,
@@ -281,10 +282,11 @@ function edThree(r) {
   // the view
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x10151f);
   const cam = new THREE.PerspectiveCamera(28, 1, 0.01, 10);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.85)); const k1 = new THREE.DirectionalLight(0xffffff, 0.75); k1.position.set(1.5, 2, 1.5); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-2, 0.5, -1); scene.add(k2);
-  const viewMat = new THREE.MeshStandardMaterial({ map: RT.texture, roughness: 0.3, metalness: 0.05, side: THREE.DoubleSide });
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.85); scene.add(hemi); const k1 = new THREE.DirectionalLight(0xffffff, 0.75); k1.position.set(1.5, 2, 1.5); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-2, 0.5, -1); scene.add(k2);
+  const viewMat = new THREE.MeshPhysicalMaterial({ map: RT.texture, roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(g, viewMat); mesh.position.copy(C).multiplyScalar(-1); scene.add(mesh);
   ED.three = { R, g, C, RAD, side, RT, fillMat, baseMat, layerMat, trimMat, quad, bakeMesh, bakeScene, bakeCam, scene, cam, mesh, yaw: Math.PI / 2, pitch: 0.08, dist: 0.9, tex: new Map(), ray: new THREE.Raycaster() };
+  ED.three.lookSet = { scene, hemi, k1, k2, paint: [viewMat], bare: [] }; edApplyLook(ED.three.lookSet);
   cv.addEventListener('pointerdown', edDown); cv.addEventListener('pointermove', edMove); cv.addEventListener('pointerup', edUp); cv.addEventListener('pointercancel', edUp);
   cv.addEventListener('wheel', (e) => { e.preventDefault(); if (edCar3dOn()) { ED.car3.dist = Math.max(0.4, Math.min(14, ED.car3.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); return; } const T = ED.three; T.dist = Math.max(0.45, Math.min(1.8, T.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); }, { passive: false });
   cv.addEventListener('dragover', (e) => e.preventDefault()); cv.addEventListener('drop', edDrop);
@@ -407,7 +409,7 @@ async function edBake() {
   D.layers.forEach((L, k) => {
     const s = srcs[k]; if (!s) return;
     // (the picture's room for effects makes it bigger than the sticker itself: drawn that much bigger, same middle)
-    const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uFace.value = F.face; U.uDepth.value = F.depth; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; R.render(T.bakeScene, T.bakeCam); };
+    const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uFace.value = F.face; U.uDepth.value = F.depth; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; edGpuBlend(T.layerMat, L.blend); R.render(T.bakeScene, T.bakeCam); edGpuBlend(T.layerMat); };
     draw(false); if (L.mirror && L.mode !== 'uv') draw(true);
   });
   // the trim
@@ -426,6 +428,7 @@ async function edBake() {
 */
 async function edAutoMask(L) {
   if (L.mode === 'flat') return edAutoMaskFlat(L);
+  if (L.mode === 'stamp' && edIsCar()) return edAutoMaskCar3(L);
   const T = ED.three; const D = ED.design; const k = D.layers.indexOf(L); if (k < 0 || L.mode === 'uv') return;
   edStatus('Masking…'); const before = L.mask; delete L.mask; await edSource(L); // (the content's size, without the old mask)
   const s = await edSource(L); if (!s) { L.mask = before; edStatus(); return; }
@@ -536,7 +539,7 @@ function edTextForm(t, p) {
     <div class="he-prow"><span>Slant</span><input type="range" data-tf="sl" min="-20" max="25" value="${t.sl}"><span class="v">${t.sl}°</span></div>
     <div class="he-row"><button class="btn sm ${t.bold ? 'on' : ''}" data-tf="bold">B</button><button class="btn sm ${t.italic ? 'on' : ''}" data-tf="italic" style="font-style:italic">I</button></div>`;
 }
-const edSw = (cur, attr) => `<div class="he-sw">${ED_SWATCH.map(c => `<b class="${String(cur).toLowerCase() === c.toLowerCase() ? 'on' : ''}" style="background:${c}" ${attr} data-v="${c}"></b>`).join('')}<label class="he-any" title="Any colour" style="background:${edEsc(cur)}"><input type="color" ${attr} value="${edEsc(cur)}"></label><input class="he-hex" ${attr} data-hex="1" value="${edEsc(String(cur).toUpperCase())}" maxlength="7" spellcheck="false" title="Hex colour code"></div>`;
+const edSw = (cur, attr) => `<div class="he-sw">${ED_SWATCH.map(c => `<b class="${String(cur).toLowerCase() === c.toLowerCase() ? 'on' : ''}" style="background:${c}" ${attr} data-v="${c}"></b>`).join('')}<label class="he-any" title="Any colour" style="background:${edEsc(cur)}"><input type="color" ${attr} value="${edEsc(cur)}"></label><input class="he-hex" ${attr} data-hex="1" value="${edEsc(String(cur).toUpperCase())}" maxlength="7" spellcheck="false" title="Hex colour code">${window.EyeDropper ? '<button class="he-drop" data-eyedrop="1" title="Pick a colour from anywhere on screen (an image, the helmet, another app)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 22l1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="M15 6l3.4-3.4a2.1 2.1 0 0 1 3 3L18 9l.4.4a2.1 2.1 0 0 1 0 3l-1 1a2.1 2.1 0 0 1-3 0L9.6 8.6a2.1 2.1 0 0 1 0-3l1-1a2.1 2.1 0 0 1 3 0z"/></svg></button>' : ''}</div>`;
 function edTextPreview() {
   for (const p of ['tt', 'tl']) { const cv = ED.root.querySelector('#ed-tprev-' + p); if (!cv) continue; const t = p === 'tt' ? ED.text : ED.design.layers.find(l => l.id === ED.sel)?.text; if (!t) continue;
     const src = edTextCanvas(t); const box = cv.parentElement; const W = box.clientWidth || 220, H = box.clientHeight || 70; cv.width = W * 2; cv.height = H * 2; const g = cv.getContext('2d'); const k = Math.min(cv.width / src.width, cv.height / src.height) * 0.92; g.drawImage(src, (cv.width - src.width * k) / 2, (cv.height - src.height * k) / 2, src.width * k, src.height * k); }
@@ -596,12 +599,16 @@ function edProps() {
       ${edLookUI(edLook(members[0] || {}), null)}`;
     return;
   }
-  if (!L) { el.innerHTML = ED.multi?.size > 1 ? `<div class="muted he-small">${ED.multi.size} layers selected.</div><button class="btn sm he-wide" data-ed="group">Group them</button>` : '<div class="muted he-small">Select a layer to change it. Click a sticker on the helmet, or a layer in the list (Ctrl+click to pick several, then group them).</div>'; return; }
+  if (!L) { el.innerHTML = ED.multi?.size > 1 ? `<div class="muted he-small">${ED.multi.size} layers selected.</div><button class="btn sm he-wide" data-ed="group">Group them</button>
+      <div class="label" style="margin-top:10px">Line up</div><div class="he-row he-wrapbtns"><button class="btn sm" data-align="l" title="Left edges in line">⇤ Left</button><button class="btn sm" data-align="cx" title="Middles in line, across">↔ Middle</button><button class="btn sm" data-align="r" title="Right edges in line">Right ⇥</button></div>
+      <div class="he-row he-wrapbtns"><button class="btn sm" data-align="t" title="Top edges in line">⤒ Top</button><button class="btn sm" data-align="cy" title="Middles in line, up and down">↕ Middle</button><button class="btn sm" data-align="b" title="Bottom edges in line">Bottom ⤓</button></div>
+      <div class="he-row he-wrapbtns"><button class="btn sm" data-align="sx" title="The same gap between each, left to right (3 or more)">Spread across</button><button class="btn sm" data-align="sy" title="The same gap between each, top to bottom (3 or more)">Spread down</button></div>` : '<div class="muted he-small">Select a layer to change it. Click a sticker on the helmet, or a layer in the list (Ctrl+click to pick several, then group them).</div>'; return; }
   const range = (k, label, min, max, step, v, show) => `<div class="he-prow"><span>${label}</span><input type="range" data-lp="${k}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="v">${show}</span></div>`;
   el.innerHTML = `
     ${L.mode === 'flat' ? (() => { const [w, h] = edDims(L); const W = ED.design.w || 1024; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.01, 3, 0.001, w, Math.round(w * W) + ' px') + range('len', 'Length', 0.01, 4, 0.001, Math.min(h, 4), Math.round(h * W) + ' px'); })() : L.mode === 'uv' ? '' : (() => { const [w, h] = edDims(L); const mx = L.mode === 'wrap' ? 0.9 : L.curve && L.mode === 'stick' ? 0.6 : 0.32; return range('scale', 'Size', 0.2, 3, 0.01, 1, 'both') + range('w', 'Width', 0.005, 0.32, 0.001, w, Math.round(w * 1000) + ' mm') + range('len', 'Length', 0.005, mx, 0.001, Math.min(h, mx), Math.round(h * 1000) + ' mm'); })()}
     ${L.mode === 'uv' ? '' : range('rot', 'Rotation', -180, 180, 1, L.rot || 0, Math.round(L.rot || 0) + '°')}
     ${range('opacity', 'Opacity', 0, 1, 0.01, L.opacity ?? 1, Math.round((L.opacity ?? 1) * 100) + '%')}
+    <div class="he-prow"><span>Blend</span><select class="he-mini" id="ed-blend" title="How it mixes with what's under it">${ED_BLENDS.map(([k, n, d]) => `<option value="${k}" title="${d}" ${(L.blend || '') === k ? 'selected' : ''}>${n}</option>`).join('')}</select><span class="v"></span></div>
     ${L.kind === 'text' ? `<div class="he-tc">${edTextForm(L.text, 'tl')}</div>` : ''}
     ${L.kind === 'image' && L.mode !== 'uv' ? `<button class="btn sm he-wide" data-ed="bg">Remove background…</button>` : ''}
     ${L.mode === 'uv' ? '' : edLookUI(edLook(L), L)}
@@ -692,7 +699,7 @@ function edImportTexture(e) {
 
 // ---- clicks and edits in the editor
 function edClick(e) {
-  const t = e.target.closest('[data-ed],[data-tab],[data-carview],[data-ccam],[data-proj],[data-place],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
+  const t = e.target.closest('[data-align],[data-eyedrop],[data-ed],[data-tab],[data-carview],[data-ccam],[data-proj],[data-place],[data-stk],[data-lib],[data-add],[data-cam],[data-mode],[data-layer],[data-gsel],[data-vis],[data-lock],[data-tf],[data-base],[data-lc],[data-look],[data-open],[data-dexport],[data-delete]'); if (!t) { ED.root.querySelector('#ed-menu')?.classList.remove('on'); return; }
   if (t.matches('input, select, label')) return; // (inputs are handled as input events)
   const D = ED.design; const L = D.layers.find(l => l.id === ED.sel);
   // colour and effects: swatches and the Own / Solid / Gradient and stroke side buttons
@@ -700,6 +707,8 @@ function edClick(e) {
   if (t.dataset.gsel) { ED.selGroup = t.dataset.gsel; ED.sel = null; ED.multi = new Set(); edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.layer && (e.ctrlKey || e.metaKey || e.shiftKey)) { const m = ED.multi ||= new Set(); if (ED.sel) m.add(ED.sel); const id = t.dataset.layer; m.has(id) ? m.delete(id) : m.add(id); ED.sel = m.size === 1 ? [...m][0] : null; ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.tab) { edSwitchTab(t.dataset.tab); return; }
+  if (t.dataset.align) { edAlign(t.dataset.align); return; }
+  if (t.dataset.eyedrop) { const hex = t.parentElement.querySelector('.he-hex'); if (!hex || !window.EyeDropper) return; new EyeDropper().open().then(r => { if (!r?.sRGBHex) return; hex.value = r.sRGBHex.toUpperCase(); hex.dispatchEvent(new Event('change', { bubbles: true })); }).catch(() => { }); return; }
   if (t.dataset.carview) { edCarView(t.dataset.carview); return; }
   if (t.dataset.ccam && ED.car3) { [ED.car3.yaw, ED.car3.pitch] = ED_CARCAMS[t.dataset.ccam]; edDraw(); return; }
   if (t.dataset.proj) { const L = ED.design.layers.find(l => l.id === ED.sel); if (L) edSetProj(L, t.dataset.proj); return; }
@@ -714,6 +723,7 @@ function edClick(e) {
   if (t.dataset.lock) { e.stopPropagation(); edCommit(() => { const l = D.layers.find(x => x.id === t.dataset.lock); l.locked = !l.locked; }, { bake: false }); return; }
   if (t.dataset.layer) { ED.sel = t.dataset.layer; ED.multi = new Set(); ED.selGroup = null; edLayers(); edProps(); edDraw(); return; }
   if (t.dataset.open) { edOpen(t.dataset.open); return; }
+  if (t.dataset.dexport) { e.stopPropagation(); const d = ED.list.find(x => x.id === t.dataset.dexport); (async () => { if (ED.dirty && ED.design.id === t.dataset.dexport) await edSave(true); const r = await edApi().exportDesign(t.dataset.dexport, d?.name); if (r?.ok) toast('Design saved as a file.'); else if (!r?.canceled) toast(r?.error || 'Couldn’t save it.'); })(); return; }
   if (t.dataset.delete) { e.stopPropagation(); if (confirm('Delete this design? This can’t be undone.')) edApi().remove(t.dataset.delete).then(edList).then(edMenu); return; }
   // swatches (the colour inputs are handled as input events)
   if (t.tagName === 'B' && t.dataset.v) {
@@ -773,6 +783,7 @@ function edClick(e) {
   else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edIsCar() ? edNewCar() : edIsStk() ? edNewSticker() : edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
   else if (a === 'designs') { edList().then(edMenu); }
   else if (a === 'png') edExportPng();
+  else if (a === 'import-design') { ED.root.querySelector('#ed-menu')?.classList.remove('on'); (async () => { const r = await edApi().importDesign(); if (!r?.ok) { if (!r?.canceled) toast(r?.error || 'Couldn’t open it.'); return; } await edList(); const tab = r.kind === 'car' ? 'car' : r.kind === 'sticker' ? 'sticker' : 'helmet'; if (tab === 'car' && !DEV_MODE) { toast('That’s a car livery: the car editor isn’t available yet.'); return; } if (ED.tab !== tab) edSwitchTab(tab); await edOpen(r.id); toast('Opened ' + (r.name || 'the design') + '.'); })(); }
   else if (a === 'export') edExport('addon');
   else if (a === 'car-export') edCarExport();
   else if (a === 'export-hx') edExport('hx');
@@ -781,7 +792,8 @@ function edClick(e) {
 function edMenu() {
   const m = ED.root.querySelector('#ed-menu'); if (!m) return;
   const kind = edIsCar() ? 'car' : edIsStk() ? 'sticker' : 'helmet'; const list = ED.list.filter(d => (d.kind || 'helmet') === kind);
-  m.innerHTML = list.length ? list.map(d => `<div class="he-mi" data-open="${d.id}">${d.thumb ? `<img src="${d.thumb}" alt="">` : '<span class="he-noimg"></span>'}<span>${edEsc(d.name)}<small>${new Date(d.at).toLocaleString()}</small></span><button class="icon-btn" data-delete="${d.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted he-small" style="padding:10px">No saved designs yet.</div>';
+  m.innerHTML = list.length ? list.map(d => `<div class="he-mi" data-open="${d.id}">${d.thumb ? `<img src="${d.thumb}" alt="">` : '<span class="he-noimg"></span>'}<span>${edEsc(d.name)}<small>${new Date(d.at).toLocaleString()}</small></span><button class="icon-btn" data-dexport="${d.id}" title="Save as a file (to share or keep)">⇩</button><button class="icon-btn" data-delete="${d.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted he-small" style="padding:10px">No saved designs yet.</div>';
+  if (edApi()?.importDesign) m.innerHTML += '<div class="he-mi he-mimport" data-ed="import-design"><span class="he-noimg">⇧</span><span>Open a design file…<small>A .pitwall-design someone shared, or a backup</small></span></div>';
   m.classList.add('on');
 }
 async function edOpen(id) {
@@ -824,6 +836,8 @@ function edInput(e) {
   if (t.id === 'ed-q') { ED.q = t.value; const pos = t.selectionStart; edLib(); const q = ED.root.querySelector('#ed-q'); q.focus(); q.setSelectionRange(pos, pos); return; }
   if (t.id === 'ed-target') { if (e.type === 'change') edSetTarget(t.value); return; }
   if (t.id === 'ed-gres') { if (e.type === 'change') { try { localStorage.setItem('pitwall.editor.gameRes', t.value); } catch { } } return; }
+  if (t.id === 'ed-light' || t.id === 'ed-finish') { if (e.type === 'change') { const p = edLookPref(); p[t.id === 'ed-light' ? 'light' : 'finish'] = t.value; try { localStorage.setItem('pitwall.editor.look', JSON.stringify(p)); } catch { } [ED.three?.lookSet, ...Object.values(ED.car3s || {}).map(c => c.lookSet)].forEach(s => s && edApplyLook(s)); edDraw(); } return; }
+  if (t.id === 'ed-blend') { if (e.type === 'change') { const L = ED.design.layers.find(l => l.id === ED.sel); if (L) edCommit(() => { if (t.value) L.blend = t.value; else delete L.blend; }); } return; }
   if (t.id === 'ed-carpart') { if (e.type === 'change') edCarPart(t.value); return; }
   if (t.id === 'ed-caryear') { if (e.type === 'change') { edCommit(() => { D.year = +t.value; }, { bake: false }); edCarGuide(); if (ED.carView === '3d') edCarView('3d'); } return; }
   if (t.id === 'ed-guide' || t.id === 'ed-guideop') { edDrawSticker(); return; }
@@ -849,10 +863,89 @@ function edKey(e) {
   if (!ED.root?.isConnected || ui.view !== 'editor') return; const a = document.activeElement; if (a && a.matches('input[type=text], input:not([type]), textarea, .he-text, .he-name, .he-search')) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? edRedo() : edUndo(); }
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); edRedo(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); ED.root.querySelector('[data-ed="dup"]')?.click(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); ED.root.querySelector('[data-ed="group"]')?.click(); }
+  else if (/^Arrow(Left|Right|Up|Down)$/.test(e.key) && ED.sel && !e.ctrlKey && !e.metaKey) { const L = ED.design.layers.find(l => l.id === ED.sel); if (!L || L.locked) return; e.preventDefault(); if (!e.repeat) { ED.undo.push(edSnap()); ED.redo = []; } edNudge(L, e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0, e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0, e.shiftKey ? 10 : 1); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && ED.selGroup && !ED.sel) { e.preventDefault(); const g = ED.selGroup; edCommit(() => { ED.design.layers = ED.design.layers.filter(l => l.group !== g); delete ED.design.groups[g]; ED.selGroup = null; }); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && ED.sel) { e.preventDefault(); const L = ED.design.layers.find(l => l.id === ED.sel); if (L) edCommit(() => { ED.design.layers.splice(ED.design.layers.indexOf(L), 1); ED.sel = null; }); }
 }
 
+/*
+  The 3D views' look (not exported: the game lights things its own way). Reflections come from a soft surround made
+  once per lighting choice (a gradient sky and ground with a few bright panels, prefiltered for the renderer).
+*/
+const ED_LIGHTS = {
+  studio: { name: 'Studio', bg: 0x10151f, sky: [0.75, 0.8, 0.9], ground: [0.12, 0.13, 0.16], panel: 3.0, hemi: [0xffffff, 0x3a4256, 0.7], k1: [0xffffff, 0.7], k2: [0x9fb4ff, 0.3], env: 1.0 },
+  day: { name: 'Day', bg: 0x8fb5dc, sky: [0.55, 0.72, 0.95], ground: [0.32, 0.3, 0.26], panel: 5.0, hemi: [0xdfefff, 0x6b6250, 0.8], k1: [0xfff4e0, 1.2], k2: [0xa8c8ff, 0.25], env: 1.0 },
+  night: { name: 'Night', bg: 0x05070c, sky: [0.05, 0.06, 0.1], ground: [0.02, 0.02, 0.03], panel: 6.0, hemi: [0x6c7cff, 0x0b0d14, 0.25], k1: [0xfff1d6, 0.9], k2: [0x6688ff, 0.35], env: 0.8 },
+  garage: { name: 'Garage', bg: 0x1d1f24, sky: [0.5, 0.5, 0.52], ground: [0.18, 0.18, 0.2], panel: 4.0, hemi: [0xf4f6ff, 0x2a2b30, 0.6], k1: [0xffffff, 0.5], k2: [0xffffff, 0.35], env: 1.2 },
+};
+const ED_FINISH = { gloss: { name: 'Gloss', rough: 0.28, coat: 0.9, coatRough: 0.05 }, satin: { name: 'Satin', rough: 0.45, coat: 0.35, coatRough: 0.3 }, matte: { name: 'Matte', rough: 0.8, coat: 0, coatRough: 0.5 } };
+const edLookPref = () => { try { const p = JSON.parse(localStorage.getItem('pitwall.editor.look') || '{}'); return { light: ED_LIGHTS[p.light] ? p.light : 'studio', finish: ED_FINISH[p.finish] ? p.finish : 'gloss' }; } catch { return { light: 'studio', finish: 'gloss' }; } };
+function edEnvMap(key) {
+  ED.envMaps ||= {}; if (ED.envMaps[key] || !ED.three) return ED.envMaps[key]; const L = ED_LIGHTS[key];
+  const s = new THREE.Scene(); const geo = new THREE.SphereGeometry(10, 32, 16); const cols = []; const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const k = Math.max(0, Math.min(1, (p.getY(i) / 10 + 0.15) / 1.15)); cols.push(...L.ground.map((g, c) => g + (L.sky[c] - g) * k)); }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); s.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const panel = (x, y, z, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(L.panel, L.panel, L.panel), side: THREE.DoubleSide })); m.position.set(x, y, z); m.lookAt(0, 0, 0); s.add(m); };
+  panel(0, 8, 0, 8, 3); panel(6, 4, 5, 3, 5); panel(-7, 3, -3, 3, 4);
+  const gen = new THREE.PMREMGenerator(ED.three.R); const rt = gen.fromScene(s, 0.04); gen.dispose(); return (ED.envMaps[key] = rt.texture);
+}
+function edApplyLook(set) {
+  const p = edLookPref(); const L = ED_LIGHTS[p.light], F = ED_FINISH[p.finish]; const env = edEnvMap(p.light);
+  set.scene.background = new THREE.Color(L.bg); set.hemi.color.set(L.hemi[0]); set.hemi.groundColor.set(L.hemi[1]); set.hemi.intensity = L.hemi[2];
+  set.k1.color.set(L.k1[0]); set.k1.intensity = L.k1[1]; set.k2.color.set(L.k2[0]); set.k2.intensity = L.k2[1];
+  for (const m of set.paint) { m.envMap = env; m.envMapIntensity = L.env; m.roughness = F.rough; m.clearcoat = F.coat; m.clearcoatRoughness = F.coatRough; m.needsUpdate = true; }
+  for (const m of set.bare) { m.envMap = env; m.envMapIntensity = L.env * 0.8; m.needsUpdate = true; }
+}
+/** Blend modes: on canvases (their own operations) and on the graphics card (blend factors, with the shader's output to suit). */
+const ED_BLENDS = [['', 'Normal', 'Covers what is under it'], ['multiply', 'Multiply', 'Darkens: good for shading, tints and dirt'], ['screen', 'Screen', 'Lightens: good for highlights and shine'], ['add', 'Add', 'Adds light: good for glows']];
+const ED_BLEND_CSS = { multiply: 'multiply', screen: 'screen', add: 'lighter' };
+function edGpuBlend(mat, blend) {
+  const T = THREE; mat.uniforms.uBlend.value = blend === 'multiply' ? 1 : blend === 'screen' || blend === 'add' ? 2 : 0;
+  if (blend === 'multiply') { mat.blendSrc = T.DstColorFactor; mat.blendDst = T.ZeroFactor; mat.blendSrcAlpha = T.ZeroFactor; mat.blendDstAlpha = T.OneFactor; }
+  else if (blend === 'screen') { mat.blendSrc = T.OneFactor; mat.blendDst = T.OneMinusSrcColorFactor; mat.blendSrcAlpha = T.ZeroFactor; mat.blendDstAlpha = T.OneFactor; }
+  else if (blend === 'add') { mat.blendSrc = T.OneFactor; mat.blendDst = T.OneFactor; mat.blendSrcAlpha = T.ZeroFactor; mat.blendDstAlpha = T.OneFactor; }
+  else { mat.blendSrc = T.SrcAlphaFactor; mat.blendDst = T.OneMinusSrcAlphaFactor; mat.blendSrcAlpha = T.OneFactor; mat.blendDstAlpha = T.OneMinusSrcAlphaFactor; }
+}
+/**
+ * Lines up or spreads the selected stickers. Each has a place in a flat 2D measure: its x and y on a canvas; on the
+ * helmet, across and round the curve (the wrap's measure); on the car, its point seen from the side it faces. Edges
+ * use each sticker's half width and length. Locked ones and those of other kinds than the first are left alone.
+ */
+function edAlign(how) {
+  const D = ED.design; const sel = [...(ED.multi || [])].map(id => D.layers.find(l => l.id === id)).filter(L => L && !L.locked && L.mode !== 'uv'); if (sel.length < 2) return;
+  const W = D.w || 1024, H = D.h || 1024;
+  const get = (L) => { const [w, h] = edDims(L); if (L.mode === 'flat') return { x: (L.x ?? 0.5) * W, y: (L.y ?? 0.5) * H, hw: w * W / 2, hh: h * W / 2, down: 1 };
+    if (L.mode === 'wrap') return { x: L.wx || 0, y: L.wy || 0, hw: w / 2, hh: h / 2, down: 1 };
+    if (L.mode === 'stamp' && edIsCar()) return { x: L.p[0], y: -L.p[1], z: L.p[2], hw: w / 2, hh: h / 2, down: 1 };
+    const [x, y] = edWrapOf(new THREE.Vector3(...L.p)); return { x, y, hw: w / 2, hh: h / 2, down: 1 }; };
+  const set = (L, x, y) => { if (L.mode === 'flat') { L.x = x / W; L.y = y / H; } else if (L.mode === 'wrap') { L.wx = x; L.wy = y; }
+    else if (L.mode === 'stamp' && edIsCar()) { L.p = [x, -y, L.p[2]]; }
+    else { const s = edSurfaceAtWrap(x, y); L.p = s.p.toArray(); if (L.mode !== 'stamp' && !L.curve) L.n = s.n.toArray(); } };
+  const kind = (L) => L.mode === 'flat' ? 'f' : L.mode === 'stamp' && edIsCar() ? 'c' : 'h'; const k0 = kind(sel[0]); const S = sel.filter(L => kind(L) === k0).map(L => ({ L, ...get(L) }));
+  edCommit(() => {
+    if (how === 'sx' || how === 'sy') { const ax = how === 'sx' ? 'x' : 'y'; if (S.length < 3) return; S.sort((a, b) => a[ax] - b[ax]); const a = S[0][ax], b = S[S.length - 1][ax]; S.forEach((s, i) => { s[ax] = a + (b - a) * i / (S.length - 1); set(s.L, s.x, s.y); }); return; }
+    const vals = { l: S.map(s => s.x - s.hw), r: S.map(s => s.x + s.hw), cx: S.map(s => s.x), t: S.map(s => s.y - s.hh), b: S.map(s => s.y + s.hh), cy: S.map(s => s.y) }[how];
+    const target = how === 'l' || how === 't' ? Math.min(...vals) : how === 'r' || how === 'b' ? Math.max(...vals) : vals.reduce((a, v) => a + v, 0) / vals.length;
+    for (const s of S) { if (how === 'l') s.x = target + s.hw; else if (how === 'r') s.x = target - s.hw; else if (how === 'cx') s.x = target; else if (how === 't') s.y = target + s.hh; else if (how === 'b') s.y = target - s.hh; else s.y = target; set(s.L, s.x, s.y); }
+  });
+}
+/**
+ * A small move of a sticker with the arrow keys (dx right, dy up, as seen on it; big = 10 for Shift): a pixel on a flat
+ * canvas, 2 mm on the helmet (along the shell, so it stays on it), 5 mm on the car. Its group moves with it.
+ */
+function edNudge(L, dx, dy, big) {
+  const D = ED.design; const all = L.group ? edGroupOf(L.group).filter(m => !m.locked) : [L];
+  for (const M of all) {
+    if (M.mode === 'flat') { const W = D.w || 1024, H = D.h || 1024; M.x = (M.x ?? 0.5) + dx * big / W; M.y = (M.y ?? 0.5) - dy * big / H; }
+    else if (M.mode === 'wrap') { M.wx = (M.wx || 0) + dx * 0.002 * big * (M.mirror ? 1 : 1); M.wy = (M.wy || 0) - dy * 0.002 * big; }
+    else if (M.mode === 'uv') continue;
+    else if (M.mode === 'stamp' && edIsCar()) { const N = new THREE.Vector3(...M.n).normalize(); const { T, U } = edTangents(N); M.p = new THREE.Vector3(...M.p).addScaledVector(T, dx * 0.005 * big).addScaledVector(U, dy * 0.005 * big).toArray(); }
+    else { const P = new THREE.Vector3(...M.p); const N = M.mode === 'stick' && M.curve ? P.clone().sub(ED.three.C).normalize() : new THREE.Vector3(...M.n).normalize(); const { T, U } = edTangents(N); const q = P.addScaledVector(T, dx * 0.002 * big).addScaledVector(U, dy * 0.002 * big); const h = edSurfaceNear(q); M.p = h.p.toArray(); if (M.mode !== 'stamp' && !M.curve) M.n = h.n.toArray(); }
+  }
+  edChanged(true, false);
+}
 // ---- the surface: nearest point, and a point given in wrap coordinates
 function edSurfaceNear(p) {
   const T = ED.three; const dir = p.clone().sub(T.C); if (dir.lengthSq() < 1e-8) dir.set(1, 0, 0); dir.normalize();
@@ -891,7 +984,7 @@ function edDown(e) {
 }
 function edMove(e) {
   if (ED.ptr?.kind === 'corbit') { const P = ED.ptr; ED.car3.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.car3.pitch = Math.max(-1.2, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
-  if (ED.ptr?.kind === 'c3move') { const h = edCarHit(e.clientX, e.clientY); if (h) { ED.ptr.L.p = h.p.clone().add(ED.ptr.off).toArray(); edChanged(true, false); } return; }
+  if (ED.ptr?.kind === 'c3move') { const h = edCarHit(e.clientX, e.clientY); if (h) { const p = h.p.clone().add(ED.ptr.off); if (Math.abs(p.x) < 0.01 && !e.altKey) p.x = 0; ED.ptr.L.p = p.toArray(); edChanged(true, false); } return; }
   if (edCar3dOn() && (!ED.ptr || ED.ptr.kind === 'stkmove')) { if (ED.ptr) { const [X] = edStkAt(e.clientX, e.clientY); if (X > -1e5) edStkMove(e); } return; }
   const P = ED.ptr; if (!P) { if (ED.three && ED.view === '3d') { const pk = edPick(e.clientX, e.clientY); e.currentTarget.style.cursor = pk?.L && !pk.L.locked ? 'move' : 'grab'; } return; }
   if (P.kind === 'orbit') { if (Math.abs(e.clientX - P.x) + Math.abs(e.clientY - P.y) > 3) P.click = false; ED.three.yaw = P.yaw - (e.clientX - P.x) * 0.01; ED.three.pitch = Math.max(-1.3, Math.min(1.5, P.pitch + (e.clientY - P.y) * 0.01)); edDraw(); return; }
@@ -901,7 +994,9 @@ function edMove(e) {
     const anchor = (l) => l.mode === 'wrap' ? { p: edSurfaceAtWrap(l.wx || 0, l.wy || 0).p, w: [l.wx || 0, l.wy || 0] } : { p: new THREE.Vector3(...l.p), w: edWrapOf(new THREE.Vector3(...l.p)) };
     const was = L.group ? anchor(L) : null;
     if (L.mode === 'wrap') { const [x, y] = edWrapOf(h.p); let wx = x + P.off[0]; if (P.mirror) wx = -wx; L.wx = Math.abs(wx) < 0.004 ? 0 : wx; L.wy = y + P.off[1]; }
-    else { const p = h.p.clone(), n = h.n.clone(); if (P.mirror) { p.x = 2 * ED.three.C.x - p.x; n.x = -n.x; } L.p = p.toArray(); if (L.mode !== 'stamp') L.n = n.toArray(); }
+    else { let p = h.p.clone(), n = h.n.clone(); if (P.mirror) { p.x = 2 * ED.three.C.x - p.x; n.x = -n.x; }
+      if (Math.abs(p.x - ED.three.C.x) < 0.006 && !e.altKey) { const s = edSurfaceNear(new THREE.Vector3(ED.three.C.x, p.y, p.z)); p = s.p; n = s.n; } // (the middle line catches it; Alt to place freely)
+      L.p = p.toArray(); if (L.mode !== 'stamp') L.n = n.toArray(); }
     if (was) { const now = anchor(L); const d = now.p.clone().sub(was.p), dw = [now.w[0] - was.w[0], now.w[1] - was.w[1]];
       for (const m of edGroupOf(L.group)) { if (m === L || m.locked) continue;
         if (m.mode === 'wrap') { m.wx = (m.wx || 0) + dw[0]; m.wy = (m.wy || 0) + dw[1]; }
@@ -1060,8 +1155,8 @@ async function edBakeSticker() {
   const car = edIsCar() && D.layers.some(L => L.mode === 'stamp' && L.visible !== false) ? await edEnsureCar(D.year || 2026) : null;
   for (let k = 0; k < D.layers.length; k++) {
     const L = D.layers[k], s = srcs[k]; if (!s) continue;
-    if (L.mode === 'stamp') { if (!car) continue; let e = k; while (e + 1 < D.layers.length && D.layers[e + 1].mode === 'stamp') e++; const run = []; for (let j = k; j <= e; j++) if (srcs[j]) run.push([D.layers[j], srcs[j]]); edCarPaint(car, run, g, W, H); k = e; continue; }
-    const X = edStkXf(L, s, W); g.save(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore();
+    if (L.mode === 'stamp') { if (!car) continue; let e = k; while (!L.blend && e + 1 < D.layers.length && D.layers[e + 1].mode === 'stamp' && !D.layers[e + 1].blend) e++; const run = []; for (let j = k; j <= e; j++) if (srcs[j]) run.push([D.layers[j], srcs[j]]); edCarPaint(car, run, g, W, H); k = e; continue; }
+    const X = edStkXf(L, s, W); g.save(); g.globalCompositeOperation = ED_BLEND_CSS[L.blend] || 'source-over'; g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore();
   }
   edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; if (ED.car3 && edIsCar()) { ED.car3.tex.needsUpdate = true; edDraw(); } edDrawSticker();
   if (edStkAgain) { edStkAgain = false; edBakeSticker(); }
@@ -1134,7 +1229,45 @@ function edCarPaint(car, run, g, W, H) {
     R3.setRenderTarget(Pn.RT); R3.autoClear = false; R3.render(Pn.scene, Pn.cam); R3.autoClear = true;
   }
   const px = new Uint8Array(W * H * 4); R3.readRenderTargetPixels(Pn.RT, 0, 0, W, H, px); R3.setRenderTarget(null); R3.setClearColor(0x000000, 1);
-  const tmp = edCanvas(W, H); tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), W, H), 0, 0); g.drawImage(tmp, 0, 0); // (rows from v = 0, as the canvas: no flip)
+  const tmp = edCanvas(W, H); tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), W, H), 0, 0); const bl = run.length === 1 ? run[0][0].blend : null; g.save(); g.globalCompositeOperation = ED_BLEND_CSS[bl] || 'source-over'; g.drawImage(tmp, 0, 0); g.restore(); // (rows from v = 0, as the canvas: no flip)
+}
+/*
+  Auto-mask for a sticker on the 3D car: 1. what the layers above cover, on a texture-sized canvas (flat ones drawn,
+  3D ones painted as usual); 2. the car's painted triangles drawn in the sticker's own picture (each pixel there
+  looking up the cover at its texture point, only where the car is seen from the sticker's direction); 3. the mask is
+  the rest. Like the others, it stays as made until updated or removed.
+*/
+async function edAutoMaskCar3(L) {
+  const D = ED.design; const k = D.layers.indexOf(L); if (k < 0) return; const car = await edEnsureCar(D.year || 2026); if (!car) { toast('The car needs reading from F1 25 first.'); return; }
+  edStatus('Masking…'); const before = L.mask; delete L.mask; const s = await edSource(L); if (!s) { L.mask = before; edStatus(); return; }
+  const W = D.w || 4096, H = D.h || 4096; const above = D.layers.slice(k + 1).filter(l => l.visible !== false); const srcs = await Promise.all(above.map(edSource));
+  // 1: the cover
+  const cover = edCanvas(W, H), cg = cover.getContext('2d');
+  for (let i = 0; i < above.length; i++) { const l = above[i], so = srcs[i]; if (!so) continue;
+    if (l.mode === 'stamp') edCarPaint(car, [[l, so]], cg, W, H);
+    else { const X = edStkXf(l, so, W); cg.save(); cg.translate(X.cx, X.cy); cg.rotate(-X.rot); cg.scale(X.sx, X.sy); cg.drawImage(so.cv, -so.cv.width / 2, -so.cv.height / 2); cg.restore(); } }
+  // 2: back into the sticker's picture (its content's own box, no effects room)
+  if (!car.paint) edCarPaint(car, [], edCanvas(4, 4).getContext('2d'), W, H); // (the painting set-up, made once)
+  const R3 = ED.three.R; const C = car; const Pn = C.paint; const F = edCarFrame(L, false, s.aspect);
+  const half = Math.max(F.w, F.h) * 0.75 + 0.02; const dc = Pn.dcam; dc.left = -half; dc.right = half; dc.top = half; dc.bottom = -half; dc.position.copy(F.P).addScaledVector(F.N, 8); dc.up.copy(F.U); dc.lookAt(F.P); dc.updateProjectionMatrix(); dc.updateMatrixWorld();
+  R3.setRenderTarget(Pn.dRT); R3.setClearColor(0xffffff, 1); R3.clear(); R3.render(Pn.dscene, dc);
+  C.invMat ||= new THREE.ShaderMaterial({ side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+    uniforms: { uCover: { value: null }, uDepth: { value: null }, uVP: { value: new THREE.Matrix4() }, uP: { value: new THREE.Vector3() }, uN: { value: new THREE.Vector3() }, uT: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3() }, uSize: { value: new THREE.Vector2() }, uRot: { value: new THREE.Vector2() }, uFlip: { value: new THREE.Vector2() } },
+    vertexShader: `uniform vec3 uP; uniform vec3 uT; uniform vec3 uU; uniform vec2 uSize; uniform vec2 uRot; uniform vec2 uFlip; varying vec2 vUv; varying vec3 vP; varying vec3 vN;
+      void main(){ vUv = uv; vP = position; vN = normal; vec3 d = position - uP; vec2 q = vec2(dot(d, uT), dot(d, uU)); q = vec2(uRot.x * q.x + uRot.y * q.y, -uRot.y * q.x + uRot.x * q.y); vec2 t = q / uSize * uFlip + 0.5; gl_Position = vec4(t * 2.0 - 1.0, 0.0, 1.0); }`,
+    fragmentShader: `#include <packing>
+      uniform sampler2D uCover; uniform sampler2D uDepth; uniform mat4 uVP; uniform vec3 uN; varying vec2 vUv; varying vec3 vP; varying vec3 vN;
+      void main(){ if (abs(dot(normalize(vN), uN)) < 0.03) discard; vec4 c4 = uVP * vec4(vP, 1.0); vec3 sp = c4.xyz / c4.w * 0.5 + 0.5; if (sp.x < 0.0 || sp.y < 0.0 || sp.x > 1.0 || sp.y > 1.0) discard;
+        if (sp.z > unpackRGBAToDepth(texture2D(uDepth, sp.xy)) + 0.0015) discard; gl_FragColor = vec4(texture2D(uCover, vUv).a, 0.0, 0.0, 1.0); }` });
+  const covTex = new THREE.CanvasTexture(cover); covTex.flipY = false; covTex.needsUpdate = true;
+  const M = C.invMat.uniforms; M.uCover.value = covTex; M.uDepth.value = Pn.dRT.texture; M.uVP.value.multiplyMatrices(dc.projectionMatrix, dc.matrixWorldInverse); M.uP.value.copy(F.P); M.uN.value.copy(F.N); M.uT.value.copy(F.T); M.uU.value.copy(F.U); M.uSize.value.set(F.w, F.h); M.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); M.uFlip.value.set(F.fx, F.fy);
+  const mesh = Pn.scene.children[0]; const was = mesh.material; mesh.material = C.invMat;
+  const rt = new THREE.WebGLRenderTarget(s.cw, s.ch, { depthBuffer: false, stencilBuffer: false }); R3.setRenderTarget(rt); R3.setClearColor(0x000000, 0); R3.clear(); R3.render(Pn.scene, Pn.cam);
+  const px = new Uint8Array(s.cw * s.ch * 4); R3.readRenderTargetPixels(rt, 0, 0, s.cw, s.ch, px); rt.dispose(); covTex.dispose(); mesh.material = was; R3.setRenderTarget(null); R3.setClearColor(0x000000, 1);
+  // 3: the mask (rows from the top; the render target's start at the bottom)
+  const cv = edCanvas(s.cw, s.ch), g = cv.getContext('2d'), img = g.createImageData(s.cw, s.ch);
+  for (let y = 0; y < s.ch; y++) for (let x = 0; x < s.cw; x++) { const src = ((s.ch - 1 - y) * s.cw + x) * 4, dst = (y * s.cw + x) * 4; img.data[dst] = img.data[dst + 1] = img.data[dst + 2] = 255; img.data[dst + 3] = 255 - px[src]; }
+  g.putImageData(img, 0, 0); const mask = cv.toDataURL('image/png'); L.mask = before; edCommit(() => { L.mask = mask; }); edStatus();
 }
 /** The car point under the pointer (any part), in the car's space. */
 function edCarHit(cx, cy) {
@@ -1270,14 +1403,15 @@ async function edCarView(v) {
 function edCar3Build(r) {
   const buf = (b, T) => new T(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x10151f);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.9)); const k1 = new THREE.DirectionalLight(0xffffff, 0.7); k1.position.set(3, 5, 4); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-4, 2, -3); scene.add(k2);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.9); scene.add(hemi); const k1 = new THREE.DirectionalLight(0xffffff, 0.7); k1.position.set(3, 5, 4); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-4, 2, -3); scene.add(k2);
   const tex = new THREE.CanvasTexture(ED.stkCv || edCanvas(16, 16)); tex.flipY = false; tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 8; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   const mk = (part, mat) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(buf(part.pos, Float32Array), 3)); if (part.uv) g.setAttribute('uv', new THREE.BufferAttribute(buf(part.uv, Float32Array), 2)); g.setIndex(new THREE.BufferAttribute(buf(part.idx, Uint32Array), 1)); g.computeVertexNormals(); const m = new THREE.Mesh(g, mat); scene.add(m); return m; };
-  const liv = mk(r.liv, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide }));
-  const rest = mk(r.rest, new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide }));
+  const livMat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.35, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.08, side: THREE.DoubleSide }); const liv = mk(r.liv, livMat);
+  const restMat = new THREE.MeshPhysicalMaterial({ color: 0x1c1f24, roughness: 0.45, metalness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2, side: THREE.DoubleSide }); const rest = mk(r.rest, restMat); // (bare parts: dark clear-coated carbon)
   const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60);
   liv.userData = { full: liv.geometry.index.array.slice(), parts: r.liv.parts || [] }; rest.userData = { full: rest.geometry.index.array.slice(), parts: r.rest.parts || [] };
-  ED.car3 = { scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 9.5, target: ED_CARMID.clone(), part: 'all' };
+  const lookSet = { scene, hemi, k1, k2, paint: [livMat], bare: [restMat] }; edApplyLook(lookSet);
+  ED.car3 = { lookSet, scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 9.5, target: ED_CARMID.clone(), part: 'all' };
 }
 function edFrameCar() {
   const C = ED.car3, T = ED.three; if (!C || !T) return; C.tex.image = ED.stkCv || C.tex.image;
