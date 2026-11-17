@@ -1701,3 +1701,9 @@ circle.he-gside { cursor: move; fill: #9fd0ff; }
 .he-drop { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; color: var(--muted); border: 1px solid var(--line); margin-left: 4px; }
 .he-drop:hover { color: var(--fg); background: var(--panel-2); }
 .he-lookpick { max-width: 92px; }
+
+.lvpick { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-top: 10px; max-height: 55vh; overflow: auto; }
+.lvpick-i { all: unset; cursor: pointer; display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.lvpick-i:hover { border-color: var(--team); background: var(--panel-2); }
+.lvpick-i img, .lvpick-no { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--panel-2); display: block; }
+.lvpick-i small { color: var(--muted); font-size: 12px; }

@@ -177,7 +177,7 @@ const NAV = [
   ['hof', 'Hall of Fame', 'laurel'],
   ['records', 'Records', 'medal'],
   ['media', 'Media', 'mic'],
-  ['editor', 'Editor', 'brush'], // (the desktop app: the helmet editor, 27-editor.js; its car livery tab in dev mode only)
+  ['editor', 'Editor', 'brush'], // (the desktop app: the editor, 27-editor.js)
   ['settings', 'Settings', 'gear'],
   ['help', 'Help', 'help'], // (dev mode only for now: it lists the race engineer's instructions)
 ];

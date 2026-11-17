@@ -1,4 +1,4 @@
-/* Pitwall — the Editor tab (dev mode only, 7.0): a helmet editor for F1 25. Part of the renderer, loaded after the other pages. */
+/* Pitwall — the Editor tab (7.0, BETA): helmets, stickers and My Team car liveries for F1 25. Part of the renderer, loaded after the other pages. */
 'use strict';
 /*
   F1 25's own helmet shell, read from the game on this PC (helmet-editor.js in the main process), painted in layers and
@@ -163,7 +163,7 @@ function edBuild() {
       <div><h1>Editor <span class="tag beta">BETA</span> <span class="tag he-dev">DEV</span></h1><div class="muted">Design your own gear for F1 25: helmets, and stickers to use on them.</div></div>
       <div class="he-row"><div class="he-designs"><button class="btn ghost" data-ed="designs">My designs ▾</button><div class="he-menu" id="ed-menu"></div></div><button class="btn" data-ed="new" id="ed-newbtn">New helmet</button></div>
     </div>
-    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button>${DEV_MODE ? '<button class="he-tab" data-tab="car">Car livery</button>' : ''}<button class="he-tab" data-tab="sticker">Sticker maker</button></div>
+    <div class="he-tabs"><button class="he-tab on" data-tab="helmet">Helmet</button><button class="he-tab" data-tab="car">Car livery</button><button class="he-tab" data-tab="sticker">Sticker maker</button></div>
     <div class="he-ed">
       <section class="panel he-panel">
         <div class="he-ph"><span class="label">Add</span></div>
@@ -285,6 +285,7 @@ function edThree(r) {
   const hemi = new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.85); scene.add(hemi); const k1 = new THREE.DirectionalLight(0xffffff, 0.75); k1.position.set(1.5, 2, 1.5); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-2, 0.5, -1); scene.add(k2);
   const viewMat = new THREE.MeshPhysicalMaterial({ map: RT.texture, roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(g, viewMat); mesh.position.copy(C).multiplyScalar(-1); scene.add(mesh);
+  if (ED.three?.headless) { ED.car3s = {}; ED.car3 = null; ED.carLoading = {}; ED.envMaps = {}; } // (made with the renderer used for car pictures)
   ED.three = { R, g, C, RAD, side, RT, fillMat, baseMat, layerMat, trimMat, quad, bakeMesh, bakeScene, bakeCam, scene, cam, mesh, yaw: Math.PI / 2, pitch: 0.08, dist: 0.9, tex: new Map(), ray: new THREE.Raycaster() };
   ED.three.lookSet = { scene, hemi, k1, k2, paint: [viewMat], bare: [] }; edApplyLook(ED.three.lookSet);
   cv.addEventListener('pointerdown', edDown); cv.addEventListener('pointermove', edMove); cv.addEventListener('pointerup', edUp); cv.addEventListener('pointercancel', edUp);
@@ -783,7 +784,7 @@ function edClick(e) {
   else if (a === 'new') { if (ED.dirty) edSave(true); ED.design = edIsCar() ? edNewCar() : edIsStk() ? edNewSticker() : edNew(); ED.sel = null; ED.undo = []; ED.redo = []; ED.dirty = false; ED.savedAt = null; edPanels(); edLib(); edBake(); }
   else if (a === 'designs') { edList().then(edMenu); }
   else if (a === 'png') edExportPng();
-  else if (a === 'import-design') { ED.root.querySelector('#ed-menu')?.classList.remove('on'); (async () => { const r = await edApi().importDesign(); if (!r?.ok) { if (!r?.canceled) toast(r?.error || 'Couldn’t open it.'); return; } await edList(); const tab = r.kind === 'car' ? 'car' : r.kind === 'sticker' ? 'sticker' : 'helmet'; if (tab === 'car' && !DEV_MODE) { toast('That’s a car livery: the car editor isn’t available yet.'); return; } if (ED.tab !== tab) edSwitchTab(tab); await edOpen(r.id); toast('Opened ' + (r.name || 'the design') + '.'); })(); }
+  else if (a === 'import-design') { ED.root.querySelector('#ed-menu')?.classList.remove('on'); (async () => { const r = await edApi().importDesign(); if (!r?.ok) { if (!r?.canceled) toast(r?.error || 'Couldn’t open it.'); return; } await edList(); const tab = r.kind === 'car' ? 'car' : r.kind === 'sticker' ? 'sticker' : 'helmet'; if (ED.tab !== tab) edSwitchTab(tab); await edOpen(r.id); toast('Opened ' + (r.name || 'the design') + '.'); })(); }
   else if (a === 'export') edExport('addon');
   else if (a === 'car-export') edCarExport();
   else if (a === 'export-hx') edExport('hx');
@@ -891,12 +892,11 @@ function edEnvMap(key) {
   panel(0, 8, 0, 8, 3); panel(6, 4, 5, 3, 5); panel(-7, 3, -3, 3, 4);
   const gen = new THREE.PMREMGenerator(ED.three.R); const rt = gen.fromScene(s, 0.04); gen.dispose(); return (ED.envMaps[key] = rt.texture);
 }
-function edApplyLook(set) {
-  const p = edLookPref(); const L = ED_LIGHTS[p.light], F = ED_FINISH[p.finish]; const env = edEnvMap(p.light);
+function edApplyLook(set, p = edLookPref()) { const L = ED_LIGHTS[p.light], F = ED_FINISH[p.finish]; const env = edEnvMap(p.light);
   set.scene.background = new THREE.Color(L.bg); set.hemi.color.set(L.hemi[0]); set.hemi.groundColor.set(L.hemi[1]); set.hemi.intensity = L.hemi[2];
   set.k1.color.set(L.k1[0]); set.k1.intensity = L.k1[1]; set.k2.color.set(L.k2[0]); set.k2.intensity = L.k2[1];
   for (const m of set.paint) { m.envMap = env; m.envMapIntensity = L.env; m.roughness = F.rough; m.clearcoat = F.coat; m.clearcoatRoughness = F.coatRough; m.needsUpdate = true; }
-  for (const m of set.bare) { m.envMap = env; m.envMapIntensity = L.env * 0.8; m.needsUpdate = true; }
+  for (const m of set.bare) { m.envMap = env; m.envMapIntensity = L.env * 0.45; m.needsUpdate = true; }
 }
 /** Blend modes: on canvases (their own operations) and on the graphics card (blend factors, with the shader's output to suit). */
 const ED_BLENDS = [['', 'Normal', 'Covers what is under it'], ['multiply', 'Multiply', 'Darkens: good for shading, tints and dirt'], ['screen', 'Screen', 'Lightens: good for highlights and shine'], ['add', 'Add', 'Adds light: good for glows']];
@@ -1127,7 +1127,6 @@ const edViewEl = () => edIsStk() ? ED.root.querySelector('#ed-stk') : ED.three?.
 const edMaxW = (L) => L.mode === 'flat' || (L.mode === 'stamp' && edIsCar()) ? 3 : L.curve && L.mode === 'stick' ? 0.6 : 0.32;
 /** Switches between the helmet and the Sticker maker, each keeping its own design, undo and selection. */
 function edSwitchTab(tab) {
-  if (tab === 'car' && !DEV_MODE) return; // (the car livery: dev mode only for now)
   if (tab === ED.tab) return;
   if (ED.dirty) edSave(true);
   ED.tabs[ED.tab] = { design: ED.design, undo: ED.undo, redo: ED.redo, sel: ED.sel, selGroup: ED.selGroup, multi: ED.multi, dirty: false, savedAt: ED.savedAt };
@@ -1215,7 +1214,7 @@ function edCarPaint(car, run, g, W, H) {
     const scene = new THREE.Scene(); scene.add(new THREE.Mesh(geo, mat));
     // the depth picture: the whole car (every part) seen from the sticker's direction
     const dgeo = (m) => { const gg = new THREE.BufferGeometry(); gg.setAttribute('position', m.geometry.attributes.position); gg.setIndex(new THREE.BufferAttribute(m.userData.full, 1)); return gg; };
-    const dmat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide }); const dscene = new THREE.Scene(); dscene.add(new THREE.Mesh(dgeo(C.liv), dmat)); dscene.add(new THREE.Mesh(dgeo(C.rest), dmat));
+    const dmat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide }); const dscene = new THREE.Scene(); for (const m of [C.liv, ...(C.bare || [C.rest])]) dscene.add(new THREE.Mesh(dgeo(m), dmat));
     C.paint = { scene, mat, dscene, dcam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20), dRT: new THREE.WebGLRenderTarget(1024, 1024), cam: new THREE.Camera(), RT: null };
   }
   const Pn = C.paint; if (!Pn.RT || Pn.RT.width !== W) { Pn.RT?.dispose(); Pn.RT = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false, stencilBuffer: false }); }
@@ -1269,11 +1268,55 @@ async function edAutoMaskCar3(L) {
   for (let y = 0; y < s.ch; y++) for (let x = 0; x < s.cw; x++) { const src = ((s.ch - 1 - y) * s.cw + x) * 4, dst = (y * s.cw + x) * 4; img.data[dst] = img.data[dst + 1] = img.data[dst + 2] = 255; img.data[dst + 3] = 255 - px[src]; }
   g.putImageData(img, 0, 0); const mask = cv.toDataURL('image/png'); L.mask = before; edCommit(() => { L.mask = mask; }); edStatus();
 }
+/*
+  My Team's car picture from a livery design (Team page > Use a livery design): the design's livery composed (flat
+  layers drawn, stickers on the 3D car painted on), put on the whole car, which is shot from its left side with a flat
+  (orthographic) camera, nose to the left, in the studio light and a gloss finish: 2000 x 1126 made, 1000 x 563 kept,
+  as the other teams' pictures, with a see-through background. Works without the editor open (a renderer of its own).
+*/
+async function edComposeLivery(D, car) {
+  const W = D.w || 4096, H = D.h || 4096; const was = ED.design; ED.design = D; // (pictures in the design are found through ED.design)
+  try {
+    const srcs = await Promise.all(D.layers.map(L => L.visible === false ? null : edSource(L)));
+    const cv = edCanvas(W, H), g = cv.getContext('2d');
+    if (D.base) { if (D.base.fade) { const gr = D.base.dir === 'fb' ? g.createLinearGradient(0, 0, W, 0) : g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0.15, D.base.color); gr.addColorStop(0.85, D.base.color2); g.fillStyle = gr; } else g.fillStyle = D.base.color; g.fillRect(0, 0, W, H); }
+    for (let k = 0; k < D.layers.length; k++) {
+      const L = D.layers[k], s = srcs[k]; if (!s) continue;
+      if (L.mode === 'stamp') { let e = k; while (!L.blend && e + 1 < D.layers.length && D.layers[e + 1].mode === 'stamp' && !D.layers[e + 1].blend) e++; const run = []; for (let j = k; j <= e; j++) if (srcs[j]) run.push([D.layers[j], srcs[j]]); edCarPaint(car, run, g, W, H); k = e; continue; }
+      const X = edStkXf(L, s, W); g.save(); g.globalCompositeOperation = ED_BLEND_CSS[L.blend] || 'source-over'; g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore();
+    }
+    return cv;
+  } finally { ED.design = was; }
+}
+async function edRenderCarPicture(D) {
+  if (!ED.three) { const R0 = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true }); R0.outputEncoding = THREE.sRGBEncoding; ED.three = { R: R0, headless: true }; }
+  const car = await edEnsureCar(D.year || 2026); if (!car) throw new Error('Couldn’t read the car from F1 25.');
+  const cv = await edComposeLivery(D, car); const C = car, R3 = ED.three.R;
+  // the whole car (a part shown alone in the editor is put back after), the studio look, no background
+  const meshes = [C.liv, ...(C.bare || [C.rest])]; const was = meshes.map(m => ({ idx: m.geometry.index, vis: m.visible }));
+  for (const m of meshes) { if (m.geometry.index.count !== m.userData.full.length) m.geometry.setIndex(new THREE.BufferAttribute(m.userData.full, 1)); m.visible = true; }
+  const img0 = C.tex.image; C.tex.image = cv; C.tex.needsUpdate = true; const bg = C.scene.background; edApplyLook(C.lookSet, { light: 'studio', finish: 'gloss' }); C.scene.background = null;
+  try {
+    const box = new THREE.Box3(); for (const m of meshes) box.expandByObject(m);
+    const PW = 2000, PH = 1126; const width = (box.max.z - box.min.z) * 1.03, height = width * PH / PW; const cy = (box.min.y + box.max.y) / 2, cz = (box.min.z + box.max.z) / 2;
+    const cam = new THREE.OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, 0.1, 60); cam.position.set(20, cy, cz); cam.up.set(0, 1, 0); cam.lookAt(0, cy, cz); // (from the car's left side: the nose to the left)
+    const rt = new THREE.WebGLRenderTarget(PW, PH); rt.texture.encoding = THREE.sRGBEncoding;
+    R3.setRenderTarget(rt); R3.setClearColor(0x000000, 0); R3.clear(); R3.render(C.scene, cam);
+    const px = new Uint8Array(PW * PH * 4); R3.readRenderTargetPixels(rt, 0, 0, PW, PH, px); R3.setRenderTarget(null); R3.setClearColor(0x000000, 1); rt.dispose();
+    const big = edCanvas(PW, PH), bg2 = big.getContext('2d'), im = bg2.createImageData(PW, PH);
+    for (let y = 0; y < PH; y++) im.data.set(px.subarray((PH - 1 - y) * PW * 4, (PH - y) * PW * 4), y * PW * 4); // (the render target's rows start at the bottom)
+    bg2.putImageData(im, 0, 0);
+    const out = edCanvas(1000, 563), og = out.getContext('2d'); og.imageSmoothingQuality = 'high'; og.drawImage(big, 0, 0, 1000, 563);
+    return out.toDataURL('image/webp', 0.92);
+  } finally {
+    meshes.forEach((m, i) => { m.geometry.setIndex(was[i].idx); m.visible = was[i].vis; }); C.tex.image = img0; C.tex.needsUpdate = true; C.scene.background = bg; edApplyLook(C.lookSet); if (bg && C.scene.background !== bg) C.scene.background = bg;
+  }
+}
 /** The car point under the pointer (any part), in the car's space. */
 function edCarHit(cx, cy) {
   const C = ED.car3, T = ED.three; if (!C || !T) return null; const r = T.R.domElement.getBoundingClientRect();
   const m = new THREE.Vector2((cx - r.left) / r.width * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); C.ray ||= new THREE.Raycaster(); C.ray.setFromCamera(m, C.cam);
-  const h = C.ray.intersectObjects([C.liv, C.rest].filter(x => x.visible))[0]; return h ? { p: h.point.clone(), n: h.face ? h.face.normal.clone() : null } : null;
+  const h = C.ray.intersectObjects([C.liv, ...(C.bare || [C.rest])].filter(x => x.visible))[0]; return h ? { p: h.point.clone(), n: h.face ? h.face.normal.clone() : null } : null;
 }
 /** The top 3D sticker whose own pixels are under the pointer on the car. */
 function edCarPick3(cx, cy) {
@@ -1303,7 +1346,7 @@ function edCarGizmo3(svg, L, s) {
 function edCarUv(cx, cy) {
   const C = ED.car3, T = ED.three; if (!C || !T) return null; const r = T.R.domElement.getBoundingClientRect();
   const m = new THREE.Vector2((cx - r.left) / r.width * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); C.ray ||= new THREE.Raycaster(); C.ray.setFromCamera(m, C.cam);
-  const h = C.ray.intersectObjects([C.liv, C.rest])[0]; if (!h || h.object !== C.liv || !h.uv) return null;
+  const h = C.ray.intersectObjects([C.liv, ...(C.bare || [C.rest])].filter(x => x.visible))[0]; if (!h || h.object !== C.liv || !h.uv) return null;
   return { x: h.uv.x - Math.floor(h.uv.x), y: h.uv.y - Math.floor(h.uv.y) };
 }
 function edStkAt(cx, cy) {
@@ -1407,11 +1450,17 @@ function edCar3Build(r) {
   const tex = new THREE.CanvasTexture(ED.stkCv || edCanvas(16, 16)); tex.flipY = false; tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 8; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   const mk = (part, mat) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(buf(part.pos, Float32Array), 3)); if (part.uv) g.setAttribute('uv', new THREE.BufferAttribute(buf(part.uv, Float32Array), 2)); g.setIndex(new THREE.BufferAttribute(buf(part.idx, Uint32Array), 1)); g.computeVertexNormals(); const m = new THREE.Mesh(g, mat); scene.add(m); return m; };
   const livMat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.35, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.08, side: THREE.DoubleSide }); const liv = mk(r.liv, livMat);
-  const restMat = new THREE.MeshPhysicalMaterial({ color: 0x1c1f24, roughness: 0.45, metalness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2, side: THREE.DoubleSide }); const rest = mk(r.rest, restMat); // (bare parts: dark clear-coated carbon)
+  // the rest of the car by what it's made of, as it looks in the game: dark clear-coated carbon, tyres in matt black
+  // rubber, brake discs in dark metal, glass and screens dark and glossy
+  const restMat = new THREE.MeshPhysicalMaterial({ color: 0x131518, roughness: 0.5, metalness: 0.2, clearcoat: 0.45, clearcoatRoughness: 0.25, side: THREE.DoubleSide }); const rest = mk(r.rest, restMat);
+  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0b, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.35, metalness: 0.8, side: THREE.DoubleSide }); // (the rims, the brake discs and hubs)
+  const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0b0d10, roughness: 0.05, metalness: 0.1, clearcoat: 1, side: THREE.DoubleSide });
+  const extra = [[r.tyre, tyreMat], [r.metal, metalMat], [r.glass, glassMat]].filter(([p]) => p && p.idx && p.idx.byteLength).map(([p, mt]) => { const m = mk(p, mt); m.userData = { full: m.geometry.index.array.slice(), parts: p.parts || [] }; return m; });
   const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60);
   liv.userData = { full: liv.geometry.index.array.slice(), parts: r.liv.parts || [] }; rest.userData = { full: rest.geometry.index.array.slice(), parts: r.rest.parts || [] };
-  const lookSet = { scene, hemi, k1, k2, paint: [livMat], bare: [restMat] }; edApplyLook(lookSet);
-  ED.car3 = { lookSet, scene, cam, tex, liv, rest, yaw: 0.9, pitch: 0.3, dist: 9.5, target: ED_CARMID.clone(), part: 'all' };
+  const lookSet = { scene, hemi, k1, k2, paint: [livMat], bare: [restMat, metalMat, glassMat] }; edApplyLook(lookSet);
+  ED.car3 = { lookSet, scene, cam, tex, liv, rest, bare: [rest, ...extra], yaw: 0.9, pitch: 0.3, dist: 9.5, target: ED_CARMID.clone(), part: 'all' };
 }
 function edFrameCar() {
   const C = ED.car3, T = ED.three; if (!C || !T) return; C.tex.image = ED.stkCv || C.tex.image;
@@ -1490,7 +1539,7 @@ const ED_CARPARTS = [['all', 'Whole car', null], ['frontwing', 'Front wing', /^(
 function edCarPart(key, keepView) {
   const C = ED.car3; if (!C) return; const G = ED_CARPARTS.find(p => p[0] === key) || ED_CARPARTS[0]; C.part = G[0]; const sel = ED.root.querySelector('#ed-carpart'); if (sel) sel.value = G[0];
   const box = new THREE.Box3();
-  for (const m of [C.liv, C.rest]) {
+  for (const m of [C.liv, ...(C.bare || [C.rest])]) {
     const U = m.userData; const runs = G[2] ? U.parts.filter(p => G[2].test(p.name)) : null; let idx = U.full;
     if (runs) { idx = new Uint32Array(runs.reduce((a, p) => a + p.count, 0)); let o = 0; for (const p of runs) { idx.set(U.full.subarray(p.start, p.start + p.count), o); o += p.count; } }
     m.geometry.setIndex(new THREE.BufferAttribute(idx, 1)); m.visible = idx.length > 0;

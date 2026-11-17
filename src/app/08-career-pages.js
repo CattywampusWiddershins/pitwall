@@ -693,7 +693,7 @@ function renderTeam() {
       </div>
       <div class="r">${teamLogoUrl(c, id) ? `<img class="lg" src="${esc(teamLogoUrl(c, id))}" alt="">` : ''}${carPhoto(c, id) ? `<img class="big car" src="${esc(carPhoto(c, id))}" alt="">` : `<span class="face">${teamLogo(c, meta, 120)}</span>`}</div>
     </section>
-    <div class="lv-tools">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}${fallbackControls('team', D.TEAM_BIO[id]?.lineage?.[0] || id)}<span class="muted" style="font-size:11px">Default driver: a full body in ${esc(meta.name)} kit, shown for any of its drivers without a picture.</span></div>
+    <div class="lv-tools">${isMine ? `<button class="btn sm" data-act="nav" data-view="dashboard">Manage team</button>${window.api?.editor ? '<button class="btn sm" data-act="myteam-livery" title="Your car picture from a livery you made in the Editor, seen from the side like the other teams\' cars">Use a livery design</button>' : ''}` : pictureControls('team', id, !!teamLogoUrl(c, id))}${pictureControls('car', id, !!carPhoto(c, id), 'car picture')}${fallbackControls('team', D.TEAM_BIO[id]?.lineage?.[0] || id)}<span class="muted" style="font-size:11px">Default driver: a full body in ${esc(meta.name)} kit, shown for any of its drivers without a picture.</span></div>
 
     <div class="row add-scope-row">${addScopeSeg()}</div>
     <div class="lv-tiles" style="--c:${meta.color}">

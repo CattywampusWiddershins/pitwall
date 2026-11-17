@@ -2,6 +2,17 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.4.0
+
+- **New in the Editor: My Team car liveries (BETA).** A Car livery tab, next to Helmet and Sticker maker, for designing your My Team car, on the 2025 or the 2026 car. Put it in the game with SWOFTY Launcher.
+  - **On the car in 3D:** the whole car, with every part and the tyres, as F1 25 has it. Put stickers straight onto the car from any angle, and they cover every part under them as one piece: a stripe runs over the nose and the chassis without a break. Drag them to move them; the box's corners size them and its top handle turns them. Only the surfaces facing the sticker are painted, so it doesn't come through on the underside of a wing.
+  - **Views and parts:** Front, Left, Right, Back and Top buttons, and a part picker (front wing, nose, body, sidepods, engine cover, halo, mirrors, rear wing, diffuser) that shows one part alone, zoomed in.
+  - **Flat:** the livery laid out as the game has it, with the original faintly over it as a guide.
+  - **Everything from the helmet editor works here too:** shapes, text, your images, colours and gradients, effects, blend modes, auto-mask, mirroring across the car, groups, lining up and the keyboard.
+  - **In the game:** "Export SWOFTY addon" makes a zip that puts your livery on the Lewis Hamilton livery of the My Team car. Install it in SWOFTY Launcher, then pick that livery for your team in the game. Turn the addon off to get the original back.
+- **Your livery as your team's car.** On the Team page of a My Team career, "Use a livery design" lets you pick one of your liveries. Pitwall puts it on the car and takes its picture from the side, like the other teams' cars, and that picture appears wherever your car does: the team pages, the banners, Live and the race graphics.
+- **Editor: a more lifelike 3D car.** The tyres are on the car, and the parts the livery doesn't cover show as they do in the game: dark carbon, metal rims and brake discs, glass.
+
 ## 7.3.1
 
 - **Race engineer: the right lap time in practice and qualifying.** He sometimes read out the lap before the one you'd just finished, because F1 25 starts the new lap before it records the old one. He now waits for the lap you actually did.

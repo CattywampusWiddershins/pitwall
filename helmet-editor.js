@@ -376,9 +376,10 @@ module.exports = function createHelmetEditor({ dataDir }) {
   // livery), with their texture coordinates in the call's fifth stream. Damaged floors and the open DRS flap are left
   // out, and so are the rain-bead and shadow layers (copies of surfaces).
   const CAR3D = {
-    2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
-    2025: { erp: 'f1_2025_vehicle_package/teams/common_fom.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
+    2026: { tyres: 'f1_2026_vehicle_package/teams/common.erp', erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
+    2025: { tyres: 'f1_2025_vehicle_package/teams/common_fom.erp', erp: 'f1_2025_vehicle_package/teams/common_fom.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
   };
+  const edBareKind = (name) => name === 'wheel' || name === 'disc' ? 'metal' : name === 'glass' || name === 'lcd' || name === 'digi revs' ? 'glass' : 'rest';
   function carModel(year = 2026, uvSel = [3, 0]) { // (uvSel: the stream and pair holding the livery's texture coordinates; the Hamilton livery's material reads the 4th stream's first pair, unique to each side, where the F1 75's read the 5th)
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const c = CAR3D[year]; if (!c) return { ok: false, error: `The ${year} car can only be edited flat for now.` };
@@ -399,23 +400,42 @@ module.exports = function createHelmetEditor({ dataDir }) {
       const xf = (X) => { if (!X) return null; const [qx, qy, qz, qw] = X.q, [px, py, pz] = X.p; // the rotation as a matrix, then the move
         const m = [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), 2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), 2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)];
         return (x, y, z) => [m[0] * x + m[1] * y + m[2] * z + px, m[3] * x + m[4] * y + m[5] * z + py, m[6] * x + m[7] * y + m[8] * z + pz]; };
-      const liv = { pos: [], uv: [], idx: [], parts: [] }, rest = { pos: [], idx: [], parts: [] }; // (parts: each part's run of the index list, for showing one part alone)
+      // (parts: each part's run of the index list, for showing one part alone; the rest of the car by what it's made of:
+      // the tyres, the metal brake discs, glass and screens, and the carbon and details, each shown as such)
+      const liv = { pos: [], uv: [], idx: [], parts: [] }; const bare = Object.fromEntries(['rest', 'tyre', 'metal', 'glass'].map(k => [k, { pos: [], idx: [], parts: [] }]));
       for (const mr of E.res.filter(x => x.type === 'GfxMeshRes' && /fom_car\.idf\?lod=0&/.test(x.id))) {
-        const part = (mr.id.match(/lod=0&(?:(.*)&)?mesh$/) || [])[1] || 'body'; if (c.skip.test(part)) continue; const T = xf(place[part]); const l0 = liv.idx.length, r0 = rest.idx.length;
+        const part = (mr.id.match(/lod=0&(?:(.*)&)?mesh$/) || [])[1] || 'body'; if (c.skip.test(part)) continue; const T = xf(place[part]); const l0 = liv.idx.length, r0 = Object.fromEntries(Object.entries(bare).map(([k, B]) => [k, B.idx.length]));
         const m = fragOf(b, E, mr.frags[0]); const n = m.readUInt32LE(0); const txt = m.toString('latin1');
         const list = (txt.match(/eaid:\/\/[^\0]+/g) || []).map(s => +((s.match(/vb=(\d+)/) || [])[1] ?? -1));
         const ibAt = txt.indexOf('&ib=0\0'); const names = ibAt < 0 ? [] : txt.slice(ibAt + 6).split('\0').slice(0, n);
         for (let k = 0; k < n; k++) {
           const o = 76 + k * 88; if (o + 88 > m.length) break; const u = (i) => m.readUInt32LE(o + i * 4);
           const ns = u(0), start = u(3), count = u(4), base = u(5); if (count < 3 || names[k] === 'rainbeads' || names[k] === 'shadow') continue; const bufs = [...Array(ns)].map((_, i) => list[u(14 + i)]);
-          const P = vb(bufs[0]); if (P.st !== 12) continue; const L = names[k] === 'body' && ns > uvSel[0] ? [bufs[uvSel[0]], uvSel[1]] : null; const into = L ? liv : rest; const UV = L ? vb(L[0]) : null;
+          const P = vb(bufs[0]); if (P.st !== 12) continue; const L = names[k] === 'body' && ns > uvSel[0] ? [bufs[uvSel[0]], uvSel[1]] : null; const into = L ? liv : bare[edBareKind(names[k])]; const UV = L ? vb(L[0]) : null;
           const map = new Map(); const first = into.pos.length / 3;
           for (let i = 0; i < count; i++) { const v = ib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); const x = P.d.readFloatLE(v * 12), y = P.d.readFloatLE(v * 12 + 4), z = P.d.readFloatLE(v * 12 + 8); into.pos.push(...(T ? T(x, y, z) : [x, y, z])); if (UV) { const q = v * UV.st + L[1] * 4; into.uv.push(half2float(UV.d.readUInt16LE(q)), half2float(UV.d.readUInt16LE(q + 2))); } } into.idx.push(first + j); }
         }
-        if (liv.idx.length > l0) liv.parts.push({ name: part, start: l0, count: liv.idx.length - l0 }); if (rest.idx.length > r0) rest.parts.push({ name: part, start: r0, count: rest.idx.length - r0 });
+        if (liv.idx.length > l0) liv.parts.push({ name: part, start: l0, count: liv.idx.length - l0 }); for (const [k, B] of Object.entries(bare)) if (B.idx.length > r0[k]) B.parts.push({ name: part, start: r0[k], count: B.idx.length - r0[k] });
       }
       const f32 = (a) => Buffer.from(new Float32Array(a).buffer), u32 = (a) => Buffer.from(new Uint32Array(a).buffer);
-      return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx), parts: liv.parts }, rest: { pos: f32(rest.pos), idx: u32(rest.idx), parts: rest.parts } };
+      // the tyres: a model of their own (in the teams' common archive), four sidewall-and-tread pairs made round their own
+      // middle, the rears first (wider), each put on its wheel where the car's model has it
+      if (c.tyres) try {
+        const tb = c.tyres === c.erp ? b : fs.readFileSync(path.join(game, '2025_asset_groups', c.tyres)); const TE = c.tyres === c.erp ? E : readErp(tb);
+        const tres = (key) => { const r = TE.res.find(x => x.id.endsWith(key)); if (!r) throw new Error('Missing ' + key); return r; };
+        const tvbs = {}; const tvb = (k) => tvbs[k] ||= (() => { const r = tres(`tyres.idf?lod=all&vb=${k}`); const h = fragOf(tb, TE, r.frags[0]); return { st: h.readUInt32LE(4), d: fragOf(tb, TE, r.frags[1]) }; })();
+        const tib = fragOf(tb, TE, tres('tyres.idf?lod=all&ib=0').frags[1]); const tm = fragOf(tb, TE, tres('tyres.idf?lod=0&mesh').frags[0]); const tn = tm.readUInt32LE(0);
+        const tlist = (tm.toString('latin1').match(/eaid:\/\/[^\0]+/g) || []).map(s => +((s.match(/vb=(\d+)/) || [])[1] ?? -1)); const into = bare.tyre;
+        for (let k = 0; k < tn && k < 8; k++) {
+          const wheel = ['wheel_bl', 'wheel_br', 'wheel_fl', 'wheel_fr'][k >> 1]; const T = xf(place[wheel]); if (!T) continue; const r0t = into.idx.length;
+          const o = 76 + k * 88; const u = (i) => tm.readUInt32LE(o + i * 4); const start = u(3), count = u(4), base = u(5); const P = tvb(tlist[u(14)]); if (P.st !== 12) continue;
+          const map = new Map(); const first = into.pos.length / 3;
+          for (let i = 0; i < count; i++) { const v = tib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); into.pos.push(...T(P.d.readFloatLE(v * 12), P.d.readFloatLE(v * 12 + 4), P.d.readFloatLE(v * 12 + 8))); } into.idx.push(first + j); }
+          into.parts.push({ name: wheel, start: r0t, count: into.idx.length - r0t });
+        }
+      } catch { } // (no tyres: the rims alone, as before)
+      const out = (B) => ({ pos: f32(B.pos), idx: u32(B.idx), parts: B.parts });
+      return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx), parts: liv.parts }, rest: out(bare.rest), tyre: out(bare.tyre), metal: out(bare.metal), glass: out(bare.glass) };
     } catch (e) { return { ok: false, error: 'Couldn’t read the car from F1 25: ' + e.message }; }
   }
   /** An archive holding resources copied from another, their fragments replaced: for SWOFTY's overlay. [{ R, payloads }] */

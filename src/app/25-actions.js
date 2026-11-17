@@ -769,6 +769,23 @@ Object.assign(actions, {
   'update-restart'() { store.save(); window.api.updates.apply(); },
   'update-retry'() { if (updateInfo) { updateInfo.dlError = null; downloadUpdate(); } },
   'update-skip'() { state.updateSkip = updateInfo?.latest || null; store.save(); render(); },
+  // My Team's car picture from a livery design made in the Editor (rendered from the side, like the other teams' cars)
+  async 'myteam-livery'() {
+    let list = []; try { list = (await window.api.editor.list()).filter(d => d.kind === 'car'); } catch { }
+    modal(`<div class="modal-h"><h2>Your car from a livery design</h2><button class="icon-btn" data-act="modal-close">${ICON.x}</button></div>
+      <div class="modal-b">${list.length ? `<p class="muted">Pick one of your liveries: Pitwall puts it on the car and takes its picture from the side, like the other teams' cars.</p>
+        <div class="lvpick">${list.map(d => `<button class="lvpick-i" data-act="myteam-livery-use" data-id="${esc(d.id)}">${d.thumb ? `<img src="${esc(d.thumb)}" alt="">` : '<span class="lvpick-no"></span>'}<b>${esc(d.name)}</b><small>${esc(new Date(d.at).toLocaleDateString())}</small></button>`).join('')}</div>`
+        : '<p class="muted">No liveries yet. Make one in the Editor, on its Car livery tab, then come back here.</p>'}</div>
+      <div class="modal-f">${list.length ? '' : '<button class="btn" data-act="nav" data-view="editor">Open the Editor</button>'}<button class="btn ghost" data-act="modal-close">Cancel</button></div>`);
+  },
+  async 'myteam-livery-use'(el) {
+    const c = career(); const id = el.dataset.id; if (!c?.myTeam) return;
+    modal(`<div class="modal-h"><h2>Taking the picture…</h2></div><div class="modal-b"><p class="muted">Putting your livery on the car. This takes a few seconds.</p></div>`);
+    try {
+      const D = await window.api.editor.open(id); if (!D) throw new Error('Couldn’t open that livery.');
+      c.myTeam.car = await edRenderCarPicture(D); c.myTeam.carDesign = id; store.save(); closeModal(); render(); toast('Car picture saved');
+    } catch (e) { closeModal(); toast(e.message || 'Couldn’t make the picture'); }
+  },
   'update-page'() { if (updateInfo?.page) window.api.updates.open(updateInfo.page); },
   'update-notes'() { updateNotesModal(); },
   'update-later'() { if (updateInfo) updateInfo.later = true; render(); toast('The update installs when you close Pitwall'); },

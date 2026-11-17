@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('api', {
   dev: () => ipcRenderer.invoke('app:dev'),
   // the interface's size (Settings → Look): 0.8 to 1.6, or null to read it
   uiZoom: (z) => ipcRenderer.invoke('ui:zoom', z ?? null),
-  // the editor (the car livery's calls answer in dev mode only)
+  // the editor
   editor: {
     load: () => ipcRenderer.invoke('editor:load'),
     pickGame: () => ipcRenderer.invoke('editor:pick-game'),

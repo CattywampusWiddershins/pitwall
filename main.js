@@ -320,16 +320,16 @@ ipcMain.handle('engineer:record', devOnly((_e, x) => { try { replays.radio(x); }
   SWOFTY's Helmet Exchange. See helmet-editor.js.
 */
 const helmetEd = require('./helmet-editor')({ dataDir });
-// the editor: the helmet and the Sticker maker for everyone (BETA); the car livery in dev mode only, until it's tested in the game
+// the editor, for everyone (BETA): helmets, the Sticker maker and My Team car liveries
 const devGate = (fn) => (...a) => devMode() ? fn(...a) : null;
 const edOpen = (fn) => fn;
 ipcMain.handle('editor:load', edOpen(() => helmetEd.load()));
 ipcMain.handle('editor:pick-game', edOpen(async () => { const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Pick the F1 25 folder (the one with F1_25.exe)', properties: ['openDirectory'] }); return canceled ? { ok: false, canceled: true } : helmetEd.setGame(filePaths[0]); }));
 ipcMain.handle('editor:export', edOpen((_e, rgba, name, kind, res) => helmetEd.exportMod(rgba, name, kind, res)));
 ipcMain.handle('editor:target', edOpen((_e, id) => helmetEd.setTarget(id)));
-ipcMain.handle('editor:car-load', devGate((_e, year) => helmetEd.carLoad(year)));
-ipcMain.handle('editor:car-model', devGate((_e, year) => helmetEd.carModel(year)));
-ipcMain.handle('editor:car-export', devGate((_e, rgba, name, year) => helmetEd.carExport(rgba, name, year)));
+ipcMain.handle('editor:car-load', edOpen((_e, year) => helmetEd.carLoad(year)));
+ipcMain.handle('editor:car-model', edOpen((_e, year) => helmetEd.carModel(year)));
+ipcMain.handle('editor:car-export', edOpen((_e, rgba, name, year) => helmetEd.carExport(rgba, name, year)));
 ipcMain.handle('editor:show', edOpen((_e, file) => { if (typeof file === 'string' && path.resolve(file).startsWith(path.join(dataDir(), 'editor'))) shell.showItemInFolder(path.resolve(file)); return true; }));
 ipcMain.handle('editor:save-png', edOpen(async (_e, bytes, name) => { const { canceled, filePath } = await dialog.showSaveDialog({ title: 'Save the helmet texture', defaultPath: (String(name || 'helmet').replace(/[^\w\- ]+/g, '') || 'helmet') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] }); if (canceled) return false; fs.writeFileSync(filePath, Buffer.from(bytes)); return true; }));
 ipcMain.handle('editor:list', edOpen(() => helmetEd.list()));
