@@ -197,9 +197,9 @@ function edBuild() {
     </div>
     <div class="he-bottom">
       <div class="he-row"><input class="he-name" id="ed-name" maxlength="40" title="The helmet's name"><span class="muted he-small" id="ed-status"></span></div>
-      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (4096 x 2048 or 2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button><button class="btn primary only-car" data-ed="car-export" title="Puts it on the F1 75 livery of the My Team car">Export SWOFTY addon</button></div>
+      <div class="he-row"><button class="btn" data-ed="save">Save</button><button class="btn only-sticker" data-ed="stk-save" title="Save it as a sticker, ready in Add > Custom in every editor">Save to Custom Stickers</button><button class="btn only-helmet" data-ed="import-tex" title="A whole texture in the game's layout (4096 x 2048 or 2048 x 1024), made in Blender or Photoshop">Load texture…</button><button class="btn" data-ed="png">Export PNG</button><button class="btn only-helmet" data-ed="export-hx" title="A helmet of its own for the Helmet Exchange addon (needs its Helmets tab to work in your game build)">Helmet Exchange zip</button><button class="btn primary only-helmet" data-ed="export">Export SWOFTY addon</button><button class="btn primary only-car" data-ed="car-export" title="Puts it on the Lewis Hamilton livery of the My Team car">Export SWOFTY addon</button></div>
     </div>
-    <div class="he-row he-target only-car"><span class="muted he-small">The addon puts it on the F1 75 livery of the</span><select class="he-mini" id="ed-caryear"><option value="2026">2026 My Team car</option><option value="2025">2025 My Team car</option></select><span class="muted he-small">(pick that livery for your team in the game)</span></div>
+    <div class="he-row he-target only-car"><span class="muted he-small">The addon puts it on the Lewis Hamilton livery of the</span><select class="he-mini" id="ed-caryear"><option value="2026">2026 My Team car</option><option value="2025">2025 My Team car</option></select><span class="muted he-small">(pick that livery for your team in the game)</span></div>
     <div class="he-row he-target only-helmet"><span class="muted he-small">The addon puts it on</span><select class="he-mini" id="ed-target" title="Pick this helmet for your driver in the game"></select><span class="muted he-small">(pick that helmet for your driver in the game) at</span><select class="he-mini" id="ed-gres" title="The texture's size in the game. 4K is twice the game's own helmets, sharper up close; 2K is the size the game's own helmets are."><option value="4k">4K (4096 x 2048)</option><option value="2k">2K (the game's size)</option></select>
     </div>
     <div class="he-modal" id="ed-modal"></div>
@@ -1364,7 +1364,7 @@ async function edAutoMaskFlat(L) {
   mg.translate(s.cw / 2, s.ch / 2); mg.scale(1 / X.sx, 1 / X.sy); mg.rotate(X.rot); mg.translate(-X.cx, -X.cy); mg.drawImage(cover, 0, 0);
   const mask = m.toDataURL('image/png'); L.mask = before; edCommit(() => { L.mask = mask; });
 }
-/** The car's original F1 75 livery for its year, as a guide to paint over (1024 x 1024, shown over the canvas). */
+/** The car's original Lewis Hamilton livery for its year, as a guide to paint over (1024 x 1024, shown over the canvas). */
 async function edCarGuide() {
   const year = ED.design.year || 2026; if (ED.carGuideYear === year && ED.carGuide) return; ED.carGuide = null; ED.carGuideYear = year;
   let r = null; try { r = await edApi().carLoad(year); } catch (e) { r = { ok: false, error: e.message }; }
@@ -1378,7 +1378,7 @@ async function edCarExport() {
   const r = await edApi().carExport(px, ED.design.name, year); edStatus();
   if (!r?.ok) { toast('Export failed: ' + (r?.error || 'unknown error')); return; }
   edModal(`<h3>Exported</h3><p class="muted">A SWOFTY addon for the ${year} My Team car, zipped:</p><code class="he-path">${edEsc(r.file)}</code>
-    <ol class="he-steps"><li>Add the zip to SWOFTY Launcher as an addon, and turn it on in your profile.</li><li>Press <b>Play</b>, then pick the <b>F1 75</b> livery for your team in the game. Your design is on it.</li><li>Turn the addon off to get the original back.</li></ol>
+    <ol class="he-steps"><li>Add the zip to SWOFTY Launcher as an addon, and turn it on in your profile.</li><li>Press <b>Play</b>, then pick the <b>Lewis Hamilton</b> livery for your team in the game. Your design is on it.</li><li>Turn the addon off to get the original back.</li></ol>
     <div class="he-row" style="justify-content:flex-end"><button class="btn" data-ed="close">Close</button><button class="btn primary" data-ed="show-dir" data-dir="${edEsc(r.file)}">Show the zip</button></div>`);
 }
 /*

@@ -332,8 +332,9 @@ module.exports = function createHelmetEditor({ dataDir }) {
     return { ok: true, file: zip, dir: path.dirname(zip), kind, target: t.name, size: `${TW} x ${TH}` };
   }
   /*
-    Car liveries (My Team): the editor works on the F1 75 replica livery's colour texture, 4096 x 4096 (BC1). It has no
-    team-colour mask (the tier liveries do), so what's painted is what shows. Its full-size levels are a loose file; its
+    Car liveries (My Team): the editor works on the Lewis Hamilton livery's colour texture, 4096 x 4096 (BC1), on the
+    2025 and 2026 cars. Its team-colour mask is blank (all zero: the tier liveries' masks mark where the team colours
+    go), so what's painted is what shows. Its full-size levels are a loose file; its
     smallest levels and the record saying where the loose file's blocks are sit in the car's archives, which are big
     (25 MB each, seven of them for 2026). So the export carries the loose file and a small overlay archive holding that
     one texture record, which SWOFTY lays over each of the car's archives ("overlay" operation).
@@ -342,7 +343,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
     2026: { ref: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', erps: ['fom_car/wep/fom_car', 'myteam_audi/wep/myteam_audi', 'myteam_ferrari/wep/myteam_ferrari', 'myteam_honda/wep/myteam_honda', 'myteam_mercedes/wep/myteam_mercedes', 'myteam_redbull_ford/wep/myteam_redbull_ford', 'myteam_renault/wep/myteam_renault'].map(p => `2025_asset_groups/f1_2026_vehicle_package/teams/${p}.erp`) },
     2025: { ref: 'f1_2025_vehicle_package/teams/common_fom.erp', erps: ['2025_asset_groups/f1_2025_vehicle_package/teams/common_fom.erp'] },
   };
-  const LIVERY = 'livery_replica_f175_d';
+  const LIVERY = 'livery_novelty_hamilton01_d';
   /** The livery's texture record from the game: { b, E, R (the resource), meta, loose (the file's path), levels: [{ off, packed, size }] }. */
   function carRecord(game, year) {
     const c = CAR[year]; if (!c) throw new Error('No car for ' + year);
@@ -450,9 +451,9 @@ module.exports = function createHelmetEditor({ dataDir }) {
       fs.mkdirSync(path.join(out, 'ops'), { recursive: true }); fs.writeFileSync(path.join(out, 'ops', 'erp.json'), JSON.stringify({ schema_version: 1, ops: [{ op: 'overlay', erps: CAR[year].erps, source: 'erp/livery.erp' }] }, null, 2));
       const slug = safe.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'livery';
       fs.writeFileSync(path.join(out, 'swofty.json'), JSON.stringify({ schema_version: 1, id: `pitwall.livery-${year}-${slug}`, name: `${safe} (Pitwall ${year} livery)`, version: '1.0.0', author: 'Pitwall', category: 'liveries', kind: ['files', 'erp'], compat: { game: 'f1_25' },
-        description: `Puts "${safe}", made in Pitwall's livery editor, on the F1 75 livery of the ${year} My Team car. Pick that livery for your team in the game. Turn this addon off to get the original back.`,
+        description: `Puts "${safe}", made in Pitwall's livery editor, on the Lewis Hamilton livery of the ${year} My Team car. Pick that livery for your team in the game. Turn this addon off to get the original back.`,
         operations: { files: [{ source: `files/${r.loose}`, target: r.loose }], erp: ['ops/erp.json'] } }, null, 2));
-      fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a My Team livery made in Pitwall's editor, as a SWOFTY addon.\r\n\r\nIt replaces the F1 75 livery on the ${year} My Team car. Install it in SWOFTY Launcher, turn it on in your profile and press Play,\r\nthen pick the F1 75 livery for your team in the game. Turn the addon off to get the original back.\r\n`);
+      fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a My Team livery made in Pitwall's editor, as a SWOFTY addon.\r\n\r\nIt replaces the Lewis Hamilton livery on the ${year} My Team car. Install it in SWOFTY Launcher, turn it on in your profile and press Play,\r\nthen pick the Lewis Hamilton livery for your team in the game. Turn the addon off to get the original back.\r\n`);
       zipFolder(out, zip);
     } catch (e) { return { ok: false, error: e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
     return { ok: true, file: zip, dir: path.dirname(zip), year };
