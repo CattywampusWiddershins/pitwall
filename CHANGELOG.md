@@ -2,6 +2,10 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.4.1
+
+- **Editor: the helmet's fin.** The small fin on the back of the helmet is now in the editor and gets your design. Before, it was missing from the editor and kept the original helmet's colours in the game. It's painted with the same layers as the rest of the helmet, so a stripe over the top carries on across it, and the export includes it. The editor reads the helmet from F1 25 again once to pick the fin up.
+
 ## 7.4.0
 
 - **New in the Editor: My Team car liveries (BETA).** A Car livery tab, next to Helmet and Sticker maker, for designing your My Team car, on the 2025 or the 2026 car. Put it in the game with SWOFTY Launcher.
