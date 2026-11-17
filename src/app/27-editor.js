@@ -285,9 +285,18 @@ function edThree(r) {
   const hemi = new THREE.HemisphereLight(0xffffff, 0x3a4256, 0.85); scene.add(hemi); const k1 = new THREE.DirectionalLight(0xffffff, 0.75); k1.position.set(1.5, 2, 1.5); scene.add(k1); const k2 = new THREE.DirectionalLight(0x9fb4ff, 0.3); k2.position.set(-2, 0.5, -1); scene.add(k2);
   const viewMat = new THREE.MeshPhysicalMaterial({ map: RT.texture, roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(g, viewMat); mesh.position.copy(C).multiplyScalar(-1); scene.add(mesh);
+  // the fin on the back: its own mesh and texture (2048 x 1024), painted with the same layers in the same space
+  let wing = null;
+  if (r.wing?.pos) {
+    const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.BufferAttribute(f32(r.wing.pos), 3)); wg.setAttribute('uv', new THREE.BufferAttribute(f32(r.wing.uv), 2)); wg.setIndex(new THREE.BufferAttribute(new Uint16Array(r.wing.idx.buffer.slice(r.wing.idx.byteOffset, r.wing.idx.byteOffset + r.wing.idx.byteLength)), 1)); wg.computeVertexNormals();
+    const wRT = new THREE.WebGLRenderTarget(r.wing.w, r.wing.h, { depthBuffer: false, stencilBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter }); wRT.texture.encoding = THREE.sRGBEncoding; wRT.texture.anisotropy = 8;
+    const wView = new THREE.MeshPhysicalMaterial({ map: wRT.texture, roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08, side: THREE.DoubleSide }); const wMesh = new THREE.Mesh(wg, wView); wMesh.position.copy(mesh.position); scene.add(wMesh);
+    const wBake = new THREE.Mesh(wg, baseMat); wBake.frustumCulled = false; const wQuad = new THREE.Mesh(quad.geometry, fillMat); wQuad.frustumCulled = false; const wScene = new THREE.Scene(); wScene.add(wQuad); wScene.add(wBake);
+    wing = { g: wg, RT: wRT, mesh: wMesh, bake: wBake, quad: wQuad, scene: wScene, w: r.wing.w, h: r.wing.h, view: wView };
+  }
   if (ED.three?.headless) { ED.car3s = {}; ED.car3 = null; ED.carLoading = {}; ED.envMaps = {}; } // (made with the renderer used for car pictures)
   ED.three = { R, g, C, RAD, side, RT, fillMat, baseMat, layerMat, trimMat, quad, bakeMesh, bakeScene, bakeCam, scene, cam, mesh, yaw: Math.PI / 2, pitch: 0.08, dist: 0.9, tex: new Map(), ray: new THREE.Raycaster() };
-  ED.three.lookSet = { scene, hemi, k1, k2, paint: [viewMat], bare: [] }; edApplyLook(ED.three.lookSet);
+  ED.three.wing = wing; ED.three.lookSet = { scene, hemi, k1, k2, paint: [viewMat, ...(wing ? [wing.view] : [])], bare: [] }; edApplyLook(ED.three.lookSet);
   cv.addEventListener('pointerdown', edDown); cv.addEventListener('pointermove', edMove); cv.addEventListener('pointerup', edUp); cv.addEventListener('pointercancel', edUp);
   cv.addEventListener('wheel', (e) => { e.preventDefault(); if (edCar3dOn()) { ED.car3.dist = Math.max(0.4, Math.min(14, ED.car3.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); return; } const T = ED.three; T.dist = Math.max(0.45, Math.min(1.8, T.dist * (e.deltaY > 0 ? 1.08 : 0.93))); edDraw(); }, { passive: false });
   cv.addEventListener('dragover', (e) => e.preventDefault()); cv.addEventListener('drop', edDrop);
@@ -415,6 +424,16 @@ async function edBake() {
   });
   // the trim
   T.bakeMesh.visible = false; T.quad.visible = true; T.quad.material = T.trimMat; R.render(T.bakeScene, T.bakeCam);
+  // the fin: the base and the layers again, onto its own texture (it has no trim of its own)
+  if (T.wing) {
+    const Wg = T.wing; R.setRenderTarget(Wg.RT); R.clear();
+    Wg.quad.material = T.fillMat; Wg.quad.visible = true; Wg.bake.visible = false; R.render(Wg.scene, T.bakeCam);
+    Wg.quad.visible = false; Wg.bake.visible = true; Wg.bake.material = T.baseMat; R.render(Wg.scene, T.bakeCam);
+    Wg.bake.material = T.layerMat;
+    D.layers.forEach((L, k) => { const s = srcs[k]; if (!s) return;
+      const draw = (mirror) => { const F = edFrameOf(L, mirror, s.aspect); U.uTex.value = s.tex; U.uMode.value = F.mode; U.uFace.value = F.face; U.uDepth.value = F.depth; U.uP.value.copy(F.P); U.uN.value.copy(F.N); U.uT.value.copy(F.T); U.uU.value.copy(F.U); U.uSize.value.set(F.w * s.ex, F.h * s.ey); U.uRot.value.set(Math.cos(F.rot), Math.sin(F.rot)); U.uFlip.value.set(F.fx, F.fy); U.uW.value.set(F.wx, F.wy); U.uOp.value = L.opacity ?? 1; edGpuBlend(T.layerMat, L.blend); R.render(Wg.scene, T.bakeCam); edGpuBlend(T.layerMat); };
+      if (L.mode !== 'uv') { draw(false); if (L.mirror) draw(true); } }); // (a whole texture made for the shell's layout doesn't fit the fin's)
+  }
   R.autoClear = true; R.setRenderTarget(null);
   edBaking = false; ED.bakeGen = (ED.bakeGen || 0) + 1; edDraw();
   if (edBakeAgain) { edBakeAgain = false; edBake(); }
@@ -1094,7 +1113,8 @@ const edBakeDone = () => new Promise(ok => { const w = () => edBaking ? setTimeo
  */
 async function edExport(kind = 'addon') {
   if (!ED.three) return; await edBakeDone(); edStatus('Exporting…');
-  const r = await edApi().exportMod(edPixels(), ED.design.name, kind, edGameRes()); edStatus();
+  const wing = ED.three.wing ? (() => { const W = ED.three.wing; const px = new Uint8Array(W.w * W.h * 4); ED.three.R.readRenderTargetPixels(W.RT, 0, 0, W.w, W.h, px); return px; })() : null; // (the fin's texture, rows from v = 0 as the shell's)
+  const r = await edApi().exportMod(edPixels(), ED.design.name, kind, edGameRes(), wing); edStatus();
   if (!r?.ok) { toast('Export failed: ' + (r?.error || 'unknown error')); return; }
   const steps = kind === 'hx'
     ? `<li>In SWOFTY Launcher, open <b>Helmets</b> (the Helmet Exchange addon) and press <b>Import file…</b>, then pick that zip.</li><li>Set <b>Who can pick it</b> to <b>Any driver</b>.</li><li>Press <b>Play</b>. In your Driver Career, open <b>Team HQ › Driver Details › Helmets</b> and equip it ("(HX)" after its name). This needs Helmet Exchange's Helmets tab to work in your game build.</li>`

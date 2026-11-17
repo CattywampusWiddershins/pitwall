@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('api', {
   editor: {
     load: () => ipcRenderer.invoke('editor:load'),
     pickGame: () => ipcRenderer.invoke('editor:pick-game'),
-    exportMod: (rgba, name, kind, res) => ipcRenderer.invoke('editor:export', rgba, name, kind, res),
+    exportMod: (rgba, name, kind, res, wing) => ipcRenderer.invoke('editor:export', rgba, name, kind, res, wing),
     setTarget: (id) => ipcRenderer.invoke('editor:target', id),
     carLoad: (year) => ipcRenderer.invoke('editor:car-load', year),
     carModel: (year) => ipcRenderer.invoke('editor:car-model', year),

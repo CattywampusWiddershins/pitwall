@@ -325,7 +325,7 @@ const devGate = (fn) => (...a) => devMode() ? fn(...a) : null;
 const edOpen = (fn) => fn;
 ipcMain.handle('editor:load', edOpen(() => helmetEd.load()));
 ipcMain.handle('editor:pick-game', edOpen(async () => { const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Pick the F1 25 folder (the one with F1_25.exe)', properties: ['openDirectory'] }); return canceled ? { ok: false, canceled: true } : helmetEd.setGame(filePaths[0]); }));
-ipcMain.handle('editor:export', edOpen((_e, rgba, name, kind, res) => helmetEd.exportMod(rgba, name, kind, res)));
+ipcMain.handle('editor:export', edOpen((_e, rgba, name, kind, res, wing) => helmetEd.exportMod(rgba, name, kind, res, wing)));
 ipcMain.handle('editor:target', edOpen((_e, id) => helmetEd.setTarget(id)));
 ipcMain.handle('editor:car-load', edOpen((_e, year) => helmetEd.carLoad(year)));
 ipcMain.handle('editor:car-model', edOpen((_e, year) => helmetEd.carModel(year)));

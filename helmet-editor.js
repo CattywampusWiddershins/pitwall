@@ -23,7 +23,8 @@ const TARGETS = [
 // a player design, for the Helmet Exchange addon (it makes a helmet of its own from one)
 const HX_DESIGN = { id: 'unassigned_livery17', group: 'unassigned', name: 'player design 17' };
 const W = 2048, H = 1024, SMALL = 21840;
-const CACHE_V = 2; // (2: the underside and strap masked, and which pixels the shell covers)
+const CACHE_V = 3; // (2: the underside and strap masked, and which pixels the shell covers; 3: the fin)
+const WW = 2048, WH = 1024; // the fin's own texture
 
 // ---- archives
 function readErp(b) {
@@ -242,6 +243,23 @@ module.exports = function createHelmetEditor({ dataDir }) {
     const dir = cacheDir(); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'cov.bin'), cov);
     fs.writeFileSync(path.join(dir, 'pos.bin'), Buffer.from(pos.buffer)); fs.writeFileSync(path.join(dir, 'uv.bin'), Buffer.from(uv.buffer)); fs.writeFileSync(path.join(dir, 'idx.bin'), Buffer.from(idx.buffer));
     fs.writeFileSync(path.join(dir, 'base.bin'), base); fs.writeFileSync(path.join(dir, 'trim.bin'), trim);
+    // the fin on the back: a draw call ("wing") of the design's attachments, in the shell's space, with a 2048 x 1024
+    // texture of its own (its full-size levels in a loose file, read in order: no record)
+    for (const f of ['wpos.bin', 'wuv.bin', 'widx.bin']) fs.rmSync(path.join(dir, f), { force: true });
+    try {
+      const key = `${t.id}_helmet_attachments.idf`; const am = E.res.find(x => x.id.includes(key + '?lod=0&mesh'));
+      if (am) {
+        const m2 = fragOf(b, E, am.frags[0]); const n2 = m2.readUInt32LE(0); const txt = m2.toString('latin1'); const ia = txt.indexOf('&ib=0\0'); const names = ia < 0 ? [] : txt.slice(ia + 6).split('\0').slice(0, n2);
+        const k = names.indexOf('wing');
+        if (k >= 0) {
+          const o = 76 + k * 88; const start = m2.readUInt32LE(o + 12), cnt = m2.readUInt32LE(o + 16), bse = m2.readUInt32LE(o + 20);
+          const aib = get(key + '?lod=all&ib=0'), avb0 = get(key + '?lod=all&vb=0'), avb3 = get(key + '?lod=all&vb=3');
+          const map = new Map(); const wp = [], wu = [], wi = [];
+          for (let i = 0; i < cnt; i++) { const v = aib.readUInt16LE((start + i) * 2) + bse; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); wp.push(avb0.readFloatLE(v * 12), avb0.readFloatLE(v * 12 + 4), avb0.readFloatLE(v * 12 + 8)); wu.push(half2float(avb3.readUInt16LE(v * 4)), half2float(avb3.readUInt16LE(v * 4 + 2))); } wi.push(j); }
+          fs.writeFileSync(path.join(dir, 'wpos.bin'), Buffer.from(new Float32Array(wp).buffer)); fs.writeFileSync(path.join(dir, 'wuv.bin'), Buffer.from(new Float32Array(wu).buffer)); fs.writeFileSync(path.join(dir, 'widx.bin'), Buffer.from(new Uint16Array(wi).buffer));
+        }
+      }
+    } catch { } // (no fin: the shell alone)
     fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ v: CACHE_V, game, design: t.id, designs: imgs.length, at: new Date().toISOString() }));
   }
   /** The helmet for the editor: { ok, game, target, targets, pos, uv, idx, base (RGBA 2048 x 1024), trim (a byte a pixel) } or { ok: false, error, needGame }. */
@@ -250,14 +268,16 @@ module.exports = function createHelmetEditor({ dataDir }) {
     const t = target(); let meta = null; try { meta = JSON.parse(fs.readFileSync(path.join(cacheDir(), 'meta.json'), 'utf8')); } catch { }
     try { if (!meta || meta.v !== CACHE_V || meta.game !== game || meta.design !== t.id) buildCache(game, t); } catch (e) { return { ok: false, error: 'Couldn’t read the helmet from F1 25: ' + e.message }; }
     const r = (f) => fs.readFileSync(path.join(cacheDir(), f));
-    return { ok: true, game, target: t.id, targets: TARGETS.map(x => ({ id: x.id, name: x.name })), pos: r('pos.bin'), uv: r('uv.bin'), idx: r('idx.bin'), base: r('base.bin'), trim: r('trim.bin'), w: W, h: H };
+    const opt = (f) => { try { return r(f); } catch { return null; } }; const wpos = opt('wpos.bin');
+    return { ok: true, game, target: t.id, targets: TARGETS.map(x => ({ id: x.id, name: x.name })), pos: r('pos.bin'), uv: r('uv.bin'), idx: r('idx.bin'), base: r('base.bin'), trim: r('trim.bin'), w: W, h: H,
+      wing: wpos ? { pos: wpos, uv: opt('wuv.bin'), idx: opt('widx.bin'), w: WW, h: WH } : null };
   }
   /** The two files that carry a design's colour texture: the full-size .mipmaps and the archive with the small levels. Written under `out` at their game paths. */
   //  The game's own are 2048 x 1024 (three loose levels). A 4096 x 2048 one has a fourth loose level in front: the
   //  archive's header only describes the small levels (256 x 128 and down), and the full size follows from how many
   //  loose levels the record lists, so the record gets one more entry and nothing else changes (the cars' 4096
   //  liveries are laid out the same way, with more loose levels).
-  function writeTexture(game, t, levels, out) {
+  function writeTexture(game, t, levels, out, wingLevels = null) {
     const nLoose = levels.length - 6; if (nLoose !== 3 && nLoose !== 4) throw new Error('Unexpected mip count.');
     const small = Buffer.concat(levels.slice(nLoose)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
     const texRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_d.tif.mipmaps`), erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
@@ -285,7 +305,17 @@ module.exports = function createHelmetEditor({ dataDir }) {
     const mm = fs.readFileSync(path.join(out, texRel)); const meta2 = fragOf(b2, E2, R2.frags[2]);
     const recOk = blocks.every((blk, k) => { const e = m0 + 6 + 26 * k; const o = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(mm.subarray(o, o + n), 0, levels[k].length)[0].equals(levels[k]); } catch { return false; } });
     if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small) || !recOk || meta2[m0 + 1] !== nLoose || !meta2.equals(meta)) throw new Error('The written files didn’t read back correctly.');
-    return [texRel, erpRel].map(p => p.split(path.sep).join('/'));
+    const files = [texRel, erpRel];
+    if (wingLevels) {
+      const wRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_wing_d.tif.mipmaps`);
+      if (fs.existsSync(path.join(game, wRel))) {
+        const wb = Buffer.concat(wingLevels.map(lz4Compress)); fs.writeFileSync(path.join(out, wRel), wb);
+        // read back in order, as the game does: each level from where the one before it ended
+        let o = 0; for (const lv of wingLevels) { const [d, end] = lz4Block(wb, o, lv.length); if (!d.equals(lv)) throw new Error('The fin’s texture didn’t read back correctly.'); o = end; } if (o !== wb.length) throw new Error('The fin’s texture didn’t read back correctly.');
+        files.push(wRel);
+      }
+    }
+    return files.map(p => p.split(path.sep).join('/'));
   }
   /**
    * A finished texture (RGBA, 4096 x 2048 or 2048 x 1024, rows top to bottom) as a zip named after the helmet, at 4K
@@ -293,7 +323,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
    *  - 'addon': a SWOFTY addon that puts it on the chosen design (a Lewis Hamilton replica), picked in the game as that helmet;
    *  - 'hx': a player design for the Helmet Exchange addon (its own helmet, where its Helmets tab works in the game build).
    */
-  function exportMod(rgba, name, kind = 'addon', res = '4k') {
+  function exportMod(rgba, name, kind = 'addon', res = '4k', wingRgba = null) {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     let px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); let TW, TH;
     if (px.length === W * H * 16) { TW = W * 2; TH = H * 2; if (res === '2k') { px = halve(px, TW, TH); TW = W; TH = H; } }
@@ -310,6 +340,8 @@ module.exports = function createHelmetEditor({ dataDir }) {
             for (const q of [x > 0 ? p - 1 : -1, x < TW - 1 ? p + 1 : -1, y > 0 ? p - TW : -1, y < TH - 1 ? p + TW : -1]) if (q >= 0 && cov[q]) { px.copy(px, p * 4, q * 4, q * 4 + 4); nxt[p] = 1; any = true; break; } }
           cov.set(nxt); if (!any) break; } } }
     const nLev = up > 1 ? 10 : 9; const levels = []; let cur = px, w = TW, h = TH; for (let k = 0; k < nLev; k++) { levels.push(bc1Encode(cur, w, h)); if (k < nLev - 1) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
+    // the fin: its 2048 x 1024 texture's three full-size levels
+    let wingLevels = null; if (wingRgba && wingRgba.byteLength === WW * WH * 4) { let wc = Buffer.from(wingRgba.buffer ? Buffer.from(wingRgba.buffer, wingRgba.byteOffset, wingRgba.byteLength) : wingRgba), ww = WW, wh = WH; wingLevels = []; for (let k = 0; k < 3; k++) { wingLevels.push(bc1Encode(wc, ww, wh)); if (k < 2) { wc = halve(wc, ww, wh); ww >>= 1; wh >>= 1; } } }
     const t = target(); const zip = path.join(root(), 'exports', kind === 'hx' ? `${safe} (Helmet Exchange).zip` : `${safe}.zip`);
     try {
       if (kind === 'hx') {
@@ -319,7 +351,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
         fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a helmet made in Pitwall's editor, for the Helmet Exchange addon.\r\n\r\nIn SWOFTY Launcher, open Helmets, press "Import file..." and pick this zip. Set "Who can pick it" to Any driver,\r\npress Play, then in your career open Team HQ > Driver Details > Helmets and equip it ("(HX)" after its name).\r\nThis needs Helmet Exchange's Helmets tab to work in your game build.\r\n`);
       } else {
         // a SWOFTY addon: its manifest, and the two files under files/ copied onto the game's own
-        const files = writeTexture(game, t, levels, path.join(out, 'files'));
+        const files = writeTexture(game, t, levels, path.join(out, 'files'), wingLevels);
         const slug = safe.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'helmet';
         const manifest = { schema_version: 1, id: `pitwall.helmet-${slug}`, name: `${safe} (Pitwall helmet)`, version: '1.0.0', author: 'Pitwall', category: 'helmets', kind: ['files'], compat: { game: 'f1_25' },
           description: `Puts "${safe}", made in Pitwall's helmet editor, on ${t.name}. Pick that helmet for your driver in the game. Turn this addon off to get the original back.`,
