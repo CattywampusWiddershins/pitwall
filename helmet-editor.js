@@ -433,7 +433,9 @@ module.exports = function createHelmetEditor({ dataDir }) {
    */
   function carTexture(r, levels) {
     const nLoose = r.levels.length; if (r.levels.some((l, k) => l.size !== levels[k].length)) throw new Error('The livery’s levels aren’t as expected.');
-    const blocks = levels.slice(0, nLoose).map(lz4Compress); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) throw new Error('The livery’s small levels aren’t as expected.');
+    // (each level as the record says it's kept: type 3 LZ4-compressed, type 0 stored as it is; the Hamilton livery keeps
+    // its smallest loose level stored, and a compressed one there made the game drop the whole loose file: blurry)
+    const blocks = levels.slice(0, nLoose).map((lv, k) => r.levels[k].type === 0 ? lv : lz4Compress(lv)); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) throw new Error('The livery’s small levels aren’t as expected.');
     let o = 0; const meta = Buffer.from(r.meta); blocks.forEach((blk, k) => { const e = r.levels[k].e; meta.writeBigUInt64LE(BigInt(o), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); o += blk.length; });
     const head = fragOf(r.b, r.E, r.R.frags[0]);
     return { r, levels, blocks, tail, loose: Buffer.concat(blocks), payloads: [r.R.frags[0].packed === r.R.frags[0].size ? head : zstdWrite(head), zstdWrite(tail), zstdWrite(meta)] };
@@ -456,7 +458,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
     // read back: each record in the overlay, and every block of each loose file where it says
     const E2 = readErp(ov);
     const ok = texes.every((x, i) => { const R2 = E2.res[i]; if (!R2 || R2.id !== x.r.R.id || !fragOf(ov, E2, R2.frags[1]).equals(x.tail)) return false; const meta2 = fragOf(ov, E2, R2.frags[2]);
-      return x.blocks.every((blk, k) => { const e = x.r.levels[k].e; const s = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(x.loose.subarray(s, s + n), 0, x.levels[k].length)[0].equals(x.levels[k]); } catch { return false; } }); });
+      return x.blocks.every((blk, k) => { const e = x.r.levels[k].e; const s = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { const got = x.r.levels[k].type === 0 ? x.loose.subarray(s, s + n) : lz4Block(x.loose.subarray(s, s + n), 0, x.levels[k].length)[0]; return n === (x.r.levels[k].type === 0 ? x.levels[k].length : n) && got.equals(x.levels[k]); } catch { return false; } }); });
     if (!ok) return { ok: false, error: 'The written files didn’t read back correctly.' };
     const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true });
     const zip = path.join(root(), 'exports', `${safe} (${year} car).zip`);
