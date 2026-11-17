@@ -2,6 +2,22 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.3.1
+
+- **Race engineer: the right lap time in practice and qualifying.** He sometimes read out the lap before the one you'd just finished, because F1 25 starts the new lap before it records the old one. He now waits for the lap you actually did.
+- **Race engineer: only a purple lap is "fastest of anyone".** He used to say it whenever you were P1 on the timesheet, even after a lap that wasn't the fastest of the session. A lap that's your best but not the session's is a personal best, with how far off the top you are.
+- **Race engineer: hearing you better (BETA).** Fixed from a whole race's radio:
+  - "What's the gap to…" misheard as "hit us up to…" or "hit us the captain…" is now taken as the gap question. It used to be answered about contact.
+  - A name half heard, like "Oris" for Norris or "land" for Lando, now counts.
+  - "Stop updating me on Norris" stops following him, and "stop updating" stops following everyone. They used to be answered with the strategy.
+  - "Fewer updates" means less radio. It used to turn the radio up.
+  - "I had a moment" is no longer taken as Isack Hadjar (his three-letter code is HAD). The same goes for other everyday words that happen to be driver codes.
+  - "My rears are overheating", even heard as "rays" or "ears", gets advice on what to do about it, with the laps left in the set. The fronts and cold tyres work too.
+  - "Are we pulling away from…?" and "…are catching us" get the gap and whether it's closing.
+  - Telling him it's raining gets the weather and the forecast.
+  - "Thanks mate" is answered as thanks, not as a hello.
+  - A noise or a stray word ("pfff") gets no answer at all, instead of "Copy".
+
 ## 7.3.0
 
 - **Editor: sharper helmets in the game.** The texture sent to the game is encoded more carefully, so gradients and glows come out smoother and closer to what you made. Exporting takes a few seconds longer.
