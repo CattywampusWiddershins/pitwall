@@ -345,10 +345,10 @@ module.exports = function createHelmetEditor({ dataDir }) {
   };
   const LIVERY = 'livery_novelty_hamilton01_d';
   /** The livery's texture record from the game: { b, E, R (the resource), meta, loose (the file's path), levels: [{ off, packed, size }] }. */
-  function carRecord(game, year) {
+  function carRecord(game, year, name = LIVERY) {
     const c = CAR[year]; if (!c) throw new Error('No car for ' + year);
     const b = fs.readFileSync(path.join(game, '2025_asset_groups', c.ref)); const E = readErp(b);
-    const R = E.res.find(x => x.id.endsWith(`/${LIVERY}.tif.image`)); if (!R || R.frags.length < 3) throw new Error('The livery isn’t in the car’s archive');
+    const R = E.res.find(x => x.id.endsWith(`/${name}.tif.image`)); if (!R || R.frags.length < 3) throw new Error('The livery isn’t in the car’s archive');
     const meta = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + meta[0]; const loose = meta.toString('latin1', 1, m0); const n = meta[m0 + 1]; const levels = [];
     for (let k = 0; k < n; k++) { const e = m0 + 6 + 26 * k; levels.push({ e, type: meta[e], off: Number(meta.readBigUInt64LE(e + 1)), packed: Number(meta.readBigUInt64LE(e + 9)), size: Number(meta.readBigUInt64LE(e + 17)) }); }
     return { b, E, R, meta, m0, loose, levels };
@@ -379,7 +379,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
     2026: { erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
     2025: { erp: 'f1_2025_vehicle_package/teams/common_fom.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
   };
-  function carModel(year = 2026) {
+  function carModel(year = 2026, uvSel = [3, 0]) { // (uvSel: the stream and pair holding the livery's texture coordinates; the Hamilton livery's material reads the 4th stream's first pair, unique to each side, where the F1 75's read the 5th)
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const c = CAR3D[year]; if (!c) return { ok: false, error: `The ${year} car can only be edited flat for now.` };
     try {
@@ -408,7 +408,7 @@ module.exports = function createHelmetEditor({ dataDir }) {
         for (let k = 0; k < n; k++) {
           const o = 76 + k * 88; if (o + 88 > m.length) break; const u = (i) => m.readUInt32LE(o + i * 4);
           const ns = u(0), start = u(3), count = u(4), base = u(5); if (count < 3 || names[k] === 'rainbeads' || names[k] === 'shadow') continue; const bufs = [...Array(ns)].map((_, i) => list[u(14 + i)]);
-          const P = vb(bufs[0]); if (P.st !== 12) continue; const L = names[k] === 'body' && ns > 4 ? [bufs[4], 0] : null; const into = L ? liv : rest; const UV = L ? vb(L[0]) : null;
+          const P = vb(bufs[0]); if (P.st !== 12) continue; const L = names[k] === 'body' && ns > uvSel[0] ? [bufs[uvSel[0]], uvSel[1]] : null; const into = L ? liv : rest; const UV = L ? vb(L[0]) : null;
           const map = new Map(); const first = into.pos.length / 3;
           for (let i = 0; i < count; i++) { const v = ib.readUInt16LE((start + i) * 2) + base; let j = map.get(v); if (j == null) { j = map.size; map.set(v, j); const x = P.d.readFloatLE(v * 12), y = P.d.readFloatLE(v * 12 + 4), z = P.d.readFloatLE(v * 12 + 8); into.pos.push(...(T ? T(x, y, z) : [x, y, z])); if (UV) { const q = v * UV.st + L[1] * 4; into.uv.push(half2float(UV.d.readUInt16LE(q)), half2float(UV.d.readUInt16LE(q + 2))); } } into.idx.push(first + j); }
         }
@@ -418,41 +418,56 @@ module.exports = function createHelmetEditor({ dataDir }) {
       return { ok: true, year, liv: { pos: f32(liv.pos), uv: f32(liv.uv), idx: u32(liv.idx), parts: liv.parts }, rest: { pos: f32(rest.pos), idx: u32(rest.idx), parts: rest.parts } };
     } catch (e) { return { ok: false, error: 'Couldn’t read the car from F1 25: ' + e.message }; }
   }
-  /** An archive holding one resource (copied from another, its fragments replaced): for SWOFTY's overlay. */
-  function overlayErp(src, R, payloads) {
-    const ent = Buffer.from(src.subarray(R.entry[0], R.entry[0] + R.entry[1])); const infoSize = 8 + ent.length; const dataOff = 48 + infoSize;
-    let off = 0; R.frags.forEach((f, i) => { const p = payloads[i]; ent.writeBigUInt64LE(BigInt(off), f.at - R.entry[0]); if (f.atPacked != null) ent.writeBigUInt64LE(BigInt(p.length), f.atPacked - R.entry[0]); off += p.length; });
+  /** An archive holding resources copied from another, their fragments replaced: for SWOFTY's overlay. [{ R, payloads }] */
+  function overlayErp(src, list) {
+    const ents = list.map(({ R, payloads }) => { const ent = Buffer.from(src.subarray(R.entry[0], R.entry[0] + R.entry[1])); return { ent, R, payloads }; });
+    const infoSize = 8 + ents.reduce((a, x) => a + x.ent.length, 0); const dataOff = 48 + infoSize;
+    let off = 0; for (const { ent, R, payloads } of ents) R.frags.forEach((f, i) => { const p = payloads[i]; ent.writeBigUInt64LE(BigInt(off), f.at - R.entry[0]); if (f.atPacked != null) ent.writeBigUInt64LE(BigInt(p.length), f.atPacked - R.entry[0]); off += p.length; });
     const head = Buffer.alloc(48); head.write('ERPK', 0, 'ascii'); head.writeUInt32LE(3, 4); head.writeBigUInt64LE(48n, 16); head.writeBigUInt64LE(BigInt(infoSize), 24); head.writeBigUInt64LE(BigInt(dataOff), 32);
-    const info = Buffer.alloc(8); info.writeUInt32LE(1, 0); info.writeUInt32LE(R.frags.length, 4);
-    return Buffer.concat([head, info, ent, ...payloads]);
+    const info = Buffer.alloc(8); info.writeUInt32LE(list.length, 0); info.writeUInt32LE(ents.reduce((a, x) => a + x.R.frags.length, 0), 4); // (the files, then all their fragments)
+    return Buffer.concat([head, info, ...ents.map(x => x.ent), ...ents.flatMap(x => x.payloads)]);
+  }
+  /**
+   * One texture of the livery replaced: its loose file (levels compressed) and its record's new payloads (the small
+   * levels in the archive, the record saying where the loose file's blocks are). levels: every level, biggest first.
+   */
+  function carTexture(r, levels) {
+    const nLoose = r.levels.length; if (r.levels.some((l, k) => l.size !== levels[k].length)) throw new Error('The livery’s levels aren’t as expected.');
+    const blocks = levels.slice(0, nLoose).map(lz4Compress); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) throw new Error('The livery’s small levels aren’t as expected.');
+    let o = 0; const meta = Buffer.from(r.meta); blocks.forEach((blk, k) => { const e = r.levels[k].e; meta.writeBigUInt64LE(BigInt(o), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); o += blk.length; });
+    const head = fragOf(r.b, r.E, r.R.frags[0]);
+    return { r, levels, blocks, tail, loose: Buffer.concat(blocks), payloads: [r.R.frags[0].packed === r.R.frags[0].size ? head : zstdWrite(head), zstdWrite(tail), zstdWrite(meta)] };
   }
   /** A finished livery (RGBA 4096 x 4096, rows top to bottom) as a SWOFTY addon zip named after it, for the car of that year. */
   function carExport(rgba, name, year = 2026) {
     const game = findGame(); if (!game) return { ok: false, error: 'F1 25 wasn’t found.' };
     const S = 4096; const px = Buffer.from(rgba.buffer ? Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength) : rgba); if (px.length !== S * S * 4) return { ok: false, error: 'The livery is the wrong size.' };
     const safe = String(name || 'Livery').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'Livery';
-    let r; try { r = carRecord(game, year); } catch (e) { return { ok: false, error: e.message }; }
-    // every level, 4096 down to 4 x 4
-    const levels = []; let cur = px, w = S, h = S; while (true) { levels.push(bc1Encode(cur, w, h)); if (w <= 4) break; cur = halve(cur, w, h); w >>= 1; h >>= 1; }
-    const nLoose = r.levels.length; if (r.levels.some((l, k) => l.size !== levels[k].length)) return { ok: false, error: 'The livery’s levels aren’t as expected.' };
-    const blocks = levels.slice(0, nLoose).map(lz4Compress); const tail = Buffer.concat(levels.slice(nLoose)); if (tail.length !== r.R.frags[1].size) return { ok: false, error: 'The livery’s small levels aren’t as expected.' };
-    let o = 0; const meta = Buffer.from(r.meta); blocks.forEach((blk, k) => { const e = r.levels[k].e; meta.writeBigUInt64LE(BigInt(o), e + 1); meta.writeBigUInt64LE(BigInt(blk.length), e + 9); o += blk.length; });
-    const head = fragOf(r.b, r.E, r.R.frags[0]); const payloads = [r.R.frags[0].packed === r.R.frags[0].size ? head : zstdWrite(head), zstdWrite(tail), zstdWrite(meta)];
-    const ov = overlayErp(r.b, r.R, payloads);
-    // read back: the overlay's record, and every block of the loose file where it says
-    const mm = Buffer.concat(blocks); const E2 = readErp(ov); const R2 = E2.res[0]; const meta2 = fragOf(ov, E2, R2.frags[2]);
-    const ok = R2.id === r.R.id && fragOf(ov, E2, R2.frags[1]).equals(tail) && blocks.every((blk, k) => { const e = r.levels[k].e; const s = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(mm.subarray(s, s + n), 0, levels[k].length)[0].equals(levels[k]); } catch { return false; } });
+    let texes;
+    try {
+      // the colours: every level, 4096 down to 4 x 4
+      const r = carRecord(game, year); const levels = []; let cur = px, w = S, h = S; while (true) { levels.push(bc1Encode(cur, w, h)); if (w <= 4) break; cur = halve(cur, w, h); w >>= 1; h >>= 1; }
+      // the shine: the Hamilton livery's own carries its artwork (a carbon weave, the signature, the 44) in the paint's
+      // gloss, which showed through any design; replaced by one even value, that of a plain painted livery (the F1 75's)
+      const rs = carRecord(game, year, LIVERY.replace(/_d$/, '_s')); const sl = rs.levels.map(l => l.size).concat([]); let sz = S; const sLevels = []; while (true) { const n = Math.max(1, sz / 4) ** 2; const blk = Buffer.alloc(n * 8); for (let i = 0; i < n; i++) { blk[i * 8] = 160; blk[i * 8 + 1] = 160; } sLevels.push(blk); if (sz <= 4) break; sz >>= 1; }
+      texes = [carTexture(r, levels), carTexture(rs, sLevels)];
+    } catch (e) { return { ok: false, error: e.message }; }
+    const ov = overlayErp(texes[0].r.b, texes.map(x => ({ R: x.r.R, payloads: x.payloads })));
+    // read back: each record in the overlay, and every block of each loose file where it says
+    const E2 = readErp(ov);
+    const ok = texes.every((x, i) => { const R2 = E2.res[i]; if (!R2 || R2.id !== x.r.R.id || !fragOf(ov, E2, R2.frags[1]).equals(x.tail)) return false; const meta2 = fragOf(ov, E2, R2.frags[2]);
+      return x.blocks.every((blk, k) => { const e = x.r.levels[k].e; const s = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(x.loose.subarray(s, s + n), 0, x.levels[k].length)[0].equals(x.levels[k]); } catch { return false; } }); });
     if (!ok) return { ok: false, error: 'The written files didn’t read back correctly.' };
     const out = path.join(root(), 'exports', '.building', safe); fs.rmSync(out, { recursive: true, force: true });
     const zip = path.join(root(), 'exports', `${safe} (${year} car).zip`);
     try {
-      fs.mkdirSync(path.join(out, 'files', path.dirname(r.loose)), { recursive: true }); fs.writeFileSync(path.join(out, 'files', r.loose), mm);
+      for (const x of texes) { fs.mkdirSync(path.join(out, 'files', path.dirname(x.r.loose)), { recursive: true }); fs.writeFileSync(path.join(out, 'files', x.r.loose), x.loose); }
       fs.mkdirSync(path.join(out, 'erp'), { recursive: true }); fs.writeFileSync(path.join(out, 'erp', 'livery.erp'), ov);
       fs.mkdirSync(path.join(out, 'ops'), { recursive: true }); fs.writeFileSync(path.join(out, 'ops', 'erp.json'), JSON.stringify({ schema_version: 1, ops: [{ op: 'overlay', erps: CAR[year].erps, source: 'erp/livery.erp' }] }, null, 2));
       const slug = safe.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'livery';
       fs.writeFileSync(path.join(out, 'swofty.json'), JSON.stringify({ schema_version: 1, id: `pitwall.livery-${year}-${slug}`, name: `${safe} (Pitwall ${year} livery)`, version: '1.0.0', author: 'Pitwall', category: 'liveries', kind: ['files', 'erp'], compat: { game: 'f1_25' },
         description: `Puts "${safe}", made in Pitwall's livery editor, on the Lewis Hamilton livery of the ${year} My Team car. Pick that livery for your team in the game. Turn this addon off to get the original back.`,
-        operations: { files: [{ source: `files/${r.loose}`, target: r.loose }], erp: ['ops/erp.json'] } }, null, 2));
+        operations: { files: texes.map(x => ({ source: `files/${x.r.loose}`, target: x.r.loose })), erp: ['ops/erp.json'] } }, null, 2));
       fs.writeFileSync(path.join(out, 'README.txt'), `${safe}: a My Team livery made in Pitwall's editor, as a SWOFTY addon.\r\n\r\nIt replaces the Lewis Hamilton livery on the ${year} My Team car. Install it in SWOFTY Launcher, turn it on in your profile and press Play,\r\nthen pick the Lewis Hamilton livery for your team in the game. Turn the addon off to get the original back.\r\n`);
       zipFolder(out, zip);
     } catch (e) { return { ok: false, error: e.message }; } finally { fs.rmSync(out, { recursive: true, force: true }); }
