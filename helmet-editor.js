@@ -417,11 +417,12 @@ module.exports = function createHelmetEditor({ dataDir }) {
   */
   // the 2026 car: every part's lod 0 mesh (the body, sidepods, nose, engine cover, wings…, already placed in the car's
   // space). Each mesh names its draw calls' materials after its index buffer; the ones called "body" are the paint (the
-  // livery), with their texture coordinates in the call's fifth stream. Damaged floors and the open DRS flap are left
-  // out, and so are the rain-bead and shadow layers (copies of surfaces).
+  // livery), with their texture coordinates in the call's fourth stream. Left out: the damaged floors, the open DRS flap,
+  // the rain-bead and shadow layers (copies of surfaces), and the steering wheel with its paddles and dials (they hang off
+  // the driver's hand and are placed by the driver's animation: with no driver they sat at the car's origin, in the cockpit).
   const CAR3D = {
-    2026: { tyres: 'f1_2026_vehicle_package/teams/common.erp', erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
-    2025: { tyres: 'f1_2025_vehicle_package/teams/common_fom.erp', erp: 'f1_2025_vehicle_package/teams/common_fom.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2)$/ },
+    2026: { tyres: 'f1_2026_vehicle_package/teams/common.erp', erp: 'f1_2026_vehicle_package/teams/myteam_mercedes/wep/myteam_mercedes.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2|steering_wheel|left_paddle|right_paddle|mix_dial|tyre_dial)$/ },
+    2025: { tyres: 'f1_2025_vehicle_package/teams/common_fom.erp', erp: 'f1_2025_vehicle_package/teams/common_fom.erp', skip: /^(floor_damage_[lr]|rearwingmoving_top_2|steering_wheel|left_paddle|right_paddle|mix_dial|tyre_dial)$/ },
   };
   const edBareKind = (name) => name === 'wheel' || name === 'disc' ? 'metal' : name === 'glass' || name === 'lcd' || name === 'digi revs' ? 'glass' : 'rest';
   function carModel(year = 2026, uvSel = [3, 0]) { // (uvSel: the stream and pair holding the livery's texture coordinates; the Hamilton livery's material reads the 4th stream's first pair, unique to each side, where the F1 75's read the 5th)

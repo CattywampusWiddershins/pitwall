@@ -633,8 +633,9 @@ function edProps() {
     ${L.kind === 'image' && L.mode !== 'uv' ? `<button class="btn sm he-wide" data-ed="bg">Remove background…</button>` : ''}
     ${L.mode === 'uv' ? '' : edLookUI(edLook(L), L)}
     ${L.mode === 'uv' ? '' : `<div class="he-fx"><div class="label">Auto-mask</div>${L.mask ? `<div class="muted he-small">On: the parts the layers above covered when it was made are hidden. It stays as it is until you update or remove it.</div><div class="he-row"><button class="btn sm" data-ed="mask">Update mask</button><button class="btn sm" data-ed="unmask">Remove mask</button></div>` : `<button class="btn sm he-wide" data-ed="mask" title="Hide the parts of this layer that the layers above it cover (frozen as it is now)">Mask to what's visible</button>`}</div>`}
+    ${L.mode === 'flat' && edIsCar() ? `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side of the car</label>` : ''}
     ${L.mode === 'flat' ? `<div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="In the middle of the canvas">Centre</button></div>` : L.mode === 'uv' ? '' : `<label class="he-chk"><input type="checkbox" data-lb="mirror" ${L.mirror ? 'checked' : ''}> Mirror on the other side</label>
-    ${L.mirror ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
+    ${L.mirror && L.mode !== 'flat' ? `<label class="he-chk"><input type="checkbox" data-lb="mirrorRot" ${L.mirrorRot !== false ? 'checked' : ''}> Mirror turns the other way</label>
     <button class="btn sm he-wide" data-ed="detach" title="The mirror becomes a layer of its own, in the same place: change its colour or anything else separately">Make the mirror its own layer</button>` : ''}
     ${edIsCar() ? '' : `<div class="he-row he-proj"><span class="muted he-small">Projection</span><div class="seg he-seg"><button data-proj="stick" class="${L.mode === 'stick' || !L.mode ? 'on' : ''}" title="Follows the surface where it sits (bends with the curve)">Follow surface</button><button data-proj="stamp" class="${L.mode === 'stamp' ? 'on' : ''}" title="Stamped straight on from the view it was aimed from: from there it looks exactly as drawn (lines stay straight)">Stamp from view</button><button data-proj="wrap" class="${L.mode === 'wrap' ? 'on' : ''}" title="Wraps round the helmet (for stripes front to back)">Wrap round</button></div>${L.mode === 'stamp' ? '<button class="btn sm" data-ed="aim" title="Stamps it from the way you are looking at the helmet now">Aim from this view</button>' : ''}</div>`}
     <div class="he-row he-wrapbtns"><button class="btn sm" data-ed="flipx">Flip ⇋</button><button class="btn sm" data-ed="flipy">Flip ⇵</button><button class="btn sm" data-ed="centre" title="On the middle line, front to back">Centre</button></div>`}`;
@@ -1171,11 +1172,11 @@ async function edBakeSticker() {
   const D = ED.design; const W = D.w || 1024, H = D.h || 1024; const srcs = await Promise.all(D.layers.map(L => L.visible === false ? null : edSource(L)));
   const cv = ED.stkCv ||= document.createElement('canvas'); if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H; const g = cv.getContext('2d'); g.clearRect(0, 0, W, H);
   if (D.base) { if (D.base.fade) { const gr = D.base.dir === 'fb' ? g.createLinearGradient(0, 0, W, 0) : g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0.15, D.base.color); gr.addColorStop(0.85, D.base.color2); g.fillStyle = gr; } else g.fillStyle = D.base.color; g.fillRect(0, 0, W, H); }
-  const car = edIsCar() && D.layers.some(L => L.mode === 'stamp' && L.visible !== false) ? await edEnsureCar(D.year || 2026) : null;
+  const car = edIsCar() && D.layers.some(L => L.visible !== false && (L.mode === 'stamp' || L.mirror)) ? await edEnsureCar(D.year || 2026) : null;
   for (let k = 0; k < D.layers.length; k++) {
     const L = D.layers[k], s = srcs[k]; if (!s) continue;
     if (L.mode === 'stamp') { if (!car) continue; let e = k; while (!L.blend && e + 1 < D.layers.length && D.layers[e + 1].mode === 'stamp' && !D.layers[e + 1].blend) e++; const run = []; for (let j = k; j <= e; j++) if (srcs[j]) run.push([D.layers[j], srcs[j]]); edCarPaint(car, run, g, W, H); k = e; continue; }
-    const X = edStkXf(L, s, W); g.save(); g.globalCompositeOperation = ED_BLEND_CSS[L.blend] || 'source-over'; g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore();
+    edDrawFlat(g, L, s, W, H, car);
   }
   edStkBusy = false; ED.bakeGen = (ED.bakeGen || 0) + 1; if (ED.car3 && edIsCar()) { ED.car3.tex.needsUpdate = true; edDraw(); } edDrawSticker();
   if (edStkAgain) { edStkAgain = false; edBakeSticker(); }
@@ -1303,7 +1304,7 @@ async function edComposeLivery(D, car) {
     for (let k = 0; k < D.layers.length; k++) {
       const L = D.layers[k], s = srcs[k]; if (!s) continue;
       if (L.mode === 'stamp') { let e = k; while (!L.blend && e + 1 < D.layers.length && D.layers[e + 1].mode === 'stamp' && !D.layers[e + 1].blend) e++; const run = []; for (let j = k; j <= e; j++) if (srcs[j]) run.push([D.layers[j], srcs[j]]); edCarPaint(car, run, g, W, H); k = e; continue; }
-      const X = edStkXf(L, s, W); g.save(); g.globalCompositeOperation = ED_BLEND_CSS[L.blend] || 'source-over'; g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore();
+      edDrawFlat(g, L, s, W, H, car);
     }
     return cv;
   } finally { ED.design = was; }
@@ -1330,6 +1331,72 @@ async function edRenderCarPicture(D) {
     return out.toDataURL('image/webp', 0.92);
   } finally {
     meshes.forEach((m, i) => { m.geometry.setIndex(was[i].idx); m.visible = was[i].vis; }); C.tex.image = img0; C.tex.needsUpdate = true; C.scene.background = bg; edApplyLook(C.lookSet); if (bg && C.scene.background !== bg) C.scene.background = bg;
+  }
+}
+/*
+  A flat sticker on the car, mirrored: the copy goes where the other side of the car is in the texture. The sticker's
+  middle is found on the car (the painted triangle holding it in the texture), reflected across the car's middle line
+  (x = 0), and found again on the far side (a ray onto the painted parts); the two triangles' own texture-to-car mappings
+  give how the texture there is turned, flipped and scaled against this side's, so the copy is drawn with that change
+  (text then turned back to read the right way, as everywhere). Exact at the middle, close nearby.
+*/
+function edCarFull(car) {
+  if (car.fullLiv) return car.fullLiv; const g = car.liv.geometry; const fg = new THREE.BufferGeometry(); fg.setAttribute('position', g.attributes.position); fg.setAttribute('uv', g.attributes.uv); fg.setIndex(new THREE.BufferAttribute(car.liv.userData.full, 1)); fg.computeBoundingSphere(); fg.computeBoundingBox();
+  const m = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  // texture space: which triangles cover each cell (64 x 64), from the full index list
+  const uv = g.attributes.uv.array, idx = car.liv.userData.full, N = 64, cells = Array.from({ length: N * N }, () => []); const fr = (v) => v - Math.floor(v);
+  for (let t = 0; t < idx.length; t += 3) { const us = [0, 1, 2].map(j => fr(uv[idx[t + j] * 2])), vs = [0, 1, 2].map(j => fr(uv[idx[t + j] * 2 + 1])); if (Math.max(...us) - Math.min(...us) > 0.5 || Math.max(...vs) - Math.min(...vs) > 0.5) continue;
+    for (let y = Math.floor(Math.min(...vs) * N); y <= Math.min(N - 1, Math.floor(Math.max(...vs) * N)); y++) for (let x = Math.floor(Math.min(...us) * N); x <= Math.min(N - 1, Math.floor(Math.max(...us) * N)); x++) cells[y * N + x].push(t); }
+  return (car.fullLiv = { mesh: m, cells, N, fr, cache: new Map() });
+}
+/** A triangle's texture-to-car mapping: { at(u, v) the car point, back(p) the texture point of a car point near it, n }. */
+function edCarTriMap(car, t) {
+  const g = car.liv.geometry, P = g.attributes.position.array, UV = g.attributes.uv.array, idx = car.liv.userData.full; const fr = (v) => v - Math.floor(v);
+  const V = [0, 1, 2].map(j => new THREE.Vector3(P[idx[t + j] * 3], P[idx[t + j] * 3 + 1], P[idx[t + j] * 3 + 2])); const T = [0, 1, 2].map(j => [fr(UV[idx[t + j] * 2]), fr(UV[idx[t + j] * 2 + 1])]);
+  const e1 = V[1].clone().sub(V[0]), e2 = V[2].clone().sub(V[0]); const d1 = [T[1][0] - T[0][0], T[1][1] - T[0][1]], d2 = [T[2][0] - T[0][0], T[2][1] - T[0][1]]; const det = d1[0] * d2[1] - d2[0] * d1[1];
+  const st = (u, v) => [((u - T[0][0]) * d2[1] - d2[0] * (v - T[0][1])) / det, (d1[0] * (v - T[0][1]) - (u - T[0][0]) * d1[1]) / det];
+  const aa = e1.dot(e1), ab = e1.dot(e2), bb = e2.dot(e2), dd = aa * bb - ab * ab;
+  return { ok: Math.abs(det) > 1e-12 && Math.abs(dd) > 1e-14, n: e1.clone().cross(e2).normalize(),
+    at: (u, v) => { const [s, w] = st(u, v); return V[0].clone().addScaledVector(e1, s).addScaledVector(e2, w); },
+    back: (p) => { const q = p.clone().sub(V[0]); const x1 = q.dot(e1), x2 = q.dot(e2); const s = (bb * x1 - ab * x2) / dd, w = (aa * x2 - ab * x1) / dd; return [T[0][0] + s * d1[0] + w * d2[0], T[0][1] + s * d1[1] + w * d2[1]]; } };
+}
+/** The texture-space change for a flat sticker's mirrored copy, centred on (u, v): { a, b, c, d, e, f } for a canvas of W x H, or null. */
+function edCarMirrorXf(car, u, v, W, H) {
+  const F = edCarFull(car); const key = `${u.toFixed(4)}:${v.toFixed(4)}`; if (F.cache.has(key)) return F.cache.get(key);
+  let out = null;
+  try {
+    const g = car.liv.geometry, UV = g.attributes.uv.array, idx = car.liv.userData.full; const cu = F.fr(u), cv = F.fr(v); let A = null;
+    const holds = []; for (const t of F.cells[Math.min(F.N - 1, Math.floor(cv * F.N)) * F.N + Math.min(F.N - 1, Math.floor(cu * F.N))] || []) { const M = edCarTriMap(car, t); if (!M.ok) continue;
+      // (inside this triangle in the texture)
+      const T = [0, 1, 2].map(j => [F.fr(UV[idx[t + j] * 2]), F.fr(UV[idx[t + j] * 2 + 1])]); const s = (p, q) => (q[0] - p[0]) * (cv - p[1]) - (q[1] - p[1]) * (cu - p[0]); const d0 = s(T[0], T[1]), d1 = s(T[1], T[2]), d2 = s(T[2], T[0]);
+      if ((d0 >= -1e-9 && d1 >= -1e-9 && d2 >= -1e-9) || (d0 <= 1e-9 && d1 <= 1e-9 && d2 <= 1e-9)) holds.push(M); }
+    // (some texture space is on two surfaces, one hidden inside the car: the one with nothing over it is the one painted on)
+    const outside = (M) => { const p = M.at(cu, cv); for (const sg of [1, -1]) { const n = M.n.clone().multiplyScalar(sg); const r = new THREE.Raycaster(p.clone().addScaledVector(n, 1e-3), n, 0, 3); if (!r.intersectObject(F.mesh, false).length) return true; } return false; };
+    A = (holds.length > 1 && holds.find(outside)) || holds[0] || null;
+    if (A) {
+      const p = A.at(cu, cv); const pm = new THREE.Vector3(-p.x, p.y, p.z); const nm = new THREE.Vector3(-A.n.x, A.n.y, A.n.z);
+      const ray = new THREE.Raycaster(); let hit = null;
+      for (const sgn of [1, -1]) { ray.set(pm.clone().addScaledVector(nm, 0.25 * sgn), nm.clone().multiplyScalar(-sgn)); ray.far = 0.5; const h = ray.intersectObject(F.mesh, false).sort((a, b) => a.point.distanceTo(pm) - b.point.distanceTo(pm))[0]; if (h && (!hit || h.point.distanceTo(pm) < hit.point.distanceTo(pm))) hit = h; }
+      if (hit && hit.point.distanceTo(pm) < 0.08) {
+        const B = edCarTriMap(car, hit.faceIndex * 3); const mir = (q) => new THREE.Vector3(-q.x, q.y, q.z);
+        const map = (x, y) => B.back(mir(A.at(x, y))); const d = 1 / 256; const o = map(cu, cv), px = map(cu + d, cv), py = map(cu, cv + d);
+        const J = [(px[0] - o[0]) / d, (px[1] - o[1]) / d, (py[0] - o[0]) / d, (py[1] - o[1]) / d]; // (columns: where a step along u, then along v, goes)
+        // in canvas pixels: p' = J p + k, with k so that the middle lands on o (the texture tiles: the copy goes in the tile the middle is in)
+        const ox = (o[0] - Math.floor(o[0])) * W, oy = (o[1] - Math.floor(o[1])) * H; const mx = u * W, my = v * H;
+        out = { a: J[0], b: J[1], c: J[2], d: J[3], e: ox - (J[0] * mx + J[2] * my), f: oy - (J[1] * mx + J[3] * my), det: J[0] * J[3] - J[1] * J[2] };
+      }
+    }
+  } catch { out = null; }
+  F.cache.set(key, out); return out;
+}
+/** A flat sticker on a canvas (and its mirrored copy on the car, where it has one). */
+function edDrawFlat(g, L, s, W, H, car) {
+  const X = edStkXf(L, s, W); const one = (pre) => { g.save(); g.globalCompositeOperation = ED_BLEND_CSS[L.blend] || 'source-over'; if (pre) pre(); g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(X.sx, X.sy); g.globalAlpha = L.opacity ?? 1; g.imageSmoothingQuality = 'high'; g.drawImage(s.cv, -s.cv.width / 2, -s.cv.height / 2); g.restore(); };
+  one(null);
+  if (L.mirror && car && L.mode === 'flat') { const M = edCarMirrorXf(car, L.x ?? 0.5, L.y ?? 0.5, W, H); if (!M) return;
+    // (shapes come out reflected, as a mirror shows them; text is flipped back round its own middle so it reads right)
+    const keep = L.kind !== 'shape' || L.reflect === false;
+    one(() => { g.transform(M.a, M.b, M.c, M.d, M.e, M.f); if (keep && M.det < 0) { g.translate(X.cx, X.cy); g.rotate(-X.rot); g.scale(-1, 1); g.rotate(X.rot); g.translate(-X.cx, -X.cy); } });
   }
 }
 /** The car point under the pointer (any part), in the car's space. */
@@ -1535,7 +1602,9 @@ function edCarGizmo() {
   const at = (u, w) => { const px = u * s.cw * X.sx, py = -w * s.ch * Math.abs(X.sy) * Math.sign(X.sy || 1); return [(X.cx + px * c - py * sn) / W, (X.cy + px * sn + py * c) / H]; }; // (as on Flat, in texture space)
   const view = ED.root.querySelector('#ed-view').getBoundingClientRect(), cr = T.R.domElement.getBoundingClientRect(); const toCam = (p) => C.cam.position.clone().sub(p);
   // the middle: the triangle facing the camera that's nearest it
-  const [mu, mv] = at(0, 0); const mids = edCarAt(mu, mv).filter(h => Math.abs(h.n.dot(toCam(h.p).normalize())) > 0.05).sort((a, b) => toCam(a.p).length() - toCam(b.p).length()); const M = mids[0]; if (!M) return off();
+  const [mu, mv] = at(0, 0); const mids = edCarAt(mu, mv).filter(h => Math.abs(h.n.dot(toCam(h.p).normalize())) > 0.05).sort((a, b) => toCam(a.p).length() - toCam(b.p).length());
+  const seen = (h) => { const d = h.p.clone().sub(C.cam.position); const n = d.length(); C.ray2 ||= new THREE.Raycaster(); C.ray2.set(C.cam.position, d.normalize()); C.ray2.far = n + 0.01; const f = C.ray2.intersectObjects([C.liv, ...(C.bare || [C.rest])].filter(x => x.visible))[0]; return !f || f.point.distanceTo(h.p) < 0.01; };
+  const M = mids.length > 1 ? mids.find(seen) : mids[0]; if (!M) return off(); // (some texture space is on two surfaces, one hidden inside the car: the box goes on the one in sight, none when neither is)
   const place = ([u, v]) => { const [ss, ww] = edCarTriST(M.tri, u, v); return edCarTri(M.tri, ss, ww).p; }; // (the box on the plane of the middle's triangle: a steady frame for the handles)
   const scr = (p) => { const q = p.clone().project(C.cam); return [cr.left - view.left + (q.x + 1) / 2 * cr.width, cr.top - view.top + (1 - q.y) / 2 * cr.height]; };
   const pts = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(q => scr(place(at(...q)))); const top = scr(place(at(0, 0.5))), ctr = scr(M.p);
