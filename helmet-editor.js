@@ -272,50 +272,62 @@ module.exports = function createHelmetEditor({ dataDir }) {
     return { ok: true, game, target: t.id, targets: TARGETS.map(x => ({ id: x.id, name: x.name })), pos: r('pos.bin'), uv: r('uv.bin'), idx: r('idx.bin'), base: r('base.bin'), trim: r('trim.bin'), w: W, h: H,
       wing: wpos ? { pos: wpos, uv: opt('wuv.bin'), idx: opt('widx.bin'), w: WW, h: WH } : null };
   }
-  /** The two files that carry a design's colour texture: the full-size .mipmaps and the archive with the small levels. Written under `out` at their game paths. */
-  //  The game's own are 2048 x 1024 (three loose levels). A 4096 x 2048 one has a fourth loose level in front: the
-  //  archive's header only describes the small levels (256 x 128 and down), and the full size follows from how many
-  //  loose levels the record lists, so the record gets one more entry and nothing else changes (the cars' 4096
-  //  liveries are laid out the same way, with more loose levels).
+  /*
+    A design's textures written for the game: the files go under `out` at their game paths, the design's archive (its
+    records) beside them.
+     - The colours of the shell (helmet_d) and of the fin on the back (helmet_wing_d): each a loose file of full-size
+       levels plus small levels in the archive, and a record in the archive saying where the loose file's blocks are
+       (its path, the number of levels, then per level from byte 6, 26 bytes each: compression (3: LZ4), offset, packed
+       size, size). Without the new offsets the game can't read the file and shows the small levels only (blurry).
+       The game's are 2048 x 1024 (three loose levels); a 4096 x 2048 shell has a fourth in front (the header only
+       describes the small levels, so the full size follows from how many loose levels the record lists).
+     - The shine maps (helmet_s, helmet_wing_s): some designs keep part of their artwork there (the 2014 replica's
+       stripes and its big front panel, in the gloss), which showed through any design. Their records are pointed at
+       the plain template helmet's (charname_helmet_s and _wing_s, in the same archive), whose files the game has.
+  */
   function writeTexture(game, t, levels, out, wingLevels = null) {
-    const nLoose = levels.length - 6; if (nLoose !== 3 && nLoose !== 4) throw new Error('Unexpected mip count.');
-    const small = Buffer.concat(levels.slice(nLoose)); if (small.length !== SMALL) throw new Error('Unexpected mip sizes.');
-    const texRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_d.tif.mipmaps`), erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`);
-    const blocks = levels.slice(0, nLoose).map(lz4Compress);
-    fs.mkdirSync(path.dirname(path.join(out, texRel)), { recursive: true }); fs.writeFileSync(path.join(out, texRel), Buffer.concat(blocks));
-    const b = Buffer.from(fs.readFileSync(erpPath(game, t))); const E = readErp(b);
-    const R = E.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F = R && R.frags[1]; if (!F || F.size !== SMALL || !R.frags[2]) throw new Error('The game’s helmet archive isn’t laid out as expected.');
-    // the image's third fragment says where the .mipmaps file's blocks are: after the file's path, the number of
-    // levels, then per level (from byte 6, 26 bytes each) its compression (3: LZ4), offset, packed size and size.
-    // Without the new offsets and sizes the game can't read the file, and shows the small levels only (blurry).
-    const orig = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + orig[0]; if (orig[m0 + 1] !== 3) throw new Error('The texture’s mip record isn’t laid out as expected.');
-    for (let k = 0; k < 3; k++) { const e = m0 + 6 + 26 * k; if (orig[e] !== 3 || Number(orig.readBigUInt64LE(e + 17)) !== levels[nLoose - 3 + k].length) throw new Error('The texture’s mip record isn’t laid out as expected.'); }
-    const entries = Buffer.alloc(26 * nLoose); let off = 0;
-    blocks.forEach((blk, k) => { const e = 26 * k; entries[e] = 3; entries.writeBigUInt64LE(BigInt(off), e + 1); entries.writeBigUInt64LE(BigInt(blk.length), e + 9); entries.writeBigUInt64LE(BigInt(levels[k].length), e + 17); off += blk.length; });
-    const head = Buffer.from(orig.subarray(0, m0 + 6)); head[m0 + 1] = nLoose;
-    const meta = Buffer.concat([head, entries, orig.subarray(m0 + 6 + 26 * 3)]);
-    const packed = zstdWrite(small), packedMeta = zstdWrite(meta); const FM = R.frags[2];
-    b.writeBigUInt64LE(BigInt(b.length - E.dataOff), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked);
-    b.writeBigUInt64LE(BigInt(b.length + packed.length - E.dataOff), FM.at); b.writeBigUInt64LE(BigInt(meta.length), FM.at + 8); b.writeBigUInt64LE(BigInt(packedMeta.length), FM.atPacked);
-    fs.mkdirSync(path.dirname(path.join(out, erpRel)), { recursive: true }); fs.writeFileSync(path.join(out, erpRel), Buffer.concat([b, packed, packedMeta]));
-    // read back: the texture and the small levels as the game will read them
-    const back = topLevel(fs.readFileSync(path.join(out, texRel)), levels[0].length); const b2 = fs.readFileSync(path.join(out, erpRel)); const E2 = readErp(b2);
-    const R2 = E2.res.find(x => x.id.endsWith(`/${t.id}_helmet_d.tif.image`)); const F2 = R2.frags[1];
-    // ... and every block where the record says it is
-    const mm = fs.readFileSync(path.join(out, texRel)); const meta2 = fragOf(b2, E2, R2.frags[2]);
-    const recOk = blocks.every((blk, k) => { const e = m0 + 6 + 26 * k; const o = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return lz4Block(mm.subarray(o, o + n), 0, levels[k].length)[0].equals(levels[k]); } catch { return false; } });
-    if (!back || !back.equals(levels[0]) || !fragOf(b2, E2, F2).equals(small) || !recOk || meta2[m0 + 1] !== nLoose || !meta2.equals(meta)) throw new Error('The written files didn’t read back correctly.');
-    const files = [texRel, erpRel];
-    if (wingLevels) {
-      const wRel = path.join('livery_package_shared', t.group, t.id, 'textures', `${t.id}_helmet_wing_d.tif.mipmaps`);
-      if (fs.existsSync(path.join(game, wRel))) {
-        const wb = Buffer.concat(wingLevels.map(lz4Compress)); fs.writeFileSync(path.join(out, wRel), wb);
-        // read back in order, as the game does: each level from where the one before it ended
-        let o = 0; for (const lv of wingLevels) { const [d, end] = lz4Block(wb, o, lv.length); if (!d.equals(lv)) throw new Error('The fin’s texture didn’t read back correctly.'); o = end; } if (o !== wb.length) throw new Error('The fin’s texture didn’t read back correctly.');
-        files.push(wRel);
-      }
+    const erpRel = path.join('2025_asset_groups', 'livery_package', t.group, t.id, `${t.id}_helmet.erp`); const texDirRel = path.join('livery_package_shared', t.group, t.id, 'textures');
+    const b = Buffer.from(fs.readFileSync(erpPath(game, t))); const E = readErp(b); const tail = []; let end = b.length;
+    const append = (buf) => { const off = end - E.dataOff; tail.push(buf); end += buf.length; return off; };
+    const resOf = (name) => E.res.find(x => x.id.endsWith(`/${name}.tif.image`));
+    const written = []; const files = [];
+    // a colour texture through its record
+    const colour = (name, lv) => {
+      const R = resOf(name); if (!R || R.frags.length < 3) return false;
+      const nLoose = lv.length - 6; const small = Buffer.concat(lv.slice(nLoose)); if (small.length !== R.frags[1].size) throw new Error('Unexpected mip sizes.');
+      const orig = Buffer.from(fragOf(b, E, R.frags[2])); const m0 = 1 + orig[0]; const n0 = orig[m0 + 1]; if (n0 < 1 || nLoose < n0) throw new Error('The texture’s mip record isn’t laid out as expected.');
+      for (let k = 0; k < n0; k++) { const e = m0 + 6 + 26 * k; if (Number(orig.readBigUInt64LE(e + 17)) !== lv[nLoose - n0 + k].length) throw new Error('The texture’s mip record isn’t laid out as expected.'); }
+      const types = [...Array(nLoose)].map((_, k) => k < nLoose - n0 ? 3 : orig[m0 + 6 + 26 * (k - (nLoose - n0))]); // (each level kept as the game keeps it: 3 LZ4, 0 stored)
+      const blocks = lv.slice(0, nLoose).map((x, k) => types[k] === 0 ? x : lz4Compress(x));
+      const entries = Buffer.alloc(26 * nLoose); let off = 0;
+      blocks.forEach((blk, k) => { const e = 26 * k; entries[e] = types[k]; entries.writeBigUInt64LE(BigInt(off), e + 1); entries.writeBigUInt64LE(BigInt(blk.length), e + 9); entries.writeBigUInt64LE(BigInt(lv[k].length), e + 17); off += blk.length; });
+      const head = Buffer.from(orig.subarray(0, m0 + 6)); head[m0 + 1] = nLoose; const meta = Buffer.concat([head, entries, orig.subarray(m0 + 6 + 26 * n0)]);
+      const F = R.frags[1], FM = R.frags[2]; const packed = zstdWrite(small), packedMeta = zstdWrite(meta);
+      b.writeBigUInt64LE(BigInt(append(packed)), F.at); b.writeBigUInt64LE(BigInt(packed.length), F.atPacked); b[F.atPacked - 1] = 17;
+      b.writeBigUInt64LE(BigInt(append(packedMeta)), FM.at); b.writeBigUInt64LE(BigInt(meta.length), FM.at + 8); b.writeBigUInt64LE(BigInt(packedMeta.length), FM.atPacked); b[FM.atPacked - 1] = 17;
+      const rel = path.join(texDirRel, `${name}.tif.mipmaps`); fs.mkdirSync(path.dirname(path.join(out, rel)), { recursive: true }); fs.writeFileSync(path.join(out, rel), Buffer.concat(blocks));
+      written.push({ name, lv, nLoose, types, small, meta, rel }); files.push(rel); return true;
+    };
+    // a resource's fragments taken from another in the same archive (as stored: compression and all)
+    const borrow = (dstName, srcName) => {
+      const Rd = resOf(dstName), Rs = resOf(srcName); if (!Rd || !Rs || Rd.frags.length !== Rs.frags.length) return false;
+      Rd.frags.forEach((Fd, i) => { const Fs = Rs.frags[i]; const raw = Buffer.from(b.subarray(E.dataOff + Fs.off, E.dataOff + Fs.off + Fs.packed));
+        b.writeBigUInt64LE(BigInt(append(raw)), Fd.at); b.writeBigUInt64LE(BigInt(Fs.size), Fd.at + 8); if (Fd.atPacked != null) { b.writeBigUInt64LE(BigInt(Fs.packed), Fd.atPacked); b[Fd.atPacked - 1] = b[Fs.atPacked - 1]; } });
+      return true;
+    };
+    if (!colour(`${t.id}_helmet_d`, levels)) throw new Error('The game’s helmet archive isn’t laid out as expected.');
+    if (wingLevels) colour(`${t.id}_helmet_wing_d`, wingLevels);
+    borrow(`${t.id}_helmet_s`, 'charname_helmet_s'); borrow(`${t.id}_helmet_wing_s`, 'charname_helmet_wing_s');
+    fs.mkdirSync(path.dirname(path.join(out, erpRel)), { recursive: true }); fs.writeFileSync(path.join(out, erpRel), Buffer.concat([b, ...tail]));
+    // read back as the game will: each texture's small levels, its record, and every loose block where the record says
+    const b2 = fs.readFileSync(path.join(out, erpRel)); const E2 = readErp(b2);
+    for (const w of written) {
+      const R2 = E2.res.find(x => x.id.endsWith(`/${w.name}.tif.image`)); const meta2 = fragOf(b2, E2, R2.frags[2]); const m0 = 1 + meta2[0]; const mm = fs.readFileSync(path.join(out, w.rel));
+      const ok = fragOf(b2, E2, R2.frags[1]).equals(w.small) && meta2.equals(w.meta) && w.lv.slice(0, w.nLoose).every((x, k) => { const e = m0 + 6 + 26 * k; const o = Number(meta2.readBigUInt64LE(e + 1)), n = Number(meta2.readBigUInt64LE(e + 9)); try { return (w.types[k] === 0 ? mm.subarray(o, o + n) : lz4Block(mm.subarray(o, o + n), 0, x.length)[0]).equals(x); } catch { return false; } });
+      if (!ok) throw new Error('The written files didn’t read back correctly.');
     }
-    return files.map(p => p.split(path.sep).join('/'));
+    for (const [d, s] of [[`${t.id}_helmet_s`, 'charname_helmet_s'], [`${t.id}_helmet_wing_s`, 'charname_helmet_wing_s']]) { const Rd = E2.res.find(x => x.id.endsWith(`/${d}.tif.image`)), Rs = E2.res.find(x => x.id.endsWith(`/${s}.tif.image`)); if (Rd && Rs && !Rd.frags.every((F, i) => fragOf(b2, E2, F).equals(fragOf(b2, E2, Rs.frags[i])))) throw new Error('The written files didn’t read back correctly.'); }
+    return [files[0], erpRel, ...files.slice(1)].map(p => p.split(path.sep).join('/'));
   }
   /**
    * A finished texture (RGBA, 4096 x 2048 or 2048 x 1024, rows top to bottom) as a zip named after the helmet, at 4K
@@ -340,8 +352,8 @@ module.exports = function createHelmetEditor({ dataDir }) {
             for (const q of [x > 0 ? p - 1 : -1, x < TW - 1 ? p + 1 : -1, y > 0 ? p - TW : -1, y < TH - 1 ? p + TW : -1]) if (q >= 0 && cov[q]) { px.copy(px, p * 4, q * 4, q * 4 + 4); nxt[p] = 1; any = true; break; } }
           cov.set(nxt); if (!any) break; } } }
     const nLev = up > 1 ? 10 : 9; const levels = []; let cur = px, w = TW, h = TH; for (let k = 0; k < nLev; k++) { levels.push(bc1Encode(cur, w, h)); if (k < nLev - 1) { cur = halve(cur, w, h); w >>= 1; h >>= 1; } }
-    // the fin: its 2048 x 1024 texture's three full-size levels
-    let wingLevels = null; if (wingRgba && wingRgba.byteLength === WW * WH * 4) { let wc = Buffer.from(wingRgba.buffer ? Buffer.from(wingRgba.buffer, wingRgba.byteOffset, wingRgba.byteLength) : wingRgba), ww = WW, wh = WH; wingLevels = []; for (let k = 0; k < 3; k++) { wingLevels.push(bc1Encode(wc, ww, wh)); if (k < 2) { wc = halve(wc, ww, wh); ww >>= 1; wh >>= 1; } } }
+    // the fin: its 2048 x 1024 texture, every level (three full-size, the rest in the archive)
+    let wingLevels = null; if (wingRgba && wingRgba.byteLength === WW * WH * 4) { let wc = Buffer.from(wingRgba.buffer ? Buffer.from(wingRgba.buffer, wingRgba.byteOffset, wingRgba.byteLength) : wingRgba), ww = WW, wh = WH; wingLevels = []; for (let k = 0; k < 9; k++) { wingLevels.push(bc1Encode(wc, ww, wh)); if (k < 8) { wc = halve(wc, ww, wh); ww >>= 1; wh >>= 1; } } }
     const t = target(); const zip = path.join(root(), 'exports', kind === 'hx' ? `${safe} (Helmet Exchange).zip` : `${safe}.zip`);
     try {
       if (kind === 'hx') {
