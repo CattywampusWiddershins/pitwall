@@ -2,6 +2,14 @@
 
 What changed in each version of Pitwall, newest first. Each version is tagged in git (`v3.13.2`) and, from 3.13.2, published as a release on [GitHub](https://github.com/CattywampusWiddershins/pitwall/releases).
 
+## 7.4.2
+
+- **Editor: your design on the 2014 Lewis Hamilton helmet.** On this helmet the colour changed in the game but the original artwork stayed on top of it. Part of its artwork sits in the helmet's shine, not its colours, so it showed through any design. The export now gives the helmet, and its fin, the plain shine of the blank helmet, so only your design shows.
+- **Editor: the helmet's fin in the game.** 7.4.1 painted the fin, but the game couldn't read what it wrote, so the fin showed blank. It now gets your design. Export the helmet again to update it.
+- **Editor: car stickers mirror properly.** Stickers placed on Flat with Mirror on, including through a group's Mirror, never appeared on the other side of the car. They now do, turned and flipped as that side needs, with text still reading the right way. Flat stickers on the car have their own "Mirror on the other side of the car" tickbox.
+- **Editor: a tidy cockpit.** The steering wheel, paddles and dials were floating in the middle of the cockpit, because in the game they're held by the driver. They're left out now.
+- **Editor: stickers on shared areas.** The game uses a few patches of the car's texture twice: the inside walls of the cockpit share the sidepods', and on the 2025 car a piece of the floor does too. A sticker there shows in both places, as it will in the game. The selection box and the mirror now go on the one you can see.
+
 ## 7.4.1
 
 - **Editor: the helmet's fin.** The small fin on the back of the helmet is now in the editor and gets your design. Before, it was missing from the editor and kept the original helmet's colours in the game. It's painted with the same layers as the rest of the helmet, so a stripe over the top carries on across it, and the export includes it. The editor reads the helmet from F1 25 again once to pick the fin up.
